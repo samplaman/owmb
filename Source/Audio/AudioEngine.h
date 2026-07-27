@@ -7,6 +7,8 @@
  #include <juce_audio_formats/juce_audio_formats.h>
  #include <juce_audio_utils/juce_audio_utils.h>
 #endif
+#include <atomic>
+#include <future>
 
 namespace openwav
 {
@@ -18,6 +20,15 @@ public:
     virtual void playbackStateChanged(bool isPlaying) = 0;
     virtual void playbackPositionChanged(double currentSeconds, double totalSeconds) = 0;
     virtual void sampleLoaded(const juce::String& filePath) = 0;
+};
+
+struct AudioVoice
+{
+    juce::AudioBuffer<float> buffer;
+    double readPosition { 0.0 };
+    double ratio { 1.0 };
+    bool isLooping { false };
+    bool finished { false };
 };
 
 class AudioEngine : public juce::ChangeListener
@@ -38,9 +49,9 @@ public:
     void setPositionRatio(double ratio); // 0.0 - 1.0
     void setLooping(bool shouldLoop);
     bool isLooping() const { return isLoopingEnabled; }
-    bool isPlaying() const { return transportSource.isPlaying(); }
-    double getCurrentPositionSeconds() const { return transportSource.getCurrentPosition(); }
-    double getTotalLengthSeconds() const { return transportSource.getLengthInSeconds(); }
+    bool isPlaying() const;
+    double getCurrentPositionSeconds() const;
+    double getTotalLengthSeconds() const;
     float getGain() const { return gainLevel; }
     void setGain(float newGain);
 
@@ -61,13 +72,15 @@ private:
     juce::AudioThumbnailCache thumbnailCache { 1000 };
     juce::AudioThumbnail thumbnail { 512, formatManager, thumbnailCache };
 
-    std::unique_ptr<juce::AudioFormatReaderSource> readerSource;
-    juce::AudioTransportSource transportSource;
+    juce::CriticalSection voiceLock;
+    std::vector<std::shared_ptr<AudioVoice>> activeVoices;
+    double engineSampleRate { 44100.0 };
 
     juce::File currentFile;
     float gainLevel { 0.8f };
     bool isLoopingEnabled { false };
     bool autoPlayOnSelect { true };
+    std::atomic<uint64_t> currentLoadId { 0 };
 
     juce::ListenerList<AudioEngineListener> listeners;
 };

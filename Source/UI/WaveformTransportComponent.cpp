@@ -78,35 +78,44 @@ void WaveformTransportComponent::paint(juce::Graphics& g)
     g.setColour(OpenWavLookAndFeel::borderColour);
     g.drawRect(getLocalBounds().removeFromTop(1));
 
-    // Calculate Waveform Bounds
+    // Calculate Transport Track Bounds
     auto area = getLocalBounds().reduced(12, 8);
     area.removeFromTop(32); // Space for top buttons and sample name
 
-    auto waveformBounds = area.removeFromTop(56).toFloat();
+    auto trackBounds = area.removeFromTop(44).toFloat();
 
-    // Waveform Background Card
+    // Track Background Card
     g.setColour(OpenWavLookAndFeel::bgDark);
-    g.fillRoundedRectangle(waveformBounds, 6.0f);
+    g.fillRoundedRectangle(trackBounds, 6.0f);
     g.setColour(OpenWavLookAndFeel::borderColour);
-    g.drawRoundedRectangle(waveformBounds, 6.0f, 1.0f);
+    g.drawRoundedRectangle(trackBounds, 6.0f, 1.0f);
 
-    // Draw Audio Thumbnail
-    auto& thumbnail = audioEngine.getThumbnail();
-    if (thumbnail.getNumChannels() > 0 && totalDurationSecs > 0.0)
+    if (totalDurationSecs > 0.0)
     {
-        g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.85f));
-        thumbnail.drawChannels(g, waveformBounds.reduced(4.0f).toNearestInt(), 0.0, totalDurationSecs, 1.0f);
+        float progressRatio = juce::jlimit(0.0f, 1.0f, static_cast<float>(currentPositionSecs / totalDurationSecs));
+        auto progressRect = trackBounds.reduced(2.0f);
+        float progressWidth = progressRect.getWidth() * progressRatio;
 
-        // Draw Playhead scrubber line
-        float playheadX = waveformBounds.getX() + static_cast<float>((currentPositionSecs / totalDurationSecs) * waveformBounds.getWidth());
+        // Fill played progress bar
+        if (progressWidth > 0.0f)
+        {
+            auto fillBounds = progressRect.withWidth(progressWidth);
+            g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.35f));
+            g.fillRoundedRectangle(fillBounds, 4.0f);
+        }
+
+        // Draw Scrubber Line & Playhead Knob
+        float playheadX = progressRect.getX() + progressWidth;
+        g.setColour(OpenWavLookAndFeel::accentCyan);
+        g.drawLine(playheadX, trackBounds.getY() + 4.0f, playheadX, trackBounds.getBottom() - 4.0f, 2.5f);
         g.setColour(juce::Colours::white);
-        g.drawLine(playheadX, waveformBounds.getY(), playheadX, waveformBounds.getBottom(), 2.0f);
+        g.fillEllipse(playheadX - 5.0f, trackBounds.getCentreY() - 5.0f, 10.0f, 10.0f);
     }
     else
     {
         g.setFont(juce::Font(13.0f));
         g.setColour(OpenWavLookAndFeel::textSecondary);
-        g.drawText("Select a sample to preview waveform", waveformBounds, juce::Justification::centred, true);
+        g.drawText("Select a sample to preview playback", trackBounds, juce::Justification::centred, true);
     }
 }
 

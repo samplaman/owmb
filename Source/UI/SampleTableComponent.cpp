@@ -351,19 +351,31 @@ void SampleTableComponent::showContextMenuForRow(int rowNumber)
         }
         else if (result == 2)
         {
-            juce::AlertWindow::showAsync(
-                juce::MessageBoxOptions()
-                    .withIconType(juce::MessageBoxIconType::QuestionIcon)
-                    .withTitle("Add Tag")
-                    .withMessage("Enter a new tag name for this sample:")
-                    .withButton("Add")
-                    .withButton("Cancel"),
-                [this, item](int btnResult) {
-                    if (btnResult == 1)
+            auto alert = std::make_shared<juce::AlertWindow>("Add Custom Tag", "Enter a new custom tag for " + item.fileName + ":", juce::AlertWindow::QuestionIcon);
+            alert->addTextEditor("tagInput", "", "Tag (e.g. Kick, #Sub, Vocal)");
+            alert->addButton("Add Tag", 1, juce::KeyPress(juce::KeyPress::returnKey));
+            alert->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+
+            alert->enterModalState(true, juce::ModalCallbackFunction::create([this, alert, item](int btnResult) {
+                if (btnResult == 1)
+                {
+                    auto newTag = alert->getTextEditorContents("tagInput").trim();
+                    if (newTag.isNotEmpty())
                     {
-                        // Tag prompt handled
+                        dbManager.addTagToItem(item.id, newTag);
                     }
-                });
+                }
+            }));
+        }
+        else if (result >= 100)
+        {
+            int idx = result - 100;
+            if (idx >= 0 && idx < static_cast<int>(item.tags.size()))
+            {
+                auto it = item.tags.begin();
+                std::advance(it, idx);
+                dbManager.removeTagFromItem(item.id, *it);
+            }
         }
         else if (result == 3)
         {

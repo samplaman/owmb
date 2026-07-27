@@ -91,23 +91,6 @@ void SampleCloudComponent::paint(juce::Graphics& g)
         g.fillEllipse(screenClusterPos.x - haloRadius, screenClusterPos.y - haloRadius, haloRadius * 2.0f, haloRadius * 2.0f);
     }
 
-    // 3. Draw connecting constellation lines for hovered cluster
-    if (hoveredNodeIndex >= 0 && hoveredNodeIndex < static_cast<int>(nodes.size()))
-    {
-        const auto& targetTag = nodes[static_cast<size_t>(hoveredNodeIndex)].primaryTag;
-        const auto hoverScreenPos = cloudToScreen(nodes[static_cast<size_t>(hoveredNodeIndex)].currentPos);
-
-        g.setColour(nodes[static_cast<size_t>(hoveredNodeIndex)].colour.withAlpha(0.3f));
-        for (size_t i = 0; i < nodes.size(); ++i)
-        {
-            if (nodes[i].primaryTag == targetTag && static_cast<int>(i) != hoveredNodeIndex)
-            {
-                auto otherScreenPos = cloudToScreen(nodes[i].currentPos);
-                g.drawLine(hoverScreenPos.x, hoverScreenPos.y, otherScreenPos.x, otherScreenPos.y, 1.2f);
-            }
-        }
-    }
-
     // 4. Draw all sample nodes with 3D radial gradients
     for (size_t i = 0; i < nodes.size(); ++i)
     {
@@ -337,6 +320,13 @@ void SampleCloudComponent::mouseMove(const juce::MouseEvent& e)
 void SampleCloudComponent::mouseDown(const juce::MouseEvent& e)
 {
     int idx = findNodeAtPosition(e.position);
+
+    if (e.mods.isPopupMenu() && idx >= 0 && idx < static_cast<int>(nodes.size()))
+    {
+        showContextMenuForNode(idx);
+        return;
+    }
+
     if (idx >= 0 && idx < static_cast<int>(nodes.size()))
     {
         isPanning = false;
@@ -576,6 +566,49 @@ juce::Colour SampleCloudComponent::getColourForTag(const juce::String& tag) cons
     uint32_t hash = static_cast<uint32_t>(tag.hashCode());
     float hue = (hash % 360) / 360.0f;
     return juce::Colour::fromHSV(hue, 0.7f, 0.9f, 1.0f);
+}
+
+void SampleCloudComponent::showContextMenuForNode(int idx)
+{
+    if (idx < 0 || idx >= static_cast<int>(nodes.size()))
+        return;
+
+    const auto& item = nodes[static_cast<size_t>(idx)].item;
+
+    juce::PopupMenu menu;
+    menu.addSectionHeader(item.fileName);
+    menu.addItem(1, item.isFavorite ? "Remove from Favorites" : "Add to Favorites");
+    menu.addItem(2, "Add Custom Tag...");
+    menu.addItem(3, "Reveal in File Explorer / Finder");
+
+    menu.showMenuAsync(juce::PopupMenu::Options(), [this, item](int result) {
+        if (result == 1)
+        {
+            dbManager.toggleFavorite(item.id);
+        }
+        else if (result == 2)
+        {
+            auto alert = std::make_shared<juce::AlertWindow>("Add Custom Tag", "Enter a new custom tag for " + item.fileName + ":", juce::AlertWindow::QuestionIcon);
+            alert->addTextEditor("tagInput", "", "Tag (e.g. Kick, #Sub, Vocal)");
+            alert->addButton("Add Tag", 1, juce::KeyPress(juce::KeyPress::returnKey));
+            alert->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+
+            alert->enterModalState(true, juce::ModalCallbackFunction::create([this, alert, item](int btnResult) {
+                if (btnResult == 1)
+                {
+                    auto newTag = alert->getTextEditorContents("tagInput").trim();
+                    if (newTag.isNotEmpty())
+                    {
+                        dbManager.addTagToItem(item.id, newTag);
+                    }
+                }
+            }));
+        }
+        else if (result == 3)
+        {
+            juce::File(item.filePath).revealToUser();
+        }
+    });
 }
 
 void SampleCloudComponent::addListener(SampleCloudListener* listener)

@@ -49,6 +49,8 @@ private:
     juce::TextButton favoritesButton { "Favorites" };
     juce::ToggleButton matchModeToggle { "Match All Tags (AND)" };
     juce::TextButton clearFiltersButton { "Clear Tags" };
+    juce::TextButton addCustomTagButton { "+ Add Custom Tag..." };
+    juce::TextButton resetAllButton { "Reset All Data" };
 
     juce::Label foldersHeaderLabel { {}, "SCANNED FOLDERS" };
     juce::OwnedArray<juce::Label> folderLabels;

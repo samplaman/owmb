@@ -35,6 +35,56 @@ TagPanelComponent::TagPanelComponent(TagDatabaseManager& db)
         }
         notifySelectionChanged();
     };
+    addAndMakeVisible(clearFiltersButton);
+
+    // Add Custom Tag button
+    addCustomTagButton.onClick = [this] {
+        auto alert = std::make_shared<juce::AlertWindow>("Add Custom Tag", "Enter tag name to add or filter by:", juce::AlertWindow::QuestionIcon);
+        alert->addTextEditor("tagInput", "", "Tag (e.g. #Warm, Bass)");
+        alert->addButton("Add Tag", 1, juce::KeyPress(juce::KeyPress::returnKey));
+        alert->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+
+        alert->enterModalState(true, juce::ModalCallbackFunction::create([this, alert](int result) {
+            if (result == 1)
+            {
+                juce::String inputTag = alert->getTextEditorContents("tagInput").trim();
+                if (inputTag.isNotEmpty())
+                {
+                    if (!inputTag.startsWith("#"))
+                        inputTag = "#" + inputTag;
+                    
+                    selectedTags.insert(inputTag);
+                    notifySelectionChanged();
+                    refreshTags();
+                }
+            }
+        }));
+    };
+    addAndMakeVisible(addCustomTagButton);
+
+    // Reset All Data button
+    resetAllButton.setColour(juce::TextButton::buttonColourId, OpenWavLookAndFeel::favoriteRed.withAlpha(0.2f));
+    resetAllButton.setColour(juce::TextButton::textColourOffId, OpenWavLookAndFeel::favoriteRed.brighter(0.5f));
+    resetAllButton.onClick = [this] {
+        juce::AlertWindow::showAsync(
+            juce::MessageBoxOptions()
+                .withIconType(juce::MessageBoxIconType::WarningIcon)
+                .withTitle("Reset All Data")
+                .withMessage("Are you sure you want to reset all library items, custom tags, and scanned folders?\nThis action cannot be undone.")
+                .withButton("Reset Everything")
+                .withButton("Cancel"),
+            [this](int result) {
+                if (result == 1)
+                {
+                    selectedTags.clear();
+                    favoritesOnly = false;
+                    favoritesButton.setToggleState(false, juce::dontSendNotification);
+                    dbManager.clearAllData();
+                }
+            });
+    };
+    addAndMakeVisible(resetAllButton);
+
     // Folders Header
     foldersHeaderLabel.setFont(juce::Font(11.0f).boldened());
     foldersHeaderLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::accentCyan);
@@ -132,6 +182,10 @@ void TagPanelComponent::resized()
 {
     auto area = getLocalBounds().reduced(8, 8);
 
+    // Bottom-most Reset All Data button
+    resetAllButton.setBounds(area.removeFromBottom(28));
+    area.removeFromBottom(8);
+
     // Top control bar
     favoritesButton.setBounds(area.removeFromTop(28));
     area.removeFromTop(6);
@@ -139,7 +193,9 @@ void TagPanelComponent::resized()
     matchModeToggle.setBounds(area.removeFromTop(22));
     area.removeFromTop(6);
 
-    clearFiltersButton.setBounds(area.removeFromTop(24));
+    auto btnRow = area.removeFromTop(26);
+    clearFiltersButton.setBounds(btnRow.removeFromLeft(btnRow.getWidth() / 2 - 2));
+    addCustomTagButton.setBounds(btnRow.removeFromRight(btnRow.getWidth()));
     area.removeFromTop(10);
 
     // Reserve bottom portion for Scanned Folders list

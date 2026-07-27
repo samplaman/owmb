@@ -67,6 +67,7 @@ private:
     void applyForceDirectedPhysics();
     int findNodeAtPosition(juce::Point<float> screenPos) const;
     juce::Colour getColourForTag(const juce::String& tag) const;
+    void showContextMenuForNode(int idx);
 
     juce::Point<float> cloudToScreen(juce::Point<float> cloudPos) const;
     juce::Point<float> screenToCloud(juce::Point<float> screenPos) const;

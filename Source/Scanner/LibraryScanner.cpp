@@ -1,4 +1,8 @@
 #include "LibraryScanner.h"
+#include <future>
+#include <thread>
+#include <vector>
+#include <algorithm>
 
 namespace openwav
 {
@@ -49,9 +53,7 @@ void LibraryScanner::run()
 {
     listeners.call([](ScannerListener& l) { l.scanStarted(); });
 
-    int totalProcessed = 0;
-    std::vector<MediaItem> batch;
-    batch.reserve(50);
+    std::vector<juce::File> foundFiles;
 
     for (const auto& folderPath : targetFolders)
     {
@@ -74,31 +76,53 @@ void LibraryScanner::run()
             if (file.getFileName().startsWith(".") || file.getFileName().startsWithIgnoreCase("._") || file.isHidden())
                 continue;
 
-            MediaItem item = processAudioFile(file);
-
-            if (item.filePath.isNotEmpty())
-            {
-                batch.push_back(item);
-                totalProcessed++;
-
-                const auto curPath = item.fileName;
-                listeners.call([totalProcessed, curPath](ScannerListener& l) {
-                    l.scanProgress(totalProcessed, curPath);
-                });
-
-                if (batch.size() >= 25)
-                {
-                    db.addItems(batch);
-                    batch.clear();
-                }
-            }
+            foundFiles.push_back(file);
         }
     }
 
-    if (!batch.empty() && !threadShouldExit())
+    int totalProcessed = 0;
+
+    if (!foundFiles.empty() && !threadShouldExit() && !cancelRequested)
     {
-        db.addItems(batch);
-        batch.clear();
+        unsigned int numThreads = std::max(1u, std::thread::hardware_concurrency());
+        size_t total = foundFiles.size();
+        size_t chunkSize = (total + numThreads - 1) / numThreads;
+
+        std::vector<std::future<std::vector<MediaItem>>> futures;
+
+        for (unsigned int t = 0; t < numThreads; ++t)
+        {
+            size_t startIdx = t * chunkSize;
+            size_t endIdx = std::min(total, startIdx + chunkSize);
+
+            if (startIdx >= endIdx) break;
+
+            futures.push_back(std::async(std::launch::async, [this, &foundFiles, startIdx, endIdx]() {
+                std::vector<MediaItem> localItems;
+                localItems.reserve(endIdx - startIdx);
+                for (size_t i = startIdx; i < endIdx; ++i)
+                {
+                    if (threadShouldExit() || cancelRequested) break;
+                    auto item = processAudioFile(foundFiles[i]);
+                    if (item.filePath.isNotEmpty())
+                        localItems.push_back(item);
+                }
+                return localItems;
+            }));
+        }
+
+        for (auto& fut : futures)
+        {
+            auto localItems = fut.get();
+            if (!localItems.empty() && !threadShouldExit())
+            {
+                totalProcessed += static_cast<int>(localItems.size());
+                db.addItems(localItems);
+                listeners.call([totalProcessed](ScannerListener& l) {
+                    l.scanProgress(totalProcessed, "Parallel scanner running...");
+                });
+            }
+        }
     }
 
     listeners.call([totalProcessed](ScannerListener& l) {

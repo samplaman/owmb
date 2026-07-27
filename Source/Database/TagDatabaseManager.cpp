@@ -282,6 +282,24 @@ void TagDatabaseManager::clearLibrary()
     saveToFile();
 }
 
+void TagDatabaseManager::clearAllData()
+{
+    {
+        const juce::ScopedLock sl(lock);
+        itemsMap.clear();
+        scanFolders.clear();
+    }
+
+    auto dbFile = getDatabaseFile();
+    if (dbFile.existsAsFile())
+    {
+        dbFile.deleteFile();
+    }
+
+    notifyIndexUpdated();
+    notifyTagsUpdated();
+}
+
 std::set<juce::String> TagDatabaseManager::inferTagsFromPath(const juce::String& filePath)
 {
     std::set<juce::String> tags;

@@ -1,4 +1,5 @@
 #include "AudioEngine.h"
+#include <algorithm>
 
 namespace openwav
 {
@@ -6,37 +7,93 @@ namespace openwav
 AudioEngine::AudioEngine()
 {
     formatManager.registerBasicFormats();
-    transportSource.addChangeListener(this);
-    backgroundThread.startThread(juce::Thread::Priority::normal);
+    backgroundThread.startThread(juce::Thread::Priority::high);
 }
 
 AudioEngine::~AudioEngine()
 {
-    transportSource.removeChangeListener(this);
-    transportSource.setSource(nullptr);
     backgroundThread.stopThread(1000);
 }
 
-void AudioEngine::prepareToPlay(double sampleRate, int samplesPerBlock)
+void AudioEngine::prepareToPlay(double sampleRate, int /*samplesPerBlock*/)
 {
-    transportSource.prepareToPlay(samplesPerBlock, sampleRate);
+    if (sampleRate > 0.0)
+        engineSampleRate = sampleRate;
 }
 
 void AudioEngine::releaseResources()
 {
-    transportSource.releaseResources();
 }
 
 void AudioEngine::processNextAudioBlock(juce::AudioBuffer<float>& outputBuffer)
 {
-    if (!transportSource.isPlaying())
+    outputBuffer.clear();
+
+    const juce::ScopedLock sl(voiceLock);
+    if (activeVoices.empty())
         return;
 
-    juce::AudioSourceChannelInfo channelInfo(outputBuffer);
-    transportSource.getNextAudioBlock(channelInfo);
+    int numSamples = outputBuffer.getNumSamples();
+    int outChannels = outputBuffer.getNumChannels();
 
-    // Apply volume / gain
-    outputBuffer.applyGain(gainLevel);
+    for (auto it = activeVoices.begin(); it != activeVoices.end(); )
+    {
+        auto& voice = *it;
+        if (voice->finished)
+        {
+            it = activeVoices.erase(it);
+            continue;
+        }
+
+        int voiceChannels = voice->buffer.getNumChannels();
+        int voiceLength = voice->buffer.getNumSamples();
+        double pos = voice->readPosition;
+        double ratio = (voice->ratio > 0.0) ? voice->ratio : 1.0;
+
+        for (int i = 0; i < numSamples; ++i)
+        {
+            int idx = static_cast<int>(pos);
+            if (idx >= voiceLength)
+            {
+                if (voice->isLooping && voiceLength > 0)
+                {
+                    pos = 0.0;
+                    idx = 0;
+                }
+                else
+                {
+                    voice->finished = true;
+                    break;
+                }
+            }
+
+            int nextIdx = std::min(idx + 1, voiceLength - 1);
+            float frac = static_cast<float>(pos - idx);
+
+            for (int ch = 0; ch < outChannels; ++ch)
+            {
+                int srcCh = std::min(ch, voiceChannels - 1);
+                float s1 = voice->buffer.getSample(srcCh, idx);
+                float s2 = voice->buffer.getSample(srcCh, nextIdx);
+                float sample = (s1 + frac * (s2 - s1)) * gainLevel;
+
+                outputBuffer.addSample(ch, i, sample);
+            }
+
+            pos += ratio;
+        }
+
+        voice->readPosition = pos;
+
+        if (voice->finished)
+        {
+            it = activeVoices.erase(it);
+        }
+        else
+        {
+            ++it;
+        }
+    }
 }
 
 bool AudioEngine::loadFile(const juce::File& audioFile, bool autoPlay)
@@ -45,68 +102,84 @@ bool AudioEngine::loadFile(const juce::File& audioFile, bool autoPlay)
         return false;
 
     currentFile = audioFile;
+    auto loadId = ++currentLoadId;
 
-    auto* reader = formatManager.createReaderFor(audioFile);
-    if (reader == nullptr)
-        return false;
+    std::thread([this, audioFile, autoPlay, loadId]() {
+        std::unique_ptr<juce::AudioFormatReader> reader(formatManager.createReaderFor(audioFile));
+        if (reader == nullptr)
+            return;
 
-    transportSource.stop();
-    transportSource.setSource(nullptr);
+        double fileSampleRate = reader->sampleRate;
+        int64_t numSamples64 = reader->lengthInSamples;
+        int numChannels = static_cast<int>(reader->numChannels);
 
-    readerSource = std::make_unique<juce::AudioFormatReaderSource>(reader, true);
-    transportSource.setSource(readerSource.get(), 32768, &backgroundThread, reader->sampleRate);
-    readerSource->setLooping(isLoopingEnabled);
+        if (numSamples64 <= 0)
+            return;
 
-    // Update thumbnail source
-    thumbnail.setSource(new juce::FileInputSource(audioFile));
+        int numSamples = static_cast<int>(numSamples64);
+        auto voice = std::make_shared<AudioVoice>();
+        voice->buffer.setSize(numChannels, numSamples);
+        reader->read(&voice->buffer, 0, numSamples, 0, true, true);
+        voice->ratio = (engineSampleRate > 0.0) ? (fileSampleRate / engineSampleRate) : 1.0;
+        voice->isLooping = isLoopingEnabled;
 
-    listeners.call([filePath = audioFile.getFullPathName()](AudioEngineListener& l) {
-        l.sampleLoaded(filePath);
-    });
+        juce::MessageManager::callAsync([this, audioFile, autoPlay, loadId, voice]() {
+            {
+                const juce::ScopedLock sl(voiceLock);
+                activeVoices.clear(); // Kill previous voices so only the last selected voice plays
+                activeVoices.push_back(voice);
+            }
 
-    if (autoPlay || autoPlayOnSelect)
-    {
-        play();
-    }
+            listeners.call([filePath = audioFile.getFullPathName()](AudioEngineListener& l) {
+                l.sampleLoaded(filePath);
+                l.playbackStateChanged(true);
+            });
+        });
+    }).detach();
 
     return true;
 }
 
 void AudioEngine::play()
 {
-    if (readerSource != nullptr)
+    // Re-trigger playback if currentFile exists and no active voices
+    if (activeVoices.empty() && currentFile.existsAsFile())
     {
-        transportSource.start();
-        listeners.call([](AudioEngineListener& l) { l.playbackStateChanged(true); });
+        loadFile(currentFile, true);
     }
 }
 
 void AudioEngine::pause()
 {
-    transportSource.stop();
+    const juce::ScopedLock sl(voiceLock);
+    activeVoices.clear();
     listeners.call([](AudioEngineListener& l) { l.playbackStateChanged(false); });
 }
 
 void AudioEngine::stop()
 {
-    transportSource.stop();
-    transportSource.setPosition(0.0);
+    const juce::ScopedLock sl(voiceLock);
+    activeVoices.clear();
     listeners.call([](AudioEngineListener& l) { l.playbackStateChanged(false); });
 }
 
 void AudioEngine::setPositionRatio(double ratio)
 {
+    const juce::ScopedLock sl(voiceLock);
     double clamped = juce::jlimit(0.0, 1.0, ratio);
-    double targetSecs = clamped * getTotalLengthSeconds();
-    transportSource.setPosition(targetSecs);
+    for (auto& v : activeVoices)
+    {
+        v->readPosition = clamped * v->buffer.getNumSamples();
+    }
 }
 
 void AudioEngine::setLooping(bool shouldLoop)
 {
     isLoopingEnabled = shouldLoop;
-    if (readerSource != nullptr)
+    const juce::ScopedLock sl(voiceLock);
+    for (auto& v : activeVoices)
     {
-        readerSource->setLooping(isLoopingEnabled);
+        v->isLooping = isLoopingEnabled;
     }
 }
 
@@ -115,13 +188,36 @@ void AudioEngine::setGain(float newGain)
     gainLevel = juce::jlimit(0.0f, 1.5f, newGain);
 }
 
-void AudioEngine::changeListenerCallback(juce::ChangeBroadcaster* source)
+bool AudioEngine::isPlaying() const
 {
-    if (source == &transportSource)
+    const juce::ScopedLock sl(voiceLock);
+    return !activeVoices.empty();
+}
+
+double AudioEngine::getCurrentPositionSeconds() const
+{
+    const juce::ScopedLock sl(voiceLock);
+    if (!activeVoices.empty())
     {
-        bool playing = transportSource.isPlaying();
-        listeners.call([playing](AudioEngineListener& l) { l.playbackStateChanged(playing); });
+        auto& v = activeVoices.back();
+        return (v->readPosition / v->ratio) / engineSampleRate;
     }
+    return 0.0;
+}
+
+double AudioEngine::getTotalLengthSeconds() const
+{
+    const juce::ScopedLock sl(voiceLock);
+    if (!activeVoices.empty())
+    {
+        auto& v = activeVoices.back();
+        return (v->buffer.getNumSamples() / v->ratio) / engineSampleRate;
+    }
+    return 0.0;
+}
+
+void AudioEngine::changeListenerCallback(juce::ChangeBroadcaster* /*source*/)
+{
 }
 
 void AudioEngine::addListener(AudioEngineListener* listener)

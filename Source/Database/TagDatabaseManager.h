@@ -48,6 +48,7 @@ public:
     void setRating(const juce::String& itemId, int rating);
     void removeMissingFiles();
     void clearLibrary();
+    void clearAllData();
 
     // Tag Auto-Inference Helper
     static std::set<juce::String> inferTagsFromPath(const juce::String& filePath);
