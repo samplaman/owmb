@@ -19,16 +19,18 @@ FetchContent_MakeAvailable(juce)
 
 # Declare Audio Plugin & Standalone application target
 juce_add_plugin(OpenWav
+    COMPANY_NAME "OWMB"
+    PLUGIN_MANUFACTURER_NAME "OWMB"
+    PLUGIN_MANUFACTURER_CODE Owmb
+    PLUGIN_CODE Owmb
     IS_SYNTH FALSE
     NEEDS_MIDI_INPUT FALSE
     NEEDS_MIDI_OUTPUT FALSE
     IS_MIDI_EFFECT FALSE
     EDITOR_WANTS_KEYBOARD_FOCUS TRUE
     COPY_PLUGIN_AFTER_BUILD FALSE
-    PLUGIN_MANUFACTURER_CODE OpWv
-    PLUGIN_CODE Owav
     FORMATS VST3 Standalone
-    PRODUCT_NAME "OpenWav Media Browser"
+    PRODUCT_NAME "OWMB"
 )
 
 target_sources(OpenWav PRIVATE
