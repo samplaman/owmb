@@ -66,7 +66,7 @@ struct MediaItem
         item.filePath = obj->getProperty("filePath").toString();
         item.fileName = obj->getProperty("fileName").toString();
         item.fileExtension = obj->getProperty("fileExtension").toString();
-        item.fileSizeBytes = static_cast<int64_t>(obj->getProperty("fileSizeBytes"));
+        item.fileSizeBytes = static_cast<juce::int64>(obj->getProperty("fileSizeBytes"));
         item.durationSeconds = static_cast<double>(obj->getProperty("durationSeconds"));
         item.sampleRate = static_cast<double>(obj->getProperty("sampleRate"));
         item.numChannels = static_cast<int>(obj->getProperty("numChannels"));
@@ -74,7 +74,7 @@ struct MediaItem
         item.bpm = static_cast<double>(obj->getProperty("bpm"));
         item.isFavorite = static_cast<bool>(obj->getProperty("isFavorite"));
         item.rating = static_cast<int>(obj->getProperty("rating"));
-        item.dateAddedMs = static_cast<int64_t>(obj->getProperty("dateAddedMs"));
+        item.dateAddedMs = static_cast<juce::int64>(obj->getProperty("dateAddedMs"));
 
         if (obj->hasProperty("tags"))
         {
