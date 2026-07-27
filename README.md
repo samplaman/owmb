@@ -8,15 +8,15 @@
 
 ## Key Features
 
-- 🌌 **2D Interactive Sample Cloud Visualizer**: Explore audio samples visually mapped into color-coded category clusters (`Kicks`, `Snares`, `HiHats`, `Bass`, `Synth`, `Loops`, etc.) with 3D radial gradients, force-directed anti-collision layout, dynamic sound pulse rings, and mini-waveform hover tooltips.
-- 🔍 **Interactive Zoom & Pan**: Scroll mouse wheel to zoom (`30%` to `400%`) into any node cluster, click and drag empty space to pan canvas, and use top-right HUD zoom controls.
-- 🏷️ **Tag-Based Searching & Auto-Inference**: Automatically infers tags from folder structures and filenames (`#Kick`, `#Snare`, `#HiHat`, `#Loop`, `#OneShot`, `#Bass`, `#Synth`, `#808`, `#Vocal`, `#FX`, etc.).
-- ⚡ **Ultra-Fast Asynchronous Library Scanner**: Binary RIFF/WAVE header parser indexes thousands of audio files per second without freezing the DAW UI or audio thread.
-- 📁 **Scanned Folders Management**: View and remove scanned folder directories with instant database index purging.
-- 🙈 **Hidden File Filtering**: Automatically ignores hidden files (`.DS_Store`, `.git`, `._kick.wav`, hidden OS temp files starting with `.`).
-- 🎨 **Sleek Pro Light & Dark UI**: Crisp high-contrast pro audio interface with responsive button padding and centered typography.
-- 🎛️ **DAW Drag-and-Drop**: Drag audio samples directly from the sample table or 2D cloud nodes into any DAW (Ableton Live, FL Studio, Logic Pro, Reaper, Cubase, Bitwig).
-- 🚀 **GitHub Actions Auto-Releases**: Multi-platform automated CI/CD builds for **Windows 11 (x64)** and **Linux Distros (x64)**.
+-  **2D Interactive Sample Cloud Visualizer**: Explore audio samples visually mapped into color-coded category clusters (`Kicks`, `Snares`, `HiHats`, `Bass`, `Synth`, `Loops`, etc.) with 3D radial gradients, force-directed anti-collision layout, dynamic sound pulse rings, and mini-waveform hover tooltips.
+-  **Interactive Zoom & Pan**: Scroll mouse wheel to zoom (`30%` to `400%`) into any node cluster, click and drag empty space to pan canvas, and use top-right HUD zoom controls.
+-  **Tag-Based Searching & Auto-Inference**: Automatically infers tags from folder structures and filenames (`#Kick`, `#Snare`, `#HiHat`, `#Loop`, `#OneShot`, `#Bass`, `#Synth`, `#808`, `#Vocal`, `#FX`, etc.).
+-  **Ultra-Fast Asynchronous Library Scanner**: Binary RIFF/WAVE header parser indexes thousands of audio files per second without freezing the DAW UI or audio thread.
+-  **Scanned Folders Management**: View and remove scanned folder directories with instant database index purging.
+-  **Hidden File Filtering**: Automatically ignores hidden files (`.DS_Store`, `.git`, `._kick.wav`, hidden OS temp files starting with `.`).
+-  **Sleek Pro Light & Dark UI**: Crisp high-contrast pro audio interface with responsive button padding and centered typography.
+-  **DAW Drag-and-Drop**: Drag audio samples directly from the sample table or 2D cloud nodes into any DAW (Ableton Live, FL Studio, Logic Pro, Reaper, Cubase, Bitwig).
+-  **GitHub Actions Auto-Releases**: Multi-platform automated CI/CD builds for **Windows 11 (x64)** and **Linux Distros (x64)**.
 
 ---
 

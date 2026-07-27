@@ -47,6 +47,8 @@ jobs:
             libxinerama-dev \
             libxrandr-dev \
             libgl1-mesa-dev \
+            libglu1-mesa-dev \
+            mesa-common-dev \
             libxrender-dev \
             libfontconfig1-dev \
             libxcb-xfixes0-dev \
@@ -68,24 +70,29 @@ jobs:
         if: runner.os == 'Windows'
         run: cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
 
-      - name: Build OWMB (VST3 Plugin & Standalone App)
-        run: cmake --build build --config Release -j 4
+      - name: Build OWMB (Linux)
+        if: runner.os == 'Linux'
+        run: cmake --build build --parallel 4
+
+      - name: Build OWMB (Windows)
+        if: runner.os == 'Windows'
+        run: cmake --build build --config Release --parallel 4
 
       - name: Package Windows 11 Release (.zip)
         if: runner.os == 'Windows'
         shell: powershell
         run: |
           New-Item -ItemType Directory -Path "dist\OWMB-Windows-11-x64" -Force
-          Copy-Item -Path "build\OpenWav_artefacts\Release\VST3\OWMB.vst3" -Destination "dist\OWMB-Windows-11-x64\OWMB.vst3" -Recurse -Force
-          Copy-Item -Path "build\OpenWav_artefacts\Release\Standalone\OWMB.exe" -Destination "dist\OWMB-Windows-11-x64\OWMB.exe" -Force
+          Get-ChildItem -Path "build" -Recurse -Filter "OWMB.vst3" | ForEach-Object { Copy-Item -Path $_.FullName -Destination "dist\OWMB-Windows-11-x64\OWMB.vst3" -Recurse -Force }
+          Get-ChildItem -Path "build" -Recurse -Filter "OWMB.exe" | ForEach-Object { Copy-Item -Path $_.FullName -Destination "dist\OWMB-Windows-11-x64\OWMB.exe" -Force }
           Compress-Archive -Path "dist\OWMB-Windows-11-x64\*" -DestinationPath "OWMB-Windows-11-x64.zip" -Force
 
       - name: Package Linux Distros Release (.tar.gz)
         if: runner.os == 'Linux'
         run: |
           mkdir -p dist/OWMB-Linux-Distros-x64
-          cp -r build/OpenWav_artefacts/Release/VST3/OWMB.vst3 dist/OWMB-Linux-Distros-x64/ 2>/dev/null || cp -r build/OpenWav_artefacts/VST3/OWMB.vst3 dist/OWMB-Linux-Distros-x64/ || true
-          cp build/OpenWav_artefacts/Release/Standalone/OWMB dist/OWMB-Linux-Distros-x64/ 2>/dev/null || cp build/OpenWav_artefacts/Standalone/OWMB dist/OWMB-Linux-Distros-x64/ || true
+          find build -name "OWMB.vst3" -exec cp -r {} dist/OWMB-Linux-Distros-x64/ \; || true
+          find build -name "OWMB" -type f -exec cp {} dist/OWMB-Linux-Distros-x64/ \; || true
           tar -czvf OWMB-Linux-Distros-x64.tar.gz -C dist/OWMB-Linux-Distros-x64 .
 
       - name: Upload CI Build Artifacts

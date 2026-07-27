@@ -6,6 +6,12 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 if (MSVC)
     add_compile_options(/utf-8)
+elseif (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    add_compile_options(
+        -Wno-format-truncation
+        -Wno-stringop-overflow
+        -Wno-array-bounds
+    )
 endif()
 
 # Fetch JUCE from GitHub if not already available locally
@@ -13,7 +19,7 @@ include(FetchContent)
 FetchContent_Declare(
     juce
     GIT_REPOSITORY https://github.com/juce-framework/JUCE.git
-    GIT_TAG        8.0.0
+    GIT_TAG        8.0.6
 )
 FetchContent_MakeAvailable(juce)
 
