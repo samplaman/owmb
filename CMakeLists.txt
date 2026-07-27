@@ -6,12 +6,16 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 if (MSVC)
     add_compile_options(/utf-8)
-elseif (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+elseif (UNIX AND NOT APPLE)
     add_compile_options(
+        -U_FORTIFY_SOURCE
+        -D_FORTIFY_SOURCE=0
         -Wno-format-truncation
         -Wno-stringop-overflow
         -Wno-array-bounds
     )
+    string(APPEND CMAKE_CXX_FLAGS " -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 -Wno-format-truncation -Wno-stringop-overflow -Wno-array-bounds")
+    string(APPEND CMAKE_C_FLAGS " -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 -Wno-format-truncation -Wno-stringop-overflow -Wno-array-bounds")
 endif()
 
 # Fetch JUCE from GitHub if not already available locally

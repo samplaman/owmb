@@ -64,7 +64,7 @@ jobs:
 
       - name: Configure CMake (Linux - Ninja)
         if: runner.os == 'Linux'
-        run: cmake -B build -S . -G Ninja -DCMAKE_BUILD_TYPE=Release
+        run: cmake -B build -S . -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 -Wno-format-truncation -Wno-stringop-overflow -Wno-array-bounds"
 
       - name: Configure CMake (Windows)
         if: runner.os == 'Windows'
