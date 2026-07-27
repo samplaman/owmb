@@ -28,7 +28,7 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install Linux Build Dependencies (ALSA, X11, XCB, OpenGL, Freetype, Ninja, PkgConfig)
+      - name: Install Linux Build Dependencies (ALSA, X11, XCB, OpenGL, Freetype, Ninja, PkgConfig, Xvfb)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
@@ -37,6 +37,8 @@ jobs:
             cmake \
             ninja-build \
             pkg-config \
+            xvfb \
+            ladspa-sdk \
             libasound2-dev \
             libjack-jackd2-dev \
             libfreetype6-dev \
@@ -44,6 +46,7 @@ jobs:
             libx11-dev \
             libxcomposite-dev \
             libxcursor-dev \
+            libxext-dev \
             libxinerama-dev \
             libxrandr-dev \
             libgl1-mesa-dev \
@@ -72,7 +75,7 @@ jobs:
 
       - name: Build OWMB (Linux)
         if: runner.os == 'Linux'
-        run: cmake --build build --parallel 4
+        run: xvfb-run --auto-servernum cmake --build build --parallel 4
 
       - name: Build OWMB (Windows)
         if: runner.os == 'Windows'
