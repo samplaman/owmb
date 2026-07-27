@@ -1,0 +1,192 @@
+#include "PluginEditor.h"
+
+namespace openwav
+{
+
+OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(OpenWavAudioProcessor& p)
+    : AudioProcessorEditor(&p),
+      audioProcessor(p),
+      headerBar(p.getDatabaseManager(), p.getLibraryScanner()),
+      tagPanel(p.getDatabaseManager()),
+      sampleTable(p.getDatabaseManager(), p.getAudioEngine()),
+      sampleCloud(p.getDatabaseManager(), p.getAudioEngine()),
+      waveformTransport(p.getAudioEngine())
+{
+    setLookAndFeel(&lookAndFeel);
+
+    headerBar.addListener(this);
+    tagPanel.addListener(this);
+    sampleTable.addListener(this);
+    sampleCloud.addListener(this);
+
+    addAndMakeVisible(headerBar);
+    addAndMakeVisible(tagPanel);
+    addAndMakeVisible(sampleTable);
+    addChildComponent(sampleCloud);
+    addAndMakeVisible(waveformTransport);
+
+    setResizable(true, true);
+    setResizeLimits(800, 500, 3840, 2160);
+    setSize(1920, 1080);
+
+    triggerFilterUpdate();
+}
+
+OpenWavAudioProcessorEditor::~OpenWavAudioProcessorEditor()
+{
+    headerBar.removeListener(this);
+    tagPanel.removeListener(this);
+    sampleTable.removeListener(this);
+    sampleCloud.removeListener(this);
+    setLookAndFeel(nullptr);
+}
+
+void OpenWavAudioProcessorEditor::paint(juce::Graphics& g)
+{
+    g.fillAll(OpenWavLookAndFeel::bgDark);
+}
+
+void OpenWavAudioProcessorEditor::resized()
+{
+    auto area = getLocalBounds();
+
+    headerBar.setBounds(area.removeFromTop(54));
+    waveformTransport.setBounds(area.removeFromBottom(100));
+
+    // Middle Split View
+    tagPanel.setBounds(area.removeFromLeft(220));
+
+    if (headerBar.isCloudViewActive())
+    {
+        sampleTable.setVisible(false);
+        sampleCloud.setVisible(true);
+        sampleCloud.setBounds(area);
+    }
+    else
+    {
+        sampleCloud.setVisible(false);
+        sampleTable.setVisible(true);
+        sampleTable.setBounds(area);
+    }
+}
+
+void OpenWavAudioProcessorEditor::searchTextChanged(const juce::String& /*newText*/)
+{
+    triggerFilterUpdate();
+}
+
+void OpenWavAudioProcessorEditor::formatFilterChanged(const juce::String& /*extension*/)
+{
+    triggerFilterUpdate();
+}
+
+void OpenWavAudioProcessorEditor::addFolderRequested()
+{
+    auto chooser = std::make_shared<juce::FileChooser>(
+        "Select Audio Folder to Scan...",
+        juce::File::getSpecialLocation(juce::File::userHomeDirectory),
+        "*"
+    );
+
+    chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories,
+        [this, chooser](const juce::FileChooser& fc) {
+            auto result = fc.getResult();
+            if (result.isDirectory())
+            {
+                juce::String folderPath = result.getFullPathName();
+                audioProcessor.getDatabaseManager().addScanFolder(folderPath);
+                audioProcessor.getLibraryScanner().startScan({ folderPath });
+            }
+        });
+}
+
+void OpenWavAudioProcessorEditor::rescanRequested()
+{
+    auto folders = audioProcessor.getDatabaseManager().getScanFolders();
+    if (!folders.empty())
+    {
+        audioProcessor.getLibraryScanner().startScan(folders);
+    }
+    else
+    {
+        addFolderRequested();
+    }
+}
+
+void OpenWavAudioProcessorEditor::tagFilterSelectionChanged(const std::set<juce::String>& /*selectedTags*/, bool /*matchAllTags*/, bool /*favoritesOnly*/)
+{
+    triggerFilterUpdate();
+}
+
+void OpenWavAudioProcessorEditor::sampleSelected(const MediaItem& /*item*/)
+{
+}
+
+void OpenWavAudioProcessorEditor::sampleDoubleClicked(const MediaItem& /*item*/)
+{
+}
+
+bool OpenWavAudioProcessorEditor::isInterestedInFileDrag(const juce::StringArray& files)
+{
+    for (const auto& f : files)
+    {
+        juce::File file(f);
+        if (file.isDirectory() || file.getFileExtension().containsIgnoreCase("wav") || file.getFileExtension().containsIgnoreCase("mp3"))
+            return true;
+    }
+    return false;
+}
+
+void OpenWavAudioProcessorEditor::filesDropped(const juce::StringArray& files, int /*x*/, int /*y*/)
+{
+    std::vector<juce::String> foldersToScan;
+    for (const auto& f : files)
+    {
+        juce::File file(f);
+        if (file.isDirectory())
+        {
+            foldersToScan.push_back(file.getFullPathName());
+            audioProcessor.getDatabaseManager().addScanFolder(file.getFullPathName());
+        }
+        else if (file.existsAsFile())
+        {
+            // If parent directory not scanned, scan parent
+            auto parent = file.getParentDirectory().getFullPathName();
+            foldersToScan.push_back(parent);
+            audioProcessor.getDatabaseManager().addScanFolder(parent);
+        }
+    }
+
+    if (!foldersToScan.empty())
+    {
+        audioProcessor.getLibraryScanner().startScan(foldersToScan);
+    }
+}
+
+void OpenWavAudioProcessorEditor::viewModeChanged(bool /*isCloudView*/)
+{
+    resized();
+}
+
+void OpenWavAudioProcessorEditor::cloudSampleSelected(const MediaItem& /*item*/)
+{
+}
+
+void OpenWavAudioProcessorEditor::cloudSampleDoubleClicked(const MediaItem& /*item*/)
+{
+}
+
+void OpenWavAudioProcessorEditor::triggerFilterUpdate()
+{
+    sampleTable.updateFilter(
+        headerBar.getSearchText(),
+        tagPanel.getSelectedTags(),
+        tagPanel.getMatchAllTags(),
+        headerBar.getSelectedFormat(),
+        tagPanel.getFavoritesOnly()
+    );
+
+    sampleCloud.setItems(sampleTable.getDisplayedItems());
+}
+
+} // namespace openwav

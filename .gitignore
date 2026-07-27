@@ -1,0 +1,19 @@
+# Build artifacts
+/build/
+/dist/
+*.exe
+*.vst3
+*.lib
+*.obj
+*.pdb
+*.ilk
+
+# IDE & Config
+.vs/
+.vscode/
+*.user
+*.suo
+*.VC.db
+
+# Agent/Brain metadata
+.gemini/

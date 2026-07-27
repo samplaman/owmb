@@ -1,0 +1,110 @@
+name: OpenWav Auto Release (Windows 11 & Linux Distros)
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.os_name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            os_name: Windows-11-x64
+          - os: ubuntu-latest
+            os_name: Linux-Distros-x64
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Linux Build Dependencies (ALSA, X11, OpenGL, Freetype)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            libasound2-dev \
+            libjack-jackd2-dev \
+            libfreetype6-dev \
+            libcurl4-openssl-dev \
+            libx11-dev \
+            libxcomposite-dev \
+            libxcursor-dev \
+            libxinerama-dev \
+            libxrandr-dev \
+            libgl1-mesa-dev \
+            libxrender-dev \
+            libfontconfig1-dev
+
+      - name: Configure CMake (Release)
+        run: cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build OpenWav (VST3 Plugin & Standalone App)
+        run: cmake --build build --config Release -j 4
+
+      - name: Package Windows 11 Release (.zip)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Path "dist\OpenWav-Windows-11-x64" -Force
+          Copy-Item -Path "build\OpenWav_artefacts\Release\VST3\OpenWav Media Browser.vst3" -Destination "dist\OpenWav-Windows-11-x64\OpenWav Media Browser.vst3" -Recurse -Force
+          Copy-Item -Path "build\OpenWav_artefacts\Release\Standalone\OpenWav Media Browser.exe" -Destination "dist\OpenWav-Windows-11-x64\OpenWav Media Browser.exe" -Force
+          Compress-Archive -Path "dist\OpenWav-Windows-11-x64\*" -DestinationPath "OpenWav-Windows-11-x64.zip" -Force
+
+      - name: Package Linux Distros Release (.tar.gz)
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p dist/OpenWav-Linux-Distros-x64
+          cp -r "build/OpenWav_artefacts/Release/VST3/OpenWav Media Browser.vst3" "dist/OpenWav-Linux-Distros-x64/" || true
+          cp "build/OpenWav_artefacts/Release/Standalone/OpenWav Media Browser" "dist/OpenWav-Linux-Distros-x64/" || true
+          tar -czvf OpenWav-Linux-Distros-x64.tar.gz -C dist/OpenWav-Linux-Distros-x64 .
+
+      - name: Upload CI Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenWav-${{ matrix.os_name }}
+          path: |
+            OpenWav-Windows-11-x64.zip
+            OpenWav-Linux-Distros-x64.tar.gz
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download Windows 11 Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: OpenWav-Windows-11-x64
+
+      - name: Download Linux Distros Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: OpenWav-Linux-Distros-x64
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: OpenWav Media Browser ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            OpenWav-Windows-11-x64.zip
+            OpenWav-Linux-Distros-x64.tar.gz
