@@ -1,22 +1,35 @@
-# OpenWav - JUCE Tag-Based Media Browser Audio Plugin
+# OWMB - OpenWav Media Browser (Audio Plugin & Standalone App)
 
-**OpenWav** is an open-source, cross-platform audio plugin (VST3, AU, Standalone) and media browser built with JUCE and C++17. It allows music producers, sound designers, and sample collectors to index, tag, search, audition, and organize `.wav`, `.mp3`, `.flac`, `.ogg`, and `.aiff` audio files, with seamless drag-and-drop into DAWs (Ableton Live, FL Studio, Logic Pro, Reaper, Cubase, Bitwig).
+**OWMB** (OpenWav Media Browser) is an open-source, high-performance audio plugin (VST3, Standalone) and sample library management system built with JUCE 8 and C++17. Designed for music producers, sound designers, and sample collectors, **OWMB** features an interactive **2D Sample Cloud Constellation Visualizer**, multi-tag filtering, ultra-fast asynchronous WAV scanning, and direct DAW drag-and-drop integration.
+
+![OWMB 2D Sample Cloud Preview](docs/owmb_cloud_preview.png)
 
 ---
 
 ## Key Features
 
+- 🌌 **2D Interactive Sample Cloud Visualizer**: Explore audio samples visually mapped into color-coded category clusters (`Kicks`, `Snares`, `HiHats`, `Bass`, `Synth`, `Loops`, etc.) with 3D radial gradients, force-directed anti-collision layout, dynamic sound pulse rings, and mini-waveform hover tooltips.
+- 🔍 **Interactive Zoom & Pan**: Scroll mouse wheel to zoom (`30%` to `400%`) into any node cluster, click and drag empty space to pan canvas, and use top-right HUD zoom controls.
 - 🏷️ **Tag-Based Searching & Auto-Inference**: Automatically infers tags from folder structures and filenames (`#Kick`, `#Snare`, `#HiHat`, `#Loop`, `#OneShot`, `#Bass`, `#Synth`, `#808`, `#Vocal`, `#FX`, etc.).
-- 🔍 **Instant Text & Multi-Tag Filters**: Combine text search, tag clouds (AND/OR mode), format filters (`.WAV`, `.MP3`, `.FLAC`, `.OGG`, `.AIFF`), and favorites/ratings.
-- ⚡ **Asynchronous Non-Blocking Scanner**: Multithreaded background directory scanner that indexes large sample libraries instantly without freezing the DAW UI.
-- 🌊 **Interactive Waveform Preview**: High-resolution waveform visualization with playhead scrubbing, loop toggle, auto-play on select, and gain/volume control.
-- 🎛️ **DAW Drag-and-Drop**: Drag audio samples directly from the sample table or transport waveform into any DAW.
-- 📁 **Folder Drag-and-Drop Target**: Drag any folder into the OpenWav plugin window to immediately index its audio contents.
-- 🎨 **Modern Dark Aesthetic**: Sleek obsidian dark-mode interface with cyan accents, rounded pill tags, and customizable rating stars.
+- ⚡ **Ultra-Fast Asynchronous Library Scanner**: Binary RIFF/WAVE header parser indexes thousands of audio files per second without freezing the DAW UI or audio thread.
+- 📁 **Scanned Folders Management**: View and remove scanned folder directories with instant database index purging.
+- 🙈 **Hidden File Filtering**: Automatically ignores hidden files (`.DS_Store`, `.git`, `._kick.wav`, hidden OS temp files starting with `.`).
+- 🎨 **Sleek Pro Light & Dark UI**: Crisp high-contrast pro audio interface with responsive button padding and centered typography.
+- 🎛️ **DAW Drag-and-Drop**: Drag audio samples directly from the sample table or 2D cloud nodes into any DAW (Ableton Live, FL Studio, Logic Pro, Reaper, Cubase, Bitwig).
+- 🚀 **GitHub Actions Auto-Releases**: Multi-platform automated CI/CD builds for **Windows 11 (x64)** and **Linux Distros (x64)**.
 
 ---
 
-## Building OpenWav
+## Download & Releases
+
+Pre-built binaries for **Windows 11** and **Linux Distros** are available under [GitHub Releases](https://github.com/samplaman/owmb/releases).
+
+- **Windows 11**: `OWMB-Windows-11-x64.zip` (VST3 Plugin & Standalone `.exe`)
+- **Linux Distros**: `OWMB-Linux-Distros-x64.tar.gz` (VST3 Plugin & Standalone Executable)
+
+---
+
+## Building OWMB Locally
 
 ### Requirements
 - **CMake** 3.22 or higher
@@ -26,29 +39,34 @@
 ### Build Steps
 
 ```bash
-# 1. Clone or navigate to directory
-cd openwav
+# 1. Clone the repository
+git clone https://github.com/samplaman/owmb.git
+cd owmb
 
 # 2. Configure build directory with CMake
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 
 # 3. Compile VST3 & Standalone targets
-cmake --build build --config Release
+cmake --build build --config Release -j 4
 ```
 
 The compiled binaries will be output in:
-- **VST3 Plugin**: `build/OpenWav_artefacts/Release/VST3/OpenWav Media Browser.vst3`
-- **Standalone App**: `build/OpenWav_artefacts/Release/Standalone/OpenWav Media Browser.exe`
+- **VST3 Plugin**: `build/OpenWav_artefacts/Release/VST3/OWMB.vst3`
+- **Standalone App**: `build/OpenWav_artefacts/Release/Standalone/OWMB.exe`
 
 ---
 
-## Architecture Overview
+## Architecture & Project Structure
 
 ```
-openwav/
-├── CMakeLists.txt              # CMake build configuration fetching JUCE 8
+owmb/
+├── CMakeLists.txt              # CMake build configuration (JUCE 8 FetchContent)
+├── .github/workflows/          # Automated GitHub Actions CI/CD release workflow
+│   └── release.yml             # Windows 11 & Linux matrix release builder
+├── docs/                       # Project documentation & preview screenshots
+│   └── owmb_cloud_preview.png
 └── Source/
-    ├── Audio/                  # Sample playback & transport engine
+    ├── Audio/                  # Asynchronous disk read-ahead sample transport engine
     │   ├── AudioEngine.h
     │   └── AudioEngine.cpp
     ├── Database/               # Persistent JSON metadata library index & tag manager
@@ -56,21 +74,20 @@ openwav/
     │   └── TagDatabaseManager.cpp
     ├── Models/                 # MediaItem data structure & serialization
     │   └── MediaItem.h
-    ├── Scanner/                # Asynchronous multi-threaded directory scanner
+    ├── Scanner/                # Multi-threaded fast RIFF/WAVE header reader scanner
     │   ├── LibraryScanner.h
     │   └── LibraryScanner.cpp
-    ├── UI/                     # Custom LookAndFeel & modern UI components
-    │   ├── HeaderBarComponent.h / .cpp
-    │   ├── TagPanelComponent.h / .cpp
-    │   ├── SampleTableComponent.h / .cpp
-    │   ├── WaveformTransportComponent.h / .cpp
-    │   └── OpenWavLookAndFeel.h / .cpp
-    ├── PluginProcessor.h / .cpp # JUCE AudioProcessor lifecycle
-    └── PluginEditor.h / .cpp    # JUCE AudioProcessorEditor window host
+    └── UI/                     # JUCE LookAndFeel & GUI components
+        ├── HeaderBarComponent.h / .cpp       # Top control bar, search, & view switcher
+        ├── TagPanelComponent.h / .cpp       # Sidebar tag cloud & scanned folders manager
+        ├── SampleTableComponent.h / .cpp     # Multi-column sample list table view
+        ├── SampleCloudComponent.h / .cpp     # 2D interactive sample constellation visualizer
+        ├── WaveformTransportComponent.h / .cpp # Audio waveform player & playhead transport
+        └── OpenWavLookAndFeel.h / .cpp       # Pro-audio Light/Dark LookAndFeel design system
 ```
 
 ---
 
 ## License
 
-OpenWav is open-source under the MIT License.
+Copyright (c) 2026 OWMB Developer. Open-source under MIT / JUCE 8 License terms.
