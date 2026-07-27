@@ -28,13 +28,15 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install Linux Build Dependencies (ALSA, X11, OpenGL, Freetype)
+      - name: Install Linux Build Dependencies (ALSA, X11, XCB, OpenGL, Freetype, Ninja, PkgConfig)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
             build-essential \
             cmake \
+            ninja-build \
+            pkg-config \
             libasound2-dev \
             libjack-jackd2-dev \
             libfreetype6-dev \
@@ -46,12 +48,27 @@ jobs:
             libxrandr-dev \
             libgl1-mesa-dev \
             libxrender-dev \
-            libfontconfig1-dev
+            libfontconfig1-dev \
+            libxcb-xfixes0-dev \
+            libxcb-render0-dev \
+            libxcb-shape0-dev \
+            libxcb-shm0-dev \
+            libxcb-util-dev \
+            libxcb-icccm4-dev \
+            libxcb-image0-dev \
+            libxcb-keysyms1-dev \
+            libxcb-randr0-dev \
+            libx11-xcb-dev
 
-      - name: Configure CMake (Release)
+      - name: Configure CMake (Linux - Ninja)
+        if: runner.os == 'Linux'
+        run: cmake -B build -S . -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Configure CMake (Windows)
+        if: runner.os == 'Windows'
         run: cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
 
-      - name: Build OpenWav (VST3 Plugin & Standalone App)
+      - name: Build OWMB (VST3 Plugin & Standalone App)
         run: cmake --build build --config Release -j 4
 
       - name: Package Windows 11 Release (.zip)
@@ -67,8 +84,8 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           mkdir -p dist/OWMB-Linux-Distros-x64
-          cp -r "build/OpenWav_artefacts/Release/VST3/OWMB.vst3" "dist/OWMB-Linux-Distros-x64/" || true
-          cp "build/OpenWav_artefacts/Release/Standalone/OWMB" "dist/OWMB-Linux-Distros-x64/" || true
+          cp -r build/OpenWav_artefacts/Release/VST3/OWMB.vst3 dist/OWMB-Linux-Distros-x64/ 2>/dev/null || cp -r build/OpenWav_artefacts/VST3/OWMB.vst3 dist/OWMB-Linux-Distros-x64/ || true
+          cp build/OpenWav_artefacts/Release/Standalone/OWMB dist/OWMB-Linux-Distros-x64/ 2>/dev/null || cp build/OpenWav_artefacts/Standalone/OWMB dist/OWMB-Linux-Distros-x64/ || true
           tar -czvf OWMB-Linux-Distros-x64.tar.gz -C dist/OWMB-Linux-Distros-x64 .
 
       - name: Upload CI Build Artifacts
