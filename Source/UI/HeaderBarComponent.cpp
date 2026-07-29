@@ -84,6 +84,13 @@ HeaderBarComponent::HeaderBarComponent(TagDatabaseManager& db, LibraryScanner& s
     statusLabel.setJustificationType(juce::Justification::centredRight);
     addAndMakeVisible(statusLabel);
 
+    // Progress Bar
+    progressBar.setVisible(false);
+    progressBar.setColour(juce::ProgressBar::backgroundColourId, OpenWavLookAndFeel::bgDark);
+    progressBar.setColour(juce::ProgressBar::foregroundColourId, OpenWavLookAndFeel::accentCyan);
+    progressBar.setTextToDisplay("");
+    addAndMakeVisible(progressBar);
+
     updateLibraryCount(static_cast<int>(dbManager.getAllItems().size()));
 }
 
@@ -147,6 +154,7 @@ void HeaderBarComponent::resized()
     rescanButton.setBounds(area.removeFromLeft(75).withHeight(btnHeight));
 
     statusLabel.setBounds(area.removeFromRight(150));
+    progressBar.setBounds(statusLabel.getBounds().reduced(0, 4));
 }
 
 void HeaderBarComponent::textEditorTextChanged(juce::TextEditor& editor)
@@ -177,20 +185,27 @@ void HeaderBarComponent::setFormatFilter(const juce::String& ext, juce::TextButt
 void HeaderBarComponent::scanStarted()
 {
     juce::MessageManager::callAsync([this] {
-        statusLabel.setText("Scanning library...", juce::dontSendNotification);
+        scanProgressValue = 0.0;
+        statusLabel.setVisible(false);
+        progressBar.setVisible(true);
     });
 }
 
-void HeaderBarComponent::scanProgress(int filesProcessed, const juce::String& currentFile)
+void HeaderBarComponent::scanProgress(int filesProcessed, int totalFiles, const juce::String& /*currentFile*/)
 {
-    juce::MessageManager::callAsync([this, filesProcessed, currentFile] {
-        statusLabel.setText(juce::String(filesProcessed) + " files scanned...", juce::dontSendNotification);
+    juce::MessageManager::callAsync([this, filesProcessed, totalFiles] {
+        if (totalFiles > 0)
+        {
+            scanProgressValue = static_cast<double>(filesProcessed) / totalFiles;
+        }
     });
 }
 
-void HeaderBarComponent::scanFinished(int totalFilesDiscovered)
+void HeaderBarComponent::scanFinished(int /*totalFilesDiscovered*/)
 {
-    juce::MessageManager::callAsync([this, totalFilesDiscovered] {
+    juce::MessageManager::callAsync([this] {
+        progressBar.setVisible(false);
+        statusLabel.setVisible(true);
         updateLibraryCount(static_cast<int>(dbManager.getAllItems().size()));
     });
 }

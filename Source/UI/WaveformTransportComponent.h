@@ -25,6 +25,8 @@ public:
 
     void mouseDown(const juce::MouseEvent& e) override;
     void mouseDrag(const juce::MouseEvent& e) override;
+    void mouseUp(const juce::MouseEvent& e) override;
+    void mouseDoubleClick(const juce::MouseEvent& e) override;
 
     // juce::Timer callback for UI playhead updates
     void timerCallback() override;
@@ -41,7 +43,8 @@ public:
     void sliderValueChanged(juce::Slider* slider) override;
 
 private:
-    void seekToMousePosition(float mouseX);
+    void runAutoSlice();
+    void exportAndDragSlice(int sliceIndex);
 
     AudioEngine& audioEngine;
 
@@ -49,6 +52,11 @@ private:
     juce::TextButton stopButton { "Stop" };
     juce::TextButton loopButton { "Loop" };
     juce::TextButton autoPlayButton { "Auto" };
+    juce::TextButton autoSliceButton { "Slice" };
+
+    std::vector<double> sliceRatios;
+    std::vector<juce::Rectangle<float>> sliceBadgeBounds;
+    int clickedSliceIndex { -1 };
 
     juce::Slider volumeSlider;
     juce::Label timeLabel;
@@ -56,6 +64,16 @@ private:
 
     double currentPositionSecs { 0.0 };
     double totalDurationSecs { 0.0 };
+
+    enum class DragMode
+    {
+        None,
+        DraggingStart,
+        DraggingEnd,
+        SelectingRange
+    };
+    DragMode dragMode { DragMode::None };
+    double dragStartRatio { 0.0 };
 };
 
 } // namespace openwav

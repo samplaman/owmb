@@ -26,7 +26,7 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(OpenWavAudioProcessor& 
     addAndMakeVisible(waveformTransport);
 
     setResizable(true, true);
-    setResizeLimits(800, 500, 3840, 2160);
+    setResizeLimits(800, 650, 3840, 2160);
     setSize(1920, 1080);
 
     triggerFilterUpdate();
@@ -51,7 +51,7 @@ void OpenWavAudioProcessorEditor::resized()
     auto area = getLocalBounds();
 
     headerBar.setBounds(area.removeFromTop(54));
-    waveformTransport.setBounds(area.removeFromBottom(100));
+    waveformTransport.setBounds(area.removeFromBottom(300));
 
     // Middle Split View
     tagPanel.setBounds(area.removeFromLeft(220));

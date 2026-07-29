@@ -79,19 +79,12 @@ void SampleCloudComponent::paint(juce::Graphics& g)
         auto screenClusterPos = cloudToScreen(cluster.centerPos);
         float haloRadius = std::max(60.0f, (40.0f + cluster.count * 6.0f) * zoomScale);
 
-        // Nebula glow
-        juce::ColourGradient nebula(
-            cluster.colour.withAlpha(0.12f),
-            screenClusterPos.x, screenClusterPos.y,
-            cluster.colour.withAlpha(0.0f),
-            screenClusterPos.x + haloRadius, screenClusterPos.y + haloRadius,
-            true
-        );
-        g.setGradientFill(nebula);
-        g.fillEllipse(screenClusterPos.x - haloRadius, screenClusterPos.y - haloRadius, haloRadius * 2.0f, haloRadius * 2.0f);
+        // Draw a clean, modern boundary circle instead of a heavy filled radial gradient (extremely fast)
+        g.setColour(cluster.colour.withAlpha(0.18f));
+        g.drawEllipse(screenClusterPos.x - haloRadius, screenClusterPos.y - haloRadius, haloRadius * 2.0f, haloRadius * 2.0f, 1.2f);
     }
 
-    // 4. Draw all sample nodes with 3D radial gradients
+    // 4. Draw all sample nodes with flat colors (highly optimized, no gradients)
     for (size_t i = 0; i < nodes.size(); ++i)
     {
         const auto& node = nodes[i];
@@ -99,52 +92,49 @@ void SampleCloudComponent::paint(juce::Graphics& g)
         bool isSelected = (static_cast<int>(i) == selectedNodeIndex);
 
         auto screenPos = cloudToScreen(node.currentPos);
-        float baseR = isHovered ? (node.radius + 3.5f) : node.radius;
-        float r = std::max(3.0f, baseR * zoomScale);
+        float baseR = node.radius * node.hoverScale;
+        float r = std::max(1.5f, baseR * zoomScale);
 
-        // Soft outer glow halo
-        if (isHovered || isSelected)
+        // Soft outer glow halo - flat alpha fill (extremely fast)
+        if (node.hoverScale > 1.0f || isSelected)
         {
-            float glowR = r * 1.8f;
-            juce::ColourGradient haloGrad(
-                node.colour.withAlpha(isHovered ? 0.45f : 0.3f),
-                screenPos.x, screenPos.y,
-                node.colour.withAlpha(0.0f),
-                screenPos.x + glowR, screenPos.y + glowR,
-                true
-            );
-            g.setGradientFill(haloGrad);
-            g.fillEllipse(screenPos.x - glowR, screenPos.y - glowR, glowR * 2.0f, glowR * 2.0f);
+            float glowR = r * 1.5f;
+            float hoverGlowAlpha = (node.hoverScale - 1.0f) / 1.2f; // scale factor
+            float alpha = isSelected ? 0.15f : (0.25f * hoverGlowAlpha);
+            if (alpha > 0.0f)
+            {
+                g.setColour(node.colour.withAlpha(alpha));
+                g.fillEllipse(screenPos.x - glowR, screenPos.y - glowR, glowR * 2.0f, glowR * 2.0f);
+            }
         }
 
-        // 3D Radial Gradient Fill
-        juce::Colour centerColour = isHovered ? node.colour.brighter(0.75f) : node.colour.brighter(0.4f);
-        juce::Colour edgeColour   = isHovered ? node.colour.brighter(0.15f) : node.colour.darker(0.35f);
+        // Flat Color Fill (No gradient - extremely fast!)
+        juce::Colour nodeColor = node.colour;
+        if (isHovered)
+            nodeColor = node.colour.brighter(0.25f);
+        else if (isSelected)
+            nodeColor = OpenWavLookAndFeel::accentCyan;
 
-        juce::ColourGradient nodeGrad(
-            centerColour,
-            screenPos.x - r * 0.35f, screenPos.y - r * 0.35f,
-            edgeColour,
-            screenPos.x + r * 0.9f, screenPos.y + r * 0.9f,
-            true
-        );
-        g.setGradientFill(nodeGrad);
+        g.setColour(nodeColor);
         g.fillEllipse(screenPos.x - r, screenPos.y - r, r * 2.0f, r * 2.0f);
 
-        // Specular highlight dot
-        g.setColour(juce::Colours::white.withAlpha(isHovered ? 0.65f : 0.35f));
-        g.fillEllipse(screenPos.x - r * 0.45f, screenPos.y - r * 0.45f, r * 0.55f, r * 0.55f);
+        // Flat outer ring highlight if hovered or selected (fast outline)
+        if (isHovered || isSelected)
+        {
+            g.setColour(isHovered ? juce::Colours::white.withAlpha(0.6f) : OpenWavLookAndFeel::accentCyan.withAlpha(0.8f));
+            g.drawEllipse(screenPos.x - r, screenPos.y - r, r * 2.0f, r * 2.0f, 1.0f);
+        }
 
-        // Audio playing pulse animation ring
+        // Selected node outer highlight ring (static - no timer repaint overhead)
         if (isSelected)
         {
-            float pulseR = r + 4.0f + std::sin(pulsePhase) * 3.0f;
-            g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.9f));
-            g.drawEllipse(screenPos.x - pulseR, screenPos.y - pulseR, pulseR * 2.0f, pulseR * 2.0f, 2.0f);
+            float ringR = r + 4.0f;
+            g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.8f));
+            g.drawEllipse(screenPos.x - ringR, screenPos.y - ringR, ringR * 2.0f, ringR * 2.0f, 1.5f);
         }
     }
 
-    // 5. Draw Category Badge Labels ALWAYS ON TOP OF NODES
+    // 5. Draw Category Badge Labels ALWAYS ON TOP OF NODES (Offset above the cluster to prevent overlaps)
     for (const auto& cluster : clusters)
     {
         auto screenClusterPos = cloudToScreen(cluster.centerPos);
@@ -153,7 +143,11 @@ void SampleCloudComponent::paint(juce::Graphics& g)
         juce::Font badgeFont(11.0f, juce::Font::bold);
         int textWidth = badgeFont.getStringWidth(badgeText) + 20;
 
-        juce::Rectangle<float> badgeBounds(screenClusterPos.x - textWidth * 0.5f, screenClusterPos.y - 14.0f, static_cast<float>(textWidth), 22.0f);
+        // Position above the cluster based on cluster size and current zoom scale
+        float clusterRadiusEstimate = (18.0f * std::sqrt(static_cast<float>(cluster.count) + 1.0f)) * zoomScale;
+        float yOffset = std::max(25.0f * zoomScale, clusterRadiusEstimate + 12.0f);
+
+        juce::Rectangle<float> badgeBounds(screenClusterPos.x - textWidth * 0.5f, screenClusterPos.y - yOffset - 11.0f, static_cast<float>(textWidth), 22.0f);
 
         g.setColour(OpenWavLookAndFeel::bgCard.withAlpha(0.95f));
         g.fillRoundedRectangle(badgeBounds, 11.0f);
@@ -291,8 +285,21 @@ void SampleCloudComponent::timerCallback()
 
     bool needsRepaint = false;
 
-    for (auto& node : nodes)
+    for (size_t i = 0; i < nodes.size(); ++i)
     {
+        auto& node = nodes[i];
+        float targetScale = (static_cast<int>(i) == hoveredNodeIndex) ? 2.2f : 1.0f;
+        float ds = targetScale - node.hoverScale;
+        if (std::abs(ds) > 0.01f)
+        {
+            node.hoverScale += ds * 0.25f; // Smooth transition
+            needsRepaint = true;
+        }
+        else
+        {
+            node.hoverScale = targetScale;
+        }
+
         float dx = node.targetPos.x - node.currentPos.x;
         float dy = node.targetPos.y - node.currentPos.y;
 
@@ -304,7 +311,8 @@ void SampleCloudComponent::timerCallback()
         }
     }
 
-    if (needsRepaint || selectedNodeIndex >= 0 || isPanning)
+    // Optimisation: Do not repaint if we are idle (selectedNodeIndex is static, no pulse ring animation)
+    if (needsRepaint || isPanning)
         repaint();
 }
 
@@ -314,7 +322,14 @@ void SampleCloudComponent::mouseMove(const juce::MouseEvent& e)
     hoveredNodeIndex = findNodeAtPosition(e.position);
 
     if (prevHover != hoveredNodeIndex)
+    {
+        if (hoveredNodeIndex >= 0)
+            setMouseCursor(juce::MouseCursor::PointingHandCursor);
+        else
+            setMouseCursor(juce::MouseCursor::NormalCursor);
+
         repaint();
+    }
 }
 
 void SampleCloudComponent::mouseDown(const juce::MouseEvent& e)
@@ -345,6 +360,7 @@ void SampleCloudComponent::mouseDown(const juce::MouseEvent& e)
     {
         // Canvas background clicked: initiate pan
         isPanning = true;
+        setMouseCursor(juce::MouseCursor::DraggingHandCursor);
         mouseDragStartPos = e.position;
         dragStartPan = panOffset;
     }
@@ -369,6 +385,7 @@ void SampleCloudComponent::mouseDrag(const juce::MouseEvent& e)
 void SampleCloudComponent::mouseUp(const juce::MouseEvent& /*e*/)
 {
     isPanning = false;
+    setMouseCursor(hoveredNodeIndex >= 0 ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
 }
 
 void SampleCloudComponent::mouseDoubleClick(const juce::MouseEvent& e)
@@ -426,9 +443,10 @@ void SampleCloudComponent::setItems(const std::vector<MediaItem>& items)
 
         node.colour = getColourForTag(node.primaryTag);
 
-        // Calculate node size based on duration
+        // Calculate node size based on duration - smaller default sizes
         float dur = static_cast<float>(item.durationSeconds);
-        node.radius = juce::jlimit(5.5f, 14.0f, 5.5f + dur * 1.5f);
+        node.radius = juce::jlimit(3.0f, 9.0f, 3.0f + dur * 1.0f);
+        node.hoverScale = 1.0f;
 
         nodes.push_back(node);
     }
@@ -448,7 +466,7 @@ void SampleCloudComponent::calculateClusterLayout()
     auto bounds = getLocalBounds().toFloat();
     float centerX = bounds.getCentreX();
     float centerY = bounds.getCentreY();
-    float maxRadius = std::min(bounds.getWidth(), bounds.getHeight()) * 0.38f;
+    float maxRadius = std::min(bounds.getWidth(), bounds.getHeight()) * 0.44f;
 
     // 1. Collect unique primary tags and build cluster objects
     std::unordered_map<juce::String, TagCluster> clusterMap;
@@ -472,7 +490,7 @@ void SampleCloudComponent::calculateClusterLayout()
     for (size_t i = 0; i < tagCount; ++i)
     {
         float angle = (static_cast<float>(i) / static_cast<float>(tagCount)) * juce::MathConstants<float>::twoPi - juce::MathConstants<float>::halfPi;
-        float clusterDist = maxRadius * 0.70f;
+        float clusterDist = maxRadius * 1.15f;
         clusters[i].centerPos = { centerX + std::cos(angle) * clusterDist, centerY + std::sin(angle) * clusterDist };
     }
 
@@ -491,9 +509,9 @@ void SampleCloudComponent::calculateClusterLayout()
         auto cPos = tagCenters[node.primaryTag];
         int countIndex = tagItemCounts[node.primaryTag]++;
 
-        // Golden ratio spiral placement per cluster center
+        // Golden ratio spiral placement per cluster center - tighter pack per group since dots are smaller
         float phi = 2.39996323f; // Golden angle in radians
-        float r = 18.0f * std::sqrt(static_cast<float>(countIndex) + 1.0f);
+        float r = 12.0f * std::sqrt(static_cast<float>(countIndex) + 1.0f);
         float theta = countIndex * phi;
 
         float targetX = cPos.x + r * std::cos(theta);
@@ -538,16 +556,25 @@ void SampleCloudComponent::applyForceDirectedPhysics()
 
 int SampleCloudComponent::findNodeAtPosition(juce::Point<float> screenPos) const
 {
+    int bestIndex = -1;
+    float bestDistance = std::numeric_limits<float>::max();
+
     for (size_t i = 0; i < nodes.size(); ++i)
     {
         auto nodeScreenPos = cloudToScreen(nodes[i].currentPos);
         float hitR = (nodes[i].radius + 3.0f) * zoomScale;
-        if (nodeScreenPos.getDistanceFrom(screenPos) <= std::max(4.5f, hitR))
+        float maxHit = std::max(12.0f, hitR);
+        float dist = nodeScreenPos.getDistanceFrom(screenPos);
+        if (dist <= maxHit)
         {
-            return static_cast<int>(i);
+            if (dist < bestDistance)
+            {
+                bestDistance = dist;
+                bestIndex = static_cast<int>(i);
+            }
         }
     }
-    return -1;
+    return bestIndex;
 }
 
 juce::Colour SampleCloudComponent::getColourForTag(const juce::String& tag) const

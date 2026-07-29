@@ -29,6 +29,8 @@ struct AudioVoice
     double ratio { 1.0 };
     bool isLooping { false };
     bool finished { false };
+    double startRatio { 0.0 };
+    double endRatio { 1.0 };
 };
 
 class AudioEngine : public juce::ChangeListener
@@ -55,7 +57,12 @@ public:
     float getGain() const { return gainLevel; }
     void setGain(float newGain);
 
-    void getMinMaxForTimeRange(double startTimeSecs, double endTimeSecs, float& minVal, float& maxVal) const;
+    void getMinMaxForTimeRange(double startTimeSecs, double endTimeSecs, float& minVal, float& maxVal, int channel = -1) const;
+
+    void setSampleRange(double startRatio, double endRatio);
+    double getSampleStartRatio() const { return sampleStartRatio; }
+    double getSampleEndRatio() const { return sampleEndRatio; }
+    bool getAudioBufferCopy(juce::AudioBuffer<float>& destBuffer, double& sampleRate) const;
 
     bool getAutoPlay() const { return autoPlayOnSelect; }
     void setAutoPlay(bool enabled) { autoPlayOnSelect = enabled; }
@@ -76,13 +83,18 @@ private:
 
     juce::CriticalSection voiceLock;
     std::vector<std::shared_ptr<AudioVoice>> activeVoices;
+    std::shared_ptr<AudioVoice> loadedVoice;
     double engineSampleRate { 44100.0 };
+    double stoppedPositionSecs { 0.0 };
 
     juce::File currentFile;
     float gainLevel { 0.8f };
-    bool isLoopingEnabled { false };
+    bool isLoopingEnabled { true };
     bool autoPlayOnSelect { true };
     std::atomic<uint64_t> currentLoadId { 0 };
+
+    double sampleStartRatio { 0.0 };
+    double sampleEndRatio { 1.0 };
 
     juce::ListenerList<AudioEngineListener> listeners;
 };

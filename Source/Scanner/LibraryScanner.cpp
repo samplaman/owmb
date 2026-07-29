@@ -118,8 +118,8 @@ void LibraryScanner::run()
             {
                 totalProcessed += static_cast<int>(localItems.size());
                 db.addItems(localItems);
-                listeners.call([totalProcessed](ScannerListener& l) {
-                    l.scanProgress(totalProcessed, "Parallel scanner running...");
+                listeners.call([totalProcessed, total](ScannerListener& l) {
+                    l.scanProgress(totalProcessed, static_cast<int>(total), "Parallel scanner running...");
                 });
             }
         }

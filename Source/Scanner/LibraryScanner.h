@@ -19,7 +19,7 @@ class ScannerListener
 public:
     virtual ~ScannerListener() = default;
     virtual void scanStarted() = 0;
-    virtual void scanProgress(int filesProcessed, const juce::String& currentFile) = 0;
+    virtual void scanProgress(int filesProcessed, int totalFiles, const juce::String& currentFile) = 0;
     virtual void scanFinished(int totalFilesDiscovered) = 0;
 };
 

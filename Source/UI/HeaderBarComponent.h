@@ -42,7 +42,7 @@ public:
 
     // ScannerListener Callbacks
     void scanStarted() override;
-    void scanProgress(int filesProcessed, const juce::String& currentFile) override;
+    void scanProgress(int filesProcessed, int totalFiles, const juce::String& currentFile) override;
     void scanFinished(int totalFilesDiscovered) override;
 
     void updateLibraryCount(int count);
@@ -72,6 +72,8 @@ private:
     juce::TextButton btnCloudView { "Cloud" };
 
     juce::Label statusLabel;
+    double scanProgressValue { 0.0 };
+    juce::ProgressBar progressBar { scanProgressValue };
 
     juce::String activeFormat { "All" };
     bool cloudViewActive { false };

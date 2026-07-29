@@ -29,10 +29,12 @@ public:
         MediaItem item;
         juce::Point<float> currentPos;
         juce::Point<float> targetPos;
-        float radius { 7.0f };
+        float radius { 4.0f };
         juce::Colour colour;
         juce::String primaryTag;
+        float hoverScale { 1.0f };
     };
+
 
     struct TagCluster
     {
