@@ -92,8 +92,8 @@ jobs:
         shell: powershell
         run: |
           New-Item -ItemType Directory -Path "dist\OWMB-Windows-11-x64" -Force
-          Get-ChildItem -Path "build" -Recurse -Directory -Filter "OWMB.vst3" | Select-Object -First 1 | ForEach-Object { Copy-Item -Path $_.FullName -Destination "dist\OWMB-Windows-11-x64\OWMB.vst3" -Recurse -Force }
-          Get-ChildItem -Path "build" -Recurse -File -Filter "OWMB.exe" | Select-Object -First 1 | ForEach-Object { Copy-Item -Path $_.FullName -Destination "dist\OWMB-Windows-11-x64\OWMB.exe" -Force }
+          Get-ChildItem -Path "build" -Recurse -File -Filter "OWMB.vst3" | ForEach-Object { Copy-Item -Path $_.FullName -Destination "dist\OWMB-Windows-11-x64\OWMB.vst3" -Force }
+          Get-ChildItem -Path "build" -Recurse -File -Filter "OWMB.exe" | ForEach-Object { Copy-Item -Path $_.FullName -Destination "dist\OWMB-Windows-11-x64\OWMB.exe" -Force }
           Compress-Archive -Path "dist\OWMB-Windows-11-x64\*" -DestinationPath "OWMB-Windows-11-x64.zip" -Force
 
       - name: Package Linux Distros Release (.tar.gz)
