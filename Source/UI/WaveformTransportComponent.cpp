@@ -4,8 +4,198 @@
 namespace openwav
 {
 
+SlicesGridComponent::SlicesGridComponent(AudioEngine& engine, std::function<void(int)> onSliceDragged)
+    : audioEngine(engine), onSliceDragged(onSliceDragged)
+{}
+
+void SlicesGridComponent::paint(juce::Graphics& g)
+{
+    g.fillAll(OpenWavLookAndFeel::bgDark);
+
+    int numSlices = static_cast<int>(sliceRatios.size());
+    if (numSlices == 0)
+    {
+        g.setFont(juce::Font(13.0f));
+        g.setColour(OpenWavLookAndFeel::textSecondary);
+        g.drawText("No slices. Click the 'Slice' button to automatically chop this sample.", getLocalBounds(), juce::Justification::centred, true);
+        return;
+    }
+
+    sliceBadgeBounds.clear();
+    float cardWidth = 100.0f;
+    float cardGap = 8.0f;
+    float startY = 4.0f;
+    float cardHeight = getHeight() - 8.0f;
+
+    juce::AudioBuffer<float> buffer;
+    double sampleRate = 44100.0;
+    bool hasBuffer = audioEngine.getAudioBufferCopy(buffer, sampleRate);
+
+    for (int i = 0; i < numSlices; ++i)
+    {
+        float cardX = i * (cardWidth + cardGap) + 4.0f;
+        juce::Rectangle<float> cardRect(cardX, startY, cardWidth, cardHeight);
+        sliceBadgeBounds.push_back(cardRect);
+
+        // Draw card background
+        g.setColour(OpenWavLookAndFeel::bgHeader);
+        g.fillRoundedRectangle(cardRect, 4.0f);
+
+        double startR = sliceRatios[i];
+        double endR = (i + 1 < numSlices) ? sliceRatios[i + 1] : 1.0;
+
+        double currentStart = audioEngine.getSampleStartRatio();
+        double currentEnd = audioEngine.getSampleEndRatio();
+        bool isSelectedSlice = (std::abs(currentStart - startR) < 0.001 && std::abs(currentEnd - endR) < 0.001);
+
+        if (isSelectedSlice)
+        {
+            g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.15f));
+            g.fillRoundedRectangle(cardRect, 4.0f);
+            g.setColour(OpenWavLookAndFeel::accentCyan);
+            g.drawRoundedRectangle(cardRect, 4.0f, 1.5f);
+        }
+        else
+        {
+            g.setColour(OpenWavLookAndFeel::borderColour);
+            g.drawRoundedRectangle(cardRect, 4.0f, 1.0f);
+        }
+
+        // Draw a mini waveform inside the card
+        auto miniWaveBounds = cardRect.reduced(6.0f, 6.0f);
+        auto labelRect = miniWaveBounds.removeFromBottom(15.0f);
+        miniWaveBounds.removeFromBottom(2.0f); // Spacing
+
+        if (hasBuffer && buffer.getNumSamples() > 0 && totalDurationSecs > 0.0)
+        {
+            g.setColour(isSelectedSlice ? OpenWavLookAndFeel::accentCyan : OpenWavLookAndFeel::textSecondary.withAlpha(0.6f));
+            
+            int sliceStartSample = static_cast<int>(startR * buffer.getNumSamples());
+            int sliceEndSample = static_cast<int>(endR * buffer.getNumSamples());
+            int sliceLen = sliceEndSample - sliceStartSample;
+            
+            if (sliceLen > 0)
+            {
+                juce::Path wavePath;
+                int miniWidth = static_cast<int>(miniWaveBounds.getWidth());
+                float midY = miniWaveBounds.getCentreY();
+                float halfH = miniWaveBounds.getHeight() * 0.5f;
+
+                for (int x = 0; x < miniWidth; ++x)
+                {
+                    double xRatioStart = static_cast<double>(x) / miniWidth;
+                    double xRatioEnd = static_cast<double>(x + 1) / miniWidth;
+
+                    int smpStart = sliceStartSample + static_cast<int>(xRatioStart * sliceLen);
+                    int smpEnd = sliceStartSample + static_cast<int>(xRatioEnd * sliceLen);
+                    smpEnd = juce::jlimit(smpStart + 1, sliceEndSample, smpEnd);
+
+                    float minVal = 0.0f;
+                    float maxVal = 0.0f;
+                    
+                    int numChannels = buffer.getNumChannels();
+                    for (int ch = 0; ch < numChannels; ++ch)
+                    {
+                        auto range = buffer.findMinMax(ch, smpStart, smpEnd - smpStart);
+                        if (range.getStart() < minVal) minVal = range.getStart();
+                        if (range.getEnd() > maxVal) maxVal = range.getEnd();
+                    }
+
+                    float pyMin = midY + minVal * halfH;
+                    float pyMax = midY + maxVal * halfH;
+                    
+                    if (x == 0)
+                    {
+                        wavePath.startNewSubPath(miniWaveBounds.getX() + x, pyMin);
+                        wavePath.lineTo(miniWaveBounds.getX() + x, pyMax);
+                    }
+                    else
+                    {
+                        wavePath.lineTo(miniWaveBounds.getX() + x, pyMin);
+                        wavePath.lineTo(miniWaveBounds.getX() + x, pyMax);
+                    }
+                }
+                g.strokePath(wavePath, juce::PathStrokeType(1.0f));
+            }
+        }
+
+        // Draw Card Bottom Label Area
+        g.setFont(juce::Font(10.0f).boldened());
+        g.setColour(OpenWavLookAndFeel::textPrimary);
+        g.drawText("S" + juce::String(i + 1), labelRect.removeFromLeft(20.0f), juce::Justification::centredLeft, true);
+
+        g.setFont(juce::Font(9.0f));
+        g.setColour(OpenWavLookAndFeel::textSecondary);
+        g.drawText("DRAG", labelRect, juce::Justification::centredRight, true);
+    }
+}
+
+void SlicesGridComponent::mouseDown(const juce::MouseEvent& e)
+{
+    clickedSliceIndex = -1;
+    for (int i = 0; i < static_cast<int>(sliceBadgeBounds.size()); ++i)
+    {
+        if (sliceBadgeBounds[i].contains(e.position))
+        {
+            clickedSliceIndex = i;
+            
+            // Set playback selection range to this slice
+            double startR = sliceRatios[i];
+            double endR = (i + 1 < static_cast<int>(sliceRatios.size())) ? sliceRatios[i + 1] : 1.0;
+            audioEngine.setSampleRange(startR, endR);
+            audioEngine.setPositionRatio(startR);
+            if (!audioEngine.isPlaying())
+                audioEngine.play();
+            
+            // Trigger parent component (WaveformTransportComponent) to repaint
+            if (auto* vp = getParentComponent())
+            {
+                if (auto* parentComp = vp->getParentComponent())
+                {
+                    parentComp->repaint();
+                }
+            }
+            repaint();
+            return;
+        }
+    }
+}
+
+void SlicesGridComponent::mouseDrag(const juce::MouseEvent& e)
+{
+    if (clickedSliceIndex >= 0 && e.mouseWasDraggedSinceMouseDown())
+    {
+        int sliceIdx = clickedSliceIndex;
+        clickedSliceIndex = -1; // Reset to prevent multiple triggerings
+        if (onSliceDragged != nullptr)
+            onSliceDragged(sliceIdx);
+    }
+}
+
+void SlicesGridComponent::updateSlices(const std::vector<double>& ratios, double duration, int viewportWidth, int viewportHeight)
+{
+    sliceRatios = ratios;
+    totalDurationSecs = duration;
+    sliceBadgeBounds.clear();
+    
+    int numSlices = static_cast<int>(sliceRatios.size());
+    if (numSlices > 0)
+    {
+        float cardWidth = 100.0f;
+        float cardGap = 8.0f;
+        float totalWidth = numSlices * cardWidth + (numSlices - 1) * cardGap + 8.0f;
+        setSize(std::max(viewportWidth, static_cast<int>(totalWidth)), viewportHeight);
+    }
+    else
+    {
+        setSize(viewportWidth, viewportHeight);
+    }
+    repaint();
+}
+
 WaveformTransportComponent::WaveformTransportComponent(AudioEngine& engine)
-    : audioEngine(engine)
+    : audioEngine(engine),
+      slicesGrid(engine, [this](int idx) { exportAndDragSlice(idx); })
 {
     audioEngine.getThumbnail().addChangeListener(this);
     audioEngine.addListener(this);
@@ -64,6 +254,11 @@ WaveformTransportComponent::WaveformTransportComponent(AudioEngine& engine)
     sampleNameLabel.setText("No sample loaded", juce::dontSendNotification);
     addAndMakeVisible(sampleNameLabel);
 
+    // Viewport Setup
+    slicesViewport.setScrollBarsShown(false, true, false, false);
+    slicesViewport.setViewedComponent(&slicesGrid, false);
+    addAndMakeVisible(slicesViewport);
+
     startTimerHz(30);
 }
 
@@ -88,8 +283,8 @@ void WaveformTransportComponent::paint(juce::Graphics& g)
     area.removeFromTop(32); // Space for top buttons and sample name
     area.removeFromTop(8);  // Spacing gap
 
-    // Reserve 80px for Slices section at bottom
-    auto slicesBounds = area.removeFromBottom(80);
+    // Reserve 92px for Slices section at bottom
+    auto slicesBounds = area.removeFromBottom(92);
     area.removeFromBottom(8); // Gap between waveform and slices section
 
     auto trackBounds = area.toFloat();
@@ -218,7 +413,7 @@ void WaveformTransportComponent::paint(juce::Graphics& g)
         g.drawVerticalLine(static_cast<int>(selStartX), waveformRect.getY(), waveformRect.getBottom());
         g.fillRoundedRectangle(selStartX - 4.0f, waveformRect.getY() - 4.0f, 8.0f, 8.0f, 2.0f);
 
-        // End handle line
+        // Draw End handle line
         g.drawVerticalLine(static_cast<int>(selEndX), waveformRect.getY(), waveformRect.getBottom());
         g.fillRoundedRectangle(selEndX - 4.0f, waveformRect.getY() - 4.0f, 8.0f, 8.0f, 2.0f);
 
@@ -236,112 +431,12 @@ void WaveformTransportComponent::paint(juce::Graphics& g)
         g.drawLine(playheadX, trackBounds.getY() + 3.0f, playheadX, trackBounds.getBottom() - 3.0f, 2.0f);
         g.setColour(juce::Colours::white);
         g.fillEllipse(playheadX - 6.0f, trackBounds.getCentreY() - 6.0f, 12.0f, 12.0f);
-
-        // 2. Draw Slices Section
-        sliceBadgeBounds.clear();
-        if (sliceRatios.empty())
-        {
-            g.setColour(OpenWavLookAndFeel::bgDark);
-            g.fillRoundedRectangle(slicesBounds.toFloat(), 4.0f);
-            g.setColour(OpenWavLookAndFeel::borderColour);
-            g.drawRoundedRectangle(slicesBounds.toFloat(), 4.0f, 1.0f);
-
-            g.setFont(juce::Font(11.0f));
-            g.setColour(OpenWavLookAndFeel::textSecondary);
-            g.drawText("No slices. Click the 'Slice' button to automatically chop this sample.", slicesBounds, juce::Justification::centred, true);
-        }
-        else
-        {
-            int numSlices = static_cast<int>(sliceRatios.size());
-            float cardGap = 6.0f;
-            float totalSlicesWidth = slicesBounds.getWidth();
-            float cardWidth = std::min(110.0f, (totalSlicesWidth - (numSlices - 1) * cardGap) / numSlices);
-            cardWidth = std::max(60.0f, cardWidth);
-
-            for (int i = 0; i < numSlices; ++i)
-            {
-                float cardX = slicesBounds.getX() + i * (cardWidth + cardGap);
-                juce::Rectangle<float> cardRect(cardX, slicesBounds.getY(), cardWidth, slicesBounds.getHeight());
-                sliceBadgeBounds.push_back(cardRect);
-
-                // Draw card background
-                g.setColour(OpenWavLookAndFeel::bgDark);
-                g.fillRoundedRectangle(cardRect, 4.0f);
-
-                double startR = sliceRatios[i];
-                double endR = (i + 1 < numSlices) ? sliceRatios[i + 1] : 1.0;
-
-                double currentStart = audioEngine.getSampleStartRatio();
-                double currentEnd = audioEngine.getSampleEndRatio();
-                bool isSelectedSlice = (std::abs(currentStart - startR) < 0.001 && std::abs(currentEnd - endR) < 0.001);
-
-                if (isSelectedSlice)
-                {
-                    g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.2f));
-                    g.fillRoundedRectangle(cardRect, 4.0f);
-                    g.setColour(OpenWavLookAndFeel::accentCyan);
-                    g.drawRoundedRectangle(cardRect, 4.0f, 1.5f);
-                }
-                else
-                {
-                    g.setColour(OpenWavLookAndFeel::borderColour);
-                    g.drawRoundedRectangle(cardRect, 4.0f, 1.0f);
-                }
-
-                // Draw a mini waveform inside the card
-                auto miniWaveformRect = cardRect.reduced(6.0f, 4.0f);
-                auto labelRect = miniWaveformRect.removeFromBottom(16.0f);
-                miniWaveformRect.removeFromBottom(2.0f); // spacing
-
-                g.setColour(OpenWavLookAndFeel::bgHeader);
-                g.fillRoundedRectangle(miniWaveformRect, 2.0f);
-
-                if (totalDurationSecs > 0.0)
-                {
-                    float miniWidth = miniWaveformRect.getWidth();
-                    int numMiniBars = std::max(5, static_cast<int>(miniWidth / 3.0f));
-                    float miniStep = miniWidth / numMiniBars;
-                    float miniCenterY = miniWaveformRect.getCentreY();
-                    float miniHalfH = (miniWaveformRect.getHeight() - 2.0f) * 0.5f;
-
-                    g.setColour(isSelectedSlice ? OpenWavLookAndFeel::accentCyan : OpenWavLookAndFeel::textSecondary.withAlpha(0.7f));
-                    for (int b = 0; b < numMiniBars; ++b)
-                    {
-                        double bStart = startR + (static_cast<double>(b) / numMiniBars) * (endR - startR);
-                        double bEnd = startR + (static_cast<double>(b + 1) / numMiniBars) * (endR - startR);
-
-                        float lMin = 0.0f, lMax = 0.0f;
-                        audioEngine.getMinMaxForTimeRange(bStart * totalDurationSecs, bEnd * totalDurationSecs, lMin, lMax, 0);
-
-                        float peak = std::max(std::abs(lMin), std::abs(lMax));
-                        float barH = std::max(1.0f, std::pow(peak, 0.5f) * miniHalfH);
-
-                        g.fillRect(miniWaveformRect.getX() + b * miniStep + 0.5f, miniCenterY - barH, miniStep - 0.5f, barH * 2.0f);
-                    }
-                }
-
-                // Draw Slice Label and Drag indicator
-                g.setFont(juce::Font(10.0f).boldened());
-                g.setColour(OpenWavLookAndFeel::textPrimary);
-                g.drawText("S" + juce::String(i + 1), labelRect.removeFromLeft(20.0f), juce::Justification::centredLeft, true);
-
-                g.setFont(juce::Font(9.0f));
-                g.setColour(OpenWavLookAndFeel::textSecondary);
-                g.drawText("DRAG", labelRect, juce::Justification::centredRight, true);
-            }
-        }
     }
     else
     {
         g.setFont(juce::Font(13.0f));
         g.setColour(OpenWavLookAndFeel::textSecondary);
         g.drawText("Select a sample to preview playback", trackBounds, juce::Justification::centred, true);
-
-        // Draw empty slices bounds anyway
-        g.setColour(OpenWavLookAndFeel::bgDark);
-        g.fillRoundedRectangle(slicesBounds.toFloat(), 4.0f);
-        g.setColour(OpenWavLookAndFeel::borderColour);
-        g.drawRoundedRectangle(slicesBounds.toFloat(), 4.0f, 1.0f);
     }
 }
 
@@ -371,32 +466,19 @@ void WaveformTransportComponent::resized()
     topRow.removeFromRight(10);
 
     volumeSlider.setBounds(topRow.removeFromRight(100).withHeight(28));
+
+    area.removeFromTop(8); // Spacing gap
+    auto slicesBounds = area.removeFromBottom(92);
+    slicesViewport.setBounds(slicesBounds);
+
+    int vpHeight = slicesBounds.getHeight() - slicesViewport.getScrollBarThickness();
+    slicesGrid.updateSlices(sliceRatios, totalDurationSecs, slicesViewport.getWidth(), vpHeight);
 }
 
 void WaveformTransportComponent::mouseDown(const juce::MouseEvent& e)
 {
     if (totalDurationSecs <= 0.0)
         return;
-
-    // Check if clicked on a slice badge first
-    for (size_t i = 0; i < sliceBadgeBounds.size(); ++i)
-    {
-        if (sliceBadgeBounds[i].contains(e.position.x, e.position.y))
-        {
-            // Set selection range to this slice and trigger playback
-            double startR = sliceRatios[i];
-            double endR = (i + 1 < sliceRatios.size()) ? sliceRatios[i + 1] : 1.0;
-            audioEngine.setSampleRange(startR, endR);
-            audioEngine.setPositionRatio(startR);
-            if (!audioEngine.isPlaying())
-                audioEngine.play();
-
-            dragMode = DragMode::None;
-            clickedSliceIndex = static_cast<int>(i);
-            repaint();
-            return;
-        }
-    }
 
     auto area = getLocalBounds().reduced(12, 8);
     area.removeFromTop(32);
@@ -431,7 +513,6 @@ void WaveformTransportComponent::mouseDown(const juce::MouseEvent& e)
         dragStartRatio = currentRatio;
         audioEngine.setSampleRange(currentRatio, currentRatio);
     }
-    clickedSliceIndex = -1;
     repaint();
 }
 
@@ -439,14 +520,6 @@ void WaveformTransportComponent::mouseDrag(const juce::MouseEvent& e)
 {
     if (totalDurationSecs <= 0.0)
         return;
-
-    if (clickedSliceIndex >= 0 && e.mouseWasDraggedSinceMouseDown())
-    {
-        int sliceIdx = clickedSliceIndex;
-        clickedSliceIndex = -1; // Reset to prevent multiple triggerings
-        exportAndDragSlice(sliceIdx);
-        return;
-    }
 
     if (dragMode == DragMode::None)
         return;
@@ -481,8 +554,6 @@ void WaveformTransportComponent::mouseDrag(const juce::MouseEvent& e)
 
 void WaveformTransportComponent::mouseUp(const juce::MouseEvent& /*e*/)
 {
-    clickedSliceIndex = -1;
-
     if (dragMode == DragMode::SelectingRange)
     {
         double startRatio = audioEngine.getSampleStartRatio();
@@ -571,8 +642,8 @@ void WaveformTransportComponent::sampleLoaded(const juce::String& filePath)
     totalDurationSecs = audioEngine.getTotalLengthSeconds();
     currentPositionSecs = 0.0;
     sliceRatios.clear();
-    sliceBadgeBounds.clear();
-    clickedSliceIndex = -1;
+    int vpHeight = slicesViewport.getHeight() - slicesViewport.getScrollBarThickness();
+    slicesGrid.updateSlices(sliceRatios, totalDurationSecs, slicesViewport.getWidth(), vpHeight);
     repaint();
 }
 
@@ -598,6 +669,8 @@ void WaveformTransportComponent::runAutoSlice()
     int numSamples = buffer.getNumSamples();
     if (numSamples <= 0 || numChannels <= 0)
     {
+        int vpHeight = slicesViewport.getHeight() - slicesViewport.getScrollBarThickness();
+        slicesGrid.updateSlices(sliceRatios, totalDurationSecs, slicesViewport.getWidth(), vpHeight);
         repaint();
         return;
     }
@@ -659,6 +732,8 @@ void WaveformTransportComponent::runAutoSlice()
     std::sort(sliceRatios.begin(), sliceRatios.end());
     sliceRatios.erase(std::unique(sliceRatios.begin(), sliceRatios.end()), sliceRatios.end());
 
+    int vpHeight = slicesViewport.getHeight() - slicesViewport.getScrollBarThickness();
+    slicesGrid.updateSlices(sliceRatios, totalDurationSecs, slicesViewport.getWidth(), vpHeight);
     repaint();
 }
 

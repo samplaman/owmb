@@ -10,6 +10,27 @@
 namespace openwav
 {
 
+class SlicesGridComponent : public juce::Component
+{
+public:
+    SlicesGridComponent(AudioEngine& engine, std::function<void(int)> onSliceDragged);
+    ~SlicesGridComponent() override = default;
+
+    void paint(juce::Graphics& g) override;
+    void mouseDown(const juce::MouseEvent& e) override;
+    void mouseDrag(const juce::MouseEvent& e) override;
+
+    void updateSlices(const std::vector<double>& ratios, double duration, int viewportWidth, int viewportHeight);
+
+private:
+    AudioEngine& audioEngine;
+    std::function<void(int)> onSliceDragged;
+    std::vector<double> sliceRatios;
+    std::vector<juce::Rectangle<float>> sliceBadgeBounds;
+    int clickedSliceIndex { -1 };
+    double totalDurationSecs { 0.0 };
+};
+
 class WaveformTransportComponent : public juce::Component,
                                     public juce::ChangeListener,
                                     public AudioEngineListener,
@@ -55,8 +76,6 @@ private:
     juce::TextButton autoSliceButton { "Slice" };
 
     std::vector<double> sliceRatios;
-    std::vector<juce::Rectangle<float>> sliceBadgeBounds;
-    int clickedSliceIndex { -1 };
 
     juce::Slider volumeSlider;
     juce::Label timeLabel;
@@ -74,6 +93,10 @@ private:
     };
     DragMode dragMode { DragMode::None };
     double dragStartRatio { 0.0 };
+
+    // Slices Scrollable Grid
+    juce::Viewport slicesViewport;
+    SlicesGridComponent slicesGrid;
 };
 
 } // namespace openwav
