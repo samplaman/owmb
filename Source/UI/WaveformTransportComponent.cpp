@@ -92,22 +92,79 @@ void WaveformTransportComponent::paint(juce::Graphics& g)
 
     if (totalDurationSecs > 0.0)
     {
-        float progressRatio = juce::jlimit(0.0f, 1.0f, static_cast<float>(currentPositionSecs / totalDurationSecs));
-        auto progressRect = trackBounds.reduced(2.0f);
-        float progressWidth = progressRect.getWidth() * progressRatio;
+        auto waveformRect = trackBounds.reduced(8.0f, 4.0f);
+        float totalWidth = waveformRect.getWidth();
+        float barWidth = 3.0f;
+        float gap = 2.0f;
+        float step = barWidth + gap;
+        int numBars = std::max(1, static_cast<int>(totalWidth / step));
+        float startX = waveformRect.getX() + (totalWidth - (numBars * step - gap)) * 0.5f;
 
-        // Fill played progress bar
-        if (progressWidth > 0.0f)
+        float progressRatio = juce::jlimit(0.0f, 1.0f, static_cast<float>(currentPositionSecs / totalDurationSecs));
+        float playheadX = waveformRect.getX() + totalWidth * progressRatio;
+
+        auto& thumbnail = audioEngine.getThumbnail();
+        int numChannels = thumbnail.getNumChannels();
+        float halfHeight = (waveformRect.getHeight() - 4.0f) * 0.5f;
+
+        for (int i = 0; i < numBars; ++i)
         {
-            auto fillBounds = progressRect.withWidth(progressWidth);
-            g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.35f));
-            g.fillRoundedRectangle(fillBounds, 4.0f);
+            double startTime = (static_cast<double>(i) / static_cast<double>(numBars)) * totalDurationSecs;
+            double endTime = (static_cast<double>(i + 1) / static_cast<double>(numBars)) * totalDurationSecs;
+
+            float minVal = 0.0f;
+            float maxVal = 0.0f;
+
+            audioEngine.getMinMaxForTimeRange(startTime, endTime, minVal, maxVal);
+
+            if (minVal == 0.0f && maxVal == 0.0f && numChannels > 0)
+            {
+                for (int ch = 0; ch < numChannels; ++ch)
+                {
+                    float chMin = 0.0f, chMax = 0.0f;
+                    thumbnail.getApproximateMinMax(startTime, endTime, ch, chMin, chMax);
+                    if (chMin < minVal) minVal = chMin;
+                    if (chMax > maxVal) maxVal = chMax;
+                }
+            }
+
+            // Apply dynamic range curve so waveform contours and amplitude variations are vividly clear
+            float peak = std::max(std::abs(minVal), std::abs(maxVal));
+            if (peak > 0.0001f)
+            {
+                float boost = std::pow(peak, 0.65f) / peak;
+                minVal *= boost;
+                maxVal *= boost;
+            }
+            else
+            {
+                minVal = -0.05f;
+                maxVal = 0.05f;
+            }
+
+            minVal = juce::jlimit(-1.0f, 0.0f, minVal);
+            maxVal = juce::jlimit(0.0f, 1.0f, maxVal);
+
+            float topY = waveformRect.getCentreY() - maxVal * halfHeight;
+            float bottomY = waveformRect.getCentreY() - minVal * halfHeight;
+            float barHeight = std::max(3.0f, bottomY - topY);
+            float y = topY;
+
+            float x = startX + i * step;
+            juce::Rectangle<float> barRect(x, y, barWidth, barHeight);
+
+            bool isPlayed = (x + barWidth <= playheadX);
+            if (isPlayed)
+                g.setColour(OpenWavLookAndFeel::accentCyan);
+            else
+                g.setColour(OpenWavLookAndFeel::textSecondary.withAlpha(0.40f));
+
+            g.fillRoundedRectangle(barRect, 1.5f);
         }
 
         // Draw Scrubber Line & Playhead Knob
-        float playheadX = progressRect.getX() + progressWidth;
         g.setColour(OpenWavLookAndFeel::accentCyan);
-        g.drawLine(playheadX, trackBounds.getY() + 4.0f, playheadX, trackBounds.getBottom() - 4.0f, 2.5f);
+        g.drawLine(playheadX, trackBounds.getY() + 3.0f, playheadX, trackBounds.getBottom() - 3.0f, 2.0f);
         g.setColour(juce::Colours::white);
         g.fillEllipse(playheadX - 5.0f, trackBounds.getCentreY() - 5.0f, 10.0f, 10.0f);
     }

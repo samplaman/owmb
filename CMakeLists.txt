@@ -41,6 +41,14 @@ juce_add_plugin(OpenWav
     COPY_PLUGIN_AFTER_BUILD FALSE
     FORMATS VST3 Standalone
     PRODUCT_NAME "OWMB"
+    ICON_BIG owmbico.png
+    ICON_SMALL owmbico.png
+)
+
+juce_add_binary_data(OpenWavAssets
+    SOURCES
+        owmblogo.png
+        owmbico.png
 )
 
 target_sources(OpenWav PRIVATE
@@ -80,6 +88,7 @@ target_compile_definitions(OpenWav PRIVATE
 )
 
 target_link_libraries(OpenWav PRIVATE
+    OpenWavAssets
     juce::juce_audio_basics
     juce::juce_audio_devices
     juce::juce_audio_formats

@@ -9,6 +9,29 @@ TagPanelComponent::TagPanelComponent(TagDatabaseManager& db)
 {
     dbManager.addListener(this);
 
+    // Section Headers styling
+    auto setupSectionHeader = [](juce::Label& lbl) {
+        lbl.setFont(juce::Font(10.0f).boldened());
+        lbl.setColour(juce::Label::textColourId, OpenWavLookAndFeel::accentCyan);
+    };
+
+    setupSectionHeader(filterHeaderLabel);
+    setupSectionHeader(tagsHeaderLabel);
+    setupSectionHeader(foldersHeaderLabel);
+
+    addAndMakeVisible(filterHeaderLabel);
+    addAndMakeVisible(tagsHeaderLabel);
+    addAndMakeVisible(foldersHeaderLabel);
+
+    // Viewports setup
+    tagViewport.setViewedComponent(&tagCloudContainer, false);
+    tagViewport.setScrollBarsShown(true, false);
+    addAndMakeVisible(tagViewport);
+
+    folderViewport.setViewedComponent(&folderListContainer, false);
+    folderViewport.setScrollBarsShown(true, false);
+    addAndMakeVisible(folderViewport);
+
     // Favorites filter button
     favoritesButton.onClick = [this] {
         favoritesOnly = !favoritesOnly;
@@ -16,13 +39,6 @@ TagPanelComponent::TagPanelComponent(TagDatabaseManager& db)
         notifySelectionChanged();
     };
     addAndMakeVisible(favoritesButton);
-
-    // Match mode toggle (AND / OR)
-    matchModeToggle.onClick = [this] {
-        matchAll = matchModeToggle.getToggleState();
-        notifySelectionChanged();
-    };
-    addAndMakeVisible(matchModeToggle);
 
     // Clear filters button
     clearFiltersButton.onClick = [this] {
@@ -36,6 +52,13 @@ TagPanelComponent::TagPanelComponent(TagDatabaseManager& db)
         notifySelectionChanged();
     };
     addAndMakeVisible(clearFiltersButton);
+
+    // Match mode toggle (AND / OR)
+    matchModeToggle.onClick = [this] {
+        matchAll = matchModeToggle.getToggleState();
+        notifySelectionChanged();
+    };
+    addAndMakeVisible(matchModeToggle);
 
     // Add Custom Tag button
     addCustomTagButton.onClick = [this] {
@@ -63,8 +86,8 @@ TagPanelComponent::TagPanelComponent(TagDatabaseManager& db)
     addAndMakeVisible(addCustomTagButton);
 
     // Reset All Data button
-    resetAllButton.setColour(juce::TextButton::buttonColourId, OpenWavLookAndFeel::favoriteRed.withAlpha(0.2f));
-    resetAllButton.setColour(juce::TextButton::textColourOffId, OpenWavLookAndFeel::favoriteRed.brighter(0.5f));
+    resetAllButton.setColour(juce::TextButton::buttonColourId, OpenWavLookAndFeel::favoriteRed.withAlpha(0.15f));
+    resetAllButton.setColour(juce::TextButton::textColourOffId, OpenWavLookAndFeel::favoriteRed.brighter(0.4f));
     resetAllButton.onClick = [this] {
         juce::AlertWindow::showAsync(
             juce::MessageBoxOptions()
@@ -85,11 +108,6 @@ TagPanelComponent::TagPanelComponent(TagDatabaseManager& db)
     };
     addAndMakeVisible(resetAllButton);
 
-    // Folders Header
-    foldersHeaderLabel.setFont(juce::Font(11.0f).boldened());
-    foldersHeaderLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::accentCyan);
-    addAndMakeVisible(foldersHeaderLabel);
-
     refreshTags();
     refreshFolders();
 }
@@ -109,8 +127,11 @@ void TagPanelComponent::paint(juce::Graphics& g)
 void TagPanelComponent::refreshTags()
 {
     tagButtons.clear();
+    tagCloudContainer.removeAllChildren();
 
     auto freqs = dbManager.getTagFrequencies();
+    tagsHeaderLabel.setText("TAGS (" + juce::String(freqs.size()) + ")", juce::dontSendNotification);
+
     std::vector<std::pair<juce::String, int>> sortedTags(freqs.begin(), freqs.end());
 
     std::sort(sortedTags.begin(), sortedTags.end(), [](const auto& a, const auto& b) {
@@ -137,7 +158,7 @@ void TagPanelComponent::refreshTags()
         };
 
         tagButtons.add(btn);
-        addAndMakeVisible(btn);
+        tagCloudContainer.addAndMakeVisible(btn);
     }
 
     resized();
@@ -148,6 +169,7 @@ void TagPanelComponent::refreshFolders()
 {
     folderLabels.clear();
     folderRemoveButtons.clear();
+    folderListContainer.removeAllChildren();
 
     auto folders = dbManager.getScanFolders();
     foldersHeaderLabel.setText("SCANNED FOLDERS (" + juce::String(folders.size()) + ")", juce::dontSendNotification);
@@ -158,12 +180,12 @@ void TagPanelComponent::refreshFolders()
         juce::String displayName = f.getFileName();
         if (displayName.isEmpty()) displayName = folderPath;
 
-        auto* lbl = new juce::Label({}, "Folder: " + displayName);
+        auto* lbl = new juce::Label({}, displayName);
         lbl->setFont(juce::Font(11.0f).boldened());
         lbl->setColour(juce::Label::textColourId, OpenWavLookAndFeel::textPrimary);
         lbl->setTooltip(folderPath);
         folderLabels.add(lbl);
-        addAndMakeVisible(lbl);
+        folderListContainer.addAndMakeVisible(lbl);
 
         auto* removeBtn = new juce::TextButton("X");
         removeBtn->setTooltip("Remove folder: " + folderPath);
@@ -171,7 +193,7 @@ void TagPanelComponent::refreshFolders()
             dbManager.removeScanFolder(folderPath);
         };
         folderRemoveButtons.add(removeBtn);
-        addAndMakeVisible(removeBtn);
+        folderListContainer.addAndMakeVisible(removeBtn);
     }
 
     resized();
@@ -180,69 +202,80 @@ void TagPanelComponent::refreshFolders()
 
 void TagPanelComponent::resized()
 {
-    auto area = getLocalBounds().reduced(8, 8);
+    auto area = getLocalBounds().reduced(10, 10);
 
     // Bottom-most Reset All Data button
-    resetAllButton.setBounds(area.removeFromBottom(28));
+    resetAllButton.setBounds(area.removeFromBottom(26));
     area.removeFromBottom(8);
 
-    // Top control bar
-    favoritesButton.setBounds(area.removeFromTop(28));
+    // Quick Filters Section Header
+    filterHeaderLabel.setBounds(area.removeFromTop(16));
+    area.removeFromTop(4);
+
+    // Quick Filters Row (Favorites + Clear)
+    auto filterRow = area.removeFromTop(26);
+    favoritesButton.setBounds(filterRow.removeFromLeft(filterRow.getWidth() / 2 - 2));
+    clearFiltersButton.setBounds(filterRow);
     area.removeFromTop(6);
 
-    matchModeToggle.setBounds(area.removeFromTop(22));
+    matchModeToggle.setBounds(area.removeFromTop(20));
     area.removeFromTop(6);
 
-    auto btnRow = area.removeFromTop(26);
-    clearFiltersButton.setBounds(btnRow.removeFromLeft(btnRow.getWidth() / 2 - 2));
-    addCustomTagButton.setBounds(btnRow.removeFromRight(btnRow.getWidth()));
-    area.removeFromTop(10);
+    addCustomTagButton.setBounds(area.removeFromTop(26));
+    area.removeFromTop(12);
 
-    // Reserve bottom portion for Scanned Folders list
-    int foldersHeight = std::max(60, folderLabels.size() * 26 + 30);
-    auto foldersArea = area.removeFromBottom(foldersHeight);
-    area.removeFromBottom(8);
+    // Scanned Folders Section (Fixed/Flexible Height at Bottom of remaining space)
+    int folderCount = folderLabels.size();
+    int targetFoldersHeight = (folderCount > 0) ? std::min(130, 20 + 4 + folderCount * 26) : 36;
+    auto foldersSection = area.removeFromBottom(targetFoldersHeight);
+    area.removeFromBottom(10);
 
-    // Tag cloud area (wrapping pills)
-    int x = area.getX();
-    int y = area.getY();
+    foldersHeaderLabel.setBounds(foldersSection.removeFromTop(18));
+    foldersSection.removeFromTop(4);
+    folderViewport.setBounds(foldersSection);
+
+    // Layout folder items inside folderListContainer
+    int fContainerWidth = std::max(100, folderViewport.getMaximumVisibleWidth());
+    int fY = 0;
+    for (int i = 0; i < folderCount; ++i)
+    {
+        auto row = juce::Rectangle<int>(0, fY, fContainerWidth, 24);
+        folderRemoveButtons[i]->setBounds(row.removeFromRight(20).withHeight(20));
+        row.removeFromRight(4);
+        folderLabels[i]->setBounds(row.withHeight(20));
+        fY += 26;
+    }
+    folderListContainer.setBounds(0, 0, fContainerWidth, std::max(1, fY));
+
+    // Tags Section (Takes remaining vertical space in middle)
+    tagsHeaderLabel.setBounds(area.removeFromTop(18));
+    area.removeFromTop(4);
+    tagViewport.setBounds(area);
+
+    // Layout tag pills inside tagCloudContainer
+    int viewportWidth = std::max(100, tagViewport.getMaximumVisibleWidth());
+    int x = 0;
+    int y = 0;
     int pillHeight = 24;
+    int gap = 6;
 
     for (auto* btn : tagButtons)
     {
         int fontWidth = juce::Font(11.0f).getStringWidth(btn->getButtonText());
         int btnWidth = fontWidth + 18;
 
-        if (x + btnWidth > area.getRight() && x > area.getX())
+        if (x + btnWidth > viewportWidth && x > 0)
         {
-            x = area.getX();
-            y += pillHeight + 6;
+            x = 0;
+            y += pillHeight + gap;
         }
 
-        if (y + pillHeight <= area.getBottom())
-        {
-            btn->setBounds(x, y, btnWidth, pillHeight);
-            btn->setVisible(true);
-        }
-        else
-        {
-            btn->setVisible(false);
-        }
-
-        x += btnWidth + 6;
+        btn->setBounds(x, y, btnWidth, pillHeight);
+        x += btnWidth + gap;
     }
 
-    // Scanned Folders area layout
-    foldersHeaderLabel.setBounds(foldersArea.removeFromTop(20));
-    foldersArea.removeFromTop(4);
-
-    for (int i = 0; i < folderLabels.size(); ++i)
-    {
-        auto row = foldersArea.removeFromTop(24);
-        folderRemoveButtons[i]->setBounds(row.removeFromRight(22).withHeight(20));
-        row.removeFromRight(4);
-        folderLabels[i]->setBounds(row.withHeight(20));
-    }
+    int totalTagHeight = (tagButtons.size() > 0) ? (y + pillHeight) : 0;
+    tagCloudContainer.setBounds(0, 0, viewportWidth, std::max(1, totalTagHeight));
 }
 
 void TagPanelComponent::notifySelectionChanged()

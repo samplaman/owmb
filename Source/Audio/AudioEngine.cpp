@@ -102,6 +102,7 @@ bool AudioEngine::loadFile(const juce::File& audioFile, bool autoPlay)
         return false;
 
     currentFile = audioFile;
+    thumbnail.setSource(new juce::FileInputSource(audioFile));
     auto loadId = ++currentLoadId;
 
     std::thread([this, audioFile, autoPlay, loadId]() {
@@ -214,6 +215,41 @@ double AudioEngine::getTotalLengthSeconds() const
         return (v->buffer.getNumSamples() / v->ratio) / engineSampleRate;
     }
     return 0.0;
+}
+
+void AudioEngine::getMinMaxForTimeRange(double startTimeSecs, double endTimeSecs, float& minVal, float& maxVal) const
+{
+    minVal = 0.0f;
+    maxVal = 0.0f;
+
+    const juce::ScopedLock sl(voiceLock);
+    if (activeVoices.empty())
+        return;
+
+    const auto& buffer = activeVoices.back()->buffer;
+    int numSamples = buffer.getNumSamples();
+    if (numSamples <= 0)
+        return;
+
+    double sr = (engineSampleRate > 0.0) ? engineSampleRate : 44100.0;
+    double fileLengthSecs = (numSamples / activeVoices.back()->ratio) / sr;
+    if (fileLengthSecs <= 0.0)
+        return;
+
+    int startSample = juce::jlimit(0, numSamples - 1, static_cast<int>((startTimeSecs / fileLengthSecs) * numSamples));
+    int endSample = juce::jlimit(startSample + 1, numSamples, static_cast<int>((endTimeSecs / fileLengthSecs) * numSamples));
+    int numToRead = endSample - startSample;
+
+    if (numToRead <= 0)
+        return;
+
+    int numChannels = buffer.getNumChannels();
+    for (int ch = 0; ch < numChannels; ++ch)
+    {
+        auto range = buffer.findMinMax(ch, startSample, numToRead);
+        if (range.getStart() < minVal) minVal = range.getStart();
+        if (range.getEnd() > maxVal) maxVal = range.getEnd();
+    }
 }
 
 void AudioEngine::changeListenerCallback(juce::ChangeBroadcaster* /*source*/)

@@ -46,17 +46,24 @@ private:
 
     TagDatabaseManager& dbManager;
 
+    juce::Label filterHeaderLabel { {}, "QUICK FILTERS" };
     juce::TextButton favoritesButton { "Favorites" };
-    juce::ToggleButton matchModeToggle { "Match All Tags (AND)" };
     juce::TextButton clearFiltersButton { "Clear Tags" };
+    juce::ToggleButton matchModeToggle { "Match All Tags (AND)" };
     juce::TextButton addCustomTagButton { "+ Add Custom Tag..." };
-    juce::TextButton resetAllButton { "Reset All Data" };
+
+    juce::Label tagsHeaderLabel { {}, "TAGS" };
+    juce::Viewport tagViewport;
+    juce::Component tagCloudContainer;
+    juce::OwnedArray<juce::TextButton> tagButtons;
 
     juce::Label foldersHeaderLabel { {}, "SCANNED FOLDERS" };
+    juce::Viewport folderViewport;
+    juce::Component folderListContainer;
     juce::OwnedArray<juce::Label> folderLabels;
     juce::OwnedArray<juce::TextButton> folderRemoveButtons;
 
-    juce::OwnedArray<juce::TextButton> tagButtons;
+    juce::TextButton resetAllButton { "Reset All Data" };
     std::set<juce::String> selectedTags;
 
     bool favoritesOnly { false };

@@ -9,11 +9,33 @@ HeaderBarComponent::HeaderBarComponent(TagDatabaseManager& db, LibraryScanner& s
 {
     libraryScanner.addListener(this);
 
-    // Title
-    titleLabel.setFont(juce::Font(18.0f).boldened());
-    titleLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::accentCyan);
-    titleLabel.setJustificationType(juce::Justification::centred);
-    addAndMakeVisible(titleLabel);
+    // Title & Logo
+    juce::Image logoImage;
+#if defined(JUCE_BINARYDATA_H_INCLUDED) || __has_include(<JuceHeader.h>)
+    logoImage = juce::ImageFileFormat::loadFrom(BinaryData::owmblogo_png, static_cast<size_t>(BinaryData::owmblogo_pngSize));
+#endif
+
+    if (logoImage.isNull())
+    {
+        juce::File logoFile = juce::File::getCurrentWorkingDirectory().getChildFile("owmblogo.png");
+        if (!logoFile.existsAsFile())
+            logoFile = juce::File::getSpecialLocation(juce::File::currentExecutableFile).getParentDirectory().getChildFile("owmblogo.png");
+        if (logoFile.existsAsFile())
+            logoImage = juce::ImageFileFormat::loadFrom(logoFile);
+    }
+
+    if (!logoImage.isNull())
+    {
+        logoComponent.setImage(logoImage, juce::RectanglePlacement::xLeft | juce::RectanglePlacement::yMid | juce::RectanglePlacement::onlyReduceInSize);
+        addAndMakeVisible(logoComponent);
+    }
+    else
+    {
+        titleLabel.setFont(juce::Font(18.0f).boldened());
+        titleLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::accentCyan);
+        titleLabel.setJustificationType(juce::Justification::centred);
+        addAndMakeVisible(titleLabel);
+    }
 
     // Search Editor
     searchEditor.setJustification(juce::Justification::centred);
@@ -82,7 +104,14 @@ void HeaderBarComponent::resized()
 {
     auto area = getLocalBounds().reduced(12, 10);
 
-    titleLabel.setBounds(area.removeFromLeft(90));
+    if (logoComponent.isVisible())
+    {
+        logoComponent.setBounds(area.removeFromLeft(150));
+    }
+    else
+    {
+        titleLabel.setBounds(area.removeFromLeft(90));
+    }
     area.removeFromLeft(10);
 
     searchEditor.setBounds(area.removeFromLeft(220).withHeight(32));

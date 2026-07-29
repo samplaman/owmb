@@ -55,6 +55,8 @@ public:
     float getGain() const { return gainLevel; }
     void setGain(float newGain);
 
+    void getMinMaxForTimeRange(double startTimeSecs, double endTimeSecs, float& minVal, float& maxVal) const;
+
     bool getAutoPlay() const { return autoPlayOnSelect; }
     void setAutoPlay(bool enabled) { autoPlayOnSelect = enabled; }
 

@@ -55,6 +55,7 @@ private:
     TagDatabaseManager& dbManager;
     LibraryScanner& libraryScanner;
 
+    juce::ImageComponent logoComponent;
     juce::Label titleLabel { {}, "OWMB" };
     juce::TextEditor searchEditor;
     juce::TextButton addFolderButton { "+ Add Folder" };
