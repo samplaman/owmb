@@ -41,14 +41,14 @@ juce_add_plugin(OpenWav
     COPY_PLUGIN_AFTER_BUILD FALSE
     FORMATS VST3 Standalone
     PRODUCT_NAME "OWMB"
-    ICON_BIG owmbico.png
-    ICON_SMALL owmbico.png
+    ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/owmbico.png"
+    ICON_SMALL "${CMAKE_CURRENT_SOURCE_DIR}/owmbico.png"
 )
 
 juce_add_binary_data(OpenWavAssets
     SOURCES
-        owmblogo.png
-        owmbico.png
+        "${CMAKE_CURRENT_SOURCE_DIR}/owmblogo.png"
+        "${CMAKE_CURRENT_SOURCE_DIR}/owmbico.png"
 )
 
 target_sources(OpenWav PRIVATE
