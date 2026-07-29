@@ -65,6 +65,10 @@ void SampleTableComponent::updateFilter(const juce::String& searchKeyword,
 
     table.updateContent();
     table.repaint();
+
+    listeners.call([this](SampleTableListener& l) {
+        l.displayedItemsChanged(displayedItems);
+    });
 }
 
 int SampleTableComponent::getNumRows()

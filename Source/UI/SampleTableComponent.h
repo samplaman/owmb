@@ -18,6 +18,7 @@ public:
     virtual ~SampleTableListener() = default;
     virtual void sampleSelected(const MediaItem& item) = 0;
     virtual void sampleDoubleClicked(const MediaItem& item) = 0;
+    virtual void displayedItemsChanged(const std::vector<MediaItem>& /*items*/) {}
 };
 
 class SampleTableComponent : public juce::Component,

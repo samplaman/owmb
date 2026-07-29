@@ -43,6 +43,7 @@ public:
     // SampleTableListener Callbacks
     void sampleSelected(const MediaItem& item) override;
     void sampleDoubleClicked(const MediaItem& item) override;
+    void displayedItemsChanged(const std::vector<MediaItem>& items) override;
 
     // SampleCloudListener Callbacks
     void cloudSampleSelected(const MediaItem& item) override;

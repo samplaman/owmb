@@ -126,6 +126,11 @@ void OpenWavAudioProcessorEditor::sampleDoubleClicked(const MediaItem& /*item*/)
 {
 }
 
+void OpenWavAudioProcessorEditor::displayedItemsChanged(const std::vector<MediaItem>& items)
+{
+    sampleCloud.setItems(items);
+}
+
 bool OpenWavAudioProcessorEditor::isInterestedInFileDrag(const juce::StringArray& files)
 {
     for (const auto& f : files)
