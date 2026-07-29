@@ -3,25 +3,25 @@
 namespace openwav {
 
 const juce::Colour OpenWavLookAndFeel::bgDark =
-    juce::Colour::fromRGB(244, 246, 250);
+    juce::Colour::fromRGB(240, 240, 240);
 const juce::Colour OpenWavLookAndFeel::bgHeader =
     juce::Colour::fromRGB(255, 255, 255);
 const juce::Colour OpenWavLookAndFeel::bgCard =
     juce::Colour::fromRGB(255, 255, 255);
 const juce::Colour OpenWavLookAndFeel::bgHover =
-    juce::Colour::fromRGB(224, 230, 242);
+    juce::Colour::fromRGB(225, 225, 225);
 const juce::Colour OpenWavLookAndFeel::accentCyan =
-    juce::Colour::fromRGB(0, 140, 210);
+    juce::Colour::fromRGB(60, 60, 60);
 const juce::Colour OpenWavLookAndFeel::accentBlue =
-    juce::Colour::fromRGB(30, 90, 220);
+    juce::Colour::fromRGB(110, 110, 110);
 const juce::Colour OpenWavLookAndFeel::textPrimary =
-    juce::Colour::fromRGB(20, 24, 33);
+    juce::Colour::fromRGB(30, 30, 30);
 const juce::Colour OpenWavLookAndFeel::textSecondary =
-    juce::Colour::fromRGB(95, 110, 130);
+    juce::Colour::fromRGB(100, 100, 100);
 const juce::Colour OpenWavLookAndFeel::borderColour =
-    juce::Colour::fromRGB(210, 218, 230);
+    juce::Colour::fromRGB(215, 215, 215);
 const juce::Colour OpenWavLookAndFeel::favoriteRed =
-    juce::Colour::fromRGB(235, 45, 85);
+    juce::Colour::fromRGB(120, 120, 120);
 
 OpenWavLookAndFeel::OpenWavLookAndFeel() {
   setColour(juce::ResizableWindow::backgroundColourId, bgDark);
