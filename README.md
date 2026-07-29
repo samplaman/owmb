@@ -2,8 +2,8 @@
 
 **OWMB** (OpenWav Media Browser) is an open-source, high-performance audio plugin (VST3, Standalone) and sample library management system built with JUCE 8 and C++17. Designed for music producers, sound designers, and sample collectors, **OWMB** features an interactive **2D Sample Cloud Constellation Visualizer**, multi-tag filtering, ultra-fast asynchronous WAV scanning, and direct DAW drag-and-drop integration.
 
-![OWMB 2D Sample Cloud Preview](docs/owmb_cloud_preview.png)
-
+![OWMB 2D Sample Cloud Preview](docs/ss1.png)
+![OWMB 2D Sample Cloud Preview](docs/ss2.png)
 ---
 
 ## Key Features
