@@ -429,6 +429,19 @@ static void extractFileObj(const juce::var& itemVar, std::vector<PixeldrainFile>
     outFiles.push_back(f);
 }
 
+static juce::URL::InputStreamOptions makeHttpOptions(const juce::String& authHeader = {}, int timeoutMs = 10000)
+{
+    auto opts = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+                    .withConnectionTimeoutMs(timeoutMs)
+                    .withNumRedirectsToFollow(5);
+
+    juce::String extraHeaders = "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) OpenWav/1.0\r\nAccept: application/json";
+    if (authHeader.isNotEmpty())
+        extraHeaders += "\r\n" + authHeader;
+
+    return opts.withExtraHeaders(extraHeaders);
+}
+
 static void extractFilesFromFilesystemNode(const juce::var& nodeVar, std::vector<PixeldrainFile>& outFiles, const juce::String& authHeader)
 {
     if (!nodeVar.isObject()) return;
@@ -441,17 +454,13 @@ static void extractFilesFromFilesystemNode(const juce::var& nodeVar, std::vector
     if (isDir)
     {
         juce::String subDirId = obj->getProperty("id").toString();
+        if (subDirId.isEmpty()) subDirId = obj->getProperty("path").toString();
         if (subDirId.isEmpty()) subDirId = obj->getProperty("name").toString();
 
         if (subDirId.isNotEmpty())
         {
             juce::URL subUrl("https://pixeldrain.com/api/filesystem/" + subDirId);
-            auto makeOpts = [](const juce::String& auth, int timeoutMs) {
-                auto opts = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress).withConnectionTimeoutMs(timeoutMs);
-                return auth.isNotEmpty() ? opts.withExtraHeaders(auth) : opts;
-            };
-
-            std::unique_ptr<juce::InputStream> subStream(subUrl.createInputStream(makeOpts(authHeader, 10000)));
+            std::unique_ptr<juce::InputStream> subStream(subUrl.createInputStream(makeHttpOptions(authHeader, 10000)));
             if (subStream != nullptr)
             {
                 auto subText = subStream->readEntireStreamAsString();
@@ -629,15 +638,10 @@ void LibrariesComponent::fetchUserFiles()
         std::vector<PixeldrainFile> fetchedFiles;
         juce::String errorMsg;
 
-        auto makeOptions = [](const juce::String& auth, int timeoutMs) {
-            auto opts = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress).withConnectionTimeoutMs(timeoutMs);
-            return auth.isNotEmpty() ? opts.withExtraHeaders(auth) : opts;
-        };
-
         if (target.kind == PixeldrainTarget::Directory)
         {
             juce::URL url("https://pixeldrain.com/api/filesystem/" + target.idOrKey);
-            std::unique_ptr<juce::InputStream> stream(url.createInputStream(makeOptions("", 10000)));
+            std::unique_ptr<juce::InputStream> stream(url.createInputStream(makeHttpOptions("", 10000)));
 
             if (stream != nullptr)
             {
@@ -664,7 +668,7 @@ void LibrariesComponent::fetchUserFiles()
             if (fetchedFiles.empty())
             {
                 juce::URL listUrl("https://pixeldrain.com/api/list/" + target.idOrKey);
-                std::unique_ptr<juce::InputStream> listStream(listUrl.createInputStream(makeOptions("", 10000)));
+                std::unique_ptr<juce::InputStream> listStream(listUrl.createInputStream(makeHttpOptions("", 10000)));
                 if (listStream != nullptr)
                 {
                     auto listText = listStream->readEntireStreamAsString();
@@ -693,7 +697,7 @@ void LibrariesComponent::fetchUserFiles()
         else if (target.kind == PixeldrainTarget::SingleFile)
         {
             juce::URL url("https://pixeldrain.com/api/file/" + target.idOrKey + "/info");
-            std::unique_ptr<juce::InputStream> stream(url.createInputStream(makeOptions("", 10000)));
+            std::unique_ptr<juce::InputStream> stream(url.createInputStream(makeHttpOptions("", 10000)));
 
             if (stream != nullptr)
             {
@@ -705,7 +709,7 @@ void LibrariesComponent::fetchUserFiles()
                 if (fetchedFiles.empty())
                 {
                     juce::URL listUrl("https://pixeldrain.com/api/list/" + target.idOrKey);
-                    std::unique_ptr<juce::InputStream> listStream(listUrl.createInputStream(makeOptions("", 10000)));
+                    std::unique_ptr<juce::InputStream> listStream(listUrl.createInputStream(makeHttpOptions("", 10000)));
                     if (listStream != nullptr)
                     {
                         auto listText = listStream->readEntireStreamAsString();
@@ -730,7 +734,7 @@ void LibrariesComponent::fetchUserFiles()
                 if (fetchedFiles.empty())
                 {
                     juce::URL fsUrl("https://pixeldrain.com/api/filesystem/" + target.idOrKey);
-                    std::unique_ptr<juce::InputStream> fsStream(fsUrl.createInputStream(makeOptions("", 10000)));
+                    std::unique_ptr<juce::InputStream> fsStream(fsUrl.createInputStream(makeHttpOptions("", 10000)));
                     if (fsStream != nullptr)
                     {
                         auto fsText = fsStream->readEntireStreamAsString();
@@ -759,7 +763,7 @@ void LibrariesComponent::fetchUserFiles()
         else if (target.kind == PixeldrainTarget::List)
         {
             juce::URL url("https://pixeldrain.com/api/list/" + target.idOrKey);
-            std::unique_ptr<juce::InputStream> stream(url.createInputStream(makeOptions("", 10000)));
+            std::unique_ptr<juce::InputStream> stream(url.createInputStream(makeHttpOptions("", 10000)));
 
             if (stream != nullptr)
             {
@@ -786,7 +790,7 @@ void LibrariesComponent::fetchUserFiles()
             if (fetchedFiles.empty())
             {
                 juce::URL fsUrl("https://pixeldrain.com/api/filesystem/" + target.idOrKey);
-                std::unique_ptr<juce::InputStream> fsStream(fsUrl.createInputStream(makeOptions("", 10000)));
+                std::unique_ptr<juce::InputStream> fsStream(fsUrl.createInputStream(makeHttpOptions("", 10000)));
                 if (fsStream != nullptr)
                 {
                     auto fsText = fsStream->readEntireStreamAsString();
@@ -817,7 +821,7 @@ void LibrariesComponent::fetchUserFiles()
             juce::URL url("https://pixeldrain.com/api/user/files");
             juce::String authHeader = "Authorization: Basic " + juce::Base64::toBase64(":" + target.idOrKey);
 
-            std::unique_ptr<juce::InputStream> stream(url.createInputStream(makeOptions(authHeader, 10000)));
+            std::unique_ptr<juce::InputStream> stream(url.createInputStream(makeHttpOptions(authHeader, 10000)));
             if (stream != nullptr)
             {
                 auto responseText = stream->readEntireStreamAsString();
@@ -949,12 +953,7 @@ void LibrariesComponent::downloadFile(int displayedIndex)
             authHeader = "Authorization: Basic " + juce::Base64::toBase64(":" + target.idOrKey);
         }
 
-        auto makeOptions = [](const juce::String& auth, int timeoutMs) {
-            auto opts = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress).withConnectionTimeoutMs(timeoutMs);
-            return auth.isNotEmpty() ? opts.withExtraHeaders(auth) : opts;
-        };
-
-        std::unique_ptr<juce::InputStream> stream(url.createInputStream(makeOptions(authHeader, 15000)));
+        std::unique_ptr<juce::InputStream> stream(url.createInputStream(makeHttpOptions(authHeader, 15000)));
         bool success = false;
 
         if (stream != nullptr)
