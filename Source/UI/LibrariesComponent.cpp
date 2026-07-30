@@ -414,9 +414,9 @@ static void extractFileObj(const juce::var& itemVar, std::vector<PixeldrainFile>
     f.id = id;
     f.name = name;
     if (fileObj->hasProperty("size"))
-        f.sizeBytes = static_cast<int64_t>(fileObj->getProperty("size"));
+        f.sizeBytes = static_cast<int64_t>(static_cast<juce::int64>(fileObj->getProperty("size")));
     else if (fileObj->hasProperty("file_size"))
-        f.sizeBytes = static_cast<int64_t>(fileObj->getProperty("file_size"));
+        f.sizeBytes = static_cast<int64_t>(static_cast<juce::int64>(fileObj->getProperty("file_size")));
 
     f.dateUpload = fileObj->getProperty("date_upload").toString();
     if (f.dateUpload.isEmpty()) f.dateUpload = fileObj->getProperty("date_created").toString();
