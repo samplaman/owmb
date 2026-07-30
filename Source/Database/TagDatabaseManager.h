@@ -66,6 +66,12 @@ public:
     void removeScanFolder(const juce::String& folderPath);
     std::vector<juce::String> getScanFolders() const;
 
+    // Pixeldrain Settings Persistence
+    juce::String getPixeldrainApiKey() const;
+    void setPixeldrainApiKey(const juce::String& apiKey);
+    juce::String getDownloadFolder() const;
+    void setDownloadFolder(const juce::String& folderPath);
+
 private:
     juce::File getDatabaseFile() const;
     void notifyIndexUpdated();
@@ -74,6 +80,8 @@ private:
     mutable juce::CriticalSection lock;
     std::map<juce::String, MediaItem> itemsMap; // ID -> MediaItem
     std::set<juce::String> scanFolders;
+    juce::String pixeldrainApiKey;
+    juce::String downloadFolder;
     juce::ListenerList<TagDatabaseListener> listeners;
 };
 

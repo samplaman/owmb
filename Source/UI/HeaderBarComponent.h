@@ -11,6 +11,13 @@
 namespace openwav
 {
 
+enum class ViewMode
+{
+    List,
+    Cloud,
+    Libraries
+};
+
 class HeaderBarListener
 {
 public:
@@ -19,7 +26,7 @@ public:
     virtual void formatFilterChanged(const juce::String& extension) = 0;
     virtual void addFolderRequested() = 0;
     virtual void rescanRequested() = 0;
-    virtual void viewModeChanged(bool isCloudView) = 0;
+    virtual void viewModeChanged(ViewMode mode) = 0;
 };
 
 class HeaderBarComponent : public juce::Component,
@@ -35,7 +42,8 @@ public:
 
     juce::String getSearchText() const { return searchEditor.getText(); }
     juce::String getSelectedFormat() const { return activeFormat; }
-    bool isCloudViewActive() const { return cloudViewActive; }
+    ViewMode getCurrentViewMode() const { return currentViewMode; }
+    bool isCloudViewActive() const { return currentViewMode == ViewMode::Cloud; }
 
     void addListener(HeaderBarListener* listener);
     void removeListener(HeaderBarListener* listener);
@@ -50,7 +58,7 @@ public:
 private:
     void textEditorTextChanged(juce::TextEditor& editor) override;
     void setFormatFilter(const juce::String& ext, juce::TextButton* targetBtn);
-    void setViewMode(bool isCloud);
+    void setViewMode(ViewMode mode);
 
     TagDatabaseManager& dbManager;
     LibraryScanner& libraryScanner;
@@ -70,13 +78,14 @@ private:
 
     juce::TextButton btnListView { "List" };
     juce::TextButton btnCloudView { "Cloud" };
+    juce::TextButton btnLibrariesView { "Librarys" };
 
     juce::Label statusLabel;
     double scanProgressValue { 0.0 };
     juce::ProgressBar progressBar { scanProgressValue };
 
     juce::String activeFormat { "All" };
-    bool cloudViewActive { false };
+    ViewMode currentViewMode { ViewMode::List };
     juce::ListenerList<HeaderBarListener> listeners;
 };
 

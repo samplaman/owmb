@@ -10,6 +10,7 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(OpenWavAudioProcessor& 
       tagPanel(p.getDatabaseManager()),
       sampleTable(p.getDatabaseManager(), p.getAudioEngine()),
       sampleCloud(p.getDatabaseManager(), p.getAudioEngine()),
+      librariesComponent(p.getDatabaseManager(), p.getLibraryScanner(), p.getAudioEngine()),
       waveformTransport(p.getAudioEngine())
 {
     setLookAndFeel(&lookAndFeel);
@@ -23,6 +24,7 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(OpenWavAudioProcessor& 
     addAndMakeVisible(tagPanel);
     addAndMakeVisible(sampleTable);
     addChildComponent(sampleCloud);
+    addChildComponent(librariesComponent);
     addAndMakeVisible(waveformTransport);
 
     setResizable(true, true);
@@ -56,15 +58,26 @@ void OpenWavAudioProcessorEditor::resized()
     // Middle Split View
     tagPanel.setBounds(area.removeFromLeft(220));
 
-    if (headerBar.isCloudViewActive())
+    auto mode = headerBar.getCurrentViewMode();
+
+    if (mode == ViewMode::Cloud)
     {
         sampleTable.setVisible(false);
+        librariesComponent.setVisible(false);
         sampleCloud.setVisible(true);
         sampleCloud.setBounds(area);
     }
-    else
+    else if (mode == ViewMode::Libraries)
+    {
+        sampleTable.setVisible(false);
+        sampleCloud.setVisible(false);
+        librariesComponent.setVisible(true);
+        librariesComponent.setBounds(area);
+    }
+    else // ViewMode::List
     {
         sampleCloud.setVisible(false);
+        librariesComponent.setVisible(false);
         sampleTable.setVisible(true);
         sampleTable.setBounds(area);
     }
@@ -168,7 +181,7 @@ void OpenWavAudioProcessorEditor::filesDropped(const juce::StringArray& files, i
     }
 }
 
-void OpenWavAudioProcessorEditor::viewModeChanged(bool /*isCloudView*/)
+void OpenWavAudioProcessorEditor::viewModeChanged(ViewMode /*mode*/)
 {
     resized();
 }

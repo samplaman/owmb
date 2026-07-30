@@ -11,6 +11,7 @@
 #include "UI/TagPanelComponent.h"
 #include "UI/SampleTableComponent.h"
 #include "UI/SampleCloudComponent.h"
+#include "UI/LibrariesComponent.h"
 #include "UI/WaveformTransportComponent.h"
 
 namespace openwav
@@ -35,7 +36,7 @@ public:
     void formatFilterChanged(const juce::String& extension) override;
     void addFolderRequested() override;
     void rescanRequested() override;
-    void viewModeChanged(bool isCloudView) override;
+    void viewModeChanged(ViewMode mode) override;
 
     // TagPanelListener Callbacks
     void tagFilterSelectionChanged(const std::set<juce::String>& selectedTags, bool matchAllTags, bool favoritesOnly) override;
@@ -63,6 +64,7 @@ private:
     TagPanelComponent tagPanel;
     SampleTableComponent sampleTable;
     SampleCloudComponent sampleCloud;
+    LibrariesComponent librariesComponent;
     WaveformTransportComponent waveformTransport;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(OpenWavAudioProcessorEditor)

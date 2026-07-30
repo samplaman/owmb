@@ -1,0 +1,1041 @@
+#include "LibrariesComponent.h"
+#include "OpenWavLookAndFeel.h"
+
+namespace openwav
+{
+
+class TableActionButtonComponent : public juce::Component
+{
+public:
+    TableActionButtonComponent(std::function<void()> onDownloadClick, std::function<void()> onPlayClick)
+        : downloadAction(onDownloadClick), playAction(onPlayClick)
+    {
+        btnDownload.onClick = [this] { if (downloadAction) downloadAction(); };
+        btnPlay.onClick = [this] { if (playAction) playAction(); };
+
+        addAndMakeVisible(btnDownload);
+        addAndMakeVisible(btnPlay);
+    }
+
+    void updateState(bool isDownloaded, bool isDownloading, double progress)
+    {
+        if (isDownloading)
+        {
+            btnDownload.setButtonText("Downloading " + juce::String(juce::roundToInt(progress * 100.0)) + "%");
+            btnDownload.setEnabled(false);
+            btnPlay.setVisible(false);
+        }
+        else if (isDownloaded)
+        {
+            btnDownload.setButtonText("Downloaded");
+            btnDownload.setEnabled(false);
+            btnPlay.setVisible(true);
+        }
+        else
+        {
+            btnDownload.setButtonText("Download");
+            btnDownload.setEnabled(true);
+            btnPlay.setVisible(false);
+        }
+        resized();
+    }
+
+    void resized() override
+    {
+        auto area = getLocalBounds().reduced(2, 2);
+        if (btnPlay.isVisible())
+        {
+            btnPlay.setBounds(area.removeFromRight(50));
+            area.removeFromRight(4);
+        }
+        btnDownload.setBounds(area);
+    }
+
+private:
+    juce::TextButton btnDownload { "Download" };
+    juce::TextButton btnPlay { "Play" };
+    std::function<void()> downloadAction;
+    std::function<void()> playAction;
+};
+
+static bool isSupportedAudioFile(const juce::String& name, const juce::String& mime)
+{
+    juce::String ext = juce::File(name).getFileExtension().toLowerCase();
+    if (ext == ".wav" || ext == ".mp3" || ext == ".flac" || ext == ".ogg" || ext == ".aiff" || ext == ".aif")
+        return true;
+
+    juce::String mimeLower = mime.toLowerCase();
+    if (mimeLower.contains("wav") || mimeLower.contains("mpeg") || mimeLower.contains("mp3") ||
+        mimeLower.contains("flac") || mimeLower.contains("ogg") || mimeLower.contains("aiff"))
+        return true;
+
+    return false;
+}
+
+
+
+LibrariesComponent::LibrariesComponent(TagDatabaseManager& db, LibraryScanner& scanner, AudioEngine& audio)
+    : dbManager(db), libraryScanner(scanner), audioEngine(audio)
+{
+    // Pixeldrain Logo on top right
+    juce::Image logoImage;
+#if defined(JUCE_BINARYDATA_H_INCLUDED) || __has_include(<JuceHeader.h>)
+    logoImage = juce::ImageFileFormat::loadFrom(BinaryData::mainpixeldrainlogo_cropped_png, static_cast<size_t>(BinaryData::mainpixeldrainlogo_cropped_pngSize));
+#endif
+
+    if (logoImage.isNull())
+    {
+        juce::File logoFile = juce::File::getCurrentWorkingDirectory().getChildFile("mainpixeldrainlogo_cropped.png");
+        if (!logoFile.existsAsFile())
+            logoFile = juce::File::getSpecialLocation(juce::File::currentExecutableFile).getParentDirectory().getChildFile("mainpixeldrainlogo_cropped.png");
+        if (!logoFile.existsAsFile())
+            logoFile = juce::File::getCurrentWorkingDirectory().getChildFile("mainpixeldrainlogo.png");
+        if (logoFile.existsAsFile())
+            logoImage = juce::ImageFileFormat::loadFrom(logoFile);
+    }
+
+    if (!logoImage.isNull())
+    {
+        pixeldrainLogoComponent.setImage(logoImage, juce::RectanglePlacement::xRight | juce::RectanglePlacement::yMid | juce::RectanglePlacement::onlyReduceInSize);
+        addAndMakeVisible(pixeldrainLogoComponent);
+    }
+
+    // Load API Key or Hotlink from settings
+    apiKeyEditor.setText(dbManager.getPixeldrainApiKey(), juce::dontSendNotification);
+    apiKeyEditor.setJustification(juce::Justification::centredLeft);
+    apiKeyEditor.setTextToShowWhenEmpty("Enter API Key or Public Hotlink (e.g. /u/id or /l/id)...", OpenWavLookAndFeel::textSecondary);
+    apiKeyEditor.addListener(this);
+    addAndMakeVisible(apiKeyEditor);
+
+    apiKeyLabel.setFont(juce::Font(13.0f).boldened());
+    apiKeyLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::textPrimary);
+    addAndMakeVisible(apiKeyLabel);
+
+    connectButton.onClick = [this] { fetchUserFiles(); };
+    addAndMakeVisible(connectButton);
+
+    statusLabel.setFont(juce::Font(12.0f));
+    statusLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::textSecondary);
+    statusLabel.setText(statusText, juce::dontSendNotification);
+    addAndMakeVisible(statusLabel);
+
+    searchLabel.setFont(juce::Font(13.0f).boldened());
+    searchLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::textPrimary);
+    addAndMakeVisible(searchLabel);
+
+    searchEditor.setTextToShowWhenEmpty("Filter remote files by name...", OpenWavLookAndFeel::textSecondary);
+    searchEditor.addListener(this);
+    addAndMakeVisible(searchEditor);
+
+    juce::File downloadDir(dbManager.getDownloadFolder());
+    saveDirLabel.setFont(juce::Font(12.0f));
+    saveDirLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::textSecondary);
+    saveDirLabel.setText("Save to: " + downloadDir.getFullPathName(), juce::dontSendNotification);
+    addAndMakeVisible(saveDirLabel);
+
+    chooseDirButton.onClick = [this] {
+        auto chooser = std::make_shared<juce::FileChooser>(
+            "Select Download Directory...",
+            juce::File(dbManager.getDownloadFolder()),
+            "*"
+        );
+        chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories,
+            [this, chooser](const juce::FileChooser& fc) {
+                auto result = fc.getResult();
+                if (result.isDirectory())
+                {
+                    dbManager.setDownloadFolder(result.getFullPathName());
+                    saveDirLabel.setText("Save to: " + result.getFullPathName(), juce::dontSendNotification);
+                    updateDownloadStatuses();
+                }
+            });
+    };
+    addAndMakeVisible(chooseDirButton);
+
+    downloadAllWavsButton.onClick = [this] { downloadAllWavs(); };
+    addAndMakeVisible(downloadAllWavsButton);
+
+    // Setup Table Box
+    auto& header = tableBox.getHeader();
+    header.addColumn("#", 1, 40, 30, 60, juce::TableHeaderComponent::notSortable);
+    header.addColumn("Name", 2, 320, 150, 600);
+    header.addColumn("Type", 3, 90, 60, 120);
+    header.addColumn("Size", 4, 90, 60, 120);
+    header.addColumn("Uploaded", 5, 140, 100, 200);
+    header.addColumn("Status", 6, 120, 80, 180);
+    header.addColumn("Action", 7, 180, 120, 240);
+
+    tableBox.setModel(this);
+    tableBox.setColour(juce::ListBox::backgroundColourId, OpenWavLookAndFeel::bgDark);
+    tableBox.setOutlineThickness(1);
+    tableBox.setColour(juce::ListBox::outlineColourId, OpenWavLookAndFeel::borderColour);
+    tableBox.setRowHeight(36);
+    addAndMakeVisible(tableBox);
+
+    if (apiKeyEditor.getText().isNotEmpty())
+    {
+        fetchUserFiles();
+    }
+}
+
+LibrariesComponent::~LibrariesComponent()
+{
+    tableBox.setModel(nullptr);
+    apiKeyEditor.removeListener(this);
+    searchEditor.removeListener(this);
+}
+
+void LibrariesComponent::paint(juce::Graphics& g)
+{
+    g.fillAll(OpenWavLookAndFeel::bgDark);
+}
+
+void LibrariesComponent::resized()
+{
+    auto area = getLocalBounds().reduced(16);
+
+    // Header Controls Block
+    auto topRow = area.removeFromTop(32);
+
+    if (pixeldrainLogoComponent.isVisible())
+    {
+        pixeldrainLogoComponent.setBounds(topRow.removeFromRight(180));
+        topRow.removeFromRight(12);
+    }
+
+    apiKeyLabel.setBounds(topRow.removeFromLeft(125));
+    topRow.removeFromLeft(6);
+    apiKeyEditor.setBounds(topRow.removeFromLeft(280));
+    topRow.removeFromLeft(8);
+    connectButton.setBounds(topRow.removeFromLeft(110));
+    topRow.removeFromLeft(12);
+    statusLabel.setBounds(topRow);
+
+    area.removeFromTop(12);
+
+    auto secondRow = area.removeFromTop(32);
+    searchLabel.setBounds(secondRow.removeFromLeft(55));
+    secondRow.removeFromLeft(6);
+    searchEditor.setBounds(secondRow.removeFromLeft(240));
+    secondRow.removeFromLeft(16);
+    saveDirLabel.setBounds(secondRow.removeFromLeft(360));
+    secondRow.removeFromLeft(8);
+    chooseDirButton.setBounds(secondRow.removeFromLeft(130));
+    secondRow.removeFromLeft(12);
+    downloadAllWavsButton.setBounds(secondRow.removeFromLeft(150));
+
+    area.removeFromTop(12);
+
+    tableBox.setBounds(area);
+}
+
+int LibrariesComponent::getNumRows()
+{
+    return static_cast<int>(displayedFiles.size());
+}
+
+void LibrariesComponent::paintRowBackground(juce::Graphics& g, int rowNumber, int /*width*/, int /*height*/, bool rowIsSelected)
+{
+    if (rowIsSelected)
+    {
+        g.fillAll(OpenWavLookAndFeel::bgHover);
+    }
+    else if (rowNumber % 2 == 1)
+    {
+        g.fillAll(OpenWavLookAndFeel::bgDark.withMultipliedBrightness(1.05f));
+    }
+    else
+    {
+        g.fillAll(OpenWavLookAndFeel::bgDark);
+    }
+}
+
+void LibrariesComponent::paintCell(juce::Graphics& g, int rowNumber, int columnId, int width, int height, bool /*rowIsSelected*/)
+{
+    if (rowNumber < 0 || rowNumber >= static_cast<int>(displayedFiles.size()))
+        return;
+
+    const auto& item = displayedFiles[static_cast<size_t>(rowNumber)];
+
+    g.setFont(juce::Font(13.0f));
+    g.setColour(OpenWavLookAndFeel::textPrimary);
+
+    juce::Rectangle<int> cellBounds(4, 0, width - 8, height);
+
+    if (columnId == 1) // #
+    {
+        g.setColour(OpenWavLookAndFeel::textSecondary);
+        g.drawText(juce::String(rowNumber + 1), cellBounds, juce::Justification::centredLeft);
+    }
+    else if (columnId == 2) // Name
+    {
+        if (item.isWav)
+            g.setColour(OpenWavLookAndFeel::accentCyan);
+        else
+            g.setColour(OpenWavLookAndFeel::textPrimary);
+
+        g.drawText(item.name, cellBounds, juce::Justification::centredLeft, true);
+    }
+    else if (columnId == 3) // Type
+    {
+        g.setColour(OpenWavLookAndFeel::textSecondary);
+        juce::String ext = juce::File(item.name).getFileExtension().toUpperCase();
+        if (ext.isEmpty()) ext = item.mimeType;
+        g.drawText(ext, cellBounds, juce::Justification::centredLeft);
+    }
+    else if (columnId == 4) // Size
+    {
+        g.setColour(OpenWavLookAndFeel::textSecondary);
+        double mb = static_cast<double>(item.sizeBytes) / (1024.0 * 1024.0);
+        juce::String sizeStr = (mb >= 1.0) ? juce::String(mb, 2) + " MB" : juce::String(item.sizeBytes / 1024) + " KB";
+        g.drawText(sizeStr, cellBounds, juce::Justification::centredLeft);
+    }
+    else if (columnId == 5) // Uploaded
+    {
+        g.setColour(OpenWavLookAndFeel::textSecondary);
+        juce::String dateStr = item.dateUpload;
+        if (dateStr.contains("T"))
+            dateStr = dateStr.upToFirstOccurrenceOf("T", false, false);
+        g.drawText(dateStr, cellBounds, juce::Justification::centredLeft);
+    }
+    else if (columnId == 6) // Status
+    {
+        if (item.isDownloading)
+        {
+            g.setColour(OpenWavLookAndFeel::accentCyan);
+            g.drawText("Downloading...", cellBounds, juce::Justification::centredLeft);
+        }
+        else if (item.isDownloaded)
+        {
+            g.setColour(juce::Colours::green);
+            g.drawText("Local Library", cellBounds, juce::Justification::centredLeft);
+        }
+        else
+        {
+            g.setColour(OpenWavLookAndFeel::textSecondary);
+            g.drawText("Cloud Only", cellBounds, juce::Justification::centredLeft);
+        }
+    }
+}
+
+juce::Component* LibrariesComponent::refreshComponentForCell(int rowNumber, int columnId, bool /*isRowSelected*/, juce::Component* existingComponentToUpdate)
+{
+    if (columnId != 7)
+    {
+        delete existingComponentToUpdate;
+        return nullptr;
+    }
+
+    if (rowNumber < 0 || rowNumber >= static_cast<int>(displayedFiles.size()))
+    {
+        delete existingComponentToUpdate;
+        return nullptr;
+    }
+
+    const auto& item = displayedFiles[static_cast<size_t>(rowNumber)];
+
+    auto* actionComp = dynamic_cast<TableActionButtonComponent*>(existingComponentToUpdate);
+    if (actionComp == nullptr)
+    {
+        actionComp = new TableActionButtonComponent(
+            [this, rowNumber] { downloadFile(rowNumber); },
+            [this, rowNumber] {
+                if (rowNumber >= 0 && rowNumber < static_cast<int>(displayedFiles.size()))
+                {
+                    const auto& f = displayedFiles[static_cast<size_t>(rowNumber)];
+                    if (f.isDownloaded && juce::File(f.localPath).existsAsFile())
+                    {
+                        audioEngine.loadFile(juce::File(f.localPath), true);
+                    }
+                }
+            }
+        );
+    }
+
+    actionComp->updateState(item.isDownloaded, item.isDownloading, item.downloadProgress);
+    return actionComp;
+}
+
+void LibrariesComponent::cellDoubleClicked(int rowNumber, int /*columnId*/, const juce::MouseEvent& /*e*/)
+{
+    if (rowNumber >= 0 && rowNumber < static_cast<int>(displayedFiles.size()))
+    {
+        const auto& item = displayedFiles[static_cast<size_t>(rowNumber)];
+        if (item.isDownloaded && juce::File(item.localPath).existsAsFile())
+        {
+            audioEngine.loadFile(juce::File(item.localPath), true);
+        }
+        else
+        {
+            downloadFile(rowNumber);
+        }
+    }
+}
+
+void LibrariesComponent::textEditorTextChanged(juce::TextEditor& editor)
+{
+    if (&editor == &apiKeyEditor)
+    {
+        dbManager.setPixeldrainApiKey(apiKeyEditor.getText().trim());
+    }
+    else if (&editor == &searchEditor)
+    {
+        filterRemoteFiles();
+    }
+}
+
+static void extractFileObj(const juce::var& itemVar, std::vector<PixeldrainFile>& outFiles)
+{
+    if (!itemVar.isObject()) return;
+    auto* fileObj = itemVar.getDynamicObject();
+    if (!fileObj) return;
+
+    if (fileObj->hasProperty("detail"))
+    {
+        auto detailVar = fileObj->getProperty("detail");
+        if (detailVar.isObject())
+            fileObj = detailVar.getDynamicObject();
+    }
+
+    juce::String id = fileObj->getProperty("id").toString();
+    if (id.isEmpty()) id = fileObj->getProperty("file_id").toString();
+    if (id.isEmpty()) id = fileObj->getProperty("path").toString();
+    if (id.isEmpty()) return;
+
+    juce::String name = fileObj->getProperty("name").toString();
+    juce::String mime = fileObj->getProperty("mime_type").toString();
+    if (mime.isEmpty()) mime = fileObj->getProperty("file_type").toString();
+
+    // STRICT AUDIO FILTER: Only .wav, .mp3, .flac, .ogg, .aiff (.aif)
+    if (!isSupportedAudioFile(name, mime))
+        return;
+
+    PixeldrainFile f;
+    f.id = id;
+    f.name = name;
+    if (fileObj->hasProperty("size"))
+        f.sizeBytes = static_cast<int64_t>(fileObj->getProperty("size"));
+    else if (fileObj->hasProperty("file_size"))
+        f.sizeBytes = static_cast<int64_t>(fileObj->getProperty("file_size"));
+
+    f.dateUpload = fileObj->getProperty("date_upload").toString();
+    if (f.dateUpload.isEmpty()) f.dateUpload = fileObj->getProperty("date_created").toString();
+    if (f.dateUpload.isEmpty()) f.dateUpload = fileObj->getProperty("created").toString();
+    if (f.dateUpload.isEmpty()) f.dateUpload = fileObj->getProperty("modified").toString();
+
+    f.mimeType = mime;
+    f.isWav = juce::File(name).getFileExtension().equalsIgnoreCase(".wav") || mime.containsIgnoreCase("wav");
+
+    outFiles.push_back(f);
+}
+
+static void extractFilesFromFilesystemNode(const juce::var& nodeVar, std::vector<PixeldrainFile>& outFiles, const juce::String& authHeader)
+{
+    if (!nodeVar.isObject()) return;
+    auto* obj = nodeVar.getDynamicObject();
+    if (!obj) return;
+
+    juce::String type = obj->getProperty("type").toString().toLowerCase();
+    bool isDir = (type == "dir" || type == "directory" || static_cast<bool>(obj->getProperty("is_directory")));
+
+    if (isDir)
+    {
+        juce::String subDirId = obj->getProperty("id").toString();
+        if (subDirId.isEmpty()) subDirId = obj->getProperty("name").toString();
+
+        if (subDirId.isNotEmpty())
+        {
+            juce::URL subUrl("https://pixeldrain.com/api/filesystem/" + subDirId);
+            auto makeOpts = [](const juce::String& auth, int timeoutMs) {
+                auto opts = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress).withConnectionTimeoutMs(timeoutMs);
+                return auth.isNotEmpty() ? opts.withExtraHeaders(auth) : opts;
+            };
+
+            std::unique_ptr<juce::InputStream> subStream(subUrl.createInputStream(makeOpts(authHeader, 10000)));
+            if (subStream != nullptr)
+            {
+                auto subText = subStream->readEntireStreamAsString();
+                auto subParsed = juce::JSON::parse(subText);
+                if (subParsed.isObject())
+                {
+                    auto* subObj = subParsed.getDynamicObject();
+                    if (subObj && subObj->hasProperty("children"))
+                    {
+                        auto cVar = subObj->getProperty("children");
+                        if (cVar.isArray())
+                        {
+                            for (const auto& child : *cVar.getArray())
+                            {
+                                extractFilesFromFilesystemNode(child, outFiles, authHeader);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    else
+    {
+        extractFileObj(nodeVar, outFiles);
+    }
+}
+
+struct PixeldrainTarget
+{
+    enum Kind { UserAccount, List, SingleFile, Directory } kind { UserAccount };
+    juce::String idOrKey;
+};
+
+static PixeldrainTarget parsePixeldrainInput(const juce::String& rawInput)
+{
+    PixeldrainTarget target;
+    juce::String s = rawInput.trim();
+
+    while (s.startsWith("\"") || s.startsWith("'")) s = s.substring(1);
+    while (s.endsWith("\"") || s.endsWith("'")) s = s.dropLastCharacters(1);
+    s = s.trim();
+
+    juce::String lower = s.toLowerCase();
+
+    // Check Shared Directory / Filesystem Link (e.g. /d/ or /filesystem/ or /dir/)
+    if (lower.contains("/d/") || lower.contains("/filesystem/") || lower.contains("/dir/"))
+    {
+        target.kind = PixeldrainTarget::Directory;
+        juce::String dirId = s;
+
+        if (lower.contains("/filesystem/"))
+            dirId = dirId.substring(lower.indexOf("/filesystem/") + 12);
+        else if (lower.contains("/dir/"))
+            dirId = dirId.substring(lower.indexOf("/dir/") + 5);
+        else if (lower.contains("/d/"))
+            dirId = dirId.substring(lower.indexOf("/d/") + 3);
+
+        if (dirId.contains("?")) dirId = dirId.upToFirstOccurrenceOf("?", false, false);
+        if (dirId.contains("#")) dirId = dirId.upToFirstOccurrenceOf("#", false, false);
+        if (dirId.contains("/")) dirId = dirId.upToFirstOccurrenceOf("/", false, false);
+
+        target.idOrKey = dirId.trim();
+        return target;
+    }
+
+    if (lower.contains("/list/") || lower.contains("/l/"))
+    {
+        target.kind = PixeldrainTarget::List;
+        juce::String listId = s;
+
+        if (lower.contains("/list/"))
+            listId = listId.substring(lower.indexOf("/list/") + 6);
+        else if (lower.contains("/l/"))
+            listId = listId.substring(lower.indexOf("/l/") + 3);
+
+        if (listId.contains("?")) listId = listId.upToFirstOccurrenceOf("?", false, false);
+        if (listId.contains("#")) listId = listId.upToFirstOccurrenceOf("#", false, false);
+        if (listId.contains("/")) listId = listId.upToFirstOccurrenceOf("/", false, false);
+
+        target.idOrKey = listId.trim();
+        return target;
+    }
+
+    if (lower.contains("/file/") || lower.contains("/u/"))
+    {
+        target.kind = PixeldrainTarget::SingleFile;
+        juce::String fileId = s;
+
+        if (lower.contains("/file/"))
+            fileId = fileId.substring(lower.indexOf("/file/") + 6);
+        else if (lower.contains("/u/"))
+            fileId = fileId.substring(lower.indexOf("/u/") + 3);
+
+        if (fileId.endsWith("/info")) fileId = fileId.dropLastCharacters(5);
+        if (fileId.contains("?")) fileId = fileId.upToFirstOccurrenceOf("?", false, false);
+        if (fileId.contains("#")) fileId = fileId.upToFirstOccurrenceOf("#", false, false);
+        if (fileId.contains("/")) fileId = fileId.upToFirstOccurrenceOf("/", false, false);
+
+        target.idOrKey = fileId.trim();
+        return target;
+    }
+
+    if (lower.contains("pixeldrain.com") || lower.contains("http://") || lower.contains("https://"))
+    {
+        juce::URL u(s);
+        juce::String path = u.getSubPath();
+        if (path.isEmpty()) path = s.fromLastOccurrenceOf("/", false, false);
+
+        path = path.trim();
+        if (path.startsWith("/")) path = path.substring(1);
+
+        if (path.startsWithIgnoreCase("d/"))
+        {
+            target.kind = PixeldrainTarget::Directory;
+            target.idOrKey = path.substring(2);
+        }
+        else if (path.startsWithIgnoreCase("l/"))
+        {
+            target.kind = PixeldrainTarget::List;
+            target.idOrKey = path.substring(2);
+        }
+        else if (path.startsWithIgnoreCase("u/"))
+        {
+            target.kind = PixeldrainTarget::SingleFile;
+            target.idOrKey = path.substring(2);
+        }
+        else if (path.startsWithIgnoreCase("list/"))
+        {
+            target.kind = PixeldrainTarget::List;
+            target.idOrKey = path.substring(5);
+        }
+        else if (path.startsWithIgnoreCase("file/"))
+        {
+            target.kind = PixeldrainTarget::SingleFile;
+            target.idOrKey = path.substring(5);
+        }
+        else if (path.startsWithIgnoreCase("filesystem/"))
+        {
+            target.kind = PixeldrainTarget::Directory;
+            target.idOrKey = path.substring(11);
+        }
+        else
+        {
+            target.kind = PixeldrainTarget::Directory;
+            target.idOrKey = path;
+        }
+
+        if (target.idOrKey.contains("?")) target.idOrKey = target.idOrKey.upToFirstOccurrenceOf("?", false, false);
+        if (target.idOrKey.contains("/")) target.idOrKey = target.idOrKey.upToFirstOccurrenceOf("/", false, false);
+        return target;
+    }
+
+    target.kind = PixeldrainTarget::UserAccount;
+    target.idOrKey = s;
+    return target;
+}
+
+void LibrariesComponent::fetchUserFiles()
+{
+    juce::String inputStr = apiKeyEditor.getText().trim();
+    if (inputStr.isEmpty())
+    {
+        statusLabel.setText("Please enter an API Key or Public Hotlink (e.g. /d/id, /u/id, or /l/id).", juce::dontSendNotification);
+        return;
+    }
+
+    dbManager.setPixeldrainApiKey(inputStr);
+    statusLabel.setText("Fetching from Pixeldrain...", juce::dontSendNotification);
+    isFetching = true;
+
+    auto target = parsePixeldrainInput(inputStr);
+
+    juce::Thread::launch([this, target] {
+        std::vector<PixeldrainFile> fetchedFiles;
+        juce::String errorMsg;
+
+        auto makeOptions = [](const juce::String& auth, int timeoutMs) {
+            auto opts = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress).withConnectionTimeoutMs(timeoutMs);
+            return auth.isNotEmpty() ? opts.withExtraHeaders(auth) : opts;
+        };
+
+        if (target.kind == PixeldrainTarget::Directory)
+        {
+            juce::URL url("https://pixeldrain.com/api/filesystem/" + target.idOrKey);
+            std::unique_ptr<juce::InputStream> stream(url.createInputStream(makeOptions("", 10000)));
+
+            if (stream != nullptr)
+            {
+                auto responseText = stream->readEntireStreamAsString();
+                auto parsed = juce::JSON::parse(responseText);
+                if (parsed.isObject())
+                {
+                    auto* obj = parsed.getDynamicObject();
+                    if (obj && obj->hasProperty("children"))
+                    {
+                        auto cVar = obj->getProperty("children");
+                        if (cVar.isArray())
+                        {
+                            for (const auto& child : *cVar.getArray())
+                            {
+                                extractFilesFromFilesystemNode(child, fetchedFiles, "");
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Fallback: If filesystem endpoint returned no files, try list endpoint!
+            if (fetchedFiles.empty())
+            {
+                juce::URL listUrl("https://pixeldrain.com/api/list/" + target.idOrKey);
+                std::unique_ptr<juce::InputStream> listStream(listUrl.createInputStream(makeOptions("", 10000)));
+                if (listStream != nullptr)
+                {
+                    auto listText = listStream->readEntireStreamAsString();
+                    auto listParsed = juce::JSON::parse(listText);
+                    if (listParsed.isObject())
+                    {
+                        auto* obj = listParsed.getDynamicObject();
+                        if (obj && obj->hasProperty("files"))
+                        {
+                            auto fVar = obj->getProperty("files");
+                            if (fVar.isArray())
+                            {
+                                for (const auto& itemVar : *fVar.getArray())
+                                    extractFileObj(itemVar, fetchedFiles);
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (fetchedFiles.empty())
+            {
+                errorMsg = "Failed to fetch shared folder: " + target.idOrKey;
+            }
+        }
+        else if (target.kind == PixeldrainTarget::SingleFile)
+        {
+            juce::URL url("https://pixeldrain.com/api/file/" + target.idOrKey + "/info");
+            std::unique_ptr<juce::InputStream> stream(url.createInputStream(makeOptions("", 10000)));
+
+            if (stream != nullptr)
+            {
+                auto responseText = stream->readEntireStreamAsString();
+                auto parsed = juce::JSON::parse(responseText);
+                extractFileObj(parsed, fetchedFiles);
+
+                // Fallback 1: Try list endpoint
+                if (fetchedFiles.empty())
+                {
+                    juce::URL listUrl("https://pixeldrain.com/api/list/" + target.idOrKey);
+                    std::unique_ptr<juce::InputStream> listStream(listUrl.createInputStream(makeOptions("", 10000)));
+                    if (listStream != nullptr)
+                    {
+                        auto listText = listStream->readEntireStreamAsString();
+                        auto listParsed = juce::JSON::parse(listText);
+                        if (listParsed.isObject())
+                        {
+                            auto* obj = listParsed.getDynamicObject();
+                            if (obj && obj->hasProperty("files"))
+                            {
+                                auto fVar = obj->getProperty("files");
+                                if (fVar.isArray())
+                                {
+                                    for (const auto& itemVar : *fVar.getArray())
+                                        extractFileObj(itemVar, fetchedFiles);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Fallback 2: Try filesystem endpoint
+                if (fetchedFiles.empty())
+                {
+                    juce::URL fsUrl("https://pixeldrain.com/api/filesystem/" + target.idOrKey);
+                    std::unique_ptr<juce::InputStream> fsStream(fsUrl.createInputStream(makeOptions("", 10000)));
+                    if (fsStream != nullptr)
+                    {
+                        auto fsText = fsStream->readEntireStreamAsString();
+                        auto fsParsed = juce::JSON::parse(fsText);
+                        if (fsParsed.isObject())
+                        {
+                            auto* obj = fsParsed.getDynamicObject();
+                            if (obj && obj->hasProperty("children"))
+                            {
+                                auto cVar = obj->getProperty("children");
+                                if (cVar.isArray())
+                                {
+                                    for (const auto& child : *cVar.getArray())
+                                        extractFilesFromFilesystemNode(child, fetchedFiles, "");
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            else
+            {
+                errorMsg = "Failed to fetch public file: " + target.idOrKey;
+            }
+        }
+        else if (target.kind == PixeldrainTarget::List)
+        {
+            juce::URL url("https://pixeldrain.com/api/list/" + target.idOrKey);
+            std::unique_ptr<juce::InputStream> stream(url.createInputStream(makeOptions("", 10000)));
+
+            if (stream != nullptr)
+            {
+                auto responseText = stream->readEntireStreamAsString();
+                auto parsed = juce::JSON::parse(responseText);
+                if (parsed.isObject())
+                {
+                    auto* obj = parsed.getDynamicObject();
+                    if (obj && obj->hasProperty("files"))
+                    {
+                        auto fVar = obj->getProperty("files");
+                        if (fVar.isArray())
+                        {
+                            for (const auto& itemVar : *fVar.getArray())
+                            {
+                                extractFileObj(itemVar, fetchedFiles);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Fallback to filesystem endpoint
+            if (fetchedFiles.empty())
+            {
+                juce::URL fsUrl("https://pixeldrain.com/api/filesystem/" + target.idOrKey);
+                std::unique_ptr<juce::InputStream> fsStream(fsUrl.createInputStream(makeOptions("", 10000)));
+                if (fsStream != nullptr)
+                {
+                    auto fsText = fsStream->readEntireStreamAsString();
+                    auto fsParsed = juce::JSON::parse(fsText);
+                    if (fsParsed.isObject())
+                    {
+                        auto* obj = fsParsed.getDynamicObject();
+                        if (obj && obj->hasProperty("children"))
+                        {
+                            auto cVar = obj->getProperty("children");
+                            if (cVar.isArray())
+                            {
+                                for (const auto& child : *cVar.getArray())
+                                    extractFilesFromFilesystemNode(child, fetchedFiles, "");
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (fetchedFiles.empty())
+            {
+                errorMsg = "Failed to fetch public list: " + target.idOrKey;
+            }
+        }
+        else // UserAccount
+        {
+            juce::URL url("https://pixeldrain.com/api/user/files");
+            juce::String authHeader = "Authorization: Basic " + juce::Base64::toBase64(":" + target.idOrKey);
+
+            std::unique_ptr<juce::InputStream> stream(url.createInputStream(makeOptions(authHeader, 10000)));
+            if (stream != nullptr)
+            {
+                auto responseText = stream->readEntireStreamAsString();
+                auto parsed = juce::JSON::parse(responseText);
+
+                juce::Array<juce::var>* filesArray = nullptr;
+
+                if (parsed.isObject())
+                {
+                    auto* obj = parsed.getDynamicObject();
+                    if (obj && obj->hasProperty("files"))
+                    {
+                        auto fVar = obj->getProperty("files");
+                        if (fVar.isArray())
+                            filesArray = fVar.getArray();
+                    }
+                }
+                else if (parsed.isArray())
+                {
+                    filesArray = parsed.getArray();
+                }
+
+                if (filesArray != nullptr)
+                {
+                    for (const auto& itemVar : *filesArray)
+                    {
+                        extractFileObj(itemVar, fetchedFiles);
+                    }
+                }
+            }
+            else
+            {
+                errorMsg = "Failed to connect to Pixeldrain API. Check API key.";
+            }
+        }
+
+        juce::MessageManager::callAsync([this, fetchedFiles, errorMsg] {
+            isFetching = false;
+            if (fetchedFiles.empty())
+            {
+                allRemoteFiles.clear();
+                displayedFiles.clear();
+                tableBox.updateContent();
+
+                if (errorMsg.isNotEmpty())
+                    statusLabel.setText("Notice: " + errorMsg, juce::dontSendNotification);
+                else
+                    statusLabel.setText("No audio files found (.wav, .mp3, .flac, .ogg, .aiff).", juce::dontSendNotification);
+            }
+            else
+            {
+                allRemoteFiles = fetchedFiles;
+                updateDownloadStatuses();
+                filterRemoteFiles();
+
+                statusLabel.setText("Loaded " + juce::String(allRemoteFiles.size()) + " audio file(s) (.wav, .mp3, .flac, .ogg, .aiff)", juce::dontSendNotification);
+            }
+        });
+    });
+}
+
+void LibrariesComponent::updateDownloadStatuses()
+{
+    juce::File targetDir(dbManager.getDownloadFolder());
+
+    for (auto& f : allRemoteFiles)
+    {
+        juce::File checkFile = targetDir.getChildFile(f.name);
+        if (checkFile.existsAsFile())
+        {
+            f.isDownloaded = true;
+            f.localPath = checkFile.getFullPathName();
+        }
+    }
+}
+
+void LibrariesComponent::filterRemoteFiles()
+{
+    juce::String kw = searchEditor.getText().trim().toLowerCase();
+    displayedFiles.clear();
+
+    for (const auto& f : allRemoteFiles)
+    {
+        if (kw.isEmpty() || f.name.toLowerCase().contains(kw) || f.mimeType.toLowerCase().contains(kw))
+        {
+            displayedFiles.push_back(f);
+        }
+    }
+
+    tableBox.updateContent();
+    tableBox.repaint();
+}
+
+void LibrariesComponent::downloadFile(int displayedIndex)
+{
+    if (displayedIndex < 0 || displayedIndex >= static_cast<int>(displayedFiles.size()))
+        return;
+
+    auto& targetItem = displayedFiles[static_cast<size_t>(displayedIndex)];
+    if (targetItem.isDownloading || targetItem.isDownloaded)
+        return;
+
+    targetItem.isDownloading = true;
+    targetItem.downloadProgress = 0.0;
+    tableBox.updateContent();
+
+    juce::String fileId = targetItem.id;
+    juce::String fileName = targetItem.name;
+    juce::String inputStr = apiKeyEditor.getText().trim();
+    juce::File destFolder(dbManager.getDownloadFolder());
+    if (!destFolder.exists())
+        destFolder.createDirectory();
+
+    juce::File destFile = destFolder.getChildFile(fileName);
+
+    juce::Thread::launch([this, fileId, fileName, inputStr, destFile] {
+        juce::String downloadUrlStr;
+        if (fileId.startsWith("/"))
+            downloadUrlStr = "https://pixeldrain.com/api/filesystem" + fileId + "?download";
+        else
+            downloadUrlStr = "https://pixeldrain.com/api/file/" + fileId + "?download";
+
+        juce::URL url(downloadUrlStr);
+
+        auto target = parsePixeldrainInput(inputStr);
+        juce::String authHeader;
+        if (target.kind == PixeldrainTarget::UserAccount && target.idOrKey.isNotEmpty())
+        {
+            authHeader = "Authorization: Basic " + juce::Base64::toBase64(":" + target.idOrKey);
+        }
+
+        auto makeOptions = [](const juce::String& auth, int timeoutMs) {
+            auto opts = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress).withConnectionTimeoutMs(timeoutMs);
+            return auth.isNotEmpty() ? opts.withExtraHeaders(auth) : opts;
+        };
+
+        std::unique_ptr<juce::InputStream> stream(url.createInputStream(makeOptions(authHeader, 15000)));
+        bool success = false;
+
+        if (stream != nullptr)
+        {
+            destFile.deleteFile();
+            auto outStream = destFile.createOutputStream();
+            if (outStream != nullptr)
+            {
+                int64_t totalBytes = stream->getTotalLength();
+                int64_t bytesWritten = 0;
+                char buffer[8192];
+
+                while (!stream->isExhausted())
+                {
+                    int bytesRead = stream->read(buffer, sizeof(buffer));
+                    if (bytesRead <= 0) break;
+                    outStream->write(buffer, static_cast<size_t>(bytesRead));
+                    bytesWritten += bytesRead;
+
+                    if (totalBytes > 0)
+                    {
+                        double progress = static_cast<double>(bytesWritten) / totalBytes;
+                        juce::MessageManager::callAsync([this, fileId, progress] {
+                            for (auto& f : allRemoteFiles)
+                            {
+                                if (f.id == fileId) f.downloadProgress = progress;
+                            }
+                            filterRemoteFiles();
+                        });
+                    }
+                }
+                outStream->flush();
+                success = destFile.existsAsFile() && destFile.getSize() > 0;
+            }
+        }
+
+        juce::MessageManager::callAsync([this, fileId, destFile, success] {
+            for (auto& f : allRemoteFiles)
+            {
+                if (f.id == fileId)
+                {
+                    f.isDownloading = false;
+                    if (success)
+                    {
+                        f.isDownloaded = true;
+                        f.localPath = destFile.getFullPathName();
+
+                        // Index downloaded file into OWMB library
+                        dbManager.addScanFolder(destFile.getParentDirectory().getFullPathName());
+                        libraryScanner.startScan({ destFile.getParentDirectory().getFullPathName() });
+                    }
+                }
+            }
+            filterRemoteFiles();
+        });
+    });
+}
+
+void LibrariesComponent::downloadAllWavs()
+{
+    std::vector<int> audioIndices;
+    for (int i = 0; i < static_cast<int>(displayedFiles.size()); ++i)
+    {
+        if (!displayedFiles[static_cast<size_t>(i)].isDownloaded)
+        {
+            audioIndices.push_back(i);
+        }
+    }
+
+    if (audioIndices.empty())
+    {
+        statusLabel.setText("No new audio files to download.", juce::dontSendNotification);
+        return;
+    }
+
+    statusLabel.setText("Starting download of " + juce::String(audioIndices.size()) + " audio files...", juce::dontSendNotification);
+
+    for (int idx : audioIndices)
+    {
+        downloadFile(idx);
+    }
+}
+
+} // namespace openwav

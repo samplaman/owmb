@@ -49,6 +49,7 @@ juce_add_binary_data(OpenWavAssets
     SOURCES
         "${CMAKE_CURRENT_SOURCE_DIR}/owmblogo.png"
         "${CMAKE_CURRENT_SOURCE_DIR}/owmbico.png"
+        "${CMAKE_CURRENT_SOURCE_DIR}/mainpixeldrainlogo_cropped.png"
 )
 
 target_sources(OpenWav PRIVATE
@@ -69,6 +70,8 @@ target_sources(OpenWav PRIVATE
     Source/UI/SampleTableComponent.cpp
     Source/UI/SampleCloudComponent.h
     Source/UI/SampleCloudComponent.cpp
+    Source/UI/LibrariesComponent.h
+    Source/UI/LibrariesComponent.cpp
     Source/UI/WaveformTransportComponent.h
     Source/UI/WaveformTransportComponent.cpp
     Source/PluginProcessor.h

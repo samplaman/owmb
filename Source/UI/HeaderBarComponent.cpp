@@ -71,11 +71,13 @@ HeaderBarComponent::HeaderBarComponent(TagDatabaseManager& db, LibraryScanner& s
 
     btnAll.setToggleState(true, juce::dontSendNotification);
 
-    // View Switcher (List vs Cloud)
-    btnListView.onClick = [this] { setViewMode(false); };
-    btnCloudView.onClick = [this] { setViewMode(true); };
+    // View Switcher (List vs Cloud vs Librarys)
+    btnListView.onClick = [this] { setViewMode(ViewMode::List); };
+    btnCloudView.onClick = [this] { setViewMode(ViewMode::Cloud); };
+    btnLibrariesView.onClick = [this] { setViewMode(ViewMode::Libraries); };
     addAndMakeVisible(btnListView);
     addAndMakeVisible(btnCloudView);
+    addAndMakeVisible(btnLibrariesView);
     btnListView.setToggleState(true, juce::dontSendNotification);
 
     // Status Label
@@ -142,10 +144,12 @@ void HeaderBarComponent::resized()
 
     area.removeFromLeft(16);
 
-    // View Mode Toggle (List / Cloud)
-    btnListView.setBounds(area.removeFromLeft(55).withHeight(btnHeight));
+    // View Mode Toggle (List / Cloud / Librarys)
+    btnListView.setBounds(area.removeFromLeft(50).withHeight(btnHeight));
     area.removeFromLeft(gap);
-    btnCloudView.setBounds(area.removeFromLeft(60).withHeight(btnHeight));
+    btnCloudView.setBounds(area.removeFromLeft(55).withHeight(btnHeight));
+    area.removeFromLeft(gap);
+    btnLibrariesView.setBounds(area.removeFromLeft(70).withHeight(btnHeight));
 
     area.removeFromLeft(16);
 
@@ -215,14 +219,15 @@ void HeaderBarComponent::updateLibraryCount(int count)
     statusLabel.setText("Library: " + juce::String(count) + " files", juce::dontSendNotification);
 }
 
-void HeaderBarComponent::setViewMode(bool isCloud)
+void HeaderBarComponent::setViewMode(ViewMode mode)
 {
-    cloudViewActive = isCloud;
-    btnListView.setToggleState(!isCloud, juce::dontSendNotification);
-    btnCloudView.setToggleState(isCloud, juce::dontSendNotification);
+    currentViewMode = mode;
+    btnListView.setToggleState(mode == ViewMode::List, juce::dontSendNotification);
+    btnCloudView.setToggleState(mode == ViewMode::Cloud, juce::dontSendNotification);
+    btnLibrariesView.setToggleState(mode == ViewMode::Libraries, juce::dontSendNotification);
 
-    listeners.call([isCloud](HeaderBarListener& l) {
-        l.viewModeChanged(isCloud);
+    listeners.call([mode](HeaderBarListener& l) {
+        l.viewModeChanged(mode);
     });
 }
 

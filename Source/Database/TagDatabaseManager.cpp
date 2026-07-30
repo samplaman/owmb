@@ -387,6 +387,12 @@ void TagDatabaseManager::loadFromFile()
             }
         }
     }
+
+    if (obj->hasProperty("pixeldrainApiKey"))
+        pixeldrainApiKey = obj->getProperty("pixeldrainApiKey").toString();
+
+    if (obj->hasProperty("downloadFolder"))
+        downloadFolder = obj->getProperty("downloadFolder").toString();
 }
 
 void TagDatabaseManager::saveToFile()
@@ -406,6 +412,8 @@ void TagDatabaseManager::saveToFile()
         {
             foldersArray.add(folder);
         }
+        rootObj->setProperty("pixeldrainApiKey", pixeldrainApiKey);
+        rootObj->setProperty("downloadFolder", downloadFolder);
     }
 
     rootObj->setProperty("items", itemsArray);
@@ -471,6 +479,43 @@ std::vector<juce::String> TagDatabaseManager::getScanFolders() const
     for (const auto& f : scanFolders)
         res.push_back(f);
     return res;
+}
+
+juce::String TagDatabaseManager::getPixeldrainApiKey() const
+{
+    const juce::ScopedLock sl(lock);
+    return pixeldrainApiKey;
+}
+
+void TagDatabaseManager::setPixeldrainApiKey(const juce::String& apiKey)
+{
+    {
+        const juce::ScopedLock sl(lock);
+        pixeldrainApiKey = apiKey.trim();
+    }
+    saveToFile();
+}
+
+juce::String TagDatabaseManager::getDownloadFolder() const
+{
+    const juce::ScopedLock sl(lock);
+    if (downloadFolder.isEmpty())
+    {
+        auto userAudio = juce::File::getSpecialLocation(juce::File::userMusicDirectory);
+        if (!userAudio.exists())
+            userAudio = juce::File::getSpecialLocation(juce::File::userHomeDirectory);
+        return userAudio.getChildFile("OWMB Downloads").getFullPathName();
+    }
+    return downloadFolder;
+}
+
+void TagDatabaseManager::setDownloadFolder(const juce::String& folderPath)
+{
+    {
+        const juce::ScopedLock sl(lock);
+        downloadFolder = folderPath.trim();
+    }
+    saveToFile();
 }
 
 } // namespace openwav
