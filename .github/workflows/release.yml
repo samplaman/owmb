@@ -100,17 +100,23 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           mkdir -p dist/OWMB-Linux-Distros-x64
-          find build -name "OWMB.vst3" -exec cp -r {} dist/OWMB-Linux-Distros-x64/ \; || true
-          find build -name "OWMB" -type f -exec cp {} dist/OWMB-Linux-Distros-x64/ \; || true
+          find build -name "OWMB.vst3" -type d -exec cp -r {} dist/OWMB-Linux-Distros-x64/ \; || true
+          find build -path "*/Standalone/OWMB" -type f -exec cp {} dist/OWMB-Linux-Distros-x64/ \; || true
           tar -czvf OWMB-Linux-Distros-x64.tar.gz -C dist/OWMB-Linux-Distros-x64 .
 
-      - name: Upload CI Build Artifacts
+      - name: Upload Linux Build Artifact
+        if: runner.os == 'Linux'
         uses: actions/upload-artifact@v4
         with:
-          name: OWMB-${{ matrix.os_name }}
-          path: |
-            OWMB-Windows-11-x64.zip
-            OWMB-Linux-Distros-x64.tar.gz
+          name: OWMB-Linux-Distros-x64
+          path: OWMB-Linux-Distros-x64.tar.gz
+
+      - name: Upload Windows Build Artifact
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: OWMB-Windows-11-x64
+          path: OWMB-Windows-11-x64.zip
 
   release:
     name: Publish GitHub Release

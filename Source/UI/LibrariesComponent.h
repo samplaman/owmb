@@ -11,7 +11,12 @@
 #include "../Scanner/LibraryScanner.h"
 #include "../Audio/AudioEngine.h"
 #include <vector>
+#include <map>
+#include <set>
 #include <atomic>
+#include <functional>
+#include <cstdint>
+#include <memory>
 
 namespace openwav
 {
