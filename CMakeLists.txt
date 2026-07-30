@@ -106,4 +106,9 @@ target_link_libraries(OpenWav PRIVATE
     juce::juce_gui_extra
 )
 
+if (UNIX AND NOT APPLE)
+    find_package(CURL REQUIRED)
+    target_link_libraries(OpenWav PRIVATE ${CURL_LIBRARIES})
+endif()
+
 juce_generate_juce_header(OpenWav)
