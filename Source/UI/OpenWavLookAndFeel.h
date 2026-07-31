@@ -58,6 +58,11 @@ public:
                            bool isTicked, bool hasSubMenu, const juce::String& text,
                            const juce::String& shortcutKeyText,
                            const juce::Drawable* icon, const juce::Colour* textColour) override;
+
+    void drawTickBox(juce::Graphics& g, juce::Component& component,
+                     float x, float y, float w, float h,
+                     bool ticked, bool isEnabled,
+                     bool shouldDrawButtonAsHighlighted, bool shouldDrawButtonAsDown) override;
 };
 
 } // namespace openwav

@@ -231,9 +231,13 @@ void OpenWavLookAndFeel::drawPopupMenuItem(juce::Graphics& g, const juce::Rectan
 
     if (isTicked)
     {
-        auto tickArea = r.removeFromLeft(16);
+        auto tickArea = r.removeFromLeft(16).toFloat();
         g.setColour(accentCyan);
-        g.drawText("✓", tickArea, juce::Justification::centredLeft, false);
+        juce::Path p;
+        p.startNewSubPath(tickArea.getX() + 2.0f, tickArea.getCentreY());
+        p.lineTo(tickArea.getX() + 6.0f, tickArea.getBottom() - 4.0f);
+        p.lineTo(tickArea.getRight() - 2.0f, tickArea.getY() + 4.0f);
+        g.strokePath(p, juce::PathStrokeType(2.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
     }
 
     if (icon != nullptr)
@@ -255,12 +259,34 @@ void OpenWavLookAndFeel::drawPopupMenuItem(juce::Graphics& g, const juce::Rectan
     if (hasSubMenu)
     {
         g.setColour(isActive ? textPrimary : textSecondary);
-        auto arrowArea = r.removeFromRight(10);
+        auto arrowArea = r.removeFromRight(10).toFloat();
         juce::Path p;
-        p.addTriangle(static_cast<float>(arrowArea.getX()), static_cast<float>(arrowArea.getY() + 4),
-                      static_cast<float>(arrowArea.getRight()), static_cast<float>(arrowArea.getCentreY()),
-                      static_cast<float>(arrowArea.getX()), static_cast<float>(arrowArea.getBottom() - 4));
+        p.addTriangle(arrowArea.getX(), arrowArea.getCentreY() - 4.0f,
+                      arrowArea.getRight(), arrowArea.getCentreY(),
+                      arrowArea.getX(), arrowArea.getCentreY() + 4.0f);
         g.fillPath(p);
+    }
+}
+
+void OpenWavLookAndFeel::drawTickBox(juce::Graphics& g, juce::Component& /*component*/,
+                                     float x, float y, float w, float h,
+                                     bool ticked, bool isEnabled,
+                                     bool /*shouldDrawButtonAsHighlighted*/, bool /*shouldDrawButtonAsDown*/)
+{
+    auto box = juce::Rectangle<float>(x, y, w, h).reduced(1.0f);
+    g.setColour(bgCard);
+    g.fillRoundedRectangle(box, 3.0f);
+    g.setColour(ticked ? accentCyan : borderColour);
+    g.drawRoundedRectangle(box, 3.0f, 1.0f);
+
+    if (ticked)
+    {
+        g.setColour(isEnabled ? accentCyan : textSecondary);
+        juce::Path p;
+        p.startNewSubPath(box.getX() + box.getWidth() * 0.25f, box.getCentreY());
+        p.lineTo(box.getX() + box.getWidth() * 0.45f, box.getBottom() - box.getHeight() * 0.25f);
+        p.lineTo(box.getRight() - box.getWidth() * 0.25f, box.getY() + box.getHeight() * 0.25f);
+        g.strokePath(p, juce::PathStrokeType(2.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
     }
 }
 
