@@ -916,105 +916,220 @@ void LibrariesComponent::downloadFile(int displayedIndex)
 
     juce::File destFile = destFolder.getChildFile(fileName);
 
-    juce::Thread::launch([this, fileId, fileName, inputStr, destFile] {
-        juce::String downloadUrlStr;
-        if (fileId.startsWith("/"))
-            downloadUrlStr = "https://pixeldrain.com/api/filesystem" + fileId + "?download";
-        else
-            downloadUrlStr = "https://pixeldrain.com/api/file/" + fileId + "?download";
+    juce::Component::SafePointer<LibrariesComponent> safeThis(this);
 
-        juce::URL url(downloadUrlStr);
+    juce::Thread::launch([safeThis, fileId, fileName, inputStr, destFile] {
+        if (safeThis == nullptr) return;
 
-        auto target = parsePixeldrainInput(inputStr);
-        juce::String authHeader;
-        if (target.kind == PixeldrainTarget::UserAccount && target.idOrKey.isNotEmpty())
-        {
-            authHeader = "Authorization: Basic " + juce::Base64::toBase64(":" + target.idOrKey);
-        }
+        auto shouldExit = [safeThis] { return safeThis == nullptr; };
+        bool success = downloadFileSync(fileId, fileName, inputStr, destFile, shouldExit, safeThis);
 
-        std::unique_ptr<juce::InputStream> stream(url.createInputStream(makeHttpOptions(authHeader, 15000)));
-        bool success = false;
-
-        if (stream != nullptr)
-        {
-            destFile.deleteFile();
-            auto outStream = destFile.createOutputStream();
-            if (outStream != nullptr)
+        juce::MessageManager::callAsync([safeThis, fileId, destFile, success] {
+            if (safeThis != nullptr)
             {
-                int64_t totalBytes = stream->getTotalLength();
-                int64_t bytesWritten = 0;
-                char buffer[8192];
-
-                while (!stream->isExhausted())
-                {
-                    int bytesRead = stream->read(buffer, sizeof(buffer));
-                    if (bytesRead <= 0) break;
-                    outStream->write(buffer, static_cast<size_t>(bytesRead));
-                    bytesWritten += bytesRead;
-
-                    if (totalBytes > 0)
-                    {
-                        double progress = static_cast<double>(bytesWritten) / totalBytes;
-                        juce::MessageManager::callAsync([this, fileId, progress] {
-                            for (auto& f : allRemoteFiles)
-                            {
-                                if (f.id == fileId) f.downloadProgress = progress;
-                            }
-                            filterRemoteFiles();
-                        });
-                    }
-                }
-                outStream->flush();
-                success = destFile.existsAsFile() && destFile.getSize() > 0;
+                safeThis->handleDownloadFinished(fileId, destFile, success);
             }
-        }
-
-        juce::MessageManager::callAsync([this, fileId, destFile, success] {
-            for (auto& f : allRemoteFiles)
-            {
-                if (f.id == fileId)
-                {
-                    f.isDownloading = false;
-                    if (success)
-                    {
-                        f.isDownloaded = true;
-                        f.localPath = destFile.getFullPathName();
-
-                        // Index downloaded file into OWMB library
-                        dbManager.addScanFolder(destFile.getParentDirectory().getFullPathName());
-                        libraryScanner.startScan({ destFile.getParentDirectory().getFullPathName() });
-                    }
-                }
-            }
-            filterRemoteFiles();
         });
     });
 }
 
 void LibrariesComponent::downloadAllWavs()
 {
-    std::vector<int> audioIndices;
-    for (int i = 0; i < static_cast<int>(displayedFiles.size()); ++i)
+    std::vector<QueuedDownload> newJobs;
+    for (auto& item : displayedFiles)
     {
-        if (!displayedFiles[static_cast<size_t>(i)].isDownloaded)
+        if (!item.isDownloaded && !item.isDownloading)
         {
-            audioIndices.push_back(i);
+            item.isDownloading = true;
+            item.downloadProgress = 0.0;
+
+            for (auto& f : allRemoteFiles)
+            {
+                if (f.id == item.id)
+                {
+                    f.isDownloading = true;
+                    f.downloadProgress = 0.0;
+                }
+            }
+
+            QueuedDownload job;
+            job.fileId = item.id;
+            job.fileName = item.name;
+            newJobs.push_back(job);
         }
     }
 
-    if (audioIndices.empty())
+    if (newJobs.empty())
     {
         statusLabel.setText("No new audio files to download.", juce::dontSendNotification);
         return;
     }
 
-    statusLabel.setText("Starting download of " + juce::String(audioIndices.size()) + " audio files...", juce::dontSendNotification);
+    statusLabel.setText("Starting download of " + juce::String(newJobs.size()) + " audio files...", juce::dontSendNotification);
+    tableBox.updateContent();
 
-    for (int idx : audioIndices)
     {
-        downloadFile(idx);
+        const juce::ScopedLock sl (downloadQueueLock);
+        for (const auto& job : newJobs)
+        {
+            downloadQueue.push_back(job);
+        }
+    }
+
+    if (sequentialDownloader == nullptr || !sequentialDownloader->isThreadRunning())
+    {
+        sequentialDownloader = std::make_unique<SequentialDownloader>(*this);
+        sequentialDownloader->startThread();
     }
 }
+
+bool LibrariesComponent::downloadFileSync(const juce::String& fileId,
+                                         const juce::String& fileName,
+                                         const juce::String& apiKey,
+                                         const juce::File& destFile,
+                                         std::function<bool()> shouldExit,
+                                         juce::Component::SafePointer<LibrariesComponent> safeThis)
+{
+    juce::String downloadUrlStr;
+    if (fileId.startsWith("/"))
+        downloadUrlStr = "https://pixeldrain.com/api/filesystem" + fileId + "?download";
+    else
+        downloadUrlStr = "https://pixeldrain.com/api/file/" + fileId + "?download";
+
+    juce::URL url(downloadUrlStr);
+
+    auto target = parsePixeldrainInput(apiKey);
+    juce::String authHeader;
+    if (target.kind == PixeldrainTarget::UserAccount && target.idOrKey.isNotEmpty())
+    {
+        authHeader = "Authorization: Basic " + juce::Base64::toBase64(":" + target.idOrKey);
+    }
+
+    std::unique_ptr<juce::InputStream> stream(url.createInputStream(makeHttpOptions(authHeader, 15000)));
+    bool success = false;
+
+    if (stream != nullptr)
+    {
+        destFile.deleteFile();
+        auto outStream = destFile.createOutputStream();
+        if (outStream != nullptr)
+        {
+            int64_t totalBytes = stream->getTotalLength();
+            int64_t bytesWritten = 0;
+            char buffer[8192];
+
+            while (!stream->isExhausted())
+            {
+                if (shouldExit() || safeThis == nullptr)
+                    break;
+
+                int bytesRead = stream->read(buffer, sizeof(buffer));
+                if (bytesRead <= 0) break;
+                outStream->write(buffer, static_cast<size_t>(bytesRead));
+                bytesWritten += bytesRead;
+
+                if (totalBytes > 0)
+                {
+                    double progress = static_cast<double>(bytesWritten) / totalBytes;
+                    juce::MessageManager::callAsync([safeThis, fileId, progress] {
+                        if (safeThis != nullptr)
+                        {
+                            for (auto& f : safeThis->allRemoteFiles)
+                            {
+                                if (f.id == fileId) f.downloadProgress = progress;
+                            }
+                            safeThis->filterRemoteFiles();
+                        }
+                    });
+                }
+            }
+            outStream->flush();
+            success = destFile.existsAsFile() && destFile.getSize() > 0;
+        }
+    }
+    return success;
+}
+
+void LibrariesComponent::handleDownloadFinished(const juce::String& fileId, const juce::File& destFile, bool success)
+{
+    for (auto& f : allRemoteFiles)
+    {
+        if (f.id == fileId)
+        {
+            f.isDownloading = false;
+            if (success)
+            {
+                f.isDownloaded = true;
+                f.localPath = destFile.getFullPathName();
+
+                // Index downloaded file into OWMB library
+                dbManager.addScanFolder(destFile.getParentDirectory().getFullPathName());
+                libraryScanner.startScan({ destFile.getParentDirectory().getFullPathName() });
+            }
+        }
+    }
+    filterRemoteFiles();
+}
+
+LibrariesComponent::SequentialDownloader::SequentialDownloader(LibrariesComponent& owner)
+    : juce::Thread("SequentialDownloader"), owner(owner)
+{
+}
+
+LibrariesComponent::SequentialDownloader::~SequentialDownloader()
+{
+    stopThread(3000);
+}
+
+void LibrariesComponent::SequentialDownloader::run()
+{
+    juce::Component::SafePointer<LibrariesComponent> safeOwner(&owner);
+
+    while (!threadShouldExit())
+    {
+        if (safeOwner == nullptr)
+            return;
+
+        QueuedDownload nextJob;
+        {
+            const juce::ScopedLock sl (safeOwner->downloadQueueLock);
+            if (safeOwner->downloadQueue.empty())
+            {
+                juce::MessageManager::callAsync([safeOwner] {
+                    if (safeOwner != nullptr)
+                        safeOwner->statusLabel.setText("All downloads finished.", juce::dontSendNotification);
+                });
+                break;
+            }
+            nextJob = safeOwner->downloadQueue.front();
+            safeOwner->downloadQueue.erase(safeOwner->downloadQueue.begin());
+        }
+
+        // Perform the download
+        juce::File destFolder(safeOwner->dbManager.getDownloadFolder());
+        if (!destFolder.exists())
+            destFolder.createDirectory();
+
+        juce::File destFile = destFolder.getChildFile(nextJob.fileName);
+        juce::String apiKey = safeOwner->dbManager.getPixeldrainApiKey();
+
+        juce::MessageManager::callAsync([safeOwner, nextJob] {
+            if (safeOwner != nullptr)
+                safeOwner->statusLabel.setText("Downloading: " + nextJob.fileName, juce::dontSendNotification);
+        });
+
+        bool success = downloadFileSync(nextJob.fileId, nextJob.fileName, apiKey, destFile,
+                                        [this] { return threadShouldExit(); }, safeOwner);
+
+        juce::MessageManager::callAsync([safeOwner, nextJob, destFile, success] {
+            if (safeOwner != nullptr)
+            {
+                safeOwner->handleDownloadFinished(nextJob.fileId, destFile, success);
+            }
+        });
+    }
+}
+
 
 void LibrariesComponent::lookAndFeelChanged()
 {

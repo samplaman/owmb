@@ -100,6 +100,34 @@ private:
     std::vector<PixeldrainFile> allRemoteFiles;
     std::vector<PixeldrainFile> displayedFiles;
 
+    struct QueuedDownload
+    {
+        juce::String fileId;
+        juce::String fileName;
+    };
+    juce::CriticalSection downloadQueueLock;
+    std::vector<QueuedDownload> downloadQueue;
+
+    class SequentialDownloader : public juce::Thread
+    {
+    public:
+        SequentialDownloader(LibrariesComponent& owner);
+        ~SequentialDownloader() override;
+        void run() override;
+    private:
+        LibrariesComponent& owner;
+    };
+    std::unique_ptr<SequentialDownloader> sequentialDownloader;
+
+    static bool downloadFileSync(const juce::String& fileId,
+                                 const juce::String& fileName,
+                                 const juce::String& apiKey,
+                                 const juce::File& destFile,
+                                 std::function<bool()> shouldExit,
+                                 juce::Component::SafePointer<LibrariesComponent> safeThis);
+
+    void handleDownloadFinished(const juce::String& fileId, const juce::File& destFile, bool success);
+
     std::atomic<bool> isFetching { false };
     juce::String statusText { "Ready. Enter your Pixeldrain API key to fetch account files." };
 
