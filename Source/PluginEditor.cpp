@@ -186,6 +186,19 @@ void OpenWavAudioProcessorEditor::viewModeChanged(ViewMode /*mode*/)
     resized();
 }
 
+void OpenWavAudioProcessorEditor::parentHierarchyChanged()
+{
+    juce::AudioProcessorEditor::parentHierarchyChanged();
+
+    if (juce::JUCEApplicationBase::isStandaloneApp())
+    {
+        if (auto* dw = findParentComponentOfClass<juce::DocumentWindow>())
+        {
+            dw->setUsingNativeTitleBar(true);
+        }
+    }
+}
+
 void OpenWavAudioProcessorEditor::cloudSampleSelected(const MediaItem& /*item*/)
 {
 }
