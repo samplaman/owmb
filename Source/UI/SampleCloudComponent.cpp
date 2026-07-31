@@ -195,14 +195,20 @@ void SampleCloudComponent::paint(juce::Graphics& g)
     // 6. Top Sticky Header Tag Bar Pinned to Top of Cloud View
     if (!clusters.empty())
     {
-        g.setColour(OpenWavLookAndFeel::bgCard.withAlpha(0.90f));
-        g.fillRoundedRectangle(12.0f, 8.0f, 220.0f, 28.0f, 6.0f);
-        g.setColour(OpenWavLookAndFeel::borderColour);
-        g.drawRoundedRectangle(12.0f, 8.0f, 220.0f, 28.0f, 6.0f, 1.0f);
+        juce::String mapHeaderText = "2D AUDIO MAP (" + juce::String(nodes.size()) + " SAMPLES • " + juce::String(clusters.size()) + " SECTORS)";
+        juce::Font mapHeaderFont(11.0f, juce::Font::bold);
+        float badgeWidth = static_cast<float>(mapHeaderFont.getStringWidth(mapHeaderText) + 24);
 
-        g.setFont(juce::Font(11.0f).boldened());
+        juce::Rectangle<float> headerBadgeBounds(12.0f, 8.0f, badgeWidth, 28.0f);
+
+        g.setColour(OpenWavLookAndFeel::bgCard.withAlpha(0.92f));
+        g.fillRoundedRectangle(headerBadgeBounds, 6.0f);
+        g.setColour(OpenWavLookAndFeel::borderColour);
+        g.drawRoundedRectangle(headerBadgeBounds, 6.0f, 1.0f);
+
+        g.setFont(mapHeaderFont);
         g.setColour(OpenWavLookAndFeel::accentCyan);
-        g.drawText("2D AUDIO MAP (" + juce::String(nodes.size()) + " SAMPLES • " + juce::String(clusters.size()) + " SECTORS)", 22, 12, 240, 20, juce::Justification::left, true);
+        g.drawText(mapHeaderText, headerBadgeBounds, juce::Justification::centred, true);
     }
 
     // 5. Floating Hover Info Card with Mini Waveform Preview
