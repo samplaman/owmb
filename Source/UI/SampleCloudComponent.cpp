@@ -640,19 +640,19 @@ int SampleCloudComponent::findNodeAtPosition(juce::Point<float> screenPos) const
 juce::Colour SampleCloudComponent::getColourForTag(const juce::String& tag) const
 {
     auto t = tag.toLowerCase();
-    if (t.contains("kick")) return juce::Colour(0xffe91e63);      // Pink/Magenta
-    if (t.contains("snare")) return juce::Colour(0xffff9800);     // Amber
-    if (t.contains("hat") || t.contains("hihat")) return juce::Colour(0xff00e5ff); // Cyan
-    if (t.contains("perc")) return juce::Colour(0xff4caf50);      // Green
-    if (t.contains("bass")) return juce::Colour(0xff7c4dff);      // Deep Purple
-    if (t.contains("synth") || t.contains("lead")) return juce::Colour(0xffffea00); // Yellow
-    if (t.contains("loop")) return juce::Colour(0xff1de9b6);       // Turquoise
-    if (t.contains("vocal")) return juce::Colour(0xffff4081);      // Bright Pink
+    if (t.contains("kick"))  return juce::Colour(0xfff0f0f0); // Bright White / Silver
+    if (t.contains("snare")) return juce::Colour(0xffd8d8d8); // Light Gray
+    if (t.contains("hat") || t.contains("hihat")) return juce::Colour(0xffc0c0c0); // Medium Light Gray
+    if (t.contains("perc"))  return juce::Colour(0xffa8a8a8); // Medium Gray
+    if (t.contains("bass"))  return juce::Colour(0xff787878); // Slate Gray
+    if (t.contains("synth") || t.contains("lead")) return juce::Colour(0xffe8e8e8); // Soft White
+    if (t.contains("loop"))  return juce::Colour(0xffb0b0b0); // Cool Gray
+    if (t.contains("vocal")) return juce::Colour(0xffe0e0e0); // Platinum
 
-    // Deterministic hue for other tags
+    // Deterministic grayscale for other tags (range 0.40f to 0.95f)
     uint32_t hash = static_cast<uint32_t>(tag.hashCode());
-    float hue = (hash % 360) / 360.0f;
-    return juce::Colour::fromHSV(hue, 0.7f, 0.9f, 1.0f);
+    float brightness = 0.40f + ((hash % 100) / 100.0f) * 0.55f;
+    return juce::Colour::greyLevel(brightness);
 }
 
 void SampleCloudComponent::showContextMenuForNode(int idx)
