@@ -100,21 +100,21 @@ void SampleCloudComponent::paint(juce::Graphics& g)
 
         // Soft island land mass fill
         g.setColour(cluster.colour.withAlpha(0.06f));
-        g.fillEllipse(screenClusterPos.x - baseRadius, screenClusterPos.y - baseRadius * 0.82f, baseRadius * 2.0f, baseRadius * 1.64f);
+        g.fillEllipse(screenClusterPos.x - baseRadius, screenClusterPos.y - baseRadius, baseRadius * 2.0f, baseRadius * 2.0f);
 
         // Outer Contour Line 1 (Sea level elevation)
         g.setColour(cluster.colour.withAlpha(0.18f));
-        g.drawEllipse(screenClusterPos.x - baseRadius, screenClusterPos.y - baseRadius * 0.82f, baseRadius * 2.0f, baseRadius * 1.64f, 1.2f);
+        g.drawEllipse(screenClusterPos.x - baseRadius, screenClusterPos.y - baseRadius, baseRadius * 2.0f, baseRadius * 2.0f, 1.2f);
 
         // Mid Contour Line 2
         float r2 = baseRadius * 0.68f;
         g.setColour(cluster.colour.withAlpha(0.28f));
-        g.drawEllipse(screenClusterPos.x - r2, screenClusterPos.y - r2 * 0.82f, r2 * 2.0f, r2 * 1.64f, 1.0f);
+        g.drawEllipse(screenClusterPos.x - r2, screenClusterPos.y - r2, r2 * 2.0f, r2 * 2.0f, 1.0f);
 
         // Center Peak Contour Line 3
         float r3 = baseRadius * 0.38f;
         g.setColour(cluster.colour.withAlpha(0.38f));
-        g.drawEllipse(screenClusterPos.x - r3, screenClusterPos.y - r3 * 0.82f, r3 * 2.0f, r3 * 1.64f, 0.8f);
+        g.drawEllipse(screenClusterPos.x - r3, screenClusterPos.y - r3, r3 * 2.0f, r3 * 2.0f, 0.8f);
     }
 
     // 4. Draw all sample nodes with flat colors (highly optimized, no gradients)
