@@ -1,4 +1,4 @@
-name: OpenWav Auto Release (Windows 11 & Linux Distros)
+name: OpenWav Auto Release (Windows 11, macOS & Linux Distros)
 
 on:
   push:
@@ -25,6 +25,8 @@ jobs:
         include:
           - os: windows-latest
             os_name: Windows-11-x64
+          - os: macos-14
+            os_name: macOS-Universal
           - os: ubuntu-latest
             os_name: Linux-Distros-x64
 
@@ -79,12 +81,20 @@ jobs:
         if: runner.os == 'Windows'
         run: cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
 
+      - name: Configure CMake (macOS)
+        if: runner.os == 'macOS'
+        run: cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+
       - name: Build OWMB (Linux)
         if: runner.os == 'Linux'
         run: xvfb-run --auto-servernum cmake --build build --parallel 4
 
       - name: Build OWMB (Windows)
         if: runner.os == 'Windows'
+        run: cmake --build build --config Release --parallel 4
+
+      - name: Build OWMB (macOS)
+        if: runner.os == 'macOS'
         run: cmake --build build --config Release --parallel 4
 
       - name: Package Windows 11 Release (.zip)
@@ -95,6 +105,15 @@ jobs:
           Get-ChildItem -Path "build" -Recurse -File -Filter "OWMB.vst3" | ForEach-Object { Copy-Item -Path $_.FullName -Destination "dist\OWMB-Windows-11-x64\OWMB.vst3" -Force }
           Get-ChildItem -Path "build" -Recurse -File -Filter "OWMB.exe" | ForEach-Object { Copy-Item -Path $_.FullName -Destination "dist\OWMB-Windows-11-x64\OWMB.exe" -Force }
           Compress-Archive -Path "dist\OWMB-Windows-11-x64\*" -DestinationPath "OWMB-Windows-11-x64.zip" -Force
+
+      - name: Package macOS Universal Release (.zip)
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p dist/OWMB-macOS-Universal
+          find build -name "OWMB.vst3" -type d -exec cp -R {} dist/OWMB-macOS-Universal/ \; || true
+          find build -name "OWMB.component" -type d -exec cp -R {} dist/OWMB-macOS-Universal/ \; || true
+          find build -name "OWMB.app" -type d -exec cp -R {} dist/OWMB-macOS-Universal/ \; || true
+          cd dist/OWMB-macOS-Universal && zip -r ../../OWMB-macOS-Universal.zip .
 
       - name: Package Linux Distros Release (.tar.gz)
         if: runner.os == 'Linux'
@@ -118,6 +137,13 @@ jobs:
           name: OWMB-Windows-11-x64
           path: OWMB-Windows-11-x64.zip
 
+      - name: Upload macOS Build Artifact
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: OWMB-macOS-Universal
+          path: OWMB-macOS-Universal.zip
+
   release:
     name: Publish GitHub Release
     needs: build
@@ -131,6 +157,11 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: OWMB-Windows-11-x64
+
+      - name: Download macOS Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: OWMB-macOS-Universal
 
       - name: Download Linux Distros Artifacts
         uses: actions/download-artifact@v4
@@ -147,4 +178,5 @@ jobs:
           generate_release_notes: true
           files: |
             OWMB-Windows-11-x64.zip
+            OWMB-macOS-Universal.zip
             OWMB-Linux-Distros-x64.tar.gz

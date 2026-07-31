@@ -27,6 +27,11 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(juce)
 
+if (APPLE)
+    set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "Build architectures for macOS")
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "10.15" CACHE STRING "Minimum macOS version")
+endif()
+
 # Declare Audio Plugin & Standalone application target
 juce_add_plugin(OpenWav
     COMPANY_NAME "OWMB"
@@ -39,7 +44,7 @@ juce_add_plugin(OpenWav
     IS_MIDI_EFFECT FALSE
     EDITOR_WANTS_KEYBOARD_FOCUS TRUE
     COPY_PLUGIN_AFTER_BUILD FALSE
-    FORMATS VST3 Standalone
+    FORMATS VST3 Standalone AU
     PRODUCT_NAME "OWMB"
     ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/owmbico.png"
     ICON_SMALL "${CMAKE_CURRENT_SOURCE_DIR}/owmbico.png"
