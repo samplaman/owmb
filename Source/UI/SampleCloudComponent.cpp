@@ -130,23 +130,55 @@ void SampleCloudComponent::paint(juce::Graphics& g)
         g.drawLine(p3.x, p3.y, p4.x, p4.y, 1.0f);
     }
 
-    // 2. Draw 3D Topographic Elevation Contour Circles around clusters in 3D perspective
+    // 2. Draw True 3D Celestial Wireframe Spheres around each tag cluster centroid
     for (const auto& cluster : clusters)
     {
-        float baseRadius = std::max(35.0f, 20.0f + std::sqrt(static_cast<float>(cluster.count)) * 12.0f);
-        float s = cluster.projectedScale;
-
+        float R = std::max(45.0f, 30.0f + std::sqrt(static_cast<float>(cluster.count)) * 14.0f);
         float depthAlpha = juce::jlimit(0.35f, 1.0f, 1.0f - (cluster.transformedPos.z + 300.0f) / 900.0f);
 
-        // Contour 1
-        float r1 = baseRadius * s;
-        g.setColour(cluster.colour.withAlpha(0.28f * depthAlpha));
-        g.drawEllipse(cluster.screenPos.x - r1, cluster.screenPos.y - r1, r1 * 2.0f, r1 * 2.0f, 1.4f);
+        g.setColour(cluster.colour.withAlpha(0.35f * depthAlpha));
 
-        // Contour 2
-        float r2 = baseRadius * 0.65f * s;
-        g.setColour(cluster.colour.withAlpha(0.42f * depthAlpha));
-        g.drawEllipse(cluster.screenPos.x - r2, cluster.screenPos.y - r2, r2 * 2.0f, r2 * 2.0f, 1.2f);
+        const int numSegments = 32;
+        float step = juce::MathConstants<float>::twoPi / static_cast<float>(numSegments);
+
+        // 1. Horizontal XZ Equatorial Ring in 3D
+        juce::Path ringXZ;
+        for (int s = 0; s <= numSegments; ++s)
+        {
+            float angle = s * step;
+            Vector3D p3d = cluster.centerPos + Vector3D{ R * std::cos(angle), 0.0f, R * std::sin(angle) };
+            Vector3D t; float sc;
+            auto p2d = project3DToScreen(p3d, t, sc);
+            if (s == 0) ringXZ.startNewSubPath(p2d);
+            else ringXZ.lineTo(p2d);
+        }
+        g.strokePath(ringXZ, juce::PathStrokeType(1.4f));
+
+        // 2. Vertical XY Meridian Ring in 3D
+        juce::Path ringXY;
+        for (int s = 0; s <= numSegments; ++s)
+        {
+            float angle = s * step;
+            Vector3D p3d = cluster.centerPos + Vector3D{ R * std::cos(angle), R * std::sin(angle), 0.0f };
+            Vector3D t; float sc;
+            auto p2d = project3DToScreen(p3d, t, sc);
+            if (s == 0) ringXY.startNewSubPath(p2d);
+            else ringXY.lineTo(p2d);
+        }
+        g.strokePath(ringXY, juce::PathStrokeType(1.1f));
+
+        // 3. Vertical YZ Meridian Ring in 3D
+        juce::Path ringYZ;
+        for (int s = 0; s <= numSegments; ++s)
+        {
+            float angle = s * step;
+            Vector3D p3d = cluster.centerPos + Vector3D{ 0.0f, R * std::cos(angle), R * std::sin(angle) };
+            Vector3D t; float sc;
+            auto p2d = project3DToScreen(p3d, t, sc);
+            if (s == 0) ringYZ.startNewSubPath(p2d);
+            else ringYZ.lineTo(p2d);
+        }
+        g.strokePath(ringYZ, juce::PathStrokeType(1.1f));
     }
 
     // 2.5. Draw 3D Constellation Mesh Lines connecting neighboring stars within each tag cluster
