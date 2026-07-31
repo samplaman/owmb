@@ -26,6 +26,7 @@ public:
     virtual void formatFilterChanged(const juce::String& extension) = 0;
     virtual void addFolderRequested() = 0;
     virtual void rescanRequested() = 0;
+    virtual void settingsRequested() = 0;
     virtual void viewModeChanged(ViewMode mode) = 0;
 };
 
@@ -68,6 +69,7 @@ private:
     juce::TextEditor searchEditor;
     juce::TextButton addFolderButton { "+ Add Folder" };
     juce::TextButton rescanButton { "Rescan" };
+    juce::TextButton settingsButton { "Settings" };
 
     juce::TextButton btnAll { "All" };
     juce::TextButton btnWav { ".WAV" };

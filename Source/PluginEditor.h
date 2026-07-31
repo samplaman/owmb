@@ -36,6 +36,7 @@ public:
     void formatFilterChanged(const juce::String& extension) override;
     void addFolderRequested() override;
     void rescanRequested() override;
+    void settingsRequested() override;
     void viewModeChanged(ViewMode mode) override;
 
     // TagPanelListener Callbacks

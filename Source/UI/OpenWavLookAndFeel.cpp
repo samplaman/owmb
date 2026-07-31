@@ -25,6 +25,22 @@ const juce::Colour OpenWavLookAndFeel::favoriteRed =
 
 OpenWavLookAndFeel::OpenWavLookAndFeel() {
   setColour(juce::ResizableWindow::backgroundColourId, bgDark);
+  setColour(juce::DialogWindow::backgroundColourId, bgDark);
+  setColour(juce::AlertWindow::backgroundColourId, bgDark);
+  setColour(juce::AlertWindow::textColourId, textPrimary);
+  setColour(juce::AlertWindow::outlineColourId, borderColour);
+
+  // GroupComponent & ComboBox (used in Audio/MIDI setup dialogs)
+  setColour(juce::GroupComponent::outlineColourId, borderColour);
+  setColour(juce::GroupComponent::textColourId, textPrimary);
+
+  setColour(juce::ComboBox::backgroundColourId, bgCard);
+  setColour(juce::ComboBox::textColourId, textPrimary);
+  setColour(juce::ComboBox::outlineColourId, borderColour);
+  setColour(juce::ComboBox::arrowColourId, textPrimary);
+  setColour(juce::ComboBox::focusedOutlineColourId, accentCyan);
+
+  setColour(juce::Label::textColourId, textPrimary);
 
   // Text Editor
   setColour(juce::TextEditor::backgroundColourId, bgCard);
@@ -33,7 +49,7 @@ OpenWavLookAndFeel::OpenWavLookAndFeel() {
   setColour(juce::TextEditor::outlineColourId, borderColour);
   setColour(juce::TextEditor::focusedOutlineColourId, accentCyan);
 
-  // TextButton - Explicit Light Mode Defaults
+  // TextButton - Explicit Defaults
   setColour(juce::TextButton::buttonColourId, bgCard);
   setColour(juce::TextButton::buttonOnColourId, accentCyan.withAlpha(0.18f));
   setColour(juce::TextButton::textColourOffId, textPrimary);
@@ -49,12 +65,16 @@ OpenWavLookAndFeel::OpenWavLookAndFeel() {
   setColour(juce::TableHeaderComponent::backgroundColourId, bgHeader);
   setColour(juce::TableHeaderComponent::textColourId, textSecondary);
 
-  // PopupMenu
+  // PopupMenu (Right-click menus)
   setColour(juce::PopupMenu::backgroundColourId, bgCard);
   setColour(juce::PopupMenu::textColourId, textPrimary);
   setColour(juce::PopupMenu::headerTextColourId, accentCyan);
   setColour(juce::PopupMenu::highlightedBackgroundColourId, bgHover);
-  setColour(juce::PopupMenu::highlightedTextColourId, textPrimary);
+  setColour(juce::PopupMenu::highlightedTextColourId, accentCyan);
+
+  // Directory / FileBrowserComponent
+  setColour(juce::FileBrowserComponent::currentPathBoxBackgroundColourId, bgCard);
+  setColour(juce::FileBrowserComponent::filenameBoxBackgroundColourId, bgCard);
 
   // Slider
   setColour(juce::Slider::thumbColourId, textPrimary);
@@ -169,6 +189,79 @@ void OpenWavLookAndFeel::drawLinearSlider(
     g.setColour(textPrimary);
     g.fillEllipse(sliderPos - 5.0f, centerY - 5.0f, 10.0f, 10.0f);
   }
+}
+
+void OpenWavLookAndFeel::drawPopupMenuBackground(juce::Graphics& g, int width, int height)
+{
+    g.fillAll(bgCard);
+    g.setColour(borderColour);
+    g.drawRect(0, 0, width, height, 1);
+}
+
+void OpenWavLookAndFeel::drawPopupMenuItem(juce::Graphics& g, const juce::Rectangle<int>& area,
+                                            bool isSeparator, bool isActive, bool isHighlighted,
+                                            bool isTicked, bool hasSubMenu, const juce::String& text,
+                                            const juce::String& shortcutKeyText,
+                                            const juce::Drawable* icon, const juce::Colour* textColourToUse)
+{
+    if (isSeparator)
+    {
+        auto r = area.reduced(6, 0);
+        r.removeFromTop(r.getHeight() / 2);
+        g.setColour(borderColour);
+        g.fillRect(r.removeFromTop(1));
+        return;
+    }
+
+    auto textColour = textPrimary;
+    if (textColourToUse != nullptr)
+        textColour = *textColourToUse;
+
+    if (!isActive)
+        textColour = textSecondary;
+
+    if (isHighlighted && isActive)
+    {
+        g.setColour(bgHover);
+        g.fillRect(area.reduced(2, 1));
+        textColour = accentCyan;
+    }
+
+    auto r = area.reduced(10, 0);
+
+    if (isTicked)
+    {
+        auto tickArea = r.removeFromLeft(16);
+        g.setColour(accentCyan);
+        g.drawText("✓", tickArea, juce::Justification::centredLeft, false);
+    }
+
+    if (icon != nullptr)
+    {
+        auto iconArea = r.removeFromLeft(20).toFloat();
+        icon->drawWithin(g, iconArea, juce::RectanglePlacement::centred, 1.0f);
+    }
+
+    g.setFont(juce::Font(12.0f).boldened());
+    g.setColour(textColour);
+    g.drawText(text, r, juce::Justification::centredLeft, true);
+
+    if (shortcutKeyText.isNotEmpty())
+    {
+        g.setColour(textSecondary);
+        g.drawText(shortcutKeyText, r, juce::Justification::centredRight, true);
+    }
+
+    if (hasSubMenu)
+    {
+        g.setColour(isActive ? textPrimary : textSecondary);
+        auto arrowArea = r.removeFromRight(10);
+        juce::Path p;
+        p.addTriangle(static_cast<float>(arrowArea.getX()), static_cast<float>(arrowArea.getY() + 4),
+                      static_cast<float>(arrowArea.getRight()), static_cast<float>(arrowArea.getCentreY()),
+                      static_cast<float>(arrowArea.getX()), static_cast<float>(arrowArea.getBottom() - 4));
+        g.fillPath(p);
+    }
 }
 
 } // namespace openwav

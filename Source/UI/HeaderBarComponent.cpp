@@ -55,6 +55,12 @@ HeaderBarComponent::HeaderBarComponent(TagDatabaseManager& db, LibraryScanner& s
     };
     addAndMakeVisible(rescanButton);
 
+    // Settings Button (Audio / MIDI Setup)
+    settingsButton.onClick = [this] {
+        listeners.call([](HeaderBarListener& l) { l.settingsRequested(); });
+    };
+    addAndMakeVisible(settingsButton);
+
     // Format Filter Buttons
     auto setupFormatBtn = [this](juce::TextButton& btn, const juce::String& fmt) {
         btn.setClickingTogglesState(false);
@@ -156,6 +162,8 @@ void HeaderBarComponent::resized()
     addFolderButton.setBounds(area.removeFromLeft(105).withHeight(btnHeight));
     area.removeFromLeft(gap);
     rescanButton.setBounds(area.removeFromLeft(75).withHeight(btnHeight));
+    area.removeFromLeft(gap);
+    settingsButton.setBounds(area.removeFromLeft(80).withHeight(btnHeight));
 
     statusLabel.setBounds(area.removeFromRight(150));
     progressBar.setBounds(statusLabel.getBounds().reduced(0, 4));

@@ -1,4 +1,5 @@
 #include "PluginEditor.h"
+#include <juce_audio_plugin_client/Standalone/juce_StandaloneFilterWindow.h>
 
 namespace openwav
 {
@@ -14,6 +15,7 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(OpenWavAudioProcessor& 
       waveformTransport(p.getAudioEngine())
 {
     setLookAndFeel(&lookAndFeel);
+    juce::LookAndFeel::setDefaultLookAndFeel(&lookAndFeel);
 
     headerBar.addListener(this);
     tagPanel.addListener(this);
@@ -40,6 +42,7 @@ OpenWavAudioProcessorEditor::~OpenWavAudioProcessorEditor()
     tagPanel.removeListener(this);
     sampleTable.removeListener(this);
     sampleCloud.removeListener(this);
+    juce::LookAndFeel::setDefaultLookAndFeel(nullptr);
     setLookAndFeel(nullptr);
 }
 
@@ -124,6 +127,28 @@ void OpenWavAudioProcessorEditor::rescanRequested()
     {
         addFolderRequested();
     }
+}
+
+void OpenWavAudioProcessorEditor::settingsRequested()
+{
+    if (juce::JUCEApplicationBase::isStandaloneApp())
+    {
+        if (auto* sfw = findParentComponentOfClass<juce::StandaloneFilterWindow>())
+        {
+            if (auto* holder = sfw->getPluginHolder())
+            {
+                holder->showAudioSettingsDialog();
+                return;
+            }
+        }
+    }
+
+    juce::AlertWindow::showMessageBoxAsync(
+        juce::AlertWindow::InfoIcon,
+        "Audio / MIDI Settings",
+        "In VST3 / AU plugin mode, Audio and MIDI devices are managed by your host DAW.",
+        "OK"
+    );
 }
 
 void OpenWavAudioProcessorEditor::tagFilterSelectionChanged(const std::set<juce::String>& /*selectedTags*/, bool /*matchAllTags*/, bool /*favoritesOnly*/)
