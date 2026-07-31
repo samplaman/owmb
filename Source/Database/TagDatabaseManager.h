@@ -72,6 +72,10 @@ public:
     juce::String getDownloadFolder() const;
     void setDownloadFolder(const juce::String& folderPath);
 
+    // Theme Settings Persistence
+    bool isDarkMode() const;
+    void setDarkMode(bool useDark);
+
 private:
     juce::File getDatabaseFile() const;
     void notifyIndexUpdated();
@@ -82,6 +86,7 @@ private:
     std::set<juce::String> scanFolders;
     juce::String pixeldrainApiKey;
     juce::String downloadFolder;
+    bool darkThemeActive = false;
     juce::ListenerList<TagDatabaseListener> listeners;
 };
 

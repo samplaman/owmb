@@ -47,6 +47,7 @@ public:
     void cellClicked(int rowNumber, int columnId, const juce::MouseEvent& e) override;
     void cellDoubleClicked(int rowNumber, int columnId, const juce::MouseEvent& e) override;
     juce::var getDragSourceDescription(const juce::SparseSet<int>& selectedRows) override;
+    bool mayDragToExternalWindows() const override;
 
     // TagDatabaseListener callbacks
     void libraryIndexUpdated() override;

@@ -45,6 +45,7 @@ public:
 
     void paint(juce::Graphics& g) override;
     void resized() override;
+    void lookAndFeelChanged() override;
 
     // juce::TableListBoxModel overrides
     int getNumRows() override;
@@ -52,6 +53,7 @@ public:
     void paintCell(juce::Graphics& g, int rowNumber, int columnId, int width, int height, bool rowIsSelected) override;
     juce::Component* refreshComponentForCell(int rowNumber, int columnId, bool isRowSelected, juce::Component* existingComponentToUpdate) override;
     void cellDoubleClicked(int rowNumber, int columnId, const juce::MouseEvent& e) override;
+    bool mayDragToExternalWindows() const override;
 
     // Pixeldrain API Operations
     void fetchUserFiles();

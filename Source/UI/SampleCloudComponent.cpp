@@ -100,7 +100,28 @@ void SampleCloudComponent::resetZoomAndPan()
 
 void SampleCloudComponent::paint(juce::Graphics& g)
 {
-    g.fillAll(OpenWavLookAndFeel::bgDark);
+    auto bounds = getLocalBounds().toFloat();
+    juce::Colour centerColour, outerColour;
+
+    if (OpenWavLookAndFeel::bgDark.getPerceivedBrightness() < 0.5f)
+    {
+        // Dark Mode: deep celestial radial glow towards the center
+        centerColour = OpenWavLookAndFeel::bgDark.interpolatedWith(OpenWavLookAndFeel::accentCyan, 0.08f);
+        outerColour = OpenWavLookAndFeel::bgDark;
+    }
+    else
+    {
+        // Light Mode: clean soft depth
+        centerColour = OpenWavLookAndFeel::bgDark;
+        outerColour = OpenWavLookAndFeel::bgDark.darker(0.04f);
+    }
+
+    juce::ColourGradient cg (centerColour, bounds.getCentreX(), bounds.getCentreY(),
+                             outerColour, 0.0f, 0.0f,
+                             true); // true = radial gradient
+
+    g.setGradientFill (cg);
+    g.fillAll();
 
     if (nodes.empty())
     {
@@ -377,6 +398,7 @@ void SampleCloudComponent::mouseDown(const juce::MouseEvent& e)
     {
         isPanning = false;
         isRotating = false;
+        hasStartedDrag = false;
         selectedNodeIndex = idx;
         const auto& item = nodes[static_cast<size_t>(idx)].item;
 
@@ -422,12 +444,16 @@ void SampleCloudComponent::mouseDrag(const juce::MouseEvent& e)
         panOffset = dragStartPan + (e.position - mouseDragStartPos);
         repaint();
     }
-    else if (e.mouseWasDraggedSinceMouseDown() && selectedNodeIndex >= 0 && selectedNodeIndex < static_cast<int>(nodes.size()))
+    else if (e.mouseWasDraggedSinceMouseDown() && !hasStartedDrag && selectedNodeIndex >= 0 && selectedNodeIndex < static_cast<int>(nodes.size()))
     {
+        hasStartedDrag = true;
         const auto& item = nodes[static_cast<size_t>(selectedNodeIndex)].item;
         juce::StringArray filesToDrag;
         filesToDrag.add(item.filePath);
-        juce::DragAndDropContainer::performExternalDragDropOfFiles(filesToDrag, false);
+        
+        juce::MessageManager::callAsync([filesToDrag] {
+            juce::DragAndDropContainer::performExternalDragDropOfFiles(filesToDrag, false);
+        });
     }
 }
 

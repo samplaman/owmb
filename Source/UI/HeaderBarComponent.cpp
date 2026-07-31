@@ -10,32 +10,13 @@ HeaderBarComponent::HeaderBarComponent(TagDatabaseManager& db, LibraryScanner& s
     libraryScanner.addListener(this);
 
     // Title & Logo
-    juce::Image logoImage;
-#if defined(JUCE_BINARYDATA_H_INCLUDED) || __has_include(<JuceHeader.h>)
-    logoImage = juce::ImageFileFormat::loadFrom(BinaryData::owmblogo_png, static_cast<size_t>(BinaryData::owmblogo_pngSize));
-#endif
+    addAndMakeVisible(logoComponent);
+    titleLabel.setFont(juce::Font(18.0f).boldened());
+    titleLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::accentCyan);
+    titleLabel.setJustificationType(juce::Justification::centred);
+    addChildComponent(titleLabel); // added but hidden if logo loads
 
-    if (logoImage.isNull())
-    {
-        juce::File logoFile = juce::File::getCurrentWorkingDirectory().getChildFile("owmblogo.png");
-        if (!logoFile.existsAsFile())
-            logoFile = juce::File::getSpecialLocation(juce::File::currentExecutableFile).getParentDirectory().getChildFile("owmblogo.png");
-        if (logoFile.existsAsFile())
-            logoImage = juce::ImageFileFormat::loadFrom(logoFile);
-    }
-
-    if (!logoImage.isNull())
-    {
-        logoComponent.setImage(logoImage, juce::RectanglePlacement::xLeft | juce::RectanglePlacement::yMid | juce::RectanglePlacement::onlyReduceInSize);
-        addAndMakeVisible(logoComponent);
-    }
-    else
-    {
-        titleLabel.setFont(juce::Font(18.0f).boldened());
-        titleLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::accentCyan);
-        titleLabel.setJustificationType(juce::Justification::centred);
-        addAndMakeVisible(titleLabel);
-    }
+    lookAndFeelChanged();
 
     // Search Editor
     searchEditor.setJustification(juce::Justification::centred);
@@ -150,20 +131,20 @@ void HeaderBarComponent::resized()
 
     area.removeFromLeft(16);
 
-    // View Mode Toggle (List / Cloud / Librarys)
-    btnListView.setBounds(area.removeFromLeft(50).withHeight(btnHeight));
+    // View Mode Toggle (List / Cloud / Library)
+    btnListView.setBounds(area.removeFromLeft(65).withHeight(btnHeight));
     area.removeFromLeft(gap);
-    btnCloudView.setBounds(area.removeFromLeft(55).withHeight(btnHeight));
+    btnCloudView.setBounds(area.removeFromLeft(75).withHeight(btnHeight));
     area.removeFromLeft(gap);
-    btnLibrariesView.setBounds(area.removeFromLeft(70).withHeight(btnHeight));
+    btnLibrariesView.setBounds(area.removeFromLeft(85).withHeight(btnHeight));
 
     area.removeFromLeft(16);
 
-    addFolderButton.setBounds(area.removeFromLeft(105).withHeight(btnHeight));
+    addFolderButton.setBounds(area.removeFromLeft(115).withHeight(btnHeight));
     area.removeFromLeft(gap);
-    rescanButton.setBounds(area.removeFromLeft(75).withHeight(btnHeight));
+    rescanButton.setBounds(area.removeFromLeft(90).withHeight(btnHeight));
     area.removeFromLeft(gap);
-    settingsButton.setBounds(area.removeFromLeft(80).withHeight(btnHeight));
+    settingsButton.setBounds(area.removeFromLeft(95).withHeight(btnHeight));
 
     statusLabel.setBounds(area.removeFromRight(150));
     progressBar.setBounds(statusLabel.getBounds().reduced(0, 4));
@@ -247,6 +228,64 @@ void HeaderBarComponent::addListener(HeaderBarListener* listener)
 void HeaderBarComponent::removeListener(HeaderBarListener* listener)
 {
     listeners.remove(listener);
+}
+
+void HeaderBarComponent::lookAndFeelChanged()
+{
+    juce::Image logoImage;
+#if defined(JUCE_BINARYDATA_H_INCLUDED) || __has_include(<JuceHeader.h>)
+    logoImage = juce::ImageFileFormat::loadFrom(BinaryData::owmblogo_png, static_cast<size_t>(BinaryData::owmblogo_pngSize));
+#endif
+
+    if (logoImage.isNull())
+    {
+        juce::File logoFile = juce::File::getCurrentWorkingDirectory().getChildFile("owmblogo.png");
+        if (!logoFile.existsAsFile())
+            logoFile = juce::File::getSpecialLocation(juce::File::currentExecutableFile).getParentDirectory().getChildFile("owmblogo.png");
+        if (logoFile.existsAsFile())
+            logoImage = juce::ImageFileFormat::loadFrom(logoFile);
+    }
+
+    if (!logoImage.isNull())
+    {
+        logoComponent.setVisible(true);
+        titleLabel.setVisible(false);
+
+        if (dbManager.isDarkMode())
+        {
+            // Invert colors of logo for dark theme (keeping alpha channel intact)
+            juce::Image inverted = logoImage.createCopy();
+            juce::Image::BitmapData bd(inverted, juce::Image::BitmapData::readWrite);
+            for (int y = 0; y < bd.height; ++y)
+            {
+                for (int x = 0; x < bd.width; ++x)
+                {
+                    auto c = bd.getPixelColour(x, y);
+                    bd.setPixelColour(x, y, juce::Colour(static_cast<juce::uint8>(255 - c.getRed()),
+                                                        static_cast<juce::uint8>(255 - c.getGreen()),
+                                                        static_cast<juce::uint8>(255 - c.getBlue()),
+                                                        c.getAlpha()));
+                }
+            }
+            logoComponent.setImage(inverted, juce::RectanglePlacement::xLeft | juce::RectanglePlacement::yMid | juce::RectanglePlacement::onlyReduceInSize);
+        }
+        else
+        {
+            logoComponent.setImage(logoImage, juce::RectanglePlacement::xLeft | juce::RectanglePlacement::yMid | juce::RectanglePlacement::onlyReduceInSize);
+        }
+    }
+    else
+    {
+        logoComponent.setVisible(false);
+        titleLabel.setVisible(true);
+    }
+
+    // Update labels, text fields, and progress bar colors
+    titleLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::accentCyan);
+    statusLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::textSecondary);
+    progressBar.setColour(juce::ProgressBar::backgroundColourId, OpenWavLookAndFeel::bgDark);
+    progressBar.setColour(juce::ProgressBar::foregroundColourId, OpenWavLookAndFeel::accentCyan);
+    searchEditor.setTextToShowWhenEmpty("Search by name, tag, or path...", OpenWavLookAndFeel::textSecondary);
 }
 
 } // namespace openwav

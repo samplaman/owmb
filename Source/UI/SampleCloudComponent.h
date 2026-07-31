@@ -120,6 +120,7 @@ private:
     float dragStartRotY { 0.0f };
     bool isPanning { false };
     bool isRotating { false };
+    bool hasStartedDrag { false };
 
     // Zoom HUD Buttons
     juce::TextButton zoomInButton { "+" };

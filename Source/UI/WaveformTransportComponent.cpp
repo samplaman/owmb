@@ -243,14 +243,12 @@ WaveformTransportComponent::WaveformTransportComponent(AudioEngine& engine)
 
     // Time Label
     timeLabel.setFont(juce::Font(12.0f).boldened());
-    timeLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::accentCyan);
     timeLabel.setJustificationType(juce::Justification::centredRight);
     timeLabel.setText("00:00 / 00:00", juce::dontSendNotification);
     addAndMakeVisible(timeLabel);
 
     // Sample Name Label
     sampleNameLabel.setFont(juce::Font(13.0f).boldened());
-    sampleNameLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::textPrimary);
     sampleNameLabel.setText("No sample loaded", juce::dontSendNotification);
     addAndMakeVisible(sampleNameLabel);
 
@@ -258,6 +256,8 @@ WaveformTransportComponent::WaveformTransportComponent(AudioEngine& engine)
     slicesViewport.setScrollBarsShown(false, true, false, false);
     slicesViewport.setViewedComponent(&slicesGrid, false);
     addAndMakeVisible(slicesViewport);
+
+    lookAndFeelChanged();
 
     startTimerHz(30);
 }
@@ -431,6 +431,8 @@ void WaveformTransportComponent::paint(juce::Graphics& g)
         g.drawLine(playheadX, trackBounds.getY() + 3.0f, playheadX, trackBounds.getBottom() - 3.0f, 2.0f);
         g.setColour(juce::Colours::white);
         g.fillEllipse(playheadX - 6.0f, trackBounds.getCentreY() - 6.0f, 12.0f, 12.0f);
+        g.setColour(OpenWavLookAndFeel::accentCyan);
+        g.drawEllipse(playheadX - 6.0f, trackBounds.getCentreY() - 6.0f, 12.0f, 12.0f, 1.0f);
     }
     else
     {
@@ -795,8 +797,16 @@ void WaveformTransportComponent::exportAndDragSlice(int sliceIndex)
     {
         juce::StringArray filesToDrag;
         filesToDrag.add(sliceFile.getFullPathName());
-        juce::DragAndDropContainer::performExternalDragDropOfFiles(filesToDrag, false);
+        juce::MessageManager::callAsync([filesToDrag] {
+            juce::DragAndDropContainer::performExternalDragDropOfFiles(filesToDrag, false);
+        });
     }
+}
+
+void WaveformTransportComponent::lookAndFeelChanged()
+{
+    timeLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::accentCyan);
+    sampleNameLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::textPrimary);
 }
 
 } // namespace openwav

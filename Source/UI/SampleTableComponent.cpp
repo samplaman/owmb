@@ -262,14 +262,6 @@ void SampleTableComponent::cellClicked(int rowNumber, int columnId, const juce::
     listeners.call([item](SampleTableListener& l) {
         l.sampleSelected(item);
     });
-
-    // Check if mouse dragging for DAW Drag-and-Drop
-    if (e.mouseWasDraggedSinceMouseDown())
-    {
-        juce::StringArray filesToDrag;
-        filesToDrag.add(item.filePath);
-        juce::DragAndDropContainer::performExternalDragDropOfFiles(filesToDrag, false);
-    }
 }
 
 void SampleTableComponent::cellDoubleClicked(int rowNumber, int /*columnId*/, const juce::MouseEvent& /*e*/)
@@ -299,14 +291,16 @@ juce::var SampleTableComponent::getDragSourceDescription(const juce::SparseSet<i
         int r = selectedRows[0];
         if (r >= 0 && r < static_cast<int>(displayedItems.size()))
         {
-            // Initiate external drag drop into DAWs
+            // Initiate external drag drop into DAWs asynchronously
             juce::StringArray files;
             files.add(displayedItems[static_cast<size_t>(r)].filePath);
-            juce::DragAndDropContainer::performExternalDragDropOfFiles(files, false);
-            return displayedItems[static_cast<size_t>(r)].filePath;
+            
+            juce::MessageManager::callAsync([files] {
+                juce::DragAndDropContainer::performExternalDragDropOfFiles(files, false);
+            });
         }
     }
-    return {};
+    return {}; // Return empty var to bypass JUCE's internal drag loop and let OS handle it
 }
 
 void SampleTableComponent::showContextMenuForRow(int rowNumber)
@@ -419,6 +413,11 @@ void SampleTableComponent::addListener(SampleTableListener* listener)
 void SampleTableComponent::removeListener(SampleTableListener* listener)
 {
     listeners.remove(listener);
+}
+
+bool SampleTableComponent::mayDragToExternalWindows() const
+{
+    return true;
 }
 
 } // namespace openwav

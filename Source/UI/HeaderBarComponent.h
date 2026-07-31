@@ -40,6 +40,7 @@ public:
 
     void paint(juce::Graphics& g) override;
     void resized() override;
+    void lookAndFeelChanged() override;
 
     juce::String getSearchText() const { return searchEditor.getText(); }
     juce::String getSelectedFormat() const { return activeFormat; }
@@ -80,7 +81,7 @@ private:
 
     juce::TextButton btnListView { "List" };
     juce::TextButton btnCloudView { "Cloud" };
-    juce::TextButton btnLibrariesView { "Librarys" };
+    juce::TextButton btnLibrariesView { "Library" };
 
     juce::Label statusLabel;
     double scanProgressValue { 0.0 };

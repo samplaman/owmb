@@ -16,16 +16,20 @@ public:
     ~OpenWavLookAndFeel() override = default;
 
     // Color Constants
-    static const juce::Colour bgDark;
-    static const juce::Colour bgHeader;
-    static const juce::Colour bgCard;
-    static const juce::Colour bgHover;
-    static const juce::Colour accentCyan;
-    static const juce::Colour accentBlue;
-    static const juce::Colour textPrimary;
-    static const juce::Colour textSecondary;
-    static const juce::Colour borderColour;
-    static const juce::Colour favoriteRed;
+    static juce::Colour bgDark;
+    static juce::Colour bgHeader;
+    static juce::Colour bgCard;
+    static juce::Colour bgHover;
+    static juce::Colour accentCyan;
+    static juce::Colour accentBlue;
+    static juce::Colour textPrimary;
+    static juce::Colour textSecondary;
+    static juce::Colour borderColour;
+    static juce::Colour favoriteRed;
+
+    // Theme switching
+    static void setDarkTheme(bool useDark);
+    void updateColors();
 
     // JUCE LookAndFeel Overrides
     void drawButtonBackground(juce::Graphics& g, juce::Button& button,

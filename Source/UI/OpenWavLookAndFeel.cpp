@@ -2,28 +2,62 @@
 
 namespace openwav {
 
-const juce::Colour OpenWavLookAndFeel::bgDark =
+juce::Colour OpenWavLookAndFeel::bgDark =
     juce::Colour::fromRGB(240, 240, 240);
-const juce::Colour OpenWavLookAndFeel::bgHeader =
+juce::Colour OpenWavLookAndFeel::bgHeader =
     juce::Colour::fromRGB(255, 255, 255);
-const juce::Colour OpenWavLookAndFeel::bgCard =
+juce::Colour OpenWavLookAndFeel::bgCard =
     juce::Colour::fromRGB(255, 255, 255);
-const juce::Colour OpenWavLookAndFeel::bgHover =
+juce::Colour OpenWavLookAndFeel::bgHover =
     juce::Colour::fromRGB(225, 225, 225);
-const juce::Colour OpenWavLookAndFeel::accentCyan =
+juce::Colour OpenWavLookAndFeel::accentCyan =
     juce::Colour::fromRGB(60, 60, 60);
-const juce::Colour OpenWavLookAndFeel::accentBlue =
+juce::Colour OpenWavLookAndFeel::accentBlue =
     juce::Colour::fromRGB(110, 110, 110);
-const juce::Colour OpenWavLookAndFeel::textPrimary =
+juce::Colour OpenWavLookAndFeel::textPrimary =
     juce::Colour::fromRGB(30, 30, 30);
-const juce::Colour OpenWavLookAndFeel::textSecondary =
+juce::Colour OpenWavLookAndFeel::textSecondary =
     juce::Colour::fromRGB(100, 100, 100);
-const juce::Colour OpenWavLookAndFeel::borderColour =
+juce::Colour OpenWavLookAndFeel::borderColour =
     juce::Colour::fromRGB(215, 215, 215);
-const juce::Colour OpenWavLookAndFeel::favoriteRed =
+juce::Colour OpenWavLookAndFeel::favoriteRed =
     juce::Colour::fromRGB(120, 120, 120);
 
+void OpenWavLookAndFeel::setDarkTheme(bool useDark)
+{
+    if (useDark)
+    {
+        bgDark = juce::Colour::fromRGB(18, 18, 18);
+        bgHeader = juce::Colour::fromRGB(30, 30, 30);
+        bgCard = juce::Colour::fromRGB(32, 32, 32);
+        bgHover = juce::Colour::fromRGB(48, 48, 48);
+        accentCyan = juce::Colour::fromRGB(0, 200, 220);
+        accentBlue = juce::Colour::fromRGB(0, 140, 255);
+        textPrimary = juce::Colour::fromRGB(240, 240, 240);
+        textSecondary = juce::Colour::fromRGB(160, 160, 160);
+        borderColour = juce::Colour::fromRGB(50, 50, 50);
+        favoriteRed = juce::Colour::fromRGB(230, 70, 70);
+    }
+    else
+    {
+        bgDark = juce::Colour::fromRGB(240, 240, 240);
+        bgHeader = juce::Colour::fromRGB(255, 255, 255);
+        bgCard = juce::Colour::fromRGB(255, 255, 255);
+        bgHover = juce::Colour::fromRGB(225, 225, 225);
+        accentCyan = juce::Colour::fromRGB(60, 60, 60);
+        accentBlue = juce::Colour::fromRGB(110, 110, 110);
+        textPrimary = juce::Colour::fromRGB(30, 30, 30);
+        textSecondary = juce::Colour::fromRGB(100, 100, 100);
+        borderColour = juce::Colour::fromRGB(215, 215, 215);
+        favoriteRed = juce::Colour::fromRGB(120, 120, 120);
+    }
+}
+
 OpenWavLookAndFeel::OpenWavLookAndFeel() {
+  updateColors();
+}
+
+void OpenWavLookAndFeel::updateColors() {
   setColour(juce::ResizableWindow::backgroundColourId, bgDark);
   setColour(juce::DialogWindow::backgroundColourId, bgDark);
   setColour(juce::AlertWindow::backgroundColourId, bgDark);
@@ -32,19 +66,19 @@ OpenWavLookAndFeel::OpenWavLookAndFeel() {
 
   // GroupComponent & ComboBox (used in Audio/MIDI setup dialogs)
   setColour(juce::GroupComponent::outlineColourId, borderColour);
-  setColour(juce::GroupComponent::textColourId, juce::Colours::black);
+  setColour(juce::GroupComponent::textColourId, textPrimary);
 
   setColour(juce::ComboBox::backgroundColourId, bgCard);
-  setColour(juce::ComboBox::textColourId, juce::Colours::black);
+  setColour(juce::ComboBox::textColourId, textPrimary);
   setColour(juce::ComboBox::outlineColourId, borderColour);
-  setColour(juce::ComboBox::arrowColourId, juce::Colours::black);
+  setColour(juce::ComboBox::arrowColourId, textPrimary);
   setColour(juce::ComboBox::focusedOutlineColourId, accentCyan);
 
-  setColour(juce::Label::textColourId, juce::Colours::black);
+  setColour(juce::Label::textColourId, textPrimary);
 
   // Text Editor
   setColour(juce::TextEditor::backgroundColourId, bgCard);
-  setColour(juce::TextEditor::textColourId, juce::Colours::black);
+  setColour(juce::TextEditor::textColourId, textPrimary);
   setColour(juce::TextEditor::highlightColourId, accentCyan.withAlpha(0.25f));
   setColour(juce::TextEditor::outlineColourId, borderColour);
   setColour(juce::TextEditor::focusedOutlineColourId, accentCyan);
@@ -52,17 +86,17 @@ OpenWavLookAndFeel::OpenWavLookAndFeel() {
   // TextButton - Explicit Defaults
   setColour(juce::TextButton::buttonColourId, bgCard);
   setColour(juce::TextButton::buttonOnColourId, accentCyan.withAlpha(0.18f));
-  setColour(juce::TextButton::textColourOffId, juce::Colours::black);
+  setColour(juce::TextButton::textColourOffId, textPrimary);
   setColour(juce::TextButton::textColourOnId, accentCyan);
 
   // ToggleButton
-  setColour(juce::ToggleButton::textColourId, juce::Colours::black);
+  setColour(juce::ToggleButton::textColourId, textPrimary);
   setColour(juce::ToggleButton::tickColourId, accentCyan);
   setColour(juce::ToggleButton::tickDisabledColourId, textSecondary);
 
   // ListBox & TableHeader (used in Audio/MIDI output channels and MIDI inputs listboxes)
   setColour(juce::ListBox::backgroundColourId, bgCard);
-  setColour(juce::ListBox::textColourId, juce::Colours::black);
+  setColour(juce::ListBox::textColourId, textPrimary);
   setColour(juce::ListBox::outlineColourId, borderColour);
   setColour(juce::TableHeaderComponent::backgroundColourId, bgHeader);
   setColour(juce::TableHeaderComponent::textColourId, textSecondary);
@@ -120,10 +154,47 @@ void OpenWavLookAndFeel::drawButtonText(juce::Graphics &g,
                                         juce::TextButton &button,
                                         bool /*shouldDrawButtonAsHighlighted*/,
                                         bool /*shouldDrawButtonAsDown*/) {
-  g.setFont(juce::Font(12.0f).boldened());
-  g.setColour(button.getToggleState() ? accentCyan : textPrimary);
-  g.drawText(button.getButtonText(), button.getLocalBounds(),
-             juce::Justification::centred, true);
+  auto text = button.getButtonText();
+  auto bounds = button.getLocalBounds().toFloat();
+  juce::String svgString;
+
+  if (text == "+ Add Folder" || text == "Add Folder") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2z\"/><line x1=\"12\" y1=\"10\" x2=\"12\" y2=\"16\"/><line x1=\"9\" y1=\"13\" x2=\"15\" y2=\"13\"/></svg>";
+      text = "Add Folder";
+  } else if (text == "Rescan") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67\"/></svg>";
+  } else if (text == "Settings") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"3\"/><path d=\"M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z\"/></svg>";
+  } else if (text == "List") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><line x1=\"8\" y1=\"6\" x2=\"21\" y2=\"6\"/><line x1=\"8\" y1=\"12\" x2=\"21\" y2=\"12\"/><line x1=\"8\" y1=\"18\" x2=\"21\" y2=\"18\"/><line x1=\"3\" y1=\"6\" x2=\"3.01\" y2=\"6\"/><line x1=\"3\" y1=\"12\" x2=\"3.01\" y2=\"12\"/><line x1=\"3\" y1=\"18\" x2=\"3.01\" y2=\"18\"/></svg>";
+  } else if (text == "Cloud") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z\"/></svg>";
+  } else if (text == "Library" || text == "Librarys" || text == "Libraries") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z\"/><path d=\"M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z\"/></svg>";
+      text = "Library";
+  }
+
+  g.setFont(juce::Font(11.5f).boldened());
+  juce::Colour textColour = button.getToggleState() ? accentCyan : textPrimary;
+  g.setColour(textColour);
+
+  if (svgString.isNotEmpty()) {
+      // Dynamic color injection into the SVG stroke/fill
+      juce::String hexColour = textColour.toDisplayString(false);
+      svgString = svgString.replace("currentColor", "#" + hexColour);
+
+      auto xml = juce::XmlDocument::parse(svgString);
+      if (xml != nullptr) {
+          auto drawable = juce::Drawable::createFromSVG(*xml);
+          if (drawable != nullptr) {
+              // Draw the icon on the left, text on the right
+              auto iconArea = bounds.removeFromLeft(28.0f).reduced(6.0f);
+              drawable->drawWithin(g, iconArea, juce::RectanglePlacement::centred, 1.0f);
+          }
+      }
+  }
+
+  g.drawText(text, bounds, juce::Justification::centred, true);
 }
 
 void OpenWavLookAndFeel::drawTableHeaderBackground(

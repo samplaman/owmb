@@ -393,6 +393,9 @@ void TagDatabaseManager::loadFromFile()
 
     if (obj->hasProperty("downloadFolder"))
         downloadFolder = obj->getProperty("downloadFolder").toString();
+
+    if (obj->hasProperty("isDarkMode"))
+        darkThemeActive = static_cast<bool>(obj->getProperty("isDarkMode"));
 }
 
 void TagDatabaseManager::saveToFile()
@@ -414,6 +417,7 @@ void TagDatabaseManager::saveToFile()
         }
         rootObj->setProperty("pixeldrainApiKey", pixeldrainApiKey);
         rootObj->setProperty("downloadFolder", downloadFolder);
+        rootObj->setProperty("isDarkMode", darkThemeActive);
     }
 
     rootObj->setProperty("items", itemsArray);
@@ -514,6 +518,21 @@ void TagDatabaseManager::setDownloadFolder(const juce::String& folderPath)
     {
         const juce::ScopedLock sl(lock);
         downloadFolder = folderPath.trim();
+    }
+    saveToFile();
+}
+
+bool TagDatabaseManager::isDarkMode() const
+{
+    const juce::ScopedLock sl(lock);
+    return darkThemeActive;
+}
+
+void TagDatabaseManager::setDarkMode(bool useDark)
+{
+    {
+        const juce::ScopedLock sl(lock);
+        darkThemeActive = useDark;
     }
     saveToFile();
 }

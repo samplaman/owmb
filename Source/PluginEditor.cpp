@@ -14,6 +14,10 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(OpenWavAudioProcessor& 
       librariesComponent(p.getDatabaseManager(), p.getLibraryScanner(), p.getAudioEngine()),
       waveformTransport(p.getAudioEngine())
 {
+    bool isDark = audioProcessor.getDatabaseManager().isDarkMode();
+    OpenWavLookAndFeel::setDarkTheme(isDark);
+    lookAndFeel.updateColors();
+
     setLookAndFeel(&lookAndFeel);
     juce::LookAndFeel::setDefaultLookAndFeel(&lookAndFeel);
 
@@ -131,24 +135,51 @@ void OpenWavAudioProcessorEditor::rescanRequested()
 
 void OpenWavAudioProcessorEditor::settingsRequested()
 {
-    if (juce::JUCEApplicationBase::isStandaloneApp())
-    {
-        if (auto* sfw = findParentComponentOfClass<juce::StandaloneFilterWindow>())
-        {
-            if (auto* holder = sfw->getPluginHolder())
-            {
-                holder->showAudioSettingsDialog();
-                return;
-            }
-        }
-    }
+    juce::PopupMenu menu;
+    bool isDark = audioProcessor.getDatabaseManager().isDarkMode();
 
-    juce::AlertWindow::showMessageBoxAsync(
-        juce::AlertWindow::InfoIcon,
-        "Audio / MIDI Settings",
-        "In VST3 / AU plugin mode, Audio and MIDI devices are managed by your host DAW.",
-        "OK"
-    );
+    menu.addItem(1, "Dark Theme", true, isDark);
+    menu.addItem(2, "Light Theme", true, !isDark);
+    menu.addSeparator();
+    menu.addItem(3, "Audio / MIDI Device Settings...");
+
+    menu.showMenuAsync(juce::PopupMenu::Options(), [this](int result) {
+        if (result == 1) // Dark Theme
+        {
+            audioProcessor.getDatabaseManager().setDarkMode(true);
+            OpenWavLookAndFeel::setDarkTheme(true);
+            lookAndFeel.updateColors();
+            sendLookAndFeelChange();
+        }
+        else if (result == 2) // Light Theme
+        {
+            audioProcessor.getDatabaseManager().setDarkMode(false);
+            OpenWavLookAndFeel::setDarkTheme(false);
+            lookAndFeel.updateColors();
+            sendLookAndFeelChange();
+        }
+        else if (result == 3) // Audio/MIDI Settings
+        {
+            if (juce::JUCEApplicationBase::isStandaloneApp())
+            {
+                if (auto* sfw = findParentComponentOfClass<juce::StandaloneFilterWindow>())
+                {
+                    if (auto* holder = sfw->getPluginHolder())
+                    {
+                        holder->showAudioSettingsDialog();
+                        return;
+                    }
+                }
+            }
+
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::AlertWindow::InfoIcon,
+                "Audio / MIDI Settings",
+                "In VST3 / AU plugin mode, Audio and MIDI devices are managed by your host DAW.",
+                "OK"
+            );
+        }
+    });
 }
 
 void OpenWavAudioProcessorEditor::tagFilterSelectionChanged(const std::set<juce::String>& /*selectedTags*/, bool /*matchAllTags*/, bool /*favoritesOnly*/)
@@ -219,12 +250,7 @@ void OpenWavAudioProcessorEditor::parentHierarchyChanged()
     {
         if (auto* dw = findParentComponentOfClass<juce::DocumentWindow>())
         {
-           #if JUCE_LINUX
-            dw->setUsingNativeTitleBar(false);
-            dw->setTitleBarHeight(28);
-           #else
             dw->setUsingNativeTitleBar(true);
-           #endif
             dw->setResizable(true, true);
             dw->setResizeLimits(800, 650, 3840, 2160);
 

@@ -78,27 +78,7 @@ LibrariesComponent::LibrariesComponent(TagDatabaseManager& db, LibraryScanner& s
     : dbManager(db), libraryScanner(scanner), audioEngine(audio)
 {
     // Pixeldrain Logo on top right
-    juce::Image logoImage;
-#if defined(JUCE_BINARYDATA_H_INCLUDED) || __has_include(<JuceHeader.h>)
-    logoImage = juce::ImageFileFormat::loadFrom(BinaryData::mainpixeldrainlogo_cropped_png, static_cast<size_t>(BinaryData::mainpixeldrainlogo_cropped_pngSize));
-#endif
-
-    if (logoImage.isNull())
-    {
-        juce::File logoFile = juce::File::getCurrentWorkingDirectory().getChildFile("mainpixeldrainlogo_cropped.png");
-        if (!logoFile.existsAsFile())
-            logoFile = juce::File::getSpecialLocation(juce::File::currentExecutableFile).getParentDirectory().getChildFile("mainpixeldrainlogo_cropped.png");
-        if (!logoFile.existsAsFile())
-            logoFile = juce::File::getCurrentWorkingDirectory().getChildFile("mainpixeldrainlogo.png");
-        if (logoFile.existsAsFile())
-            logoImage = juce::ImageFileFormat::loadFrom(logoFile);
-    }
-
-    if (!logoImage.isNull())
-    {
-        pixeldrainLogoComponent.setImage(logoImage, juce::RectanglePlacement::xRight | juce::RectanglePlacement::yMid | juce::RectanglePlacement::onlyReduceInSize);
-        addAndMakeVisible(pixeldrainLogoComponent);
-    }
+    addAndMakeVisible(pixeldrainLogoComponent);
 
     // Load API Key or Hotlink from settings
     apiKeyEditor.setText(dbManager.getPixeldrainApiKey(), juce::dontSendNotification);
@@ -166,11 +146,10 @@ LibrariesComponent::LibrariesComponent(TagDatabaseManager& db, LibraryScanner& s
     header.addColumn("Action", 7, 180, 120, 240);
 
     tableBox.setModel(this);
-    tableBox.setColour(juce::ListBox::backgroundColourId, OpenWavLookAndFeel::bgDark);
-    tableBox.setOutlineThickness(1);
-    tableBox.setColour(juce::ListBox::outlineColourId, OpenWavLookAndFeel::borderColour);
     tableBox.setRowHeight(36);
     addAndMakeVisible(tableBox);
+
+    lookAndFeelChanged();
 
     if (apiKeyEditor.getText().isNotEmpty())
     {
@@ -199,7 +178,7 @@ void LibrariesComponent::resized()
 
     if (pixeldrainLogoComponent.isVisible())
     {
-        pixeldrainLogoComponent.setBounds(topRow.removeFromRight(180));
+        pixeldrainLogoComponent.setBounds(topRow.removeFromRight(90));
         topRow.removeFromRight(12);
     }
 
@@ -307,7 +286,7 @@ void LibrariesComponent::paintCell(juce::Graphics& g, int rowNumber, int columnI
         }
         else if (item.isDownloaded)
         {
-            g.setColour(juce::Colours::green);
+            g.setColour(juce::Colour::fromRGB(40, 167, 69));
             g.drawText("Local Library", cellBounds, juce::Justification::centredLeft);
         }
         else
@@ -1035,6 +1014,75 @@ void LibrariesComponent::downloadAllWavs()
     {
         downloadFile(idx);
     }
+}
+
+void LibrariesComponent::lookAndFeelChanged()
+{
+    juce::Image logoImage;
+#if defined(JUCE_BINARYDATA_H_INCLUDED) || __has_include(<JuceHeader.h>)
+    logoImage = juce::ImageFileFormat::loadFrom(BinaryData::mainpixeldrainlogo_cropped_png, static_cast<size_t>(BinaryData::mainpixeldrainlogo_cropped_pngSize));
+#endif
+
+    if (logoImage.isNull())
+    {
+        juce::File logoFile = juce::File::getCurrentWorkingDirectory().getChildFile("mainpixeldrainlogo_cropped.png");
+        if (!logoFile.existsAsFile())
+            logoFile = juce::File::getSpecialLocation(juce::File::currentExecutableFile).getParentDirectory().getChildFile("mainpixeldrainlogo_cropped.png");
+        if (!logoFile.existsAsFile())
+            logoFile = juce::File::getCurrentWorkingDirectory().getChildFile("mainpixeldrainlogo.png");
+        if (logoFile.existsAsFile())
+            logoImage = juce::ImageFileFormat::loadFrom(logoFile);
+    }
+
+    if (!logoImage.isNull())
+    {
+        pixeldrainLogoComponent.setVisible(true);
+        if (dbManager.isDarkMode())
+        {
+            // Invert colors of logo for dark theme (keeping alpha channel intact)
+            juce::Image inverted = logoImage.createCopy();
+            juce::Image::BitmapData bd(inverted, juce::Image::BitmapData::readWrite);
+            for (int y = 0; y < bd.height; ++y)
+            {
+                for (int x = 0; x < bd.width; ++x)
+                {
+                    auto c = bd.getPixelColour(x, y);
+                    bd.setPixelColour(x, y, juce::Colour(static_cast<juce::uint8>(255 - c.getRed()),
+                                                        static_cast<juce::uint8>(255 - c.getGreen()),
+                                                        static_cast<juce::uint8>(255 - c.getBlue()),
+                                                        c.getAlpha()));
+                }
+            }
+            pixeldrainLogoComponent.setImage(inverted, juce::RectanglePlacement::xRight | juce::RectanglePlacement::yMid | juce::RectanglePlacement::onlyReduceInSize);
+        }
+        else
+        {
+            pixeldrainLogoComponent.setImage(logoImage, juce::RectanglePlacement::xRight | juce::RectanglePlacement::yMid | juce::RectanglePlacement::onlyReduceInSize);
+        }
+    }
+    else
+    {
+        pixeldrainLogoComponent.setVisible(false);
+    }
+
+    // Refresh table colours when LookAndFeel changes
+    tableBox.setColour(juce::ListBox::backgroundColourId, OpenWavLookAndFeel::bgDark);
+    tableBox.setOutlineThickness(1);
+    tableBox.setColour(juce::ListBox::outlineColourId, OpenWavLookAndFeel::borderColour);
+    tableBox.repaint();
+
+    // Update labels and text fields with dynamic colors
+    apiKeyLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::textPrimary);
+    apiKeyEditor.setTextToShowWhenEmpty("Enter API Key or Public Hotlink (e.g. /u/id or /l/id)...", OpenWavLookAndFeel::textSecondary);
+    statusLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::textSecondary);
+    searchLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::textPrimary);
+    searchEditor.setTextToShowWhenEmpty("Filter remote files by name...", OpenWavLookAndFeel::textSecondary);
+    saveDirLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::textSecondary);
+}
+
+bool LibrariesComponent::mayDragToExternalWindows() const
+{
+    return true;
 }
 
 } // namespace openwav
