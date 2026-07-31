@@ -113,93 +113,20 @@ void SampleCloudComponent::paint(juce::Graphics& g)
 
     update3DTransforms();
 
-    // 1. Draw 3D Perspective Grid Plane Floor
-    g.setColour(OpenWavLookAndFeel::borderColour.withAlpha(0.09f));
-    Vector3D unusedTransformed;
-    float unusedScale;
-
-    float gridExtent = 450.0f;
-    for (float pos = -gridExtent; pos <= gridExtent; pos += 90.0f)
-    {
-        auto p1 = project3DToScreen({ pos, 180.0f, -gridExtent }, unusedTransformed, unusedScale);
-        auto p2 = project3DToScreen({ pos, 180.0f, gridExtent }, unusedTransformed, unusedScale);
-        g.drawLine(p1.x, p1.y, p2.x, p2.y, 1.0f);
-
-        auto p3 = project3DToScreen({ -gridExtent, 180.0f, pos }, unusedTransformed, unusedScale);
-        auto p4 = project3DToScreen({ gridExtent, 180.0f, pos }, unusedTransformed, unusedScale);
-        g.drawLine(p3.x, p3.y, p4.x, p4.y, 1.0f);
-    }
-
-    // 2. Draw True 3D Celestial Wireframe Spheres around each tag cluster centroid
+    // 1. Draw Clean Cluster Territory Halos (Perfect Circles)
     for (const auto& cluster : clusters)
     {
-        float R = std::max(45.0f, 30.0f + std::sqrt(static_cast<float>(cluster.count)) * 14.0f);
+        float baseRadius = std::max(45.0f, 30.0f + std::sqrt(static_cast<float>(cluster.count)) * 14.0f);
+        float r = baseRadius * cluster.projectedScale;
         float depthAlpha = juce::jlimit(0.35f, 1.0f, 1.0f - (cluster.transformedPos.z + 300.0f) / 900.0f);
 
-        g.setColour(cluster.colour.withAlpha(0.35f * depthAlpha));
+        // Soft island land mass fill
+        g.setColour(cluster.colour.withAlpha(0.08f * depthAlpha));
+        g.fillEllipse(cluster.screenPos.x - r, cluster.screenPos.y - r, r * 2.0f, r * 2.0f);
 
-        const int numSegments = 32;
-        float step = juce::MathConstants<float>::twoPi / static_cast<float>(numSegments);
-
-        // 1. Horizontal XZ Equatorial Ring in 3D
-        juce::Path ringXZ;
-        for (int s = 0; s <= numSegments; ++s)
-        {
-            float angle = s * step;
-            Vector3D p3d = cluster.centerPos + Vector3D{ R * std::cos(angle), 0.0f, R * std::sin(angle) };
-            Vector3D t; float sc;
-            auto p2d = project3DToScreen(p3d, t, sc);
-            if (s == 0) ringXZ.startNewSubPath(p2d);
-            else ringXZ.lineTo(p2d);
-        }
-        g.strokePath(ringXZ, juce::PathStrokeType(1.4f));
-
-        // 2. Vertical XY Meridian Ring in 3D
-        juce::Path ringXY;
-        for (int s = 0; s <= numSegments; ++s)
-        {
-            float angle = s * step;
-            Vector3D p3d = cluster.centerPos + Vector3D{ R * std::cos(angle), R * std::sin(angle), 0.0f };
-            Vector3D t; float sc;
-            auto p2d = project3DToScreen(p3d, t, sc);
-            if (s == 0) ringXY.startNewSubPath(p2d);
-            else ringXY.lineTo(p2d);
-        }
-        g.strokePath(ringXY, juce::PathStrokeType(1.1f));
-
-        // 3. Vertical YZ Meridian Ring in 3D
-        juce::Path ringYZ;
-        for (int s = 0; s <= numSegments; ++s)
-        {
-            float angle = s * step;
-            Vector3D p3d = cluster.centerPos + Vector3D{ 0.0f, R * std::cos(angle), R * std::sin(angle) };
-            Vector3D t; float sc;
-            auto p2d = project3DToScreen(p3d, t, sc);
-            if (s == 0) ringYZ.startNewSubPath(p2d);
-            else ringYZ.lineTo(p2d);
-        }
-        g.strokePath(ringYZ, juce::PathStrokeType(1.1f));
-    }
-
-    // 2.5. Draw 3D Constellation Mesh Lines connecting neighboring stars within each tag cluster
-    for (size_t i = 0; i < nodes.size(); ++i)
-    {
-        for (size_t j = i + 1; j < nodes.size(); ++j)
-        {
-            if (nodes[i].primaryTag == nodes[j].primaryTag)
-            {
-                auto delta = nodes[j].currentPos - nodes[i].currentPos;
-                float distSq = delta.x * delta.x + delta.y * delta.y + delta.z * delta.z;
-                if (distSq < 50.0f * 50.0f)
-                {
-                    float dist = std::sqrt(distSq);
-                    float alphaCoeff = (1.0f - dist / 50.0f);
-                    float depthAlpha = std::min(nodes[i].projectedScale, nodes[j].projectedScale);
-                    g.setColour(nodes[i].colour.withAlpha(0.35f * alphaCoeff * depthAlpha));
-                    g.drawLine(nodes[i].screenPos.x, nodes[i].screenPos.y, nodes[j].screenPos.x, nodes[j].screenPos.y, 1.1f);
-                }
-            }
-        }
+        // Outer territory ring
+        g.setColour(cluster.colour.withAlpha(0.28f * depthAlpha));
+        g.drawEllipse(cluster.screenPos.x - r, cluster.screenPos.y - r, r * 2.0f, r * 2.0f, 1.2f);
     }
 
     // 3. Draw Z-Sorted 3D Sample Nodes (Back to Front)
