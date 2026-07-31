@@ -63,25 +63,58 @@ void SampleCloudComponent::paint(juce::Graphics& g)
         return;
     }
 
-    // 1. Draw background subtle radar rings
-    g.setColour(OpenWavLookAndFeel::borderColour.withAlpha(0.12f));
-    auto screenCenter = getLocalBounds().getCentre().toFloat() + panOffset;
+    // 1. Draw 2D Tactical Cartography Map Grid & Coordinates (instead of circular radar rings)
+    float gridStep = 140.0f * zoomScale;
 
-    for (int r = 100; r <= 500; r += 120)
+    float startX = std::fmod(panOffset.x, gridStep);
+    if (startX < 0) startX += gridStep;
+    float startY = std::fmod(panOffset.y, gridStep);
+    if (startY < 0) startY += gridStep;
+
+    g.setColour(OpenWavLookAndFeel::borderColour.withAlpha(0.08f));
+    for (float x = startX; x < getWidth(); x += gridStep)
     {
-        float scaledR = r * zoomScale;
-        g.drawEllipse(screenCenter.x - scaledR, screenCenter.y - scaledR, scaledR * 2.0f, scaledR * 2.0f, 1.0f);
+        g.drawLine(x, 0.0f, x, static_cast<float>(getHeight()), 1.0f);
+    }
+    for (float y = startY; y < getHeight(); y += gridStep)
+    {
+        g.drawLine(0.0f, y, static_cast<float>(getWidth()), y, 1.0f);
     }
 
-    // 2. Draw Cluster Nebula Glow Halos
+    // Grid Intersection Crosshairs
+    g.setColour(OpenWavLookAndFeel::textSecondary.withAlpha(0.18f));
+    for (float x = startX; x < getWidth(); x += gridStep)
+    {
+        for (float y = startY; y < getHeight(); y += gridStep)
+        {
+            g.drawLine(x - 3.0f, y, x + 3.0f, y, 1.0f);
+            g.drawLine(x, y - 3.0f, x, y + 3.0f, 1.0f);
+        }
+    }
+
+    // 2. Draw Topographic Territory Islands & Elevation Contours
     for (const auto& cluster : clusters)
     {
         auto screenClusterPos = cloudToScreen(cluster.centerPos);
-        float haloRadius = std::max(60.0f, (40.0f + cluster.count * 6.0f) * zoomScale);
+        float baseRadius = std::max(45.0f * zoomScale, (25.0f + std::sqrt(static_cast<float>(cluster.count)) * 14.0f) * zoomScale);
 
-        // Draw a clean, modern boundary circle instead of a heavy filled radial gradient (extremely fast)
+        // Soft island land mass fill
+        g.setColour(cluster.colour.withAlpha(0.06f));
+        g.fillEllipse(screenClusterPos.x - baseRadius, screenClusterPos.y - baseRadius * 0.82f, baseRadius * 2.0f, baseRadius * 1.64f);
+
+        // Outer Contour Line 1 (Sea level elevation)
         g.setColour(cluster.colour.withAlpha(0.18f));
-        g.drawEllipse(screenClusterPos.x - haloRadius, screenClusterPos.y - haloRadius, haloRadius * 2.0f, haloRadius * 2.0f, 1.2f);
+        g.drawEllipse(screenClusterPos.x - baseRadius, screenClusterPos.y - baseRadius * 0.82f, baseRadius * 2.0f, baseRadius * 1.64f, 1.2f);
+
+        // Mid Contour Line 2
+        float r2 = baseRadius * 0.68f;
+        g.setColour(cluster.colour.withAlpha(0.28f));
+        g.drawEllipse(screenClusterPos.x - r2, screenClusterPos.y - r2 * 0.82f, r2 * 2.0f, r2 * 1.64f, 1.0f);
+
+        // Center Peak Contour Line 3
+        float r3 = baseRadius * 0.38f;
+        g.setColour(cluster.colour.withAlpha(0.38f));
+        g.drawEllipse(screenClusterPos.x - r3, screenClusterPos.y - r3 * 0.82f, r3 * 2.0f, r3 * 1.64f, 0.8f);
     }
 
     // 4. Draw all sample nodes with flat colors (highly optimized, no gradients)
@@ -169,7 +202,7 @@ void SampleCloudComponent::paint(juce::Graphics& g)
 
         g.setFont(juce::Font(11.0f).boldened());
         g.setColour(OpenWavLookAndFeel::accentCyan);
-        g.drawText("TAG CLUSTERS (" + juce::String(nodes.size()) + " SAMPLES)", 22, 12, 200, 20, juce::Justification::left, true);
+        g.drawText("2D AUDIO MAP (" + juce::String(nodes.size()) + " SAMPLES • " + juce::String(clusters.size()) + " SECTORS)", 22, 12, 240, 20, juce::Justification::left, true);
     }
 
     // 5. Floating Hover Info Card with Mini Waveform Preview
@@ -485,13 +518,40 @@ void SampleCloudComponent::calculateClusterLayout()
         clusters.push_back(pair.second);
     }
 
-    // 2. Assign cluster centroid positions around center
+    // Sort clusters by count descending for stable territory mapping
+    std::sort(clusters.begin(), clusters.end(), [](const TagCluster& a, const TagCluster& b) {
+        return a.count > b.count;
+    });
+
+    // 2. Map Layout: Position tag clusters in a 2D staggered map grid
     size_t tagCount = clusters.size();
-    for (size_t i = 0; i < tagCount; ++i)
+    if (tagCount > 0)
     {
-        float angle = (static_cast<float>(i) / static_cast<float>(tagCount)) * juce::MathConstants<float>::twoPi - juce::MathConstants<float>::halfPi;
-        float clusterDist = maxRadius * 1.15f;
-        clusters[i].centerPos = { centerX + std::cos(angle) * clusterDist, centerY + std::sin(angle) * clusterDist };
+        int cols = static_cast<int>(std::ceil(std::sqrt(static_cast<float>(tagCount) * 1.35f)));
+        cols = std::max(2, cols);
+        int rows = static_cast<int>(std::ceil(static_cast<float>(tagCount) / static_cast<float>(cols)));
+
+        float spacingX = 340.0f;
+        float spacingY = 280.0f;
+
+        float totalW = (cols - 1) * spacingX;
+        float totalH = (rows - 1) * spacingY;
+
+        float startX = centerX - totalW * 0.5f;
+        float startY = centerY - totalH * 0.5f;
+
+        for (size_t i = 0; i < tagCount; ++i)
+        {
+            int r = static_cast<int>(i) / cols;
+            int c = static_cast<int>(i) % cols;
+
+            // Stagger odd rows for an organic land-map layout
+            float staggerX = (r % 2 == 1) ? (spacingX * 0.35f) : 0.0f;
+            float posX = startX + c * spacingX + staggerX;
+            float posY = startY + r * spacingY;
+
+            clusters[i].centerPos = { posX, posY };
+        }
     }
 
     // 3. Map cluster centroid positions back for quick node layout lookup
