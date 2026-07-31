@@ -55,9 +55,8 @@ juce::Point<float> SampleCloudComponent::project3DToScreen(Vector3D pos, Vector3
 
     outTransformed = { x1, y2, z2 };
 
-    // 3. Perspective Projection
-    float zCamera = z2 + cameraDistance;
-    outScale = (focalLength / std::max(50.0f, zCamera)) * zoomScale;
+    // 3. Orthographic 3D Projection (No FOV distortion)
+    outScale = zoomScale;
 
     float screenX = center.x + x1 * outScale + panOffset.x;
     float screenY = center.y + y2 * outScale + panOffset.y;
