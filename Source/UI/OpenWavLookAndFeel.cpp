@@ -32,19 +32,19 @@ OpenWavLookAndFeel::OpenWavLookAndFeel() {
 
   // GroupComponent & ComboBox (used in Audio/MIDI setup dialogs)
   setColour(juce::GroupComponent::outlineColourId, borderColour);
-  setColour(juce::GroupComponent::textColourId, textPrimary);
+  setColour(juce::GroupComponent::textColourId, juce::Colours::black);
 
   setColour(juce::ComboBox::backgroundColourId, bgCard);
-  setColour(juce::ComboBox::textColourId, textPrimary);
+  setColour(juce::ComboBox::textColourId, juce::Colours::black);
   setColour(juce::ComboBox::outlineColourId, borderColour);
-  setColour(juce::ComboBox::arrowColourId, textPrimary);
+  setColour(juce::ComboBox::arrowColourId, juce::Colours::black);
   setColour(juce::ComboBox::focusedOutlineColourId, accentCyan);
 
-  setColour(juce::Label::textColourId, textPrimary);
+  setColour(juce::Label::textColourId, juce::Colours::black);
 
   // Text Editor
   setColour(juce::TextEditor::backgroundColourId, bgCard);
-  setColour(juce::TextEditor::textColourId, textPrimary);
+  setColour(juce::TextEditor::textColourId, juce::Colours::black);
   setColour(juce::TextEditor::highlightColourId, accentCyan.withAlpha(0.25f));
   setColour(juce::TextEditor::outlineColourId, borderColour);
   setColour(juce::TextEditor::focusedOutlineColourId, accentCyan);
@@ -52,16 +52,18 @@ OpenWavLookAndFeel::OpenWavLookAndFeel() {
   // TextButton - Explicit Defaults
   setColour(juce::TextButton::buttonColourId, bgCard);
   setColour(juce::TextButton::buttonOnColourId, accentCyan.withAlpha(0.18f));
-  setColour(juce::TextButton::textColourOffId, textPrimary);
+  setColour(juce::TextButton::textColourOffId, juce::Colours::black);
   setColour(juce::TextButton::textColourOnId, accentCyan);
 
   // ToggleButton
-  setColour(juce::ToggleButton::textColourId, textPrimary);
+  setColour(juce::ToggleButton::textColourId, juce::Colours::black);
   setColour(juce::ToggleButton::tickColourId, accentCyan);
   setColour(juce::ToggleButton::tickDisabledColourId, textSecondary);
 
-  // ListBox & TableHeader
-  setColour(juce::ListBox::backgroundColourId, bgDark);
+  // ListBox & TableHeader (used in Audio/MIDI output channels and MIDI inputs listboxes)
+  setColour(juce::ListBox::backgroundColourId, bgCard);
+  setColour(juce::ListBox::textColourId, juce::Colours::black);
+  setColour(juce::ListBox::outlineColourId, borderColour);
   setColour(juce::TableHeaderComponent::backgroundColourId, bgHeader);
   setColour(juce::TableHeaderComponent::textColourId, textSecondary);
 
