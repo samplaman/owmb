@@ -220,6 +220,8 @@ void OpenWavAudioProcessorEditor::parentHierarchyChanged()
         if (auto* dw = findParentComponentOfClass<juce::DocumentWindow>())
         {
             dw->setUsingNativeTitleBar(true);
+            dw->setContentComponentSize(1920, 1080);
+            dw->centreWithSize(1920, 1080);
         }
     }
 }
