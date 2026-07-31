@@ -136,17 +136,17 @@ void SampleCloudComponent::paint(juce::Graphics& g)
         float baseRadius = std::max(35.0f, 20.0f + std::sqrt(static_cast<float>(cluster.count)) * 12.0f);
         float s = cluster.projectedScale;
 
-        float depthAlpha = juce::jlimit(0.15f, 1.0f, 1.0f - (cluster.transformedPos.z + 300.0f) / 900.0f);
+        float depthAlpha = juce::jlimit(0.35f, 1.0f, 1.0f - (cluster.transformedPos.z + 300.0f) / 900.0f);
 
         // Contour 1
         float r1 = baseRadius * s;
-        g.setColour(cluster.colour.withAlpha(0.16f * depthAlpha));
-        g.drawEllipse(cluster.screenPos.x - r1, cluster.screenPos.y - r1, r1 * 2.0f, r1 * 2.0f, 1.2f);
+        g.setColour(cluster.colour.withAlpha(0.28f * depthAlpha));
+        g.drawEllipse(cluster.screenPos.x - r1, cluster.screenPos.y - r1, r1 * 2.0f, r1 * 2.0f, 1.4f);
 
         // Contour 2
         float r2 = baseRadius * 0.65f * s;
-        g.setColour(cluster.colour.withAlpha(0.26f * depthAlpha));
-        g.drawEllipse(cluster.screenPos.x - r2, cluster.screenPos.y - r2, r2 * 2.0f, r2 * 2.0f, 1.0f);
+        g.setColour(cluster.colour.withAlpha(0.42f * depthAlpha));
+        g.drawEllipse(cluster.screenPos.x - r2, cluster.screenPos.y - r2, r2 * 2.0f, r2 * 2.0f, 1.2f);
     }
 
     // 3. Draw Z-Sorted 3D Sample Nodes (Back to Front)
@@ -157,21 +157,18 @@ void SampleCloudComponent::paint(juce::Graphics& g)
         bool isHovered = (origIdx == hoveredNodeIndex);
         bool isSelected = (origIdx == selectedNodeIndex);
 
-        float depthAlpha = juce::jlimit(0.20f, 1.0f, 1.0f - (node.transformedPos.z + 300.0f) / 900.0f);
+        float depthAlpha = juce::jlimit(0.45f, 1.0f, 1.0f - (node.transformedPos.z + 300.0f) / 900.0f);
 
         float baseR = node.radius * node.hoverScale;
-        float r = std::max(1.8f, baseR * node.projectedScale);
+        float r = std::max(2.2f, baseR * node.projectedScale);
 
         // Soft outer glow halo
-        if (node.hoverScale > 1.0f || isSelected)
-        {
-            float glowR = r * 1.6f;
-            float alpha = isSelected ? 0.30f : 0.25f;
-            g.setColour(node.colour.withAlpha(alpha * depthAlpha));
-            g.fillEllipse(node.screenPos.x - glowR, node.screenPos.y - glowR, glowR * 2.0f, glowR * 2.0f);
-        }
+        float glowR = r * (isSelected ? 2.0f : (isHovered ? 1.8f : 1.4f));
+        float alpha = isSelected ? 0.45f : (isHovered ? 0.40f : 0.22f);
+        g.setColour(node.colour.withAlpha(alpha * depthAlpha));
+        g.fillEllipse(node.screenPos.x - glowR, node.screenPos.y - glowR, glowR * 2.0f, glowR * 2.0f);
 
-        // Color Fill
+        // Vibrant Color Fill
         juce::Colour nodeColor = node.colour;
         if (isHovered)
             nodeColor = juce::Colours::white;
@@ -185,7 +182,7 @@ void SampleCloudComponent::paint(juce::Graphics& g)
         if (isHovered || isSelected)
         {
             g.setColour(isHovered ? juce::Colours::white : OpenWavLookAndFeel::accentCyan);
-            g.drawEllipse(node.screenPos.x - r, node.screenPos.y - r, r * 2.0f, r * 2.0f, 1.2f);
+            g.drawEllipse(node.screenPos.x - r, node.screenPos.y - r, r * 2.0f, r * 2.0f, 1.4f);
         }
     }
 
@@ -656,18 +653,18 @@ int SampleCloudComponent::findNodeAtPosition(juce::Point<float> screenPos) const
 juce::Colour SampleCloudComponent::getColourForTag(const juce::String& tag) const
 {
     auto t = tag.toLowerCase();
-    if (t.contains("kick"))  return juce::Colour(0xffff9aa2);
-    if (t.contains("snare")) return juce::Colour(0xffffb7b2);
-    if (t.contains("hat") || t.contains("hihat")) return juce::Colour(0xffb5ead7);
-    if (t.contains("perc"))  return juce::Colour(0xffc7ceea);
-    if (t.contains("bass"))  return juce::Colour(0xffd8b4f8);
-    if (t.contains("synth") || t.contains("lead")) return juce::Colour(0xfffff5ba);
-    if (t.contains("loop"))  return juce::Colour(0xffa8e6cf);
-    if (t.contains("vocal")) return juce::Colour(0xfff6a6ff);
+    if (t.contains("kick"))  return juce::Colour(0xffff0055); // Electric Neon Crimson / Magenta
+    if (t.contains("snare")) return juce::Colour(0xffff6d00); // Vivid Neon Sunset Amber
+    if (t.contains("hat") || t.contains("hihat")) return juce::Colour(0xff00f0ff); // Electric Neon Cyan
+    if (t.contains("perc"))  return juce::Colour(0xff00e676); // Vivid Neon Emerald Green
+    if (t.contains("bass"))  return juce::Colour(0xffa000ff); // Deep Electric Violet
+    if (t.contains("synth") || t.contains("lead")) return juce::Colour(0xffffea00); // Electric Sun Yellow
+    if (t.contains("loop"))  return juce::Colour(0xff00e5ff); // Vivid Turquoise
+    if (t.contains("vocal")) return juce::Colour(0xffff00b7); // Radiant Hot Pink
 
     uint32_t hash = static_cast<uint32_t>(tag.hashCode());
     float hue = (hash % 360) / 360.0f;
-    return juce::Colour::fromHSV(hue, 0.38f, 0.95f, 1.0f);
+    return juce::Colour::fromHSV(hue, 0.85f, 1.0f, 1.0f);
 }
 
 void SampleCloudComponent::showContextMenuForNode(int idx)
