@@ -70,7 +70,19 @@ private:
     AudioEngine& audioEngine;
 
     // Controls
-    juce::ImageComponent pixeldrainLogoComponent;
+    struct ClickableImageComponent : public juce::ImageComponent
+    {
+        ClickableImageComponent()
+        {
+            setMouseCursor(juce::MouseCursor::PointingHandCursor);
+        }
+
+        void mouseDown(const juce::MouseEvent& event) override
+        {
+            juce::URL("https://pixeldrain.com/").launchInDefaultBrowser();
+        }
+    };
+    ClickableImageComponent pixeldrainLogoComponent;
     juce::Label apiKeyLabel { {}, "Key or Hotlink:" };
     juce::TextEditor apiKeyEditor;
     juce::TextButton connectButton { "Fetch Files" };

@@ -50,6 +50,16 @@ void SampleTableComponent::updateFilter(const juce::String& searchKeyword,
                                          const juce::String& extensionFilter,
                                          bool favoritesOnly)
 {
+    // Clear similarity target if any filter inputs change
+    if (currentKeyword != searchKeyword ||
+        currentSelectedTags != selectedTags ||
+        currentMatchAll != matchAllTags ||
+        currentExtFilter != extensionFilter ||
+        currentFavOnly != favoritesOnly)
+    {
+        similarityTargetId = "";
+    }
+
     currentKeyword = searchKeyword;
     currentSelectedTags = selectedTags;
     currentMatchAll = matchAllTags;
@@ -58,10 +68,59 @@ void SampleTableComponent::updateFilter(const juce::String& searchKeyword,
 
     displayedItems = dbManager.getFilteredItems(currentKeyword, currentSelectedTags, currentMatchAll, currentExtFilter, currentFavOnly);
 
-    // Sort by name by default
-    std::sort(displayedItems.begin(), displayedItems.end(), [](const MediaItem& a, const MediaItem& b) {
-        return a.fileName.compareIgnoreCase(b.fileName) < 0;
-    });
+    if (similarityTargetId.isNotEmpty())
+    {
+        // Find target item to compute distance against
+        MediaItem targetItem;
+        bool found = false;
+        for (const auto& item : displayedItems)
+        {
+            if (item.id == similarityTargetId)
+            {
+                targetItem = item;
+                found = true;
+                break;
+            }
+        }
+        if (!found)
+        {
+            auto allItems = dbManager.getAllItems();
+            for (const auto& item : allItems)
+            {
+                if (item.id == similarityTargetId)
+                {
+                    targetItem = item;
+                    found = true;
+                    break;
+                }
+            }
+        }
+
+        if (found)
+        {
+            std::sort(displayedItems.begin(), displayedItems.end(), [targetItem](const MediaItem& a, const MediaItem& b) {
+                if (a.id == targetItem.id) return true;
+                if (b.id == targetItem.id) return false;
+
+                double distA = calculateDistance(a, targetItem);
+                double distB = calculateDistance(b, targetItem);
+                return distA < distB;
+            });
+        }
+        else
+        {
+            similarityTargetId = "";
+            std::sort(displayedItems.begin(), displayedItems.end(), [](const MediaItem& a, const MediaItem& b) {
+                return a.fileName.compareIgnoreCase(b.fileName) < 0;
+            });
+        }
+    }
+    else
+    {
+        std::sort(displayedItems.begin(), displayedItems.end(), [](const MediaItem& a, const MediaItem& b) {
+            return a.fileName.compareIgnoreCase(b.fileName) < 0;
+        });
+    }
 
     table.updateContent();
     table.repaint();
@@ -337,6 +396,7 @@ void SampleTableComponent::showContextMenuForRow(int rowNumber)
 
     menu.addSeparator();
     menu.addItem(3, "Reveal in File Explorer / Finder");
+    menu.addItem(4, "Find Similar Sounds");
 
     menu.showMenuAsync(juce::PopupMenu::Options(), [this, item](int result) {
         if (result == 1)
@@ -379,6 +439,11 @@ void SampleTableComponent::showContextMenuForRow(int rowNumber)
         {
             juce::File(item.filePath).revealToUser();
         }
+        else if (result == 4)
+        {
+            similarityTargetId = item.id;
+            updateFilter(currentKeyword, currentSelectedTags, currentMatchAll, currentExtFilter, currentFavOnly);
+        }
     });
 }
 
@@ -418,6 +483,19 @@ void SampleTableComponent::removeListener(SampleTableListener* listener)
 bool SampleTableComponent::mayDragToExternalWindows() const
 {
     return true;
+}
+
+double SampleTableComponent::calculateDistance(const MediaItem& a, const MediaItem& b)
+{
+    double d_zcr = (a.zcr - b.zcr) * 2.0;
+    double d_hfr = (a.highFreqRatio - b.highFreqRatio) * 1.0;
+    double d_dr = (a.decayRatio - b.decayRatio) * 1.5;
+    
+    double cf_a = juce::jlimit(1.0, 10.0, a.crestFactor);
+    double cf_b = juce::jlimit(1.0, 10.0, b.crestFactor);
+    double d_cf = (cf_a - cf_b) * 0.15;
+
+    return std::sqrt(d_zcr * d_zcr + d_hfr * d_hfr + d_dr * d_dr + d_cf * d_cf);
 }
 
 } // namespace openwav

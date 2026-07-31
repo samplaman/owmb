@@ -74,6 +74,8 @@ private:
     bool currentFavOnly { false };
 
     juce::ListenerList<SampleTableListener> listeners;
+    juce::String similarityTargetId;
+    static double calculateDistance(const MediaItem& a, const MediaItem& b);
 };
 
 } // namespace openwav

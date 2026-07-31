@@ -29,6 +29,12 @@ struct MediaItem
     std::set<juce::String> tags;     // Active tags (e.g. "Kick", "120BPM", "Loop", "Wav")
     int64_t dateAddedMs { 0 };       // Timestamp when added to index
 
+    // DSP similarity features
+    double zcr { 0.0 };
+    double highFreqRatio { 0.0 };
+    double decayRatio { 0.0 };
+    double crestFactor { 0.0 };
+
     juce::var toVar() const
     {
         auto* obj = new juce::DynamicObject();
@@ -45,6 +51,11 @@ struct MediaItem
         obj->setProperty("isFavorite", isFavorite);
         obj->setProperty("rating", rating);
         obj->setProperty("dateAddedMs", static_cast<juce::int64>(dateAddedMs));
+
+        obj->setProperty("zcr", zcr);
+        obj->setProperty("highFreqRatio", highFreqRatio);
+        obj->setProperty("decayRatio", decayRatio);
+        obj->setProperty("crestFactor", crestFactor);
 
         juce::Array<juce::var> tagArray;
         for (const auto& tag : tags)
@@ -75,6 +86,11 @@ struct MediaItem
         item.isFavorite = static_cast<bool>(obj->getProperty("isFavorite"));
         item.rating = static_cast<int>(obj->getProperty("rating"));
         item.dateAddedMs = static_cast<juce::int64>(obj->getProperty("dateAddedMs"));
+
+        item.zcr = static_cast<double>(obj->getProperty("zcr"));
+        item.highFreqRatio = static_cast<double>(obj->getProperty("highFreqRatio"));
+        item.decayRatio = static_cast<double>(obj->getProperty("decayRatio"));
+        item.crestFactor = static_cast<double>(obj->getProperty("crestFactor"));
 
         if (obj->hasProperty("tags"))
         {

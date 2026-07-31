@@ -196,6 +196,212 @@ static bool parseWavHeaderFast(const juce::File& file, double& sampleRate, int& 
     return true;
 }
 
+static void analyzeAudioData(juce::AudioFormatReader* reader, MediaItem& item)
+{
+    if (reader == nullptr || reader->sampleRate <= 0.0 || reader->lengthInSamples <= 0)
+        return;
+
+    // Read up to 6 seconds of mono audio (channel 0)
+    int maxSamplesToAnalyze = static_cast<int>(std::min(reader->lengthInSamples, static_cast<juce::int64>(reader->sampleRate * 6.0)));
+    if (maxSamplesToAnalyze <= 128)
+        return;
+
+    juce::AudioBuffer<float> buffer(1, maxSamplesToAnalyze);
+    reader->read(&buffer, 0, maxSamplesToAnalyze, 0, true, false);
+    const float* samples = buffer.getReadPointer(0);
+
+    // 1. Calculate Peak, RMS, and Decay
+    float maxVal = 0.0f;
+    double sumSq = 0.0;
+    for (int i = 0; i < maxSamplesToAnalyze; ++i)
+    {
+        float val = std::abs(samples[i]);
+        if (val > maxVal) maxVal = val;
+        sumSq += val * val;
+    }
+
+    if (maxVal < 0.001f) // Silent or near-silent
+    {
+        item.tags.insert("#Silent");
+        return;
+    }
+
+    float rms = static_cast<float>(std::sqrt(sumSq / maxSamplesToAnalyze));
+
+    // Calculate RMS in 4 sequential blocks to estimate decay
+    int blockSize = maxSamplesToAnalyze / 4;
+    double blockRMS[4] = {0.0, 0.0, 0.0, 0.0};
+    for (int b = 0; b < 4; ++b)
+    {
+        double bSumSq = 0.0;
+        int start = b * blockSize;
+        int end = std::min(maxSamplesToAnalyze, (b + 1) * blockSize);
+        int count = end - start;
+        if (count > 0)
+        {
+            for (int i = start; i < end; ++i)
+            {
+                float val = samples[i];
+                bSumSq += val * val;
+            }
+            blockRMS[b] = std::sqrt(bSumSq / count);
+        }
+    }
+
+    double decayRatio = (blockRMS[0] > 0.001) ? (blockRMS[3] / blockRMS[0]) : 0.0;
+
+    // Determine One-Shot vs Loop
+    bool isLoop = false;
+    double duration = item.durationSeconds;
+    if (duration >= 1.5)
+    {
+        if (decayRatio >= 0.28)
+        {
+            isLoop = true;
+            item.tags.insert("#Loop");
+        }
+        else
+        {
+            item.tags.insert("#OneShot");
+        }
+    }
+    else
+    {
+        item.tags.insert("#OneShot");
+    }
+
+    // 2. Calculate Zero-Crossing Rate (ZCR) and High-Frequency Energy Ratio
+    int zeroCrossings = 0;
+    double energyX = 0.0;
+    double energyD = 0.0;
+    for (int i = 1; i < maxSamplesToAnalyze; ++i)
+    {
+        float prev = samples[i - 1];
+        float curr = samples[i];
+        if ((prev < 0.0f && curr >= 0.0f) || (prev > 0.0f && curr <= 0.0f))
+            zeroCrossings++;
+
+        energyX += curr * curr;
+        float diff = curr - prev;
+        energyD += diff * diff;
+    }
+
+    double zcr = static_cast<double>(zeroCrossings) / maxSamplesToAnalyze;
+    double highFreqRatio = energyD / (energyX + 1e-9);
+    float crestFactor = maxVal / (rms + 1e-6f);
+
+    // Save DSP similarity features
+    item.zcr = zcr;
+    item.highFreqRatio = highFreqRatio;
+    item.decayRatio = decayRatio;
+    item.crestFactor = static_cast<double>(crestFactor);
+
+    // 3. Audio Classification (Shallow Decision Tree / Rule-based)
+    if (!isLoop)
+    {
+        // One-Shot classifications
+        if (highFreqRatio < 0.22 && zcr < 0.06)
+        {
+            item.tags.insert("#Kick");
+        }
+        else if (highFreqRatio >= 1.1 || zcr >= 0.22)
+        {
+            item.tags.insert("#HiHat");
+        }
+        else if (highFreqRatio >= 0.55 && highFreqRatio < 1.1 && zcr >= 0.10)
+        {
+            if (decayRatio > 0.12)
+                item.tags.insert("#Snare");
+            else
+                item.tags.insert("#Clap");
+        }
+        else
+        {
+            item.tags.insert("#Percussion");
+        }
+    }
+    else
+    {
+        // Loop classifications
+        if (highFreqRatio < 0.12 && zcr < 0.04)
+        {
+            item.tags.insert("#Bass");
+        }
+        else if (crestFactor > 3.6f && highFreqRatio > 0.35)
+        {
+            item.tags.insert("#DrumLoop");
+        }
+        else
+        {
+            item.tags.insert("#Synth");
+        }
+
+        // 4. BPM Estimation via Autocorrelation of Envelope Onsets
+        const int envBlockSize = 256;
+        const int numEnvBlocks = maxSamplesToAnalyze / envBlockSize;
+        if (numEnvBlocks > 16)
+        {
+            std::vector<float> env(numEnvBlocks, 0.0f);
+            for (int b = 0; b < numEnvBlocks; ++b)
+            {
+                float bMax = 0.0f;
+                int start = b * envBlockSize;
+                int end = std::min(maxSamplesToAnalyze, (b + 1) * envBlockSize);
+                for (int i = start; i < end; ++i)
+                {
+                    float val = std::abs(samples[i]);
+                    if (val > bMax) bMax = val;
+                }
+                env[b] = bMax;
+            }
+
+            // Onsets = first-difference of envelope
+            std::vector<float> onsets(numEnvBlocks, 0.0f);
+            for (int i = 1; i < numEnvBlocks; ++i)
+            {
+                onsets[i] = std::max(0.0f, env[i] - env[i - 1]);
+            }
+
+            double fsEnv = reader->sampleRate / envBlockSize;
+            int minLag = static_cast<int>(60.0 * fsEnv / 180.0);
+            int maxLag = static_cast<int>(60.0 * fsEnv / 60.0);
+
+            double maxR = -1.0;
+            int bestLag = 0;
+
+            for (int lag = minLag; lag <= maxLag; ++lag)
+            {
+                double sum = 0.0;
+                int count = 0;
+                for (int i = lag; i < numEnvBlocks; ++i)
+                {
+                    sum += onsets[i] * onsets[i - lag];
+                    count++;
+                }
+                if (count > 0)
+                {
+                    double r = sum / count;
+                    if (r > maxR)
+                    {
+                        maxR = r;
+                        bestLag = lag;
+                    }
+                }
+            }
+
+            if (bestLag > 0)
+            {
+                double estimatedBpm = 60.0 * fsEnv / bestLag;
+                estimatedBpm = std::round(estimatedBpm * 10.0) / 10.0;
+                if (estimatedBpm >= 50.0 && estimatedBpm <= 200.0)
+                {
+                    item.bpm = estimatedBpm;
+                }
+            }
+        }
+    }
+}
+
 MediaItem LibraryScanner::processAudioFile(const juce::File& file)
 {
     MediaItem item;
@@ -215,23 +421,30 @@ MediaItem LibraryScanner::processAudioFile(const juce::File& file)
     // Auto-infer tags from path and file type
     item.tags = TagDatabaseManager::inferTagsFromPath(absPath);
 
+    bool headerParsed = false;
     // Try ultra-fast binary header parsing first for WAV files
     if (item.fileExtension == ".wav" && parseWavHeaderFast(file, item.sampleRate, item.numChannels, item.bitDepth, item.durationSeconds))
     {
-        return item;
+        headerParsed = true;
     }
 
     // Read audio header metadata using JUCE format reader as fallback
     std::unique_ptr<juce::AudioFormatReader> reader(formatManager.createReaderFor(file));
     if (reader != nullptr)
     {
-        item.sampleRate = reader->sampleRate;
-        item.numChannels = static_cast<int>(reader->numChannels);
-        item.bitDepth = static_cast<int>(reader->bitsPerSample);
-        if (reader->sampleRate > 0.0)
+        if (!headerParsed)
         {
-            item.durationSeconds = static_cast<double>(reader->lengthInSamples) / reader->sampleRate;
+            item.sampleRate = reader->sampleRate;
+            item.numChannels = static_cast<int>(reader->numChannels);
+            item.bitDepth = static_cast<int>(reader->bitsPerSample);
+            if (reader->sampleRate > 0.0)
+            {
+                item.durationSeconds = static_cast<double>(reader->lengthInSamples) / reader->sampleRate;
+            }
         }
+
+        // Run local DSP-based shallow ML classifier and BPM estimation
+        analyzeAudioData(reader.get(), item);
     }
 
     return item;
