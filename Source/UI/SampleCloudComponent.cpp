@@ -1,6 +1,9 @@
 #include "SampleCloudComponent.h"
 #include "OpenWavLookAndFeel.h"
 #include <cmath>
+#include <algorithm>
+#include <unordered_map>
+#include <limits>
 
 namespace openwav
 {
@@ -32,22 +35,67 @@ SampleCloudComponent::~SampleCloudComponent()
     stopTimer();
 }
 
-juce::Point<float> SampleCloudComponent::cloudToScreen(juce::Point<float> cloudPos) const
+juce::Point<float> SampleCloudComponent::project3DToScreen(Vector3D pos, Vector3D& outTransformed, float& outScale) const
 {
     auto center = getLocalBounds().getCentre().toFloat();
-    return (cloudPos - center) * zoomScale + center + panOffset;
+
+    // 1. Rotate around Y axis (Yaw rotY)
+    float cosY = std::cos(rotY);
+    float sinY = std::sin(rotY);
+
+    float x1 = pos.x * cosY + pos.z * sinY;
+    float z1 = -pos.x * sinY + pos.z * cosY;
+
+    // 2. Rotate around X axis (Pitch rotX)
+    float cosX = std::cos(rotX);
+    float sinX = std::sin(rotX);
+
+    float y2 = pos.y * cosX - z1 * sinX;
+    float z2 = pos.y * sinX + z1 * cosX;
+
+    outTransformed = { x1, y2, z2 };
+
+    // 3. Perspective Projection
+    float zCamera = z2 + cameraDistance;
+    outScale = (focalLength / std::max(50.0f, zCamera)) * zoomScale;
+
+    float screenX = center.x + x1 * outScale + panOffset.x;
+    float screenY = center.y + y2 * outScale + panOffset.y;
+
+    return { screenX, screenY };
 }
 
-juce::Point<float> SampleCloudComponent::screenToCloud(juce::Point<float> screenPos) const
+void SampleCloudComponent::update3DTransforms()
 {
-    auto center = getLocalBounds().getCentre().toFloat();
-    return (screenPos - center - panOffset) / zoomScale + center;
+    for (auto& cl : clusters)
+    {
+        cl.screenPos = project3DToScreen(cl.centerPos, cl.transformedPos, cl.projectedScale);
+    }
+
+    sortedNodePointers.clear();
+    sortedNodePointers.reserve(nodes.size());
+
+    for (size_t i = 0; i < nodes.size(); ++i)
+    {
+        auto& node = nodes[i];
+        node.originalIndex = i;
+        node.screenPos = project3DToScreen(node.currentPos, node.transformedPos, node.projectedScale);
+        sortedNodePointers.push_back(&node);
+    }
+
+    // Sort by transformed Z (Back to front: Painter's Algorithm)
+    std::sort(sortedNodePointers.begin(), sortedNodePointers.end(), [](const CloudNode* a, const CloudNode* b) {
+        return a->transformedPos.z > b->transformedPos.z;
+    });
 }
 
 void SampleCloudComponent::resetZoomAndPan()
 {
     zoomScale = 1.0f;
     panOffset = { 0.0f, 0.0f };
+    targetRotX = 0.35f;
+    targetRotY = 0.45f;
+    cameraDistance = 650.0f;
     repaint();
 }
 
@@ -63,139 +111,109 @@ void SampleCloudComponent::paint(juce::Graphics& g)
         return;
     }
 
-    // 1. Draw 2D Tactical Cartography Map Grid & Coordinates (instead of circular radar rings)
-    float gridStep = 140.0f * zoomScale;
+    update3DTransforms();
 
-    float startX = std::fmod(panOffset.x, gridStep);
-    if (startX < 0) startX += gridStep;
-    float startY = std::fmod(panOffset.y, gridStep);
-    if (startY < 0) startY += gridStep;
+    // 1. Draw 3D Perspective Grid Plane Floor
+    g.setColour(OpenWavLookAndFeel::borderColour.withAlpha(0.09f));
+    Vector3D unusedTransformed;
+    float unusedScale;
 
-    g.setColour(OpenWavLookAndFeel::borderColour.withAlpha(0.08f));
-    for (float x = startX; x < getWidth(); x += gridStep)
+    float gridExtent = 450.0f;
+    for (float pos = -gridExtent; pos <= gridExtent; pos += 90.0f)
     {
-        g.drawLine(x, 0.0f, x, static_cast<float>(getHeight()), 1.0f);
-    }
-    for (float y = startY; y < getHeight(); y += gridStep)
-    {
-        g.drawLine(0.0f, y, static_cast<float>(getWidth()), y, 1.0f);
-    }
+        auto p1 = project3DToScreen({ pos, 180.0f, -gridExtent }, unusedTransformed, unusedScale);
+        auto p2 = project3DToScreen({ pos, 180.0f, gridExtent }, unusedTransformed, unusedScale);
+        g.drawLine(p1.x, p1.y, p2.x, p2.y, 1.0f);
 
-    // Grid Intersection Crosshairs
-    g.setColour(OpenWavLookAndFeel::textSecondary.withAlpha(0.18f));
-    for (float x = startX; x < getWidth(); x += gridStep)
-    {
-        for (float y = startY; y < getHeight(); y += gridStep)
-        {
-            g.drawLine(x - 3.0f, y, x + 3.0f, y, 1.0f);
-            g.drawLine(x, y - 3.0f, x, y + 3.0f, 1.0f);
-        }
+        auto p3 = project3DToScreen({ -gridExtent, 180.0f, pos }, unusedTransformed, unusedScale);
+        auto p4 = project3DToScreen({ gridExtent, 180.0f, pos }, unusedTransformed, unusedScale);
+        g.drawLine(p3.x, p3.y, p4.x, p4.y, 1.0f);
     }
 
-    // 2. Draw Topographic Territory Islands & Elevation Contours
+    // 2. Draw 3D Topographic Elevation Contour Circles around clusters in 3D perspective
     for (const auto& cluster : clusters)
     {
-        auto screenClusterPos = cloudToScreen(cluster.centerPos);
-        float baseRadius = std::max(45.0f * zoomScale, (25.0f + std::sqrt(static_cast<float>(cluster.count)) * 14.0f) * zoomScale);
+        float baseRadius = std::max(35.0f, 20.0f + std::sqrt(static_cast<float>(cluster.count)) * 12.0f);
+        float s = cluster.projectedScale;
 
-        // Soft island land mass fill
-        g.setColour(cluster.colour.withAlpha(0.06f));
-        g.fillEllipse(screenClusterPos.x - baseRadius, screenClusterPos.y - baseRadius, baseRadius * 2.0f, baseRadius * 2.0f);
+        float depthAlpha = juce::jlimit(0.15f, 1.0f, 1.0f - (cluster.transformedPos.z + 300.0f) / 900.0f);
 
-        // Outer Contour Line 1 (Sea level elevation)
-        g.setColour(cluster.colour.withAlpha(0.18f));
-        g.drawEllipse(screenClusterPos.x - baseRadius, screenClusterPos.y - baseRadius, baseRadius * 2.0f, baseRadius * 2.0f, 1.2f);
+        // Contour 1
+        float r1 = baseRadius * s;
+        g.setColour(cluster.colour.withAlpha(0.16f * depthAlpha));
+        g.drawEllipse(cluster.screenPos.x - r1, cluster.screenPos.y - r1, r1 * 2.0f, r1 * 2.0f, 1.2f);
 
-        // Mid Contour Line 2
-        float r2 = baseRadius * 0.68f;
-        g.setColour(cluster.colour.withAlpha(0.28f));
-        g.drawEllipse(screenClusterPos.x - r2, screenClusterPos.y - r2, r2 * 2.0f, r2 * 2.0f, 1.0f);
-
-        // Center Peak Contour Line 3
-        float r3 = baseRadius * 0.38f;
-        g.setColour(cluster.colour.withAlpha(0.38f));
-        g.drawEllipse(screenClusterPos.x - r3, screenClusterPos.y - r3, r3 * 2.0f, r3 * 2.0f, 0.8f);
+        // Contour 2
+        float r2 = baseRadius * 0.65f * s;
+        g.setColour(cluster.colour.withAlpha(0.26f * depthAlpha));
+        g.drawEllipse(cluster.screenPos.x - r2, cluster.screenPos.y - r2, r2 * 2.0f, r2 * 2.0f, 1.0f);
     }
 
-    // 4. Draw all sample nodes with flat colors (highly optimized, no gradients)
-    for (size_t i = 0; i < nodes.size(); ++i)
+    // 3. Draw Z-Sorted 3D Sample Nodes (Back to Front)
+    for (const auto* nodePtr : sortedNodePointers)
     {
-        const auto& node = nodes[i];
-        bool isHovered = (static_cast<int>(i) == hoveredNodeIndex);
-        bool isSelected = (static_cast<int>(i) == selectedNodeIndex);
+        const auto& node = *nodePtr;
+        int origIdx = static_cast<int>(node.originalIndex);
+        bool isHovered = (origIdx == hoveredNodeIndex);
+        bool isSelected = (origIdx == selectedNodeIndex);
 
-        auto screenPos = cloudToScreen(node.currentPos);
+        float depthAlpha = juce::jlimit(0.20f, 1.0f, 1.0f - (node.transformedPos.z + 300.0f) / 900.0f);
+
         float baseR = node.radius * node.hoverScale;
-        float r = std::max(1.5f, baseR * zoomScale);
+        float r = std::max(1.8f, baseR * node.projectedScale);
 
-        // Soft outer glow halo - flat alpha fill (extremely fast)
+        // Soft outer glow halo
         if (node.hoverScale > 1.0f || isSelected)
         {
-            float glowR = r * 1.5f;
-            float hoverGlowAlpha = (node.hoverScale - 1.0f) / 1.2f; // scale factor
-            float alpha = isSelected ? 0.15f : (0.25f * hoverGlowAlpha);
-            if (alpha > 0.0f)
-            {
-                g.setColour(node.colour.withAlpha(alpha));
-                g.fillEllipse(screenPos.x - glowR, screenPos.y - glowR, glowR * 2.0f, glowR * 2.0f);
-            }
+            float glowR = r * 1.6f;
+            float alpha = isSelected ? 0.30f : 0.25f;
+            g.setColour(node.colour.withAlpha(alpha * depthAlpha));
+            g.fillEllipse(node.screenPos.x - glowR, node.screenPos.y - glowR, glowR * 2.0f, glowR * 2.0f);
         }
 
-        // Flat Color Fill (No gradient - extremely fast!)
+        // Color Fill
         juce::Colour nodeColor = node.colour;
         if (isHovered)
-            nodeColor = node.colour.brighter(0.25f);
+            nodeColor = juce::Colours::white;
         else if (isSelected)
             nodeColor = OpenWavLookAndFeel::accentCyan;
 
-        g.setColour(nodeColor);
-        g.fillEllipse(screenPos.x - r, screenPos.y - r, r * 2.0f, r * 2.0f);
+        g.setColour(nodeColor.withAlpha(depthAlpha));
+        g.fillEllipse(node.screenPos.x - r, node.screenPos.y - r, r * 2.0f, r * 2.0f);
 
-        // Flat outer ring highlight if hovered or selected (fast outline)
+        // Ring highlight if hovered or selected
         if (isHovered || isSelected)
         {
-            g.setColour(isHovered ? juce::Colours::white.withAlpha(0.6f) : OpenWavLookAndFeel::accentCyan.withAlpha(0.8f));
-            g.drawEllipse(screenPos.x - r, screenPos.y - r, r * 2.0f, r * 2.0f, 1.0f);
-        }
-
-        // Selected node outer highlight ring (static - no timer repaint overhead)
-        if (isSelected)
-        {
-            float ringR = r + 4.0f;
-            g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.8f));
-            g.drawEllipse(screenPos.x - ringR, screenPos.y - ringR, ringR * 2.0f, ringR * 2.0f, 1.5f);
+            g.setColour(isHovered ? juce::Colours::white : OpenWavLookAndFeel::accentCyan);
+            g.drawEllipse(node.screenPos.x - r, node.screenPos.y - r, r * 2.0f, r * 2.0f, 1.2f);
         }
     }
 
-    // 5. Draw Category Badge Labels ALWAYS ON TOP OF NODES (Offset above the cluster to prevent overlaps)
+    // 4. Draw 3D Category Badges over Cluster Centroids
     for (const auto& cluster : clusters)
     {
-        auto screenClusterPos = cloudToScreen(cluster.centerPos);
-
         juce::String badgeText = cluster.tag.toUpperCase() + " (" + juce::String(cluster.count) + ")";
         juce::Font badgeFont(11.0f, juce::Font::bold);
         int textWidth = badgeFont.getStringWidth(badgeText) + 20;
 
-        // Position above the cluster based on cluster size and current zoom scale
-        float clusterRadiusEstimate = (18.0f * std::sqrt(static_cast<float>(cluster.count) + 1.0f)) * zoomScale;
-        float yOffset = std::max(25.0f * zoomScale, clusterRadiusEstimate + 12.0f);
+        float depthAlpha = juce::jlimit(0.25f, 1.0f, 1.0f - (cluster.transformedPos.z + 300.0f) / 900.0f);
 
-        juce::Rectangle<float> badgeBounds(screenClusterPos.x - textWidth * 0.5f, screenClusterPos.y - yOffset - 11.0f, static_cast<float>(textWidth), 22.0f);
+        juce::Rectangle<float> badgeBounds(cluster.screenPos.x - textWidth * 0.5f, cluster.screenPos.y - 28.0f * cluster.projectedScale, static_cast<float>(textWidth), 22.0f);
 
-        g.setColour(OpenWavLookAndFeel::bgCard.withAlpha(0.95f));
+        g.setColour(OpenWavLookAndFeel::bgCard.withAlpha(0.92f * depthAlpha));
         g.fillRoundedRectangle(badgeBounds, 11.0f);
-        g.setColour(cluster.colour);
+        g.setColour(cluster.colour.withAlpha(depthAlpha));
         g.drawRoundedRectangle(badgeBounds, 11.0f, 1.4f);
 
-        g.setColour(OpenWavLookAndFeel::textPrimary);
+        g.setColour(OpenWavLookAndFeel::textPrimary.withAlpha(depthAlpha));
         g.setFont(badgeFont);
         g.drawText(badgeText, badgeBounds, juce::Justification::centred, true);
     }
 
-    // 6. Top Sticky Header Tag Bar Pinned to Top of Cloud View
+    // 5. Sticky Top Header Badge
     if (!clusters.empty())
     {
-        juce::String mapHeaderText = "2D AUDIO MAP (" + juce::String(nodes.size()) + " SAMPLES • " + juce::String(clusters.size()) + " SECTORS)";
+        juce::String mapHeaderText = "3D CONSTELLATION MAP (" + juce::String(nodes.size()) + " SAMPLES • " + juce::String(clusters.size()) + " SECTORS)";
         juce::Font mapHeaderFont(11.0f, juce::Font::bold);
         float badgeWidth = static_cast<float>(mapHeaderFont.getStringWidth(mapHeaderText) + 24);
 
@@ -211,11 +229,11 @@ void SampleCloudComponent::paint(juce::Graphics& g)
         g.drawText(mapHeaderText, headerBadgeBounds, juce::Justification::centred, true);
     }
 
-    // 5. Floating Hover Info Card with Mini Waveform Preview
+    // 6. Floating Hover Card with Mini Waveform Preview
     if (hoveredNodeIndex >= 0 && hoveredNodeIndex < static_cast<int>(nodes.size()))
     {
         const auto& item = nodes[static_cast<size_t>(hoveredNodeIndex)].item;
-        const auto screenPos = cloudToScreen(nodes[static_cast<size_t>(hoveredNodeIndex)].currentPos);
+        const auto screenPos = nodes[static_cast<size_t>(hoveredNodeIndex)].screenPos;
 
         juce::Rectangle<float> cardBounds(screenPos.x + 14.0f, screenPos.y - 55.0f, 210.0f, 85.0f);
 
@@ -229,12 +247,10 @@ void SampleCloudComponent::paint(juce::Graphics& g)
 
         auto contentArea = cardBounds.reduced(8.0f);
 
-        // Filename Title
         g.setColour(OpenWavLookAndFeel::textPrimary);
         g.setFont(juce::Font(12.0f).boldened());
         g.drawText(item.fileName, contentArea.removeFromTop(18.0f), juce::Justification::left, true);
 
-        // Metadata Subtitle
         g.setColour(OpenWavLookAndFeel::textSecondary);
         g.setFont(juce::Font(11.0f));
         juce::String metaStr = juce::String(item.durationSeconds, 2) + "s  |  " +
@@ -242,13 +258,11 @@ void SampleCloudComponent::paint(juce::Graphics& g)
                               juce::String(item.bitDepth) + "b";
         g.drawText(metaStr, contentArea.removeFromTop(16.0f), juce::Justification::left, true);
 
-        // Tags List
         juce::String tagList;
         for (const auto& t : item.tags) tagList += "#" + t + " ";
         g.setColour(OpenWavLookAndFeel::accentCyan);
         g.drawText(tagList, contentArea.removeFromTop(16.0f), juce::Justification::left, true);
 
-        // Mini Stylized Waveform Preview Bar
         auto waveRect = contentArea.reduced(2.0f, 2.0f);
         g.setColour(OpenWavLookAndFeel::bgDark);
         g.fillRoundedRectangle(waveRect, 3.0f);
@@ -267,7 +281,7 @@ void SampleCloudComponent::paint(juce::Graphics& g)
         }
     }
 
-    // 6. Bottom HUD Category Legend Bar
+    // 7. Bottom HUD Category Legend Bar
     if (!clusters.empty())
     {
         float legendX = 14.0f;
@@ -280,7 +294,7 @@ void SampleCloudComponent::paint(juce::Graphics& g)
 
         for (const auto& cl : clusters)
         {
-            if (legendX + 80.0f > getWidth() - 110)
+            if (legendX + 80.0f > getWidth() - 330)
                 break;
 
             g.setColour(cl.colour);
@@ -295,11 +309,10 @@ void SampleCloudComponent::paint(juce::Graphics& g)
         }
     }
 
-    // Bottom-Right Zoom HUD Readout
-    juce::String zoomStr = juce::String(static_cast<int>(zoomScale * 100)) + "%";
-    g.setFont(juce::Font(11.0f).boldened());
-    g.setColour(OpenWavLookAndFeel::accentCyan);
-    g.drawText("Zoom: " + zoomStr, getWidth() - 95, getHeight() - 28, 80, 18, juce::Justification::right, true);
+    // Bottom-Right 3D HUD Control Helper
+    g.setFont(juce::Font(10.0f));
+    g.setColour(OpenWavLookAndFeel::textSecondary);
+    g.drawText("Drag to rotate 3D view | Wheel to zoom | Mid-click to pan", getWidth() - 320, getHeight() - 28, 300, 18, juce::Justification::right, true);
 }
 
 void SampleCloudComponent::resized()
@@ -324,6 +337,17 @@ void SampleCloudComponent::timerCallback()
 
     bool needsRepaint = false;
 
+    // Smooth 3D camera rotation interpolation
+    float drotX = targetRotX - rotX;
+    float drotY = targetRotY - rotY;
+
+    if (std::abs(drotX) > 0.001f || std::abs(drotY) > 0.001f)
+    {
+        rotX += drotX * 0.15f;
+        rotY += drotY * 0.15f;
+        needsRepaint = true;
+    }
+
     for (size_t i = 0; i < nodes.size(); ++i)
     {
         auto& node = nodes[i];
@@ -331,27 +355,19 @@ void SampleCloudComponent::timerCallback()
         float ds = targetScale - node.hoverScale;
         if (std::abs(ds) > 0.01f)
         {
-            node.hoverScale += ds * 0.25f; // Smooth transition
+            node.hoverScale += ds * 0.25f;
             needsRepaint = true;
         }
-        else
-        {
-            node.hoverScale = targetScale;
-        }
 
-        float dx = node.targetPos.x - node.currentPos.x;
-        float dy = node.targetPos.y - node.currentPos.y;
-
-        if (std::abs(dx) > 0.5f || std::abs(dy) > 0.5f)
+        Vector3D dPos = node.targetPos - node.currentPos;
+        if (std::abs(dPos.x) > 0.5f || std::abs(dPos.y) > 0.5f || std::abs(dPos.z) > 0.5f)
         {
-            node.currentPos.x += dx * 0.12f;
-            node.currentPos.y += dy * 0.12f;
+            node.currentPos = node.currentPos + dPos * 0.12f;
             needsRepaint = true;
         }
     }
 
-    // Optimisation: Do not repaint if we are idle (selectedNodeIndex is static, no pulse ring animation)
-    if (needsRepaint || isPanning)
+    if (needsRepaint || isPanning || isRotating)
         repaint();
 }
 
@@ -384,6 +400,7 @@ void SampleCloudComponent::mouseDown(const juce::MouseEvent& e)
     if (idx >= 0 && idx < static_cast<int>(nodes.size()))
     {
         isPanning = false;
+        isRotating = false;
         selectedNodeIndex = idx;
         const auto& item = nodes[static_cast<size_t>(idx)].item;
 
@@ -395,19 +412,36 @@ void SampleCloudComponent::mouseDown(const juce::MouseEvent& e)
 
         repaint();
     }
-    else
+    else if (e.mods.isMiddleButtonDown() || e.mods.isShiftDown())
     {
-        // Canvas background clicked: initiate pan
         isPanning = true;
+        isRotating = false;
         setMouseCursor(juce::MouseCursor::DraggingHandCursor);
         mouseDragStartPos = e.position;
         dragStartPan = panOffset;
+    }
+    else
+    {
+        // Dragging left mouse button on background rotates 3D camera
+        isRotating = true;
+        isPanning = false;
+        setMouseCursor(juce::MouseCursor::DraggingHandCursor);
+        mouseDragStartPos = e.position;
+        dragStartRotX = targetRotX;
+        dragStartRotY = targetRotY;
     }
 }
 
 void SampleCloudComponent::mouseDrag(const juce::MouseEvent& e)
 {
-    if (isPanning)
+    if (isRotating)
+    {
+        auto delta = e.position - mouseDragStartPos;
+        targetRotY = dragStartRotY + delta.x * 0.008f;
+        targetRotX = juce::jlimit(-1.4f, 1.4f, dragStartRotX + delta.y * 0.008f);
+        repaint();
+    }
+    else if (isPanning)
     {
         panOffset = dragStartPan + (e.position - mouseDragStartPos);
         repaint();
@@ -424,6 +458,7 @@ void SampleCloudComponent::mouseDrag(const juce::MouseEvent& e)
 void SampleCloudComponent::mouseUp(const juce::MouseEvent& /*e*/)
 {
     isPanning = false;
+    isRotating = false;
     setMouseCursor(hoveredNodeIndex >= 0 ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
 }
 
@@ -445,7 +480,6 @@ void SampleCloudComponent::mouseDoubleClick(const juce::MouseEvent& e)
     }
     else
     {
-        // Double-click background resets zoom & pan
         resetZoomAndPan();
     }
 }
@@ -474,7 +508,6 @@ void SampleCloudComponent::setItems(const std::vector<MediaItem>& items)
         CloudNode node;
         node.item = item;
 
-        // Primary tag determination
         if (!item.tags.empty())
             node.primaryTag = *item.tags.begin();
         else
@@ -482,7 +515,6 @@ void SampleCloudComponent::setItems(const std::vector<MediaItem>& items)
 
         node.colour = getColourForTag(node.primaryTag);
 
-        // Calculate node size based on duration - smaller default sizes
         float dur = static_cast<float>(item.durationSeconds);
         node.radius = juce::jlimit(3.0f, 9.0f, 3.0f + dur * 1.0f);
         node.hoverScale = 1.0f;
@@ -502,14 +534,7 @@ void SampleCloudComponent::calculateClusterLayout()
         return;
     }
 
-    auto bounds = getLocalBounds().toFloat();
-    float centerX = bounds.getCentreX();
-    float centerY = bounds.getCentreY();
-    float maxRadius = std::min(bounds.getWidth(), bounds.getHeight()) * 0.44f;
-
-    // 1. Collect unique primary tags and build cluster objects
     std::unordered_map<juce::String, TagCluster> clusterMap;
-
     for (const auto& n : nodes)
     {
         auto& c = clusterMap[n.primaryTag];
@@ -524,50 +549,36 @@ void SampleCloudComponent::calculateClusterLayout()
         clusters.push_back(pair.second);
     }
 
-    // Sort clusters by count descending for stable territory mapping
     std::sort(clusters.begin(), clusters.end(), [](const TagCluster& a, const TagCluster& b) {
         return a.count > b.count;
     });
 
-    // 2. Map Layout: Position tag clusters in a 2D staggered map grid
     size_t tagCount = clusters.size();
     if (tagCount > 0)
     {
-        int cols = static_cast<int>(std::ceil(std::sqrt(static_cast<float>(tagCount) * 1.35f)));
-        cols = std::max(2, cols);
-        int rows = static_cast<int>(std::ceil(static_cast<float>(tagCount) / static_cast<float>(cols)));
-
-        float spacingX = 340.0f;
-        float spacingY = 280.0f;
-
-        float totalW = (cols - 1) * spacingX;
-        float totalH = (rows - 1) * spacingY;
-
-        float startX = centerX - totalW * 0.5f;
-        float startY = centerY - totalH * 0.5f;
+        float orbitRadius = 260.0f;
+        float goldenAngle = juce::MathConstants<float>::pi * (3.0f - std::sqrt(5.0f));
 
         for (size_t i = 0; i < tagCount; ++i)
         {
-            int r = static_cast<int>(i) / cols;
-            int c = static_cast<int>(i) % cols;
+            float theta = i * goldenAngle;
+            float y = 1.0f - (static_cast<float>(i) / std::max(1.0f, static_cast<float>(tagCount - 1))) * 2.0f;
+            float radiusAtY = orbitRadius * std::sqrt(std::max(0.0f, 1.0f - y * y));
 
-            // Stagger odd rows for an organic land-map layout
-            float staggerX = (r % 2 == 1) ? (spacingX * 0.35f) : 0.0f;
-            float posX = startX + c * spacingX + staggerX;
-            float posY = startY + r * spacingY;
+            float x = radiusAtY * std::cos(theta);
+            float z = radiusAtY * std::sin(theta);
+            float yPos = y * (orbitRadius * 0.75f);
 
-            clusters[i].centerPos = { posX, posY };
+            clusters[i].centerPos = { x, yPos, z };
         }
     }
 
-    // 3. Map cluster centroid positions back for quick node layout lookup
-    std::unordered_map<juce::String, juce::Point<float>> tagCenters;
+    std::unordered_map<juce::String, Vector3D> tagCenters;
     for (const auto& cl : clusters)
     {
         tagCenters[cl.tag] = cl.centerPos;
     }
 
-    // 4. Calculate initial target positions per cluster
     std::unordered_map<juce::String, int> tagItemCounts;
 
     for (auto& node : nodes)
@@ -575,29 +586,28 @@ void SampleCloudComponent::calculateClusterLayout()
         auto cPos = tagCenters[node.primaryTag];
         int countIndex = tagItemCounts[node.primaryTag]++;
 
-        // Golden ratio spiral placement per cluster center - tighter pack per group since dots are smaller
-        float phi = 2.39996323f; // Golden angle in radians
+        float phi = 2.39996323f;
         float r = 12.0f * std::sqrt(static_cast<float>(countIndex) + 1.0f);
         float theta = countIndex * phi;
+        float zOffset = (countIndex % 2 == 0 ? 1.0f : -1.0f) * (6.0f * std::sqrt(static_cast<float>(countIndex)));
 
         float targetX = cPos.x + r * std::cos(theta);
         float targetY = cPos.y + r * std::sin(theta);
+        float targetZ = cPos.z + zOffset;
 
-        node.targetPos = { targetX, targetY };
+        node.targetPos = { targetX, targetY, targetZ };
 
-        if (node.currentPos.getDistanceFrom({0.0f, 0.0f}) < 1.0f)
+        if (std::abs(node.currentPos.x) < 0.1f && std::abs(node.currentPos.y) < 0.1f && std::abs(node.currentPos.z) < 0.1f)
         {
-            node.currentPos = { centerX, centerY };
+            node.currentPos = { 0.0f, 0.0f, 0.0f };
         }
     }
 
-    // 5. Apply physics repulsion to prevent overlapping dots
     applyForceDirectedPhysics();
 }
 
 void SampleCloudComponent::applyForceDirectedPhysics()
 {
-    // Iterative repulsion pass to eliminate node overlap
     for (int iter = 0; iter < 12; ++iter)
     {
         for (size_t i = 0; i < nodes.size(); ++i)
@@ -605,15 +615,15 @@ void SampleCloudComponent::applyForceDirectedPhysics()
             for (size_t j = i + 1; j < nodes.size(); ++j)
             {
                 auto delta = nodes[j].targetPos - nodes[i].targetPos;
-                float dist = delta.getDistanceFrom({0.0f, 0.0f});
-                float minDist = nodes[i].radius + nodes[j].radius + 6.0f;
+                float dist = std::sqrt(delta.x * delta.x + delta.y * delta.y + delta.z * delta.z);
+                float minDist = nodes[i].radius + nodes[j].radius + 8.0f;
 
                 if (dist < minDist && dist > 0.01f)
                 {
                     float overlap = (minDist - dist) * 0.5f;
                     auto dir = delta / dist;
-                    nodes[i].targetPos -= dir * overlap;
-                    nodes[j].targetPos += dir * overlap;
+                    nodes[i].targetPos = nodes[i].targetPos - dir * overlap;
+                    nodes[j].targetPos = nodes[j].targetPos + dir * overlap;
                 }
             }
         }
@@ -623,19 +633,19 @@ void SampleCloudComponent::applyForceDirectedPhysics()
 int SampleCloudComponent::findNodeAtPosition(juce::Point<float> screenPos) const
 {
     int bestIndex = -1;
-    float bestDistance = std::numeric_limits<float>::max();
+    float bestZ = std::numeric_limits<float>::max();
 
     for (size_t i = 0; i < nodes.size(); ++i)
     {
-        auto nodeScreenPos = cloudToScreen(nodes[i].currentPos);
-        float hitR = (nodes[i].radius + 3.0f) * zoomScale;
+        const auto& node = nodes[i];
+        float hitR = (node.radius + 4.0f) * node.projectedScale;
         float maxHit = std::max(12.0f, hitR);
-        float dist = nodeScreenPos.getDistanceFrom(screenPos);
+        float dist = node.screenPos.getDistanceFrom(screenPos);
         if (dist <= maxHit)
         {
-            if (dist < bestDistance)
+            if (node.transformedPos.z < bestZ)
             {
-                bestDistance = dist;
+                bestZ = node.transformedPos.z;
                 bestIndex = static_cast<int>(i);
             }
         }
@@ -646,16 +656,15 @@ int SampleCloudComponent::findNodeAtPosition(juce::Point<float> screenPos) const
 juce::Colour SampleCloudComponent::getColourForTag(const juce::String& tag) const
 {
     auto t = tag.toLowerCase();
-    if (t.contains("kick"))  return juce::Colour(0xffff9aa2); // Pastel Coral / Rose
-    if (t.contains("snare")) return juce::Colour(0xffffb7b2); // Pastel Peach / Apricot
-    if (t.contains("hat") || t.contains("hihat")) return juce::Colour(0xffb5ead7); // Pastel Seafoam / Mint
-    if (t.contains("perc"))  return juce::Colour(0xffc7ceea); // Pastel Periwinkle / Lavender
-    if (t.contains("bass"))  return juce::Colour(0xffd8b4f8); // Pastel Violet / Purple
-    if (t.contains("synth") || t.contains("lead")) return juce::Colour(0xfffff5ba); // Pastel Banana / Yellow
-    if (t.contains("loop"))  return juce::Colour(0xffa8e6cf); // Pastel Turquoise / Aqua
-    if (t.contains("vocal")) return juce::Colour(0xfff6a6ff); // Pastel Orchid / Pink
+    if (t.contains("kick"))  return juce::Colour(0xffff9aa2);
+    if (t.contains("snare")) return juce::Colour(0xffffb7b2);
+    if (t.contains("hat") || t.contains("hihat")) return juce::Colour(0xffb5ead7);
+    if (t.contains("perc"))  return juce::Colour(0xffc7ceea);
+    if (t.contains("bass"))  return juce::Colour(0xffd8b4f8);
+    if (t.contains("synth") || t.contains("lead")) return juce::Colour(0xfffff5ba);
+    if (t.contains("loop"))  return juce::Colour(0xffa8e6cf);
+    if (t.contains("vocal")) return juce::Colour(0xfff6a6ff);
 
-    // Deterministic pastel color for other tags (low saturation, high brightness)
     uint32_t hash = static_cast<uint32_t>(tag.hashCode());
     float hue = (hash % 360) / 360.0f;
     return juce::Colour::fromHSV(hue, 0.38f, 0.95f, 1.0f);
