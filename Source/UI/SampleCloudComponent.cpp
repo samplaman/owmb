@@ -149,6 +149,27 @@ void SampleCloudComponent::paint(juce::Graphics& g)
         g.drawEllipse(cluster.screenPos.x - r2, cluster.screenPos.y - r2, r2 * 2.0f, r2 * 2.0f, 1.2f);
     }
 
+    // 2.5. Draw 3D Constellation Mesh Lines connecting neighboring stars within each tag cluster
+    for (size_t i = 0; i < nodes.size(); ++i)
+    {
+        for (size_t j = i + 1; j < nodes.size(); ++j)
+        {
+            if (nodes[i].primaryTag == nodes[j].primaryTag)
+            {
+                auto delta = nodes[j].currentPos - nodes[i].currentPos;
+                float distSq = delta.x * delta.x + delta.y * delta.y + delta.z * delta.z;
+                if (distSq < 50.0f * 50.0f)
+                {
+                    float dist = std::sqrt(distSq);
+                    float alphaCoeff = (1.0f - dist / 50.0f);
+                    float depthAlpha = std::min(nodes[i].projectedScale, nodes[j].projectedScale);
+                    g.setColour(nodes[i].colour.withAlpha(0.35f * alphaCoeff * depthAlpha));
+                    g.drawLine(nodes[i].screenPos.x, nodes[i].screenPos.y, nodes[j].screenPos.x, nodes[j].screenPos.y, 1.1f);
+                }
+            }
+        }
+    }
+
     // 3. Draw Z-Sorted 3D Sample Nodes (Back to Front)
     for (const auto* nodePtr : sortedNodePointers)
     {
@@ -553,27 +574,56 @@ void SampleCloudComponent::calculateClusterLayout()
     size_t tagCount = clusters.size();
     if (tagCount > 0)
     {
-        float orbitRadius = 260.0f;
-        float goldenAngle = juce::MathConstants<float>::pi * (3.0f - std::sqrt(5.0f));
+        float baseRadius = 240.0f;
+        float goldenAngle = 2.39996323f; // Golden ratio angle (~137.5 deg)
 
         for (size_t i = 0; i < tagCount; ++i)
         {
-            float theta = i * goldenAngle;
-            float y = 1.0f - (static_cast<float>(i) / std::max(1.0f, static_cast<float>(tagCount - 1))) * 2.0f;
-            float radiusAtY = orbitRadius * std::sqrt(std::max(0.0f, 1.0f - y * y));
+            auto tagLower = clusters[i].tag.toLowerCase();
 
-            float x = radiusAtY * std::cos(theta);
-            float z = radiusAtY * std::sin(theta);
-            float yPos = y * (orbitRadius * 0.75f);
+            if (tagLower.contains("kick"))
+            {
+                clusters[i].centerPos = { -140.0f, 0.0f, -40.0f };
+            }
+            else if (tagLower.contains("snare"))
+            {
+                clusters[i].centerPos = { 140.0f, -20.0f, 40.0f };
+            }
+            else if (tagLower.contains("bass"))
+            {
+                clusters[i].centerPos = { 0.0f, 130.0f, 80.0f };
+            }
+            else if (tagLower.contains("hat") || tagLower.contains("hihat"))
+            {
+                clusters[i].centerPos = { 0.0f, -130.0f, -80.0f };
+            }
+            else if (tagLower.contains("perc"))
+            {
+                clusters[i].centerPos = { 260.0f, 70.0f, -120.0f };
+            }
+            else if (tagLower.contains("synth") || tagLower.contains("lead"))
+            {
+                clusters[i].centerPos = { -260.0f, -70.0f, 120.0f };
+            }
+            else
+            {
+                float theta = static_cast<float>(i) * goldenAngle;
+                float r = baseRadius + (i * 35.0f);
+                float x = r * std::cos(theta);
+                float z = r * std::sin(theta);
+                float y = (i % 2 == 0 ? 1.0f : -1.0f) * (40.0f + (i * 15.0f));
 
-            clusters[i].centerPos = { x, yPos, z };
+                clusters[i].centerPos = { x, y, z };
+            }
         }
     }
 
     std::unordered_map<juce::String, Vector3D> tagCenters;
+    std::unordered_map<juce::String, int> tagTotalCounts;
     for (const auto& cl : clusters)
     {
         tagCenters[cl.tag] = cl.centerPos;
+        tagTotalCounts[cl.tag] = cl.count;
     }
 
     std::unordered_map<juce::String, int> tagItemCounts;
@@ -581,22 +631,26 @@ void SampleCloudComponent::calculateClusterLayout()
     for (auto& node : nodes)
     {
         auto cPos = tagCenters[node.primaryTag];
-        int countIndex = tagItemCounts[node.primaryTag]++;
+        int countIdx = tagItemCounts[node.primaryTag]++;
+        int totalInTag = tagTotalCounts[node.primaryTag];
 
+        // 3D Fibonacci Sphere Constellation Packing
         float phi = 2.39996323f;
-        float r = 12.0f * std::sqrt(static_cast<float>(countIndex) + 1.0f);
-        float theta = countIndex * phi;
-        float zOffset = (countIndex % 2 == 0 ? 1.0f : -1.0f) * (6.0f * std::sqrt(static_cast<float>(countIndex)));
+        float y = 1.0f - (static_cast<float>(countIdx) / std::max(1.0f, static_cast<float>(totalInTag - 1))) * 2.0f;
+        float radiusAtY = std::sqrt(std::max(0.0f, 1.0f - y * y));
 
-        float targetX = cPos.x + r * std::cos(theta);
-        float targetY = cPos.y + r * std::sin(theta);
-        float targetZ = cPos.z + zOffset;
+        float clusterSphereRadius = std::max(35.0f, 25.0f + std::sqrt(static_cast<float>(totalInTag)) * 11.0f);
 
-        node.targetPos = { targetX, targetY, targetZ };
+        float theta = countIdx * phi;
+        float xOffset = clusterSphereRadius * radiusAtY * std::cos(theta);
+        float zOffset = clusterSphereRadius * radiusAtY * std::sin(theta);
+        float yOffset = clusterSphereRadius * y;
+
+        node.targetPos = { cPos.x + xOffset, cPos.y + yOffset, cPos.z + zOffset };
 
         if (std::abs(node.currentPos.x) < 0.1f && std::abs(node.currentPos.y) < 0.1f && std::abs(node.currentPos.z) < 0.1f)
         {
-            node.currentPos = { 0.0f, 0.0f, 0.0f };
+            node.currentPos = node.targetPos;
         }
     }
 
@@ -653,18 +707,19 @@ int SampleCloudComponent::findNodeAtPosition(juce::Point<float> screenPos) const
 juce::Colour SampleCloudComponent::getColourForTag(const juce::String& tag) const
 {
     auto t = tag.toLowerCase();
-    if (t.contains("kick"))  return juce::Colour(0xffff0055); // Electric Neon Crimson / Magenta
-    if (t.contains("snare")) return juce::Colour(0xffff6d00); // Vivid Neon Sunset Amber
-    if (t.contains("hat") || t.contains("hihat")) return juce::Colour(0xff00f0ff); // Electric Neon Cyan
-    if (t.contains("perc"))  return juce::Colour(0xff00e676); // Vivid Neon Emerald Green
-    if (t.contains("bass"))  return juce::Colour(0xffa000ff); // Deep Electric Violet
-    if (t.contains("synth") || t.contains("lead")) return juce::Colour(0xffffea00); // Electric Sun Yellow
-    if (t.contains("loop"))  return juce::Colour(0xff00e5ff); // Vivid Turquoise
-    if (t.contains("vocal")) return juce::Colour(0xffff00b7); // Radiant Hot Pink
+    if (t.contains("kick"))  return juce::Colour(0xffe53935); // Rich Crimson
+    if (t.contains("snare")) return juce::Colour(0xfff57c00); // Warm Terracotta Amber
+    if (t.contains("hat") || t.contains("hihat")) return juce::Colour(0xff0288d1); // Oceanic Azure Blue
+    if (t.contains("perc"))  return juce::Colour(0xff2e7d32); // Rich Emerald Green
+    if (t.contains("bass"))  return juce::Colour(0xff673ab7); // Royal Indigo Violet
+    if (t.contains("synth") || t.contains("lead")) return juce::Colour(0xffffb300); // Warm Golden Amber
+    if (t.contains("loop"))  return juce::Colour(0xff00897b); // Deep Teal
+    if (t.contains("vocal")) return juce::Colour(0xffc2185b); // Rich Plum Berry
 
+    // Tailored non-neon HSL mapping for custom tags
     uint32_t hash = static_cast<uint32_t>(tag.hashCode());
     float hue = (hash % 360) / 360.0f;
-    return juce::Colour::fromHSV(hue, 0.85f, 1.0f, 1.0f);
+    return juce::Colour::fromHSV(hue, 0.65f, 0.85f, 1.0f);
 }
 
 void SampleCloudComponent::showContextMenuForNode(int idx)
