@@ -59,6 +59,7 @@ public:
 
 private:
     void triggerFilterUpdate();
+    void updateNativeTitleBarTheme();
 
     OpenWavAudioProcessor& audioProcessor;
     OpenWavLookAndFeel lookAndFeel;

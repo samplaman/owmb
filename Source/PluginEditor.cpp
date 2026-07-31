@@ -150,6 +150,7 @@ void OpenWavAudioProcessorEditor::settingsRequested()
             OpenWavLookAndFeel::setDarkTheme(true);
             lookAndFeel.updateColors();
             sendLookAndFeelChange();
+            updateNativeTitleBarTheme();
         }
         else if (result == 2) // Light Theme
         {
@@ -157,6 +158,7 @@ void OpenWavAudioProcessorEditor::settingsRequested()
             OpenWavLookAndFeel::setDarkTheme(false);
             lookAndFeel.updateColors();
             sendLookAndFeelChange();
+            updateNativeTitleBarTheme();
         }
         else if (result == 3) // Audio/MIDI Settings
         {
@@ -262,6 +264,7 @@ void OpenWavAudioProcessorEditor::parentHierarchyChanged()
 
             dw->setContentComponentSize(targetW, targetH);
             dw->centreWithSize(targetW, targetH);
+            updateNativeTitleBarTheme();
         }
     }
 }
@@ -285,6 +288,38 @@ void OpenWavAudioProcessorEditor::triggerFilterUpdate()
     );
 
     sampleCloud.setItems(sampleTable.getDisplayedItems());
+}
+
+void OpenWavAudioProcessorEditor::updateNativeTitleBarTheme()
+{
+#if JUCE_WINDOWS
+    if (auto* dw = findParentComponentOfClass<juce::DocumentWindow>())
+    {
+        if (auto* peer = dw->getPeer())
+        {
+            if (auto hwnd = peer->getNativeHandle())
+            {
+                BOOL useDarkMode = audioProcessor.getDatabaseManager().isDarkMode() ? TRUE : FALSE;
+                
+                #ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
+                #define DWMWA_USE_IMMERSIVE_DARK_MODE 20
+                #endif
+                
+                typedef HRESULT (WINAPI* DwmSetWindowAttributePtr)(HWND, DWORD, LPCVOID, DWORD);
+                
+                if (HMODULE dwmDll = LoadLibraryA("dwmapi.dll"))
+                {
+                    if (auto dwmSetWindowAttribute = (DwmSetWindowAttributePtr)GetProcAddress(dwmDll, "DwmSetWindowAttribute"))
+                    {
+                        dwmSetWindowAttribute((HWND)hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &useDarkMode, sizeof(useDarkMode));
+                        SetWindowPos((HWND)hwnd, nullptr, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+                    }
+                    FreeLibrary(dwmDll);
+                }
+            }
+        }
+    }
+#endif
 }
 
 } // namespace openwav
