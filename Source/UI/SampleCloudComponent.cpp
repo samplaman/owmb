@@ -95,7 +95,7 @@ void SampleCloudComponent::resetZoomAndPan()
     panOffset = { 0.0f, 0.0f };
     targetRotX = 0.35f;
     targetRotY = 0.45f;
-    cameraDistance = 650.0f;
+    cameraDistance = 850.0f;
     repaint();
 }
 
@@ -574,7 +574,7 @@ void SampleCloudComponent::calculateClusterLayout()
     size_t tagCount = clusters.size();
     if (tagCount > 0)
     {
-        float baseRadius = 240.0f;
+        float baseRadius = 450.0f;
         float goldenAngle = 2.39996323f; // Golden ratio angle (~137.5 deg)
 
         for (size_t i = 0; i < tagCount; ++i)
@@ -583,37 +583,61 @@ void SampleCloudComponent::calculateClusterLayout()
 
             if (tagLower.contains("kick"))
             {
-                clusters[i].centerPos = { -140.0f, 0.0f, -40.0f };
+                clusters[i].centerPos = { -320.0f, -40.0f, -120.0f };
             }
             else if (tagLower.contains("snare"))
             {
-                clusters[i].centerPos = { 140.0f, -20.0f, 40.0f };
+                clusters[i].centerPos = { 320.0f, -40.0f, 120.0f };
             }
             else if (tagLower.contains("bass"))
             {
-                clusters[i].centerPos = { 0.0f, 130.0f, 80.0f };
+                clusters[i].centerPos = { 0.0f, 320.0f, 180.0f };
             }
             else if (tagLower.contains("hat") || tagLower.contains("hihat"))
             {
-                clusters[i].centerPos = { 0.0f, -130.0f, -80.0f };
+                clusters[i].centerPos = { 0.0f, -320.0f, -180.0f };
             }
             else if (tagLower.contains("perc"))
             {
-                clusters[i].centerPos = { 260.0f, 70.0f, -120.0f };
+                clusters[i].centerPos = { 450.0f, 160.0f, -220.0f };
             }
             else if (tagLower.contains("synth") || tagLower.contains("lead"))
             {
-                clusters[i].centerPos = { -260.0f, -70.0f, 120.0f };
+                clusters[i].centerPos = { -450.0f, -160.0f, 220.0f };
             }
             else
             {
                 float theta = static_cast<float>(i) * goldenAngle;
-                float r = baseRadius + (i * 35.0f);
+                float r = baseRadius + (i * 65.0f);
                 float x = r * std::cos(theta);
                 float z = r * std::sin(theta);
-                float y = (i % 2 == 0 ? 1.0f : -1.0f) * (40.0f + (i * 15.0f));
+                float y = (i % 2 == 0 ? 1.0f : -1.0f) * (60.0f + (i * 25.0f));
 
                 clusters[i].centerPos = { x, y, z };
+            }
+        }
+
+        // Cluster-cluster 3D repulsion pass to ensure zero overlap between tag spheres
+        for (int iter = 0; iter < 16; ++iter)
+        {
+            for (size_t i = 0; i < tagCount; ++i)
+            {
+                for (size_t j = i + 1; j < tagCount; ++j)
+                {
+                    auto delta = clusters[j].centerPos - clusters[i].centerPos;
+                    float dist = std::sqrt(delta.x * delta.x + delta.y * delta.y + delta.z * delta.z);
+                    float r1 = std::max(45.0f, 30.0f + std::sqrt(static_cast<float>(clusters[i].count)) * 14.0f);
+                    float r2 = std::max(45.0f, 30.0f + std::sqrt(static_cast<float>(clusters[j].count)) * 14.0f);
+                    float minDist = r1 + r2 + 60.0f; // Generous 60px clearance buffer
+
+                    if (dist < minDist && dist > 0.01f)
+                    {
+                        float overlap = (minDist - dist) * 0.5f;
+                        auto dir = delta / dist;
+                        clusters[i].centerPos = clusters[i].centerPos - dir * overlap;
+                        clusters[j].centerPos = clusters[j].centerPos + dir * overlap;
+                    }
+                }
             }
         }
     }
@@ -639,7 +663,7 @@ void SampleCloudComponent::calculateClusterLayout()
         float y = 1.0f - (static_cast<float>(countIdx) / std::max(1.0f, static_cast<float>(totalInTag - 1))) * 2.0f;
         float radiusAtY = std::sqrt(std::max(0.0f, 1.0f - y * y));
 
-        float clusterSphereRadius = std::max(35.0f, 25.0f + std::sqrt(static_cast<float>(totalInTag)) * 11.0f);
+        float clusterSphereRadius = std::max(40.0f, 25.0f + std::sqrt(static_cast<float>(totalInTag)) * 14.0f);
 
         float theta = countIdx * phi;
         float xOffset = clusterSphereRadius * radiusAtY * std::cos(theta);
@@ -659,7 +683,7 @@ void SampleCloudComponent::calculateClusterLayout()
 
 void SampleCloudComponent::applyForceDirectedPhysics()
 {
-    for (int iter = 0; iter < 12; ++iter)
+    for (int iter = 0; iter < 16; ++iter)
     {
         for (size_t i = 0; i < nodes.size(); ++i)
         {
@@ -667,7 +691,7 @@ void SampleCloudComponent::applyForceDirectedPhysics()
             {
                 auto delta = nodes[j].targetPos - nodes[i].targetPos;
                 float dist = std::sqrt(delta.x * delta.x + delta.y * delta.y + delta.z * delta.z);
-                float minDist = nodes[i].radius + nodes[j].radius + 8.0f;
+                float minDist = nodes[i].radius + nodes[j].radius + 14.0f;
 
                 if (dist < minDist && dist > 0.01f)
                 {
