@@ -226,8 +226,16 @@ void OpenWavAudioProcessorEditor::parentHierarchyChanged()
             dw->setUsingNativeTitleBar(true);
            #endif
             dw->setResizable(true, true);
-            dw->setContentComponentSize(1920, 1080);
-            dw->centreWithSize(1920, 1080);
+            dw->setResizeLimits(800, 650, 3840, 2160);
+
+            auto mainDisplay = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay();
+            auto userArea = (mainDisplay != nullptr) ? mainDisplay->userArea : juce::Rectangle<int>(0, 0, 1920, 1080);
+
+            int targetW = std::min(1920, std::max(800, userArea.getWidth() - 40));
+            int targetH = std::min(1080, std::max(650, userArea.getHeight() - 60));
+
+            dw->setContentComponentSize(targetW, targetH);
+            dw->centreWithSize(targetW, targetH);
         }
     }
 }
