@@ -219,7 +219,13 @@ void OpenWavAudioProcessorEditor::parentHierarchyChanged()
     {
         if (auto* dw = findParentComponentOfClass<juce::DocumentWindow>())
         {
+           #if JUCE_LINUX
+            dw->setUsingNativeTitleBar(false);
+            dw->setTitleBarHeight(28);
+           #else
             dw->setUsingNativeTitleBar(true);
+           #endif
+            dw->setResizable(true, true);
             dw->setContentComponentSize(1920, 1080);
             dw->centreWithSize(1920, 1080);
         }
