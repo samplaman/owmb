@@ -640,19 +640,19 @@ int SampleCloudComponent::findNodeAtPosition(juce::Point<float> screenPos) const
 juce::Colour SampleCloudComponent::getColourForTag(const juce::String& tag) const
 {
     auto t = tag.toLowerCase();
-    if (t.contains("kick"))  return juce::Colour(0xfff0f0f0); // Bright White / Silver
-    if (t.contains("snare")) return juce::Colour(0xffd8d8d8); // Light Gray
-    if (t.contains("hat") || t.contains("hihat")) return juce::Colour(0xffc0c0c0); // Medium Light Gray
-    if (t.contains("perc"))  return juce::Colour(0xffa8a8a8); // Medium Gray
-    if (t.contains("bass"))  return juce::Colour(0xff787878); // Slate Gray
-    if (t.contains("synth") || t.contains("lead")) return juce::Colour(0xffe8e8e8); // Soft White
-    if (t.contains("loop"))  return juce::Colour(0xffb0b0b0); // Cool Gray
-    if (t.contains("vocal")) return juce::Colour(0xffe0e0e0); // Platinum
+    if (t.contains("kick"))  return juce::Colour(0xffff9aa2); // Pastel Coral / Rose
+    if (t.contains("snare")) return juce::Colour(0xffffb7b2); // Pastel Peach / Apricot
+    if (t.contains("hat") || t.contains("hihat")) return juce::Colour(0xffb5ead7); // Pastel Seafoam / Mint
+    if (t.contains("perc"))  return juce::Colour(0xffc7ceea); // Pastel Periwinkle / Lavender
+    if (t.contains("bass"))  return juce::Colour(0xffd8b4f8); // Pastel Violet / Purple
+    if (t.contains("synth") || t.contains("lead")) return juce::Colour(0xfffff5ba); // Pastel Banana / Yellow
+    if (t.contains("loop"))  return juce::Colour(0xffa8e6cf); // Pastel Turquoise / Aqua
+    if (t.contains("vocal")) return juce::Colour(0xfff6a6ff); // Pastel Orchid / Pink
 
-    // Deterministic grayscale for other tags (range 0.40f to 0.95f)
+    // Deterministic pastel color for other tags (low saturation, high brightness)
     uint32_t hash = static_cast<uint32_t>(tag.hashCode());
-    float brightness = 0.40f + ((hash % 100) / 100.0f) * 0.55f;
-    return juce::Colour::greyLevel(brightness);
+    float hue = (hash % 360) / 360.0f;
+    return juce::Colour::fromHSV(hue, 0.38f, 0.95f, 1.0f);
 }
 
 void SampleCloudComponent::showContextMenuForNode(int idx)
