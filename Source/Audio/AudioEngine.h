@@ -31,6 +31,8 @@ struct AudioVoice
     bool finished { false };
     double startRatio { 0.0 };
     double endRatio { 1.0 };
+    int rootNote { 60 };
+    int triggerMidiNote { -1 };
 };
 
 class AudioEngine : public juce::ChangeListener
@@ -41,7 +43,7 @@ public:
 
     void prepareToPlay(double sampleRate, int samplesPerBlock);
     void releaseResources();
-    void processNextAudioBlock(juce::AudioBuffer<float>& outputBuffer);
+    void processNextAudioBlock(juce::AudioBuffer<float>& outputBuffer, juce::MidiBuffer& midiMessages);
 
     // Audio Playback Controls
     bool loadFile(const juce::File& audioFile, bool autoPlay = false);
@@ -74,6 +76,8 @@ public:
     void removeListener(AudioEngineListener* listener);
 
 private:
+    void triggerNoteOn(int midiNoteNumber, float velocity);
+    void triggerNoteOff(int midiNoteNumber);
     void changeListenerCallback(juce::ChangeBroadcaster* source) override;
 
     juce::TimeSliceThread backgroundThread { "OpenWavBackgroundThread" };

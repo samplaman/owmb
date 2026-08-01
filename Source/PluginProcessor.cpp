@@ -33,7 +33,7 @@ bool OpenWavAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts) c
     return true;
 }
 
-void OpenWavAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& /*midiMessages*/)
+void OpenWavAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
 {
     juce::ScopedNoDenormals noDenormals;
     auto totalNumOutputChannels = getTotalNumOutputChannels();
@@ -41,7 +41,7 @@ void OpenWavAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
     for (auto i = 0; i < totalNumOutputChannels; ++i)
         buffer.clear(i, 0, buffer.getNumSamples());
 
-    audioEngine.processNextAudioBlock(buffer);
+    audioEngine.processNextAudioBlock(buffer, midiMessages);
 }
 
 juce::AudioProcessorEditor* OpenWavAudioProcessor::createEditor()
