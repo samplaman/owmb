@@ -8,7 +8,7 @@
 
 ## Key Features
 
--  **2D Interactive Sample Cloud Visualizer**: Explore audio samples visually mapped into color-coded category clusters (`Kicks`, `Snares`, `HiHats`, `Bass`, `Synth`, `Loops`, etc.) with 3D radial gradients, force-directed anti-collision layout, dynamic sound pulse rings, and mini-waveform hover tooltips.
+-  **3D Interactive Sample Cloud Visualizer**: Explore audio samples visually mapped into color-coded category clusters (`Kicks`, `Snares`, `HiHats`, `Bass`, `Synth`, `Loops`, etc.) with 3D radial gradients, force-directed anti-collision layout, dynamic sound pulse rings, and mini-waveform hover tooltips.
 -  **Interactive Zoom & Pan**: Scroll mouse wheel to zoom (`30%` to `400%`) into any node cluster, click and drag empty space to pan canvas, and use top-right HUD zoom controls.
 -  **Tag-Based Searching & Auto-Inference**: Automatically infers tags from folder structures and filenames (`#Kick`, `#Snare`, `#HiHat`, `#Loop`, `#OneShot`, `#Bass`, `#Synth`, `#808`, `#Vocal`, `#FX`, etc.).
 -  **Ultra-Fast Asynchronous Library Scanner**: Binary RIFF/WAVE header parser indexes thousands of audio files per second without freezing the DAW UI or audio thread.
