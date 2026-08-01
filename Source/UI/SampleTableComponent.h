@@ -46,8 +46,11 @@ public:
     void paintCell(juce::Graphics& g, int rowNumber, int columnId, int width, int height, bool rowIsSelected) override;
     void cellClicked(int rowNumber, int columnId, const juce::MouseEvent& e) override;
     void cellDoubleClicked(int rowNumber, int columnId, const juce::MouseEvent& e) override;
+    void selectedRowsChanged(int lastRowSelected) override;
     juce::var getDragSourceDescription(const juce::SparseSet<int>& selectedRows) override;
     bool mayDragToExternalWindows() const override;
+
+    void moveSelection(int delta);
 
     // TagDatabaseListener callbacks
     void libraryIndexUpdated() override;

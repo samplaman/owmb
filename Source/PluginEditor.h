@@ -39,6 +39,8 @@ public:
     void rescanRequested() override;
     void settingsRequested() override;
     void viewModeChanged(ViewMode mode) override;
+    void searchBarUpPressed() override;
+    void searchBarDownPressed() override;
 
     // TagPanelListener Callbacks
     void tagFilterSelectionChanged(const std::set<juce::String>& selectedTags, bool matchAllTags, bool favoritesOnly) override;

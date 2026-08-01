@@ -102,6 +102,16 @@ void OpenWavAudioProcessorEditor::searchTextChanged(const juce::String& /*newTex
     startTimer(200); // 200 ms debounce
 }
 
+void OpenWavAudioProcessorEditor::searchBarUpPressed()
+{
+    sampleTable.moveSelection(-1);
+}
+
+void OpenWavAudioProcessorEditor::searchBarDownPressed()
+{
+    sampleTable.moveSelection(1);
+}
+
 void OpenWavAudioProcessorEditor::timerCallback()
 {
     stopTimer();

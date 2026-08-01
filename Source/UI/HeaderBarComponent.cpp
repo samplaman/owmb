@@ -22,6 +22,7 @@ HeaderBarComponent::HeaderBarComponent(TagDatabaseManager& db, LibraryScanner& s
     searchEditor.setJustification(juce::Justification::centred);
     searchEditor.setTextToShowWhenEmpty("Search by name, tag, or path...", OpenWavLookAndFeel::textSecondary);
     searchEditor.addListener(this);
+    searchEditor.addKeyListener(this);
     addAndMakeVisible(searchEditor);
 
     // Add Folder Button
@@ -286,6 +287,24 @@ void HeaderBarComponent::lookAndFeelChanged()
     progressBar.setColour(juce::ProgressBar::backgroundColourId, OpenWavLookAndFeel::bgDark);
     progressBar.setColour(juce::ProgressBar::foregroundColourId, OpenWavLookAndFeel::accentCyan);
     searchEditor.setTextToShowWhenEmpty("Search by name, tag, or path...", OpenWavLookAndFeel::textSecondary);
+}
+
+bool HeaderBarComponent::keyPressed(const juce::KeyPress& key, juce::Component* originatingComponent)
+{
+    if (originatingComponent == &searchEditor)
+    {
+        if (key == juce::KeyPress::upKey)
+        {
+            listeners.call([](HeaderBarListener& l) { l.searchBarUpPressed(); });
+            return true;
+        }
+        else if (key == juce::KeyPress::downKey)
+        {
+            listeners.call([](HeaderBarListener& l) { l.searchBarDownPressed(); });
+            return true;
+        }
+    }
+    return false;
 }
 
 } // namespace openwav

@@ -28,11 +28,14 @@ public:
     virtual void rescanRequested() = 0;
     virtual void settingsRequested() = 0;
     virtual void viewModeChanged(ViewMode mode) = 0;
+    virtual void searchBarUpPressed() {}
+    virtual void searchBarDownPressed() {}
 };
 
 class HeaderBarComponent : public juce::Component,
                            public juce::TextEditor::Listener,
-                           public ScannerListener
+                           public ScannerListener,
+                           public juce::KeyListener
 {
 public:
     HeaderBarComponent(TagDatabaseManager& db, LibraryScanner& scanner);
@@ -58,6 +61,7 @@ public:
     void updateLibraryCount(int count);
 
 private:
+    bool keyPressed(const juce::KeyPress& key, juce::Component* originatingComponent) override;
     void textEditorTextChanged(juce::TextEditor& editor) override;
     void setFormatFilter(const juce::String& ext, juce::TextButton* targetBtn);
     void setViewMode(ViewMode mode);

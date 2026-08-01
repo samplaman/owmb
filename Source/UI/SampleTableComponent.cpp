@@ -23,6 +23,7 @@ SampleTableComponent::SampleTableComponent(TagDatabaseManager& db, AudioEngine& 
     table.setModel(this);
     table.setRowHeight(32);
     table.setMultipleSelectionEnabled(false);
+    table.setWantsKeyboardFocus(true);
 
     addAndMakeVisible(table);
     updateFilter("", {}, false, "All", false);
@@ -301,6 +302,8 @@ void SampleTableComponent::cellClicked(int rowNumber, int columnId, const juce::
     if (rowNumber < 0 || rowNumber >= static_cast<int>(displayedItems.size()))
         return;
 
+    table.grabKeyboardFocus();
+
     const auto& item = displayedItems[static_cast<size_t>(rowNumber)];
 
     if (e.mods.isPopupMenu())
@@ -315,12 +318,52 @@ void SampleTableComponent::cellClicked(int rowNumber, int columnId, const juce::
         return;
     }
 
-    // Select row and load preview in Audio Engine
-    audioEngine.loadFile(juce::File(item.filePath), true);
+    // If already selected, selectedRowsChanged won't trigger, so reload/play here.
+    // Otherwise table.selectRow below or click will trigger selectedRowsChanged.
+    if (table.getSelectedRow() == rowNumber)
+    {
+        audioEngine.loadFile(juce::File(item.filePath), true);
+    }
+    else
+    {
+        table.selectRow(rowNumber);
+    }
 
     listeners.call([item](SampleTableListener& l) {
         l.sampleSelected(item);
     });
+}
+
+void SampleTableComponent::selectedRowsChanged(int lastRowSelected)
+{
+    if (lastRowSelected >= 0 && lastRowSelected < static_cast<int>(displayedItems.size()))
+    {
+        const auto& item = displayedItems[static_cast<size_t>(lastRowSelected)];
+        
+        if (audioEngine.getCurrentFile() != juce::File(item.filePath))
+        {
+            audioEngine.loadFile(juce::File(item.filePath), true);
+        }
+
+        listeners.call([item](SampleTableListener& l) {
+            l.sampleSelected(item);
+        });
+    }
+}
+
+void SampleTableComponent::moveSelection(int delta)
+{
+    int current = table.getSelectedRow();
+    int numRows = getNumRows();
+    if (numRows <= 0)
+        return;
+
+    int nextRow = current + delta;
+    if (nextRow < 0) nextRow = 0;
+    if (nextRow >= numRows) nextRow = numRows - 1;
+
+    table.selectRow(nextRow);
+    table.scrollToEnsureRowIsOnscreen(nextRow);
 }
 
 void SampleTableComponent::cellDoubleClicked(int rowNumber, int /*columnId*/, const juce::MouseEvent& /*e*/)
