@@ -22,7 +22,8 @@ class OpenWavAudioProcessorEditor : public juce::AudioProcessorEditor,
                                      public TagPanelListener,
                                      public SampleTableListener,
                                      public SampleCloudListener,
-                                     public juce::FileDragAndDropTarget
+                                     public juce::FileDragAndDropTarget,
+                                     private juce::Timer
 {
 public:
     explicit OpenWavAudioProcessorEditor(OpenWavAudioProcessor& p);
@@ -60,6 +61,7 @@ public:
 private:
     void triggerFilterUpdate();
     void updateNativeTitleBarTheme();
+    void timerCallback() override;
 
     OpenWavAudioProcessor& audioProcessor;
     OpenWavLookAndFeel lookAndFeel;

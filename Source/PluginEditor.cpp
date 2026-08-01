@@ -99,6 +99,12 @@ void OpenWavAudioProcessorEditor::resized()
 
 void OpenWavAudioProcessorEditor::searchTextChanged(const juce::String& /*newText*/)
 {
+    startTimer(200); // 200 ms debounce
+}
+
+void OpenWavAudioProcessorEditor::timerCallback()
+{
+    stopTimer();
     triggerFilterUpdate();
 }
 
@@ -206,7 +212,10 @@ void OpenWavAudioProcessorEditor::sampleDoubleClicked(const MediaItem& /*item*/)
 
 void OpenWavAudioProcessorEditor::displayedItemsChanged(const std::vector<MediaItem>& items)
 {
-    sampleCloud.setItems(items);
+    if (headerBar.getCurrentViewMode() == ViewMode::Cloud)
+    {
+        sampleCloud.setItems(items);
+    }
 }
 
 bool OpenWavAudioProcessorEditor::isInterestedInFileDrag(const juce::StringArray& files)
@@ -246,9 +255,13 @@ void OpenWavAudioProcessorEditor::filesDropped(const juce::StringArray& files, i
     }
 }
 
-void OpenWavAudioProcessorEditor::viewModeChanged(ViewMode /*mode*/)
+void OpenWavAudioProcessorEditor::viewModeChanged(ViewMode mode)
 {
     resized();
+    if (mode == ViewMode::Cloud)
+    {
+        sampleCloud.setItems(sampleTable.getDisplayedItems());
+    }
 }
 
 void OpenWavAudioProcessorEditor::parentHierarchyChanged()
@@ -294,7 +307,10 @@ void OpenWavAudioProcessorEditor::triggerFilterUpdate()
         tagPanel.getFavoritesOnly()
     );
 
-    sampleCloud.setItems(sampleTable.getDisplayedItems());
+    if (headerBar.getCurrentViewMode() == ViewMode::Cloud)
+    {
+        sampleCloud.setItems(sampleTable.getDisplayedItems());
+    }
 }
 
 void OpenWavAudioProcessorEditor::updateNativeTitleBarTheme()

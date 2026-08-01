@@ -44,9 +44,9 @@ std::vector<MediaItem> TagDatabaseManager::getFilteredItems(const juce::String& 
 {
     const juce::ScopedLock sl(lock);
     std::vector<MediaItem> filtered;
+    filtered.reserve(itemsMap.size());
 
-    juce::String keywordLower = searchKeyword.toLowerCase().trim();
-    juce::String extFilterLower = extensionFilter.toLowerCase().trim();
+    juce::String keyword = searchKeyword.trim();
 
     for (const auto& kv : itemsMap)
     {
@@ -61,23 +61,23 @@ std::vector<MediaItem> TagDatabaseManager::getFilteredItems(const juce::String& 
             continue;
 
         // 2. Extension check
-        if (extFilterLower.isNotEmpty() && extFilterLower != "all")
+        if (extensionFilter.isNotEmpty() && !extensionFilter.equalsIgnoreCase("all"))
         {
-            if (!item.fileExtension.toLowerCase().endsWith(extFilterLower))
+            if (!item.fileExtension.endsWithIgnoreCase(extensionFilter))
                 continue;
         }
 
         // 3. Keyword check (matches filename, path, or tags)
-        if (keywordLower.isNotEmpty())
+        if (keyword.isNotEmpty())
         {
-            bool keywordMatched = item.fileName.toLowerCase().contains(keywordLower) ||
-                                  item.filePath.toLowerCase().contains(keywordLower);
+            bool keywordMatched = item.fileName.containsIgnoreCase(keyword) ||
+                                  item.filePath.containsIgnoreCase(keyword);
 
             if (!keywordMatched)
             {
                 for (const auto& tag : item.tags)
                 {
-                    if (tag.toLowerCase().contains(keywordLower))
+                    if (tag.containsIgnoreCase(keyword))
                     {
                         keywordMatched = true;
                         break;
