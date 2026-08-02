@@ -45,6 +45,13 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(OpenWavAudioProcessor& 
     setSize(1920, 1080);
 
     triggerFilterUpdate();
+
+    // Trigger startup scan for newly added/modified audio files in existing scan folders
+    auto foldersToScan = audioProcessor.getDatabaseManager().getScanFolders();
+    if (!foldersToScan.empty())
+    {
+        audioProcessor.getLibraryScanner().startScan(foldersToScan);
+    }
 }
 
 OpenWavAudioProcessorEditor::~OpenWavAudioProcessorEditor()
