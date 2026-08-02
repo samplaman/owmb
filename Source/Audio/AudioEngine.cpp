@@ -615,18 +615,6 @@ bool AudioEngine::getAudioBufferCopy(juce::AudioBuffer<float>& destBuffer, doubl
     return true;
 }
 
-void AudioEngine::setPitchSemiShift(double semitones)
-{
-    pitchSemiShift.store(semitones);
-    updateVoiceRatios();
-}
-
-void AudioEngine::setTempoSyncEnabled(bool enabled)
-{
-    tempoSyncEnabled.store(enabled);
-    updateVoiceRatios();
-}
-
 void AudioEngine::setSampleBpm(double bpm)
 {
     sampleBpm.store(bpm);
@@ -643,16 +631,14 @@ void AudioEngine::updateVoiceRatios()
 {
     const juce::ScopedLock sl(voiceLock);
     
-    double pitchFactor = std::pow(2.0, pitchSemiShift.load() / 12.0);
     double tempoFactor = 1.0;
-    if (tempoSyncEnabled.load() && sampleBpm.load() > 0.0 && hostBpm.load() > 0.0)
+    if (sampleBpm.load() > 0.0 && hostBpm.load() > 0.0)
     {
         tempoFactor = hostBpm.load() / sampleBpm.load();
     }
     
-    double totalFactor = pitchFactor * tempoFactor;
     double baseRatio = (engineSampleRate > 0.0) ? (currentFileSampleRate / engineSampleRate) : 1.0;
-    double newBaseRatio = baseRatio * totalFactor;
+    double newBaseRatio = baseRatio * tempoFactor;
     
     if (loadedVoice != nullptr)
     {

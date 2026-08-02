@@ -41,16 +41,18 @@ void OpenWavAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
     for (auto i = 0; i < totalNumOutputChannels; ++i)
         buffer.clear(i, 0, buffer.getNumSamples());
 
+    double hostBpm = 120.0;
     if (auto* playHead = getPlayHead())
     {
         if (auto posInfo = playHead->getPosition())
         {
-            if (auto hostBpm = posInfo->getBpm())
+            if (auto bpmOpt = posInfo->getBpm())
             {
-                audioEngine.setHostBpm(*hostBpm);
+                hostBpm = *bpmOpt;
             }
         }
     }
+    audioEngine.setHostBpm(hostBpm);
 
     audioEngine.processNextAudioBlock(buffer, midiMessages);
 }

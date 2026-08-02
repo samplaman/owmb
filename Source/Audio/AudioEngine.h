@@ -69,12 +69,6 @@ public:
     bool getAutoPlay() const { return autoPlayOnSelect; }
     void setAutoPlay(bool enabled) { autoPlayOnSelect = enabled; }
 
-    void setPitchSemiShift(double semitones);
-    double getPitchSemiShift() const { return pitchSemiShift.load(); }
-    
-    void setTempoSyncEnabled(bool enabled);
-    bool isTempoSyncEnabled() const { return tempoSyncEnabled.load(); }
-    
     void setSampleBpm(double bpm);
     double getSampleBpm() const { return sampleBpm.load(); }
     
@@ -112,8 +106,6 @@ private:
     bool autoPlayOnSelect { true };
     std::atomic<uint64_t> currentLoadId { 0 };
 
-    std::atomic<double> pitchSemiShift { 0.0 };
-    std::atomic<bool> tempoSyncEnabled { false };
     std::atomic<double> sampleBpm { 0.0 };
     std::atomic<double> hostBpm { 120.0 };
 

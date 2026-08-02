@@ -67,7 +67,6 @@ public:
 private:
     void runAutoSlice();
     void exportAndDragSlice(int sliceIndex);
-    void updateBpmLabel();
 
     AudioEngine& audioEngine;
 
@@ -76,11 +75,6 @@ private:
     juce::TextButton loopButton { "Loop" };
     juce::TextButton autoPlayButton { "Auto" };
     juce::TextButton autoSliceButton { "Slice" };
-
-    juce::Slider pitchSlider;
-    juce::Label pitchLabel { {}, "Pitch:" };
-    juce::TextButton syncTempoButton { "Sync" };
-    juce::Label bpmLabel;
 
     std::vector<double> sliceRatios;
 
