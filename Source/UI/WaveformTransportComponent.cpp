@@ -314,7 +314,9 @@ void WaveformTransportComponent::paint(juce::Graphics& g)
         float selEndX = waveformRect.getX() + totalWidth * endRatio;
 
         auto& thumbnail = audioEngine.getThumbnail();
-        int numChannels = thumbnail.getNumChannels();
+        int numChannels = audioEngine.getNumChannels();
+        if (numChannels <= 0)
+            numChannels = thumbnail.getNumChannels();
         float halfHeight = (waveformRect.getHeight() - 6.0f) * 0.5f;
         float centerY = waveformRect.getCentreY();
 

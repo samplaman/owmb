@@ -523,6 +523,14 @@ double AudioEngine::getTotalLengthSeconds() const
     return 0.0;
 }
 
+int AudioEngine::getNumChannels() const
+{
+    const juce::ScopedLock sl(voiceLock);
+    if (loadedVoice != nullptr)
+        return loadedVoice->buffer.getNumChannels();
+    return 0;
+}
+
 void AudioEngine::getMinMaxForTimeRange(double startTimeSecs, double endTimeSecs, float& minVal, float& maxVal, int channel) const
 {
     minVal = 0.0f;
@@ -579,23 +587,30 @@ void AudioEngine::getMinMaxForRatioRange(double startRatio, double endRatio, flo
 
     const auto& buffer = loadedVoice->buffer;
     int numSamples = buffer.getNumSamples();
-    if (numSamples <= 0)
+    int numChannels = buffer.getNumChannels();
+    if (numSamples <= 0 || numChannels <= 0)
         return;
 
-    int startSample = juce::jlimit(0, numSamples - 1, static_cast<int>(startRatio * numSamples));
-    int endSample = juce::jlimit(startSample + 1, numSamples, static_cast<int>(endRatio * numSamples));
+    double clampedStart = juce::jlimit(0.0, 1.0, startRatio);
+    double clampedEnd = juce::jlimit(0.0, 1.0, endRatio);
+    if (clampedStart > clampedEnd)
+        std::swap(clampedStart, clampedEnd);
+
+    int startSample = juce::jlimit(0, numSamples - 1, static_cast<int>(clampedStart * numSamples));
+    int endSample = juce::jlimit(startSample + 1, numSamples, static_cast<int>(clampedEnd * numSamples));
     int numToRead = endSample - startSample;
 
     if (numToRead <= 0)
         return;
 
-    int numChannels = buffer.getNumChannels();
     if (channel >= 0)
     {
-        int ch = std::min(channel, numChannels - 1);
-        auto range = buffer.findMinMax(ch, startSample, numToRead);
-        minVal = range.getStart();
-        maxVal = range.getEnd();
+        if (channel < numChannels)
+        {
+            auto range = buffer.findMinMax(channel, startSample, numToRead);
+            minVal = range.getStart();
+            maxVal = range.getEnd();
+        }
     }
     else
     {

@@ -56,6 +56,7 @@ public:
     bool isPlaying() const;
     double getCurrentPositionSeconds() const;
     double getTotalLengthSeconds() const;
+    int getNumChannels() const;
     float getGain() const { return gainLevel; }
     void setGain(float newGain);
 
