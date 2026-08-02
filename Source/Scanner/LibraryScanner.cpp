@@ -424,6 +424,17 @@ MediaItem LibraryScanner::processAudioFile(const juce::File& file)
     // Generate stable unique ID based on path string hash
     item.id = juce::String::toHexString(absPath.hashCode64());
 
+    // Check if the item already exists in the database and is unmodified
+    MediaItem existingItem;
+    if (db.getItemById(item.id, existingItem))
+    {
+        if (existingItem.fileSizeBytes == item.fileSizeBytes &&
+            existingItem.dateAddedMs == item.dateAddedMs)
+        {
+            return existingItem;
+        }
+    }
+
     // Auto-infer tags from path and file type
     item.tags = TagDatabaseManager::inferTagsFromPath(absPath);
 

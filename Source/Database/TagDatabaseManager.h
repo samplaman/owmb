@@ -40,6 +40,7 @@ public:
     std::map<juce::String, int> getTagFrequencies() const;
 
     // Item Operations
+    bool getItemById(const juce::String& itemId, MediaItem& item) const;
     void addOrUpdateItem(const MediaItem& item);
     void addItems(const std::vector<MediaItem>& items);
     void addTagToItem(const juce::String& itemId, const juce::String& tag);

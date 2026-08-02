@@ -154,6 +154,18 @@ std::map<juce::String, int> TagDatabaseManager::getTagFrequencies() const
     return freqs;
 }
 
+bool TagDatabaseManager::getItemById(const juce::String& itemId, MediaItem& item) const
+{
+    const juce::ScopedLock sl(lock);
+    auto it = itemsMap.find(itemId);
+    if (it != itemsMap.end())
+    {
+        item = it->second;
+        return true;
+    }
+    return false;
+}
+
 void TagDatabaseManager::addOrUpdateItem(const MediaItem& item)
 {
     {
