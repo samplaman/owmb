@@ -199,6 +199,23 @@ void LibrariesComponent::resized()
     area.removeFromTop(12);
 
     tableBox.setBounds(area);
+
+    auto& header = tableBox.getHeader();
+    int tableWidth = area.getWidth();
+    // Fixed columns: Column 1 (#) = 40 px
+    int availableWidth = tableWidth - 40;
+    if (availableWidth > 100)
+    {
+        // Default sum of resizable column widths is 980 px.
+        double scale = static_cast<double>(availableWidth) / 980.0;
+        
+        header.setColumnWidth(2, static_cast<int>(320 * scale));
+        header.setColumnWidth(3, static_cast<int>(90 * scale));
+        header.setColumnWidth(4, static_cast<int>(90 * scale));
+        header.setColumnWidth(5, static_cast<int>(140 * scale));
+        header.setColumnWidth(6, static_cast<int>(120 * scale));
+        header.setColumnWidth(7, static_cast<int>(120 * scale));
+    }
 }
 
 int LibrariesComponent::getNumRows()

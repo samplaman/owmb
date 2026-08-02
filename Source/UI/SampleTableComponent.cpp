@@ -115,6 +115,25 @@ void SampleTableComponent::paint(juce::Graphics& g)
 void SampleTableComponent::resized()
 {
     table.setBounds(getLocalBounds());
+    
+    auto& header = table.getHeader();
+    int totalWidth = getWidth();
+    
+    // Fixed columns: Column 1 (36 px) + Column 8 (40 px) = 76 px
+    int availableWidth = totalWidth - 76;
+    if (availableWidth > 100)
+    {
+        // Default sum of resizable column widths is 955 px.
+        double scale = static_cast<double>(availableWidth) / 955.0;
+        
+        header.setColumnWidth(2, static_cast<int>(220 * scale));
+        header.setColumnWidth(3, static_cast<int>(230 * scale));
+        header.setColumnWidth(4, static_cast<int>(70 * scale));
+        header.setColumnWidth(5, static_cast<int>(65 * scale));
+        header.setColumnWidth(6, static_cast<int>(95 * scale));
+        header.setColumnWidth(7, static_cast<int>(75 * scale));
+        header.setColumnWidth(9, static_cast<int>(200 * scale));
+    }
 }
 
 void SampleTableComponent::updateFilter(const juce::String& searchKeyword,
@@ -771,6 +790,10 @@ void SampleTableComponent::convertSample(const MediaItem& item)
             }
 
             double srcSR = reader->sampleRate;
+            if (juce::File(item.filePath).getFileExtension().toLowerCase() == ".mp3" && srcSR < 32000.0)
+            {
+                srcSR *= 2.0;
+            }
             double dstSR = (targetSampleRate > 0.0) ? targetSampleRate : srcSR;
             int srcBits = reader->bitsPerSample;
             int dstBits = (targetBitDepth > 0) ? targetBitDepth : srcBits;
@@ -791,10 +814,6 @@ void SampleTableComponent::convertSample(const MediaItem& item)
             int numChannels = reader->numChannels;
 
             juce::int64 numSamples64 = reader->lengthInSamples;
-            if (juce::File(item.filePath).getFileExtension().toLowerCase() == ".mp3" && srcSR < 32000.0)
-            {
-                numSamples64 /= 2;
-            }
 
             if (numSamples64 <= 0 || numSamples64 > 0x7FFFFFFF || numChannels <= 0)
             {

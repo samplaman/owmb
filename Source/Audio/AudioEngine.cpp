@@ -338,11 +338,11 @@ bool AudioEngine::loadFile(const juce::File& audioFile, bool autoPlay)
             return;
 
         double fileSampleRate = reader->sampleRate;
-        int64_t numSamples64 = reader->lengthInSamples;
         if (audioFile.getFileExtension().toLowerCase() == ".mp3" && fileSampleRate < 32000.0)
         {
-            numSamples64 /= 2;
+            fileSampleRate *= 2.0;
         }
+        int64_t numSamples64 = reader->lengthInSamples;
         int numChannels = static_cast<int>(reader->numChannels);
 
         if (numSamples64 <= 0 || numSamples64 > 0x7FFFFFFF || numChannels <= 0)

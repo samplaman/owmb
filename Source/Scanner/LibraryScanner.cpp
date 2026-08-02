@@ -201,14 +201,16 @@ static void analyzeAudioData(juce::AudioFormatReader* reader, MediaItem& item)
     if (reader == nullptr || reader->sampleRate <= 0.0 || reader->lengthInSamples <= 0)
         return;
 
-    juce::int64 lengthInSamples = reader->lengthInSamples;
-    if (item.fileExtension == ".mp3" && reader->sampleRate < 32000.0)
+    double sampleRate = reader->sampleRate;
+    if (item.fileExtension == ".mp3" && sampleRate < 32000.0)
     {
-        lengthInSamples /= 2;
+        sampleRate *= 2.0;
     }
 
+    juce::int64 lengthInSamples = reader->lengthInSamples;
+
     // Read up to 6 seconds of mono audio (channel 0)
-    int maxSamplesToAnalyze = static_cast<int>(std::min(lengthInSamples, static_cast<juce::int64>(reader->sampleRate * 6.0)));
+    int maxSamplesToAnalyze = static_cast<int>(std::min(lengthInSamples, static_cast<juce::int64>(sampleRate * 6.0)));
     if (maxSamplesToAnalyze <= 128)
         return;
 
@@ -368,7 +370,7 @@ static void analyzeAudioData(juce::AudioFormatReader* reader, MediaItem& item)
                 onsets[i] = std::max(0.0f, env[i] - env[i - 1]);
             }
 
-            double fsEnv = reader->sampleRate / envBlockSize;
+            double fsEnv = sampleRate / envBlockSize;
             int minLag = static_cast<int>(60.0 * fsEnv / 180.0);
             int maxLag = static_cast<int>(60.0 * fsEnv / 60.0);
 
@@ -452,16 +454,15 @@ MediaItem LibraryScanner::processAudioFile(const juce::File& file)
         if (!headerParsed)
         {
             item.sampleRate = reader->sampleRate;
+            if (item.fileExtension == ".mp3" && item.sampleRate < 32000.0)
+            {
+                item.sampleRate *= 2.0;
+            }
             item.numChannels = static_cast<int>(reader->numChannels);
             item.bitDepth = static_cast<int>(reader->bitsPerSample);
-            if (reader->sampleRate > 0.0)
+            if (item.sampleRate > 0.0)
             {
-                juce::int64 len = reader->lengthInSamples;
-                if (item.fileExtension == ".mp3" && reader->sampleRate < 32000.0)
-                {
-                    len /= 2;
-                }
-                item.durationSeconds = static_cast<double>(len) / reader->sampleRate;
+                item.durationSeconds = static_cast<double>(reader->lengthInSamples) / item.sampleRate;
             }
         }
 
