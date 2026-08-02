@@ -365,7 +365,15 @@ void LibrariesComponent::textEditorTextChanged(juce::TextEditor& editor)
 {
     if (&editor == &apiKeyEditor)
     {
-        dbManager.setPixeldrainApiKey(apiKeyEditor.getText().trim());
+        juce::String text = apiKeyEditor.getText().trim();
+        dbManager.setPixeldrainApiKey(text);
+        if (text.isEmpty())
+        {
+            allRemoteFiles.clear();
+            displayedFiles.clear();
+            tableBox.updateContent();
+            statusLabel.setText("Ready. Enter your Pixeldrain API key or hotlink to fetch account files.", juce::dontSendNotification);
+        }
     }
     else if (&editor == &searchEditor)
     {
