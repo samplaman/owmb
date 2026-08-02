@@ -757,6 +757,11 @@ void SampleTableComponent::convertSample(const MediaItem& item)
             if (destFile == juce::File())
                 return;
 
+            if (!destFile.getFileExtension().equalsIgnoreCase(targetExt))
+            {
+                destFile = destFile.withFileExtension(targetExt);
+            }
+
             // Perform conversion
             std::unique_ptr<juce::AudioFormatReader> reader(audioEngine.getFormatManager().createReaderFor(juce::File(item.filePath)));
             if (reader == nullptr)
