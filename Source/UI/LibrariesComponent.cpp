@@ -7,14 +7,16 @@ namespace openwav
 class TableActionButtonComponent : public juce::Component
 {
 public:
-    TableActionButtonComponent(std::function<void()> onDownloadClick, std::function<void()> onPlayClick)
-        : downloadAction(onDownloadClick), playAction(onPlayClick)
+    TableActionButtonComponent(std::function<void()> onDownloadClick)
+        : downloadAction(onDownloadClick)
     {
         btnDownload.onClick = [this] { if (downloadAction) downloadAction(); };
-        btnPlay.onClick = [this] { if (playAction) playAction(); };
-
         addAndMakeVisible(btnDownload);
-        addAndMakeVisible(btnPlay);
+    }
+
+    void updateCallbacks(std::function<void()> onDownloadClick)
+    {
+        downloadAction = onDownloadClick;
     }
 
     void updateState(bool isDownloaded, bool isDownloading, double progress)
@@ -23,39 +25,27 @@ public:
         {
             btnDownload.setButtonText("Downloading " + juce::String(juce::roundToInt(progress * 100.0)) + "%");
             btnDownload.setEnabled(false);
-            btnPlay.setVisible(false);
         }
         else if (isDownloaded)
         {
             btnDownload.setButtonText("Downloaded");
             btnDownload.setEnabled(false);
-            btnPlay.setVisible(true);
         }
         else
         {
             btnDownload.setButtonText("Download");
             btnDownload.setEnabled(true);
-            btnPlay.setVisible(false);
         }
-        resized();
     }
 
     void resized() override
     {
-        auto area = getLocalBounds().reduced(2, 2);
-        if (btnPlay.isVisible())
-        {
-            btnPlay.setBounds(area.removeFromRight(50));
-            area.removeFromRight(4);
-        }
-        btnDownload.setBounds(area);
+        btnDownload.setBounds(getLocalBounds().reduced(2, 2));
     }
 
 private:
     juce::TextButton btnDownload { "Download" };
-    juce::TextButton btnPlay { "Play" };
     std::function<void()> downloadAction;
-    std::function<void()> playAction;
 };
 
 static bool isSupportedAudioFile(const juce::String& name, const juce::String& mime)
@@ -143,7 +133,7 @@ LibrariesComponent::LibrariesComponent(TagDatabaseManager& db, LibraryScanner& s
     header.addColumn("Size", 4, 90, 60, 120);
     header.addColumn("Uploaded", 5, 140, 100, 200);
     header.addColumn("Status", 6, 120, 80, 180);
-    header.addColumn("Action", 7, 180, 120, 240);
+    header.addColumn("Action", 7, 120, 80, 180);
 
     tableBox.setModel(this);
     tableBox.setRowHeight(36);
@@ -317,17 +307,13 @@ juce::Component* LibrariesComponent::refreshComponentForCell(int rowNumber, int 
     if (actionComp == nullptr)
     {
         actionComp = new TableActionButtonComponent(
-            [this, rowNumber] { downloadFile(rowNumber); },
-            [this, rowNumber] {
-                if (rowNumber >= 0 && rowNumber < static_cast<int>(displayedFiles.size()))
-                {
-                    const auto& f = displayedFiles[static_cast<size_t>(rowNumber)];
-                    if (f.isDownloaded && juce::File(f.localPath).existsAsFile())
-                    {
-                        audioEngine.loadFile(juce::File(f.localPath), true);
-                    }
-                }
-            }
+            [this, rowNumber] { downloadFile(rowNumber); }
+        );
+    }
+    else
+    {
+        actionComp->updateCallbacks(
+            [this, rowNumber] { downloadFile(rowNumber); }
         );
     }
 
@@ -346,8 +332,32 @@ void LibrariesComponent::cellDoubleClicked(int rowNumber, int /*columnId*/, cons
         }
         else
         {
-            downloadFile(rowNumber);
+            previewFile(rowNumber);
         }
+    }
+}
+
+void LibrariesComponent::cellClicked(int rowNumber, int /*columnId*/, const juce::MouseEvent& /*e*/)
+{
+    if (rowNumber >= 0 && rowNumber < static_cast<int>(displayedFiles.size()))
+    {
+        tableBox.grabKeyboardFocus();
+        if (tableBox.getSelectedRow() == rowNumber)
+        {
+            previewFile(rowNumber);
+        }
+        else
+        {
+            tableBox.selectRow(rowNumber);
+        }
+    }
+}
+
+void LibrariesComponent::selectedRowsChanged(int lastRowSelected)
+{
+    if (lastRowSelected >= 0 && lastRowSelected < static_cast<int>(displayedFiles.size()))
+    {
+        previewFile(lastRowSelected);
     }
 }
 
@@ -988,7 +998,8 @@ bool LibrariesComponent::downloadFileSync(const juce::String& fileId,
                                          const juce::String& apiKey,
                                          const juce::File& destFile,
                                          std::function<bool()> shouldExit,
-                                         juce::Component::SafePointer<LibrariesComponent> safeThis)
+                                         juce::Component::SafePointer<LibrariesComponent> safeThis,
+                                         bool isPreview)
 {
     juce::String downloadUrlStr;
     if (fileId.startsWith("/"))
@@ -1031,14 +1042,25 @@ bool LibrariesComponent::downloadFileSync(const juce::String& fileId,
                 if (totalBytes > 0)
                 {
                     double progress = static_cast<double>(bytesWritten) / totalBytes;
-                    juce::MessageManager::callAsync([safeThis, fileId, progress] {
+                    juce::MessageManager::callAsync([safeThis, fileId, progress, isPreview, fileName] {
                         if (safeThis != nullptr)
                         {
                             for (auto& f : safeThis->allRemoteFiles)
                             {
-                                if (f.id == fileId) f.downloadProgress = progress;
+                                if (f.id == fileId)
+                                {
+                                    if (isPreview)
+                                        f.previewProgress = progress;
+                                    else
+                                        f.downloadProgress = progress;
+                                }
                             }
                             safeThis->filterRemoteFiles();
+
+                            if (isPreview)
+                            {
+                                safeThis->statusLabel.setText("Streaming preview: " + fileName + " (" + juce::String(juce::roundToInt(progress * 100.0)) + "%)", juce::dontSendNotification);
+                            }
                         }
                     });
                 }
@@ -1046,6 +1068,15 @@ bool LibrariesComponent::downloadFileSync(const juce::String& fileId,
             outStream->flush();
             success = destFile.existsAsFile() && destFile.getSize() > 0;
         }
+    }
+    else
+    {
+        juce::MessageManager::callAsync([safeThis, fileName] {
+            if (safeThis != nullptr)
+            {
+                safeThis->statusLabel.setText("Failed to connect or access: " + fileName, juce::dontSendNotification);
+            }
+        });
     }
     return success;
 }
@@ -1065,6 +1096,93 @@ void LibrariesComponent::handleDownloadFinished(const juce::String& fileId, cons
                 // Index downloaded file into OWMB library
                 dbManager.addScanFolder(destFile.getParentDirectory().getFullPathName());
                 libraryScanner.startScan({ destFile.getParentDirectory().getFullPathName() });
+            }
+        }
+    }
+    filterRemoteFiles();
+}
+
+void LibrariesComponent::previewFile(int displayedIndex)
+{
+    if (displayedIndex < 0 || displayedIndex >= static_cast<int>(displayedFiles.size()))
+        return;
+
+    auto& targetItem = displayedFiles[static_cast<size_t>(displayedIndex)];
+    if (targetItem.isDownloading || targetItem.isPreviewing)
+        return;
+
+    if (targetItem.isDownloaded && juce::File(targetItem.localPath).existsAsFile())
+    {
+        audioEngine.loadFile(juce::File(targetItem.localPath), true);
+        return;
+    }
+
+    // Replace path separators in the file ID to prevent creating directories or invalid filenames in the temp folder
+    juce::String safeId = targetItem.id.replace("/", "_").replace("\\", "_");
+    juce::File previewFile = juce::File::getSpecialLocation(juce::File::tempDirectory)
+                                .getChildFile("owmb_preview_" + safeId + juce::File(targetItem.name).getFileExtension());
+
+    if (previewFile.existsAsFile() && previewFile.getSize() > 0)
+    {
+        targetItem.previewPath = previewFile.getFullPathName();
+        audioEngine.loadFile(previewFile, true);
+        statusLabel.setText("Playing preview from cache: " + targetItem.name, juce::dontSendNotification);
+        return;
+    }
+
+    statusLabel.setText("Streaming preview: " + targetItem.name + "...", juce::dontSendNotification);
+
+    targetItem.isPreviewing = true;
+    targetItem.previewProgress = 0.0;
+
+    for (auto& f : allRemoteFiles)
+    {
+        if (f.id == targetItem.id)
+        {
+            f.isPreviewing = true;
+            f.previewProgress = 0.0;
+        }
+    }
+
+    tableBox.updateContent();
+
+    juce::String fileId = targetItem.id;
+    juce::String fileName = targetItem.name;
+    juce::String inputStr = apiKeyEditor.getText().trim();
+
+    juce::Component::SafePointer<LibrariesComponent> safeThis(this);
+
+    juce::Thread::launch([safeThis, fileId, fileName, inputStr, previewFile] {
+        if (safeThis == nullptr) return;
+
+        auto shouldExit = [safeThis] { return safeThis == nullptr; };
+        bool success = downloadFileSync(fileId, fileName, inputStr, previewFile, shouldExit, safeThis, true);
+
+        juce::MessageManager::callAsync([safeThis, fileId, previewFile, success] {
+            if (safeThis != nullptr)
+            {
+                safeThis->handlePreviewFinished(fileId, previewFile, success);
+            }
+        });
+    });
+}
+
+void LibrariesComponent::handlePreviewFinished(const juce::String& fileId, const juce::File& previewFile, bool success)
+{
+    for (auto& f : allRemoteFiles)
+    {
+        if (f.id == fileId)
+        {
+            f.isPreviewing = false;
+            if (success)
+            {
+                f.previewPath = previewFile.getFullPathName();
+                audioEngine.loadFile(previewFile, true);
+                statusLabel.setText("Playing preview: " + f.name, juce::dontSendNotification);
+            }
+            else
+            {
+                statusLabel.setText("Preview stream failed for: " + f.name, juce::dontSendNotification);
             }
         }
     }

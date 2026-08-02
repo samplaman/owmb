@@ -33,6 +33,11 @@ struct PixeldrainFile
     bool isDownloading { false };
     double downloadProgress { 0.0 };
     juce::String localPath;
+
+    // Preview/Streaming Support
+    bool isPreviewing { false };
+    double previewProgress { 0.0 };
+    juce::String previewPath;
 };
 
 class LibrariesComponent : public juce::Component,
@@ -53,12 +58,16 @@ public:
     void paintCell(juce::Graphics& g, int rowNumber, int columnId, int width, int height, bool rowIsSelected) override;
     juce::Component* refreshComponentForCell(int rowNumber, int columnId, bool isRowSelected, juce::Component* existingComponentToUpdate) override;
     void cellDoubleClicked(int rowNumber, int columnId, const juce::MouseEvent& e) override;
+    void cellClicked(int rowNumber, int columnId, const juce::MouseEvent& e) override;
+    void selectedRowsChanged(int lastRowSelected) override;
     bool mayDragToExternalWindows() const override;
 
     // Pixeldrain API Operations
     void fetchUserFiles();
     void downloadFile(int displayedIndex);
     void downloadAllWavs();
+    void previewFile(int displayedIndex);
+    void handlePreviewFinished(const juce::String& fileId, const juce::File& previewFile, bool success);
 
 private:
     void textEditorTextChanged(juce::TextEditor& editor) override;
@@ -124,7 +133,8 @@ private:
                                  const juce::String& apiKey,
                                  const juce::File& destFile,
                                  std::function<bool()> shouldExit,
-                                 juce::Component::SafePointer<LibrariesComponent> safeThis);
+                                 juce::Component::SafePointer<LibrariesComponent> safeThis,
+                                 bool isPreview = false);
 
     void handleDownloadFinished(const juce::String& fileId, const juce::File& destFile, bool success);
 

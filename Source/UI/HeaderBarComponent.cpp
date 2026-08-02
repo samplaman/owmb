@@ -118,17 +118,17 @@ void HeaderBarComponent::resized()
     int btnHeight = 32;
     int gap = 6;
 
-    btnAll.setBounds(area.removeFromLeft(44).withHeight(btnHeight));
+    btnAll.setBounds(area.removeFromLeft(56).withHeight(btnHeight));
     area.removeFromLeft(gap);
-    btnWav.setBounds(area.removeFromLeft(50).withHeight(btnHeight));
+    btnWav.setBounds(area.removeFromLeft(66).withHeight(btnHeight));
     area.removeFromLeft(gap);
-    btnMp3.setBounds(area.removeFromLeft(50).withHeight(btnHeight));
+    btnMp3.setBounds(area.removeFromLeft(66).withHeight(btnHeight));
     area.removeFromLeft(gap);
-    btnFlac.setBounds(area.removeFromLeft(55).withHeight(btnHeight));
+    btnFlac.setBounds(area.removeFromLeft(72).withHeight(btnHeight));
     area.removeFromLeft(gap);
-    btnOgg.setBounds(area.removeFromLeft(50).withHeight(btnHeight));
+    btnOgg.setBounds(area.removeFromLeft(66).withHeight(btnHeight));
     area.removeFromLeft(gap);
-    btnAiff.setBounds(area.removeFromLeft(55).withHeight(btnHeight));
+    btnAiff.setBounds(area.removeFromLeft(72).withHeight(btnHeight));
 
     area.removeFromLeft(16);
 

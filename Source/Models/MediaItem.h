@@ -28,6 +28,7 @@ struct MediaItem
     int rating { 0 };                // Rating star count (0-5)
     std::set<juce::String> tags;     // Active tags (e.g. "Kick", "120BPM", "Loop", "Wav")
     int64_t dateAddedMs { 0 };       // Timestamp when added to index
+    juce::String comment;            // User custom comment/notes
 
     // DSP similarity features
     double zcr { 0.0 };
@@ -51,6 +52,7 @@ struct MediaItem
         obj->setProperty("isFavorite", isFavorite);
         obj->setProperty("rating", rating);
         obj->setProperty("dateAddedMs", static_cast<juce::int64>(dateAddedMs));
+        obj->setProperty("comment", comment);
 
         obj->setProperty("zcr", zcr);
         obj->setProperty("highFreqRatio", highFreqRatio);
@@ -86,6 +88,7 @@ struct MediaItem
         item.isFavorite = static_cast<bool>(obj->getProperty("isFavorite"));
         item.rating = static_cast<int>(obj->getProperty("rating"));
         item.dateAddedMs = static_cast<juce::int64>(obj->getProperty("dateAddedMs"));
+        item.comment = obj->getProperty("comment").toString();
 
         item.zcr = static_cast<double>(obj->getProperty("zcr"));
         item.highFreqRatio = static_cast<double>(obj->getProperty("highFreqRatio"));

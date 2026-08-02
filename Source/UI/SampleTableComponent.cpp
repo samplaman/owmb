@@ -4,6 +4,75 @@
 namespace openwav
 {
 
+class CommentCellComponent : public juce::Component, public juce::TextEditor::Listener
+{
+public:
+    CommentCellComponent(TagDatabaseManager& db)
+        : dbManager(db)
+    {
+        editor.setMultiLine(false);
+        editor.setReturnKeyStartsNewLine(false);
+        editor.setReadOnly(false);
+        editor.setScrollbarsShown(false);
+        editor.setCaretVisible(true);
+        editor.setPopupMenuEnabled(true);
+        editor.addListener(this);
+        
+        // Style it to match OpenWav list cells
+        editor.setBorder(juce::BorderSize<int>(0));
+        editor.setColour(juce::TextEditor::backgroundColourId, juce::Colours::transparentBlack);
+        editor.setColour(juce::TextEditor::outlineColourId, juce::Colours::transparentBlack);
+        editor.setColour(juce::TextEditor::focusedOutlineColourId, juce::Colours::transparentBlack);
+        editor.setColour(juce::TextEditor::textColourId, OpenWavLookAndFeel::textPrimary);
+        
+        addAndMakeVisible(editor);
+    }
+    
+    void updateRow(int newRowNumber, std::function<juce::String(int)> itemIdProvider, const juce::String& newComment)
+    {
+        rowNumber = newRowNumber;
+        getItemId = itemIdProvider;
+        
+        if (editor.getText() != newComment)
+        {
+            editor.setText(newComment, juce::dontSendNotification);
+        }
+    }
+    
+    void resized() override
+    {
+        editor.setBounds(getLocalBounds().reduced(2, 2));
+    }
+    
+    void textEditorFocusLost(juce::TextEditor&) override
+    {
+        saveComment();
+    }
+    
+    void textEditorReturnKeyPressed(juce::TextEditor&) override
+    {
+        saveComment();
+    }
+    
+private:
+    void saveComment()
+    {
+        if (getItemId)
+        {
+            auto itemId = getItemId(rowNumber);
+            if (itemId.isNotEmpty())
+            {
+                dbManager.setComment(itemId, editor.getText());
+            }
+        }
+    }
+    
+    TagDatabaseManager& dbManager;
+    int rowNumber = -1;
+    std::function<juce::String(int)> getItemId;
+    juce::TextEditor editor;
+};
+
 SampleTableComponent::SampleTableComponent(TagDatabaseManager& db, AudioEngine& engine)
     : dbManager(db), audioEngine(engine)
 {
@@ -19,6 +88,7 @@ SampleTableComponent::SampleTableComponent(TagDatabaseManager& db, AudioEngine& 
     header.addColumn("Sample Rate", 6, 95, 70, 150);
     header.addColumn("Rating", 7, 75, 60, 100);
     header.addColumn("Fav", 8, 40, 40, 40, juce::TableHeaderComponent::notResizable);
+    header.addColumn("Comment", 9, 200, 100, 600);
 
     table.setModel(this);
     table.setRowHeight(32);
@@ -297,6 +367,37 @@ void SampleTableComponent::paintCell(juce::Graphics& g, int rowNumber, int colum
     }
 }
 
+juce::Component* SampleTableComponent::refreshComponentForCell(int rowNumber, int columnId, bool /*isRowSelected*/, juce::Component* existingComponentToUpdate)
+{
+    if (columnId != 9)
+    {
+        delete existingComponentToUpdate;
+        return nullptr;
+    }
+
+    if (rowNumber < 0 || rowNumber >= static_cast<int>(displayedItems.size()))
+    {
+        delete existingComponentToUpdate;
+        return nullptr;
+    }
+
+    const auto& item = displayedItems[static_cast<size_t>(rowNumber)];
+
+    auto* commentComp = dynamic_cast<CommentCellComponent*>(existingComponentToUpdate);
+    if (commentComp == nullptr)
+    {
+        commentComp = new CommentCellComponent(dbManager);
+    }
+
+    commentComp->updateRow(rowNumber, [this](int r) -> juce::String {
+        if (r >= 0 && r < static_cast<int>(displayedItems.size()))
+            return displayedItems[static_cast<size_t>(r)].id;
+        return {};
+    }, item.comment);
+
+    return commentComp;
+}
+
 void SampleTableComponent::cellClicked(int rowNumber, int columnId, const juce::MouseEvent& e)
 {
     if (rowNumber < 0 || rowNumber >= static_cast<int>(displayedItems.size()))
@@ -315,6 +416,11 @@ void SampleTableComponent::cellClicked(int rowNumber, int columnId, const juce::
     if (columnId == 8) // Favorite Heart Toggle
     {
         dbManager.toggleFavorite(item.id);
+        return;
+    }
+
+    if (columnId == 9) // Clicking on comment cell should edit it, not trigger audio preview
+    {
         return;
     }
 

@@ -244,6 +244,20 @@ void TagDatabaseManager::setRating(const juce::String& itemId, int rating)
     saveToFile();
 }
 
+void TagDatabaseManager::setComment(const juce::String& itemId, const juce::String& comment)
+{
+    {
+        const juce::ScopedLock sl(lock);
+        auto it = itemsMap.find(itemId);
+        if (it != itemsMap.end())
+        {
+            it->second.comment = comment.trim();
+        }
+    }
+    notifyIndexUpdated();
+    saveToFile();
+}
+
 void TagDatabaseManager::removeMissingFiles()
 {
     bool changed = false;

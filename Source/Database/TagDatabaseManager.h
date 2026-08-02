@@ -46,6 +46,7 @@ public:
     void removeTagFromItem(const juce::String& itemId, const juce::String& tag);
     void toggleFavorite(const juce::String& itemId);
     void setRating(const juce::String& itemId, int rating);
+    void setComment(const juce::String& itemId, const juce::String& comment);
     void removeMissingFiles();
     void clearLibrary();
     void clearAllData();
