@@ -252,6 +252,33 @@ WaveformTransportComponent::WaveformTransportComponent(AudioEngine& engine)
     sampleNameLabel.setText("No sample loaded", juce::dontSendNotification);
     addAndMakeVisible(sampleNameLabel);
 
+    // Pitch Slider
+    pitchLabel.setFont(juce::Font(11.0f).boldened());
+    addAndMakeVisible(pitchLabel);
+
+    pitchSlider.setSliderStyle(juce::Slider::LinearHorizontal);
+    pitchSlider.setTextBoxStyle(juce::Slider::TextBoxLeft, false, 45, 20);
+    pitchSlider.setRange(-24.0, 24.0, 1.0);
+    pitchSlider.setValue(0.0);
+    pitchSlider.setDoubleClickReturnValue(true, 0.0);
+    pitchSlider.addListener(this);
+    addAndMakeVisible(pitchSlider);
+
+    // Sync Tempo Button
+    syncTempoButton.setClickingTogglesState(true);
+    syncTempoButton.setToggleState(audioEngine.isTempoSyncEnabled(), juce::dontSendNotification);
+    syncTempoButton.onClick = [this] {
+        audioEngine.setTempoSyncEnabled(syncTempoButton.getToggleState());
+        updateBpmLabel();
+    };
+    addAndMakeVisible(syncTempoButton);
+
+    // BPM Label
+    bpmLabel.setFont(juce::Font(11.0f).boldened());
+    bpmLabel.setJustificationType(juce::Justification::centredLeft);
+    updateBpmLabel();
+    addAndMakeVisible(bpmLabel);
+
     // Viewport Setup
     slicesViewport.setScrollBarsShown(false, true, false, false);
     slicesViewport.setViewedComponent(&slicesGrid, false);
@@ -268,6 +295,7 @@ WaveformTransportComponent::~WaveformTransportComponent()
     audioEngine.getThumbnail().removeChangeListener(this);
     audioEngine.removeListener(this);
     volumeSlider.removeListener(this);
+    pitchSlider.removeListener(this);
 }
 
 void WaveformTransportComponent::paint(juce::Graphics& g)
@@ -281,6 +309,7 @@ void WaveformTransportComponent::paint(juce::Graphics& g)
     // Calculate Layout Areas
     auto area = getLocalBounds().reduced(12, 8);
     area.removeFromTop(32); // Space for top buttons and sample name
+    area.removeFromTop(32); // Space for second row (pitch and tempo controls)
     area.removeFromTop(8);  // Spacing gap
 
     // Reserve 92px for Slices section at bottom
@@ -469,6 +498,15 @@ void WaveformTransportComponent::resized()
 
     volumeSlider.setBounds(topRow.removeFromRight(100).withHeight(28));
 
+    auto controlRow = area.removeFromTop(32);
+    pitchLabel.setBounds(controlRow.removeFromLeft(40).withHeight(28));
+    controlRow.removeFromLeft(4);
+    pitchSlider.setBounds(controlRow.removeFromLeft(150).withHeight(28));
+    controlRow.removeFromLeft(12);
+    syncTempoButton.setBounds(controlRow.removeFromLeft(60).withHeight(28));
+    controlRow.removeFromLeft(12);
+    bpmLabel.setBounds(controlRow.removeFromLeft(350).withHeight(28));
+
     area.removeFromTop(8); // Spacing gap
     auto slicesBounds = area.removeFromBottom(92);
     slicesViewport.setBounds(slicesBounds);
@@ -483,7 +521,8 @@ void WaveformTransportComponent::mouseDown(const juce::MouseEvent& e)
         return;
 
     auto area = getLocalBounds().reduced(12, 8);
-    area.removeFromTop(32);
+    area.removeFromTop(32); // Top row
+    area.removeFromTop(32); // Second control row
     area.removeFromTop(8);
     auto waveformBounds = area.toFloat();
 
@@ -527,7 +566,8 @@ void WaveformTransportComponent::mouseDrag(const juce::MouseEvent& e)
         return;
 
     auto area = getLocalBounds().reduced(12, 8);
-    area.removeFromTop(32);
+    area.removeFromTop(32); // Top row
+    area.removeFromTop(32); // Second control row
     area.removeFromTop(8);
     auto waveformBounds = area.toFloat();
 
@@ -635,6 +675,7 @@ void WaveformTransportComponent::timerCallback()
 
         repaint();
     }
+    updateBpmLabel();
 }
 
 void WaveformTransportComponent::sampleLoaded(const juce::String& filePath)
@@ -646,6 +687,7 @@ void WaveformTransportComponent::sampleLoaded(const juce::String& filePath)
     sliceRatios.clear();
     int vpHeight = slicesViewport.getHeight() - slicesViewport.getScrollBarThickness();
     slicesGrid.updateSlices(sliceRatios, totalDurationSecs, slicesViewport.getWidth(), vpHeight);
+    updateBpmLabel();
     repaint();
 }
 
@@ -654,6 +696,10 @@ void WaveformTransportComponent::sliderValueChanged(juce::Slider* slider)
     if (slider == &volumeSlider)
     {
         audioEngine.setGain(static_cast<float>(volumeSlider.getValue()));
+    }
+    else if (slider == &pitchSlider)
+    {
+        audioEngine.setPitchSemiShift(pitchSlider.getValue());
     }
 }
 
@@ -807,6 +853,24 @@ void WaveformTransportComponent::lookAndFeelChanged()
 {
     timeLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::accentCyan);
     sampleNameLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::textPrimary);
+    pitchLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::textSecondary);
+    bpmLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::accentCyan);
+}
+
+void WaveformTransportComponent::updateBpmLabel()
+{
+    double sBpm = audioEngine.getSampleBpm();
+    double hBpm = audioEngine.getHostBpm();
+    
+    juce::String sBpmText = (sBpm > 0.0) ? juce::String(sBpm, 1) + " BPM" : "N/A";
+    juce::String hBpmText = juce::String(hBpm, 1) + " BPM";
+    
+    juce::String status = "Sample: " + sBpmText + "  |  Host: " + hBpmText;
+    if (audioEngine.isTempoSyncEnabled())
+    {
+        status += " (Sync Active)";
+    }
+    bpmLabel.setText(status, juce::dontSendNotification);
 }
 
 } // namespace openwav

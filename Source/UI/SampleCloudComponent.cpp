@@ -402,6 +402,7 @@ void SampleCloudComponent::mouseDown(const juce::MouseEvent& e)
         selectedNodeIndex = idx;
         const auto& item = nodes[static_cast<size_t>(idx)].item;
 
+        audioEngine.setSampleBpm(item.bpm);
         audioEngine.loadFile(juce::File(item.filePath), true);
 
         listeners.call([item](SampleCloudListener& l) {
@@ -474,7 +475,10 @@ void SampleCloudComponent::mouseDoubleClick(const juce::MouseEvent& e)
         if (audioEngine.getCurrentFile().getFullPathName() == item.filePath && audioEngine.isPlaying())
             audioEngine.pause();
         else
+        {
+            audioEngine.setSampleBpm(item.bpm);
             audioEngine.loadFile(juce::File(item.filePath), true);
+        }
 
         listeners.call([item](SampleCloudListener& l) {
             l.cloudSampleDoubleClicked(item);

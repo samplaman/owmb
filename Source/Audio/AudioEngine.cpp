@@ -361,12 +361,16 @@ bool AudioEngine::loadFile(const juce::File& audioFile, bool autoPlay)
         voice->endRatio = 1.0;
         voice->rootNote = rootNoteVal;
 
-        juce::MessageManager::callAsync([this, audioFile, autoPlay, loadId, voice]() {
+        juce::MessageManager::callAsync([this, audioFile, autoPlay, loadId, voice, fileSampleRate]() {
             {
                 const juce::ScopedLock sl(voiceLock);
+                currentFileSampleRate = fileSampleRate;
                 loadedVoice = voice;
                 stoppedPositionSecs = 0.0;
                 activeVoices.clear(); // Kill previous voices so only the last selected voice plays
+                
+                updateVoiceRatios();
+                
                 if (autoPlay)
                 {
                     auto playVoice = std::make_shared<AudioVoice>();
@@ -609,6 +613,62 @@ bool AudioEngine::getAudioBufferCopy(juce::AudioBuffer<float>& destBuffer, doubl
     destBuffer.makeCopyOf(loadedVoice->buffer);
     sampleRate = engineSampleRate;
     return true;
+}
+
+void AudioEngine::setPitchSemiShift(double semitones)
+{
+    pitchSemiShift.store(semitones);
+    updateVoiceRatios();
+}
+
+void AudioEngine::setTempoSyncEnabled(bool enabled)
+{
+    tempoSyncEnabled.store(enabled);
+    updateVoiceRatios();
+}
+
+void AudioEngine::setSampleBpm(double bpm)
+{
+    sampleBpm.store(bpm);
+    updateVoiceRatios();
+}
+
+void AudioEngine::setHostBpm(double bpm)
+{
+    hostBpm.store(bpm);
+    updateVoiceRatios();
+}
+
+void AudioEngine::updateVoiceRatios()
+{
+    const juce::ScopedLock sl(voiceLock);
+    
+    double pitchFactor = std::pow(2.0, pitchSemiShift.load() / 12.0);
+    double tempoFactor = 1.0;
+    if (tempoSyncEnabled.load() && sampleBpm.load() > 0.0 && hostBpm.load() > 0.0)
+    {
+        tempoFactor = hostBpm.load() / sampleBpm.load();
+    }
+    
+    double totalFactor = pitchFactor * tempoFactor;
+    double baseRatio = (engineSampleRate > 0.0) ? (currentFileSampleRate / engineSampleRate) : 1.0;
+    double newBaseRatio = baseRatio * totalFactor;
+    
+    if (loadedVoice != nullptr)
+    {
+        loadedVoice->ratio = newBaseRatio;
+    }
+    
+    for (auto& voice : activeVoices)
+    {
+        double midiFactor = 1.0;
+        if (voice->triggerMidiNote != -1 && loadedVoice != nullptr)
+        {
+            double semitoneDiff = voice->triggerMidiNote - loadedVoice->rootNote;
+            midiFactor = std::pow(2.0, semitoneDiff / 12.0);
+        }
+        voice->ratio = newBaseRatio * midiFactor;
+    }
 }
 
 } // namespace openwav

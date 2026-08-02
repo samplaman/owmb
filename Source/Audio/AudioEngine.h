@@ -69,6 +69,20 @@ public:
     bool getAutoPlay() const { return autoPlayOnSelect; }
     void setAutoPlay(bool enabled) { autoPlayOnSelect = enabled; }
 
+    void setPitchSemiShift(double semitones);
+    double getPitchSemiShift() const { return pitchSemiShift.load(); }
+    
+    void setTempoSyncEnabled(bool enabled);
+    bool isTempoSyncEnabled() const { return tempoSyncEnabled.load(); }
+    
+    void setSampleBpm(double bpm);
+    double getSampleBpm() const { return sampleBpm.load(); }
+    
+    void setHostBpm(double bpm);
+    double getHostBpm() const { return hostBpm.load(); }
+    
+    void updateVoiceRatios();
+
     juce::AudioThumbnail& getThumbnail() { return thumbnail; }
     const juce::File& getCurrentFile() const { return currentFile; }
 
@@ -89,6 +103,7 @@ private:
     std::vector<std::shared_ptr<AudioVoice>> activeVoices;
     std::shared_ptr<AudioVoice> loadedVoice;
     double engineSampleRate { 44100.0 };
+    double currentFileSampleRate { 44100.0 };
     double stoppedPositionSecs { 0.0 };
 
     juce::File currentFile;
@@ -96,6 +111,11 @@ private:
     bool isLoopingEnabled { true };
     bool autoPlayOnSelect { true };
     std::atomic<uint64_t> currentLoadId { 0 };
+
+    std::atomic<double> pitchSemiShift { 0.0 };
+    std::atomic<bool> tempoSyncEnabled { false };
+    std::atomic<double> sampleBpm { 0.0 };
+    std::atomic<double> hostBpm { 120.0 };
 
     double sampleStartRatio { 0.0 };
     double sampleEndRatio { 1.0 };

@@ -428,6 +428,7 @@ void SampleTableComponent::cellClicked(int rowNumber, int columnId, const juce::
     // Otherwise table.selectRow below or click will trigger selectedRowsChanged.
     if (table.getSelectedRow() == rowNumber)
     {
+        audioEngine.setSampleBpm(item.bpm);
         audioEngine.loadFile(juce::File(item.filePath), true);
     }
     else
@@ -448,6 +449,7 @@ void SampleTableComponent::selectedRowsChanged(int lastRowSelected)
         
         if (audioEngine.getCurrentFile() != juce::File(item.filePath))
         {
+            audioEngine.setSampleBpm(item.bpm);
             audioEngine.loadFile(juce::File(item.filePath), true);
         }
 
