@@ -712,7 +712,37 @@ void SampleTableComponent::convertSample(const MediaItem& item)
             targetExt = "." + targetExt;
 
         auto defaultName = juce::File(item.filePath).getFileNameWithoutExtension() + "_converted" + targetExt;
-        auto defaultLocation = juce::File(item.filePath).getParentDirectory().getChildFile(defaultName);
+
+        auto scanFolders = dbManager.getScanFolders();
+        juce::File defaultLocation;
+        if (!scanFolders.empty())
+        {
+            // If original file is within one of the scan folders, use its parent dir
+            bool originalInScanFolder = false;
+            juce::File originalFile(item.filePath);
+            for (const auto& folder : scanFolders)
+            {
+                if (originalFile.isAChildOf(juce::File(folder)))
+                {
+                    originalInScanFolder = true;
+                    break;
+                }
+            }
+
+            if (originalInScanFolder)
+            {
+                defaultLocation = originalFile.getParentDirectory().getChildFile(defaultName);
+            }
+            else
+            {
+                // Otherwise, save it in the first scan folder
+                defaultLocation = juce::File(scanFolders[0]).getChildFile(defaultName);
+            }
+        }
+        else
+        {
+            defaultLocation = juce::File(item.filePath).getParentDirectory().getChildFile(defaultName);
+        }
 
         // Keep FileChooser alive via a shared pointer member or static variable
         struct ChosenState {
@@ -783,10 +813,12 @@ void SampleTableComponent::convertSample(const MediaItem& item)
             }
 
             bool success = false;
+            int totalSamples = numSamples;
             if (std::abs(dstSR - srcSR) > 0.01)
             {
                 double speedRatio = srcSR / dstSR;
                 int dstSamples = static_cast<int>(std::round(numSamples / speedRatio));
+                totalSamples = dstSamples;
                 juce::AudioBuffer<float> dstBuffer(numChannels, dstSamples);
 
                 for (int ch = 0; ch < numChannels; ++ch)
@@ -806,7 +838,32 @@ void SampleTableComponent::convertSample(const MediaItem& item)
 
             if (success)
             {
-                juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::InfoIcon, "Conversion Successful", "File converted successfully to:\n" + destFile.getFullPathName());
+                // Force close output writer/stream so that the file is not locked on disk when reading back
+                writer.reset();
+
+                // Create a MediaItem for the newly converted file
+                MediaItem newItem;
+                newItem.filePath = destFile.getFullPathName();
+                newItem.fileName = destFile.getFileName();
+                newItem.fileExtension = destFile.getFileExtension().toLowerCase();
+                newItem.fileSizeBytes = destFile.getSize();
+                newItem.dateAddedMs = destFile.getLastModificationTime().toMilliseconds();
+                newItem.id = juce::String::toHexString(destFile.getFullPathName().hashCode64());
+                
+                // Get inferred tags and append #Converted
+                newItem.tags = TagDatabaseManager::inferTagsFromPath(destFile.getFullPathName());
+                newItem.tags.insert("#Converted");
+
+                newItem.sampleRate = dstSR;
+                newItem.numChannels = numChannels;
+                newItem.bitDepth = dstBits;
+                newItem.durationSeconds = static_cast<double>(totalSamples) / dstSR;
+
+                // Add to database and save
+                dbManager.addOrUpdateItem(newItem);
+                dbManager.saveToFile();
+
+                juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::InfoIcon, "Conversion Successful", "File converted successfully and added to library:\n" + destFile.getFullPathName());
             }
             else
             {
