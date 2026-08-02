@@ -19,7 +19,8 @@ HeaderBarComponent::HeaderBarComponent(TagDatabaseManager& db, LibraryScanner& s
     lookAndFeelChanged();
 
     // Search Editor
-    searchEditor.setJustification(juce::Justification::centred);
+    searchEditor.setJustification(juce::Justification::centredLeft);
+    searchEditor.setIndents(6, 0);
     searchEditor.setTextToShowWhenEmpty("Search by name, tag, or path...", OpenWavLookAndFeel::textSecondary);
     searchEditor.addListener(this);
     searchEditor.addKeyListener(this);

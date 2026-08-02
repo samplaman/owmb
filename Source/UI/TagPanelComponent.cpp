@@ -64,6 +64,11 @@ TagPanelComponent::TagPanelComponent(TagDatabaseManager& db)
     addCustomTagButton.onClick = [this] {
         auto alert = std::make_shared<juce::AlertWindow>("Add Custom Tag", "Enter tag name to add or filter by:", juce::AlertWindow::QuestionIcon);
         alert->addTextEditor("tagInput", "", "Tag (e.g. #Warm, Bass)");
+        if (auto* ed = alert->getTextEditor("tagInput"))
+        {
+            ed->setJustification(juce::Justification::centredLeft);
+            ed->setIndents(4, 0);
+        }
         alert->addButton("Add Tag", 1, juce::KeyPress(juce::KeyPress::returnKey));
         alert->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
 

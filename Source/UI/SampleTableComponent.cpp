@@ -20,6 +20,8 @@ public:
         
         // Style it to match OpenWav list cells
         editor.setBorder(juce::BorderSize<int>(0));
+        editor.setJustification(juce::Justification::centredLeft);
+        editor.setIndents(4, 0);
         editor.setColour(juce::TextEditor::backgroundColourId, juce::Colours::transparentBlack);
         editor.setColour(juce::TextEditor::outlineColourId, juce::Colours::transparentBlack);
         editor.setColour(juce::TextEditor::focusedOutlineColourId, juce::Colours::transparentBlack);
@@ -548,6 +550,7 @@ void SampleTableComponent::showContextMenuForRow(int rowNumber)
     menu.addSeparator();
     menu.addItem(3, "Reveal in File Explorer / Finder");
     menu.addItem(4, "Find Similar Sounds");
+    menu.addItem(5, "Convert Format / Sample Rate...");
 
     menu.showMenuAsync(juce::PopupMenu::Options(), [this, item](int result) {
         if (result == 1)
@@ -562,6 +565,11 @@ void SampleTableComponent::showContextMenuForRow(int rowNumber)
         {
             auto alert = std::make_shared<juce::AlertWindow>("Add Custom Tag", "Enter a new custom tag for " + item.fileName + ":", juce::AlertWindow::QuestionIcon);
             alert->addTextEditor("tagInput", "", "Tag (e.g. Kick, #Sub, Vocal)");
+            if (auto* ed = alert->getTextEditor("tagInput"))
+            {
+                ed->setJustification(juce::Justification::centredLeft);
+                ed->setIndents(4, 0);
+            }
             alert->addButton("Add Tag", 1, juce::KeyPress(juce::KeyPress::returnKey));
             alert->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
 
@@ -595,7 +603,217 @@ void SampleTableComponent::showContextMenuForRow(int rowNumber)
             similarityTargetId = item.id;
             updateFilter(currentKeyword, currentSelectedTags, currentMatchAll, currentExtFilter, currentFavOnly);
         }
+        else if (result == 5)
+        {
+            convertSample(item);
+        }
     });
+}
+
+void SampleTableComponent::convertSample(const MediaItem& item)
+{
+    // 1. Get writable formats
+    juce::StringArray formatNames;
+    std::vector<juce::AudioFormat*> writableFormats;
+    auto& formatManager = audioEngine.getFormatManager();
+    for (int i = 0; i < formatManager.getNumKnownFormats(); ++i)
+    {
+        auto* format = formatManager.getKnownFormat(i);
+        auto name = format->getFormatName();
+        if (name != "MP3 file" && name != "MP3")
+        {
+            formatNames.add(format->getFormatName());
+            writableFormats.push_back(format);
+        }
+    }
+
+    if (writableFormats.empty())
+    {
+        juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::WarningIcon,
+                                               "Convert Audio",
+                                               "No writable audio formats are supported by the application.");
+        return;
+    }
+
+    auto alert = std::make_shared<juce::AlertWindow>("Convert Audio File", "Configure target settings for conversion:", juce::AlertWindow::QuestionIcon);
+    alert->addComboBox("format", formatNames, "Format:");
+    
+    juce::StringArray srOptions;
+    srOptions.add("Original");
+    srOptions.add("44100 Hz");
+    srOptions.add("48000 Hz");
+    srOptions.add("88200 Hz");
+    srOptions.add("96000 Hz");
+    alert->addComboBox("samplerate", srOptions, "Sample Rate:");
+
+    juce::StringArray bdOptions;
+    bdOptions.add("Original");
+    bdOptions.add("16-bit");
+    bdOptions.add("24-bit");
+    bdOptions.add("32-bit Float");
+    alert->addComboBox("bitdepth", bdOptions, "Bit Depth:");
+
+    // Center cursor and text on alert's comboboxes and internal components
+    if (auto* fCombo = alert->getComboBoxComponent("format"))
+    {
+        // Select matching format by default
+        juce::String currentExt = juce::File(item.filePath).getFileExtension().toLowerCase();
+        if (currentExt.startsWith("."))
+            currentExt = currentExt.substring(1);
+
+        for (int idx = 0; idx < formatNames.size(); ++idx)
+        {
+            if (writableFormats[idx]->getFileExtensions().contains(currentExt))
+            {
+                fCombo->setSelectedItemIndex(idx);
+                break;
+            }
+        }
+    }
+
+    alert->addButton("Convert...", 1, juce::KeyPress(juce::KeyPress::returnKey));
+    alert->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+
+    alert->enterModalState(true, juce::ModalCallbackFunction::create([this, alert, item, writableFormats](int btnResult) {
+        if (btnResult != 1)
+            return;
+
+        int formatIdx = -1;
+        if (auto* cb = alert->getComboBoxComponent("format"))
+            formatIdx = cb->getSelectedItemIndex();
+
+        if (formatIdx < 0 || formatIdx >= static_cast<int>(writableFormats.size()))
+            return;
+
+        auto* targetFormat = writableFormats[static_cast<size_t>(formatIdx)];
+
+        int srIdx = -1;
+        if (auto* cb = alert->getComboBoxComponent("samplerate"))
+            srIdx = cb->getSelectedItemIndex();
+
+        double targetSampleRate = 0.0;
+        if (srIdx == 1) targetSampleRate = 44100.0;
+        else if (srIdx == 2) targetSampleRate = 48000.0;
+        else if (srIdx == 3) targetSampleRate = 88200.0;
+        else if (srIdx == 4) targetSampleRate = 96000.0;
+
+        int bdIdx = -1;
+        if (auto* cb = alert->getComboBoxComponent("bitdepth"))
+            bdIdx = cb->getSelectedItemIndex();
+
+        int targetBitDepth = 0;
+        if (bdIdx == 1) targetBitDepth = 16;
+        else if (bdIdx == 2) targetBitDepth = 24;
+        else if (bdIdx == 3) targetBitDepth = 32;
+
+        // Choose save destination using FileChooser
+        juce::String targetExt = targetFormat->getFileExtensions()[0];
+        if (!targetExt.startsWith("."))
+            targetExt = "." + targetExt;
+
+        auto defaultName = juce::File(item.filePath).getFileNameWithoutExtension() + "_converted" + targetExt;
+        auto defaultLocation = juce::File(item.filePath).getParentDirectory().getChildFile(defaultName);
+
+        // Keep FileChooser alive via a shared pointer member or static variable
+        struct ChosenState {
+            std::shared_ptr<juce::FileChooser> chooser;
+        };
+        auto state = std::make_shared<ChosenState>();
+        state->chooser = std::make_shared<juce::FileChooser>("Save Converted File...", defaultLocation, "*" + targetExt);
+
+        state->chooser->launchAsync(juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles,
+                                 [this, item, targetFormat, targetSampleRate, targetBitDepth, targetExt, state](const juce::FileChooser& chooser) {
+            auto destFile = chooser.getResult();
+            if (destFile == juce::File())
+                return;
+
+            // Perform conversion
+            std::unique_ptr<juce::AudioFormatReader> reader(audioEngine.getFormatManager().createReaderFor(juce::File(item.filePath)));
+            if (reader == nullptr)
+            {
+                juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::WarningIcon, "Conversion Failed", "Could not open source file.");
+                return;
+            }
+
+            double srcSR = reader->sampleRate;
+            double dstSR = (targetSampleRate > 0.0) ? targetSampleRate : srcSR;
+            int srcBits = reader->bitsPerSample;
+            int dstBits = (targetBitDepth > 0) ? targetBitDepth : srcBits;
+            int numChannels = reader->numChannels;
+
+            juce::int64 numSamples64 = reader->lengthInSamples;
+            if (juce::File(item.filePath).getFileExtension().toLowerCase() == ".mp3" && srcSR < 32000.0)
+            {
+                numSamples64 /= 2;
+            }
+
+            if (numSamples64 <= 0 || numSamples64 > 0x7FFFFFFF || numChannels <= 0)
+            {
+                juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::WarningIcon, "Conversion Failed", "Invalid audio file properties.");
+                return;
+            }
+
+            int numSamples = static_cast<int>(numSamples64);
+            juce::AudioBuffer<float> srcBuffer(numChannels, numSamples);
+            if (!reader->read(&srcBuffer, 0, numSamples, 0, true, true))
+            {
+                juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::WarningIcon, "Conversion Failed", "Failed to read audio data from source.");
+                return;
+            }
+
+            if (destFile.existsAsFile())
+                destFile.deleteFile();
+
+            auto outStream = std::make_unique<juce::FileOutputStream>(destFile);
+            if (outStream->failedToOpen())
+            {
+                juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::WarningIcon, "Conversion Failed", "Could not open destination file for writing.");
+                return;
+            }
+
+            auto* rawStream = outStream.release();
+            std::unique_ptr<juce::AudioFormatWriter> writer(
+                targetFormat->createWriterFor(rawStream, dstSR, numChannels, dstBits, {}, 0)
+            );
+
+            if (writer == nullptr)
+            {
+                juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::WarningIcon, "Conversion Failed", "Could not create audio writer for format.");
+                return;
+            }
+
+            bool success = false;
+            if (std::abs(dstSR - srcSR) > 0.01)
+            {
+                double speedRatio = srcSR / dstSR;
+                int dstSamples = static_cast<int>(std::round(numSamples / speedRatio));
+                juce::AudioBuffer<float> dstBuffer(numChannels, dstSamples);
+
+                for (int ch = 0; ch < numChannels; ++ch)
+                {
+                    juce::LagrangeInterpolator interpolator;
+                    interpolator.process(speedRatio,
+                                         srcBuffer.getReadPointer(ch),
+                                         dstBuffer.getWritePointer(ch),
+                                         dstSamples);
+                }
+                success = writer->writeFromAudioSampleBuffer(dstBuffer, 0, dstSamples);
+            }
+            else
+            {
+                success = writer->writeFromAudioSampleBuffer(srcBuffer, 0, numSamples);
+            }
+
+            if (success)
+            {
+                juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::InfoIcon, "Conversion Successful", "File converted successfully to:\n" + destFile.getFullPathName());
+            }
+            else
+            {
+                juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::WarningIcon, "Conversion Failed", "Failed to write converted audio data.");
+            }
+        });
+    }));
 }
 
 juce::String SampleTableComponent::formatDuration(double seconds)

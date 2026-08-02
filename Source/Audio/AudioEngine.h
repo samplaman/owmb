@@ -80,6 +80,7 @@ public:
     void updateVoiceRatios();
 
     juce::AudioThumbnail& getThumbnail() { return thumbnail; }
+    juce::AudioFormatManager& getFormatManager() { return formatManager; }
     const juce::File& getCurrentFile() const { return currentFile; }
 
     void addListener(AudioEngineListener* listener);

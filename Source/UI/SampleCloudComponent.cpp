@@ -756,6 +756,11 @@ void SampleCloudComponent::showContextMenuForNode(int idx)
         {
             auto alert = std::make_shared<juce::AlertWindow>("Add Custom Tag", "Enter a new custom tag for " + item.fileName + ":", juce::AlertWindow::QuestionIcon);
             alert->addTextEditor("tagInput", "", "Tag (e.g. Kick, #Sub, Vocal)");
+            if (auto* ed = alert->getTextEditor("tagInput"))
+            {
+                ed->setJustification(juce::Justification::centredLeft);
+                ed->setIndents(4, 0);
+            }
             alert->addButton("Add Tag", 1, juce::KeyPress(juce::KeyPress::returnKey));
             alert->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
 

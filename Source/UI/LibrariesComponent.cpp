@@ -73,6 +73,7 @@ LibrariesComponent::LibrariesComponent(TagDatabaseManager& db, LibraryScanner& s
     // Load API Key or Hotlink from settings
     apiKeyEditor.setText(dbManager.getPixeldrainApiKey(), juce::dontSendNotification);
     apiKeyEditor.setJustification(juce::Justification::centredLeft);
+    apiKeyEditor.setIndents(6, 0);
     apiKeyEditor.setTextToShowWhenEmpty("Enter API Key or Public Hotlink (e.g. /u/id or /l/id)...", OpenWavLookAndFeel::textSecondary);
     apiKeyEditor.addListener(this);
     addAndMakeVisible(apiKeyEditor);
@@ -93,6 +94,8 @@ LibrariesComponent::LibrariesComponent(TagDatabaseManager& db, LibraryScanner& s
     searchLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::textPrimary);
     addAndMakeVisible(searchLabel);
 
+    searchEditor.setJustification(juce::Justification::centredLeft);
+    searchEditor.setIndents(6, 0);
     searchEditor.setTextToShowWhenEmpty("Filter remote files by name...", OpenWavLookAndFeel::textSecondary);
     searchEditor.addListener(this);
     addAndMakeVisible(searchEditor);

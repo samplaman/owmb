@@ -62,6 +62,7 @@ public:
 
 private:
     void showContextMenuForRow(int rowNumber);
+    void convertSample(const MediaItem& item);
     static juce::String formatDuration(double seconds);
 
     TagDatabaseManager& dbManager;
