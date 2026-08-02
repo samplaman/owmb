@@ -60,6 +60,7 @@ public:
     void setGain(float newGain);
 
     void getMinMaxForTimeRange(double startTimeSecs, double endTimeSecs, float& minVal, float& maxVal, int channel = -1) const;
+    void getMinMaxForRatioRange(double startRatio, double endRatio, float& minVal, float& maxVal, int channel = -1) const;
 
     void setSampleRange(double startRatio, double endRatio);
     double getSampleStartRatio() const { return sampleStartRatio; }

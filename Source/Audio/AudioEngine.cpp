@@ -568,6 +568,46 @@ void AudioEngine::getMinMaxForTimeRange(double startTimeSecs, double endTimeSecs
     }
 }
 
+void AudioEngine::getMinMaxForRatioRange(double startRatio, double endRatio, float& minVal, float& maxVal, int channel) const
+{
+    minVal = 0.0f;
+    maxVal = 0.0f;
+
+    const juce::ScopedLock sl(voiceLock);
+    if (loadedVoice == nullptr)
+        return;
+
+    const auto& buffer = loadedVoice->buffer;
+    int numSamples = buffer.getNumSamples();
+    if (numSamples <= 0)
+        return;
+
+    int startSample = juce::jlimit(0, numSamples - 1, static_cast<int>(startRatio * numSamples));
+    int endSample = juce::jlimit(startSample + 1, numSamples, static_cast<int>(endRatio * numSamples));
+    int numToRead = endSample - startSample;
+
+    if (numToRead <= 0)
+        return;
+
+    int numChannels = buffer.getNumChannels();
+    if (channel >= 0)
+    {
+        int ch = std::min(channel, numChannels - 1);
+        auto range = buffer.findMinMax(ch, startSample, numToRead);
+        minVal = range.getStart();
+        maxVal = range.getEnd();
+    }
+    else
+    {
+        for (int ch = 0; ch < numChannels; ++ch)
+        {
+            auto range = buffer.findMinMax(ch, startSample, numToRead);
+            if (range.getStart() < minVal) minVal = range.getStart();
+            if (range.getEnd() > maxVal) maxVal = range.getEnd();
+        }
+    }
+}
+
 void AudioEngine::changeListenerCallback(juce::ChangeBroadcaster* /*source*/)
 {
 }

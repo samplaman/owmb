@@ -321,16 +321,16 @@ void WaveformTransportComponent::paint(juce::Graphics& g)
         for (int x = 0; x < numPixels; ++x)
         {
             float pixelX = startX + x;
-            double startTime = (static_cast<double>(x) / static_cast<double>(numPixels)) * totalDurationSecs;
-            double endTime = (static_cast<double>(x + 1) / static_cast<double>(numPixels)) * totalDurationSecs;
+            double startRatioCol = static_cast<double>(x) / static_cast<double>(numPixels);
+            double endRatioCol = static_cast<double>(x + 1) / static_cast<double>(numPixels);
 
             float lMin = 0.0f, lMax = 0.0f;
             float rMin = 0.0f, rMax = 0.0f;
 
-            audioEngine.getMinMaxForTimeRange(startTime, endTime, lMin, lMax, 0);
+            audioEngine.getMinMaxForRatioRange(startRatioCol, endRatioCol, lMin, lMax, 0);
             if (numChannels >= 2)
             {
-                audioEngine.getMinMaxForTimeRange(startTime, endTime, rMin, rMax, 1);
+                audioEngine.getMinMaxForRatioRange(startRatioCol, endRatioCol, rMin, rMax, 1);
             }
             else
             {
@@ -340,6 +340,9 @@ void WaveformTransportComponent::paint(juce::Graphics& g)
 
             if (lMin == 0.0f && lMax == 0.0f && numChannels > 0)
             {
+                double unscaledDuration = thumbnail.getTotalLength();
+                double startTime = startRatioCol * unscaledDuration;
+                double endTime = endRatioCol * unscaledDuration;
                 thumbnail.getApproximateMinMax(startTime, endTime, 0, lMin, lMax);
                 if (numChannels >= 2)
                     thumbnail.getApproximateMinMax(startTime, endTime, 1, rMin, rMax);
