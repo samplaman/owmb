@@ -690,14 +690,8 @@ void AudioEngine::updateVoiceRatios()
 {
     const juce::ScopedLock sl(voiceLock);
     
-    double tempoFactor = 1.0;
-    if (sampleBpm.load() > 0.0 && hostBpm.load() > 0.0)
-    {
-        tempoFactor = hostBpm.load() / sampleBpm.load();
-    }
-    
     double baseRatio = (engineSampleRate > 0.0) ? (currentFileSampleRate / engineSampleRate) : 1.0;
-    double newBaseRatio = baseRatio * tempoFactor;
+    double newBaseRatio = baseRatio;
     
     if (loadedVoice != nullptr)
     {
