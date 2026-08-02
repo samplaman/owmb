@@ -790,10 +790,6 @@ void SampleTableComponent::convertSample(const MediaItem& item)
             }
 
             double srcSR = reader->sampleRate;
-            if (juce::File(item.filePath).getFileExtension().toLowerCase() == ".mp3" && srcSR < 32000.0)
-            {
-                srcSR *= 2.0;
-            }
             double dstSR = (targetSampleRate > 0.0) ? targetSampleRate : srcSR;
             int srcBits = reader->bitsPerSample;
             int dstBits = (targetBitDepth > 0) ? targetBitDepth : srcBits;
@@ -814,6 +810,10 @@ void SampleTableComponent::convertSample(const MediaItem& item)
             int numChannels = reader->numChannels;
 
             juce::int64 numSamples64 = reader->lengthInSamples;
+            if (juce::File(item.filePath).getFileExtension().toLowerCase() == ".mp3" && srcSR < 32000.0)
+            {
+                numSamples64 /= 2;
+            }
 
             if (numSamples64 <= 0 || numSamples64 > 0x7FFFFFFF || numChannels <= 0)
             {

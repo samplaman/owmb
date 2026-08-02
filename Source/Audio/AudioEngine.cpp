@@ -6,86 +6,6 @@ namespace openwav
 
 static int getRootNoteFromFilename(const juce::String& filename)
 {
-    juce::String name = filename.toLowerCase();
-
-    auto parseNote = [](char noteChar, char accidental, char octaveChar, bool hasMinusOctave) -> int
-    {
-        int semitone = 0;
-        switch (noteChar)
-        {
-            case 'c': semitone = 0; break;
-            case 'd': semitone = 2; break;
-            case 'e': semitone = 4; break;
-            case 'f': semitone = 5; break;
-            case 'g': semitone = 7; break;
-            case 'a': semitone = 9; break;
-            case 'b': semitone = 11; break;
-            default: return -1;
-        }
-
-        if (accidental == '#' || accidental == 's')
-            semitone += 1;
-        else if (accidental == 'b' || accidental == 'f')
-            semitone -= 1;
-
-        int octave = octaveChar - '0';
-        if (hasMinusOctave)
-            octave = -octave;
-
-        int midiNote = (octave + 1) * 12 + semitone;
-        if (midiNote >= 0 && midiNote <= 127)
-            return midiNote;
-
-        return -1;
-    };
-
-    for (int i = 0; i < name.length() - 1; ++i)
-    {
-        char c = name[i];
-        if (c >= 'a' && c <= 'g')
-        {
-            if (i < name.length() - 2)
-            {
-                char acc = name[i + 1];
-                char oct = name[i + 2];
-                bool hasMinus = (acc == '-');
-
-                if (hasMinus && oct >= '0' && oct <= '9')
-                {
-                    int note = parseNote(c, 0, oct, true);
-                    if (note >= 0) return note;
-                }
-
-                if (acc == '#' || acc == 's' || acc == 'b' || acc == 'f')
-                {
-                    if (oct >= '0' && oct <= '9')
-                    {
-                        int note = parseNote(c, acc, oct, false);
-                        if (note >= 0) return note;
-                    }
-                    else if (i < name.length() - 3)
-                    {
-                        char minus = name[i + 2];
-                        char oct2 = name[i + 3];
-                        if (minus == '-' && oct2 >= '0' && oct2 <= '9')
-                        {
-                            int note = parseNote(c, acc, oct2, true);
-                            if (note >= 0) return note;
-                        }
-                    }
-                }
-            }
-
-            char oct = name[i + 1];
-            if (oct >= '0' && oct <= '9')
-            {
-                bool hasMinus = (i > 0 && name[i - 1] == '-');
-                int note = parseNote(c, 0, oct, hasMinus);
-                if (note >= 0) return note;
-            }
-        }
-    }
-
     return -1;
 }
 
@@ -338,11 +258,11 @@ bool AudioEngine::loadFile(const juce::File& audioFile, bool autoPlay)
             return;
 
         double fileSampleRate = reader->sampleRate;
+        int64_t numSamples64 = reader->lengthInSamples;
         if (audioFile.getFileExtension().toLowerCase() == ".mp3" && fileSampleRate < 32000.0)
         {
-            fileSampleRate *= 2.0;
+            numSamples64 /= 2;
         }
-        int64_t numSamples64 = reader->lengthInSamples;
         int numChannels = static_cast<int>(reader->numChannels);
 
         if (numSamples64 <= 0 || numSamples64 > 0x7FFFFFFF || numChannels <= 0)
