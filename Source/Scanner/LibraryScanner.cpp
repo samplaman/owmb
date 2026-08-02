@@ -201,8 +201,14 @@ static void analyzeAudioData(juce::AudioFormatReader* reader, MediaItem& item)
     if (reader == nullptr || reader->sampleRate <= 0.0 || reader->lengthInSamples <= 0)
         return;
 
+    juce::int64 lengthInSamples = reader->lengthInSamples;
+    if (item.fileExtension == ".mp3" && reader->sampleRate < 32000.0)
+    {
+        lengthInSamples /= 2;
+    }
+
     // Read up to 6 seconds of mono audio (channel 0)
-    int maxSamplesToAnalyze = static_cast<int>(std::min(reader->lengthInSamples, static_cast<juce::int64>(reader->sampleRate * 6.0)));
+    int maxSamplesToAnalyze = static_cast<int>(std::min(lengthInSamples, static_cast<juce::int64>(reader->sampleRate * 6.0)));
     if (maxSamplesToAnalyze <= 128)
         return;
 
@@ -439,7 +445,12 @@ MediaItem LibraryScanner::processAudioFile(const juce::File& file)
             item.bitDepth = static_cast<int>(reader->bitsPerSample);
             if (reader->sampleRate > 0.0)
             {
-                item.durationSeconds = static_cast<double>(reader->lengthInSamples) / reader->sampleRate;
+                juce::int64 len = reader->lengthInSamples;
+                if (item.fileExtension == ".mp3" && reader->sampleRate < 32000.0)
+                {
+                    len /= 2;
+                }
+                item.durationSeconds = static_cast<double>(len) / reader->sampleRate;
             }
         }
 
