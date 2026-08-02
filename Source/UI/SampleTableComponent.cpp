@@ -769,6 +769,20 @@ void SampleTableComponent::convertSample(const MediaItem& item)
             double dstSR = (targetSampleRate > 0.0) ? targetSampleRate : srcSR;
             int srcBits = reader->bitsPerSample;
             int dstBits = (targetBitDepth > 0) ? targetBitDepth : srcBits;
+            
+            // Handle target format bit depth restrictions (e.g. FLAC doesn't support 32-bit)
+            auto possibleDepths = targetFormat->getPossibleBitDepths();
+            if (!possibleDepths.isEmpty() && !possibleDepths.contains(dstBits))
+            {
+                int bestBits = possibleDepths[0];
+                for (int depth : possibleDepths)
+                {
+                    if (depth <= dstBits)
+                        bestBits = std::max(bestBits, depth);
+                }
+                dstBits = bestBits;
+            }
+
             int numChannels = reader->numChannels;
 
             juce::int64 numSamples64 = reader->lengthInSamples;
