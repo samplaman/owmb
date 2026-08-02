@@ -452,27 +452,28 @@ void WaveformTransportComponent::resized()
     auto area = getLocalBounds().reduced(12, 8);
     auto topRow = area.removeFromTop(32);
 
-    playPauseButton.setBounds(topRow.removeFromLeft(70).withHeight(28));
+    playPauseButton.setBounds(topRow.removeFromLeft(88).withHeight(28));
     topRow.removeFromLeft(6);
 
-    stopButton.setBounds(topRow.removeFromLeft(65).withHeight(28));
+    stopButton.setBounds(topRow.removeFromLeft(82).withHeight(28));
     topRow.removeFromLeft(6);
 
-    loopButton.setBounds(topRow.removeFromLeft(65).withHeight(28));
+    loopButton.setBounds(topRow.removeFromLeft(82).withHeight(28));
     topRow.removeFromLeft(6);
 
-    autoPlayButton.setBounds(topRow.removeFromLeft(65).withHeight(28));
+    autoPlayButton.setBounds(topRow.removeFromLeft(82).withHeight(28));
     topRow.removeFromLeft(6);
 
-    autoSliceButton.setBounds(topRow.removeFromLeft(80).withHeight(28));
+    autoSliceButton.setBounds(topRow.removeFromLeft(88).withHeight(28));
     topRow.removeFromLeft(12);
 
-    sampleNameLabel.setBounds(topRow.removeFromLeft(220).withHeight(28));
-
-    timeLabel.setBounds(topRow.removeFromRight(110).withHeight(28));
+    volumeSlider.setBounds(topRow.removeFromRight(100).withHeight(28));
     topRow.removeFromRight(10);
 
-    volumeSlider.setBounds(topRow.removeFromRight(100).withHeight(28));
+    timeLabel.setBounds(topRow.removeFromRight(110).withHeight(28));
+    topRow.removeFromRight(12);
+
+    sampleNameLabel.setBounds(topRow.withHeight(28));
 
     area.removeFromTop(8); // Spacing gap
     auto slicesBounds = area.removeFromBottom(92);
