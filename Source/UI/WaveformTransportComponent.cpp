@@ -233,6 +233,17 @@ WaveformTransportComponent::WaveformTransportComponent(AudioEngine& engine)
     autoSliceButton.onClick = [this] { runAutoSlice(); };
     addAndMakeVisible(autoSliceButton);
 
+    // Normalize Button
+    normalizeButton.onClick = [this] {
+        if (audioEngine.normalizeLoadedSample())
+        {
+            int vpHeight = slicesViewport.getHeight() - slicesViewport.getScrollBarThickness();
+            slicesGrid.updateSlices(sliceRatios, totalDurationSecs, slicesViewport.getWidth(), vpHeight);
+            repaint();
+        }
+    };
+    addAndMakeVisible(normalizeButton);
+
     // Volume Slider
     volumeSlider.setSliderStyle(juce::Slider::LinearHorizontal);
     volumeSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
@@ -465,6 +476,9 @@ void WaveformTransportComponent::resized()
     topRow.removeFromLeft(6);
 
     autoSliceButton.setBounds(topRow.removeFromLeft(88).withHeight(28));
+    topRow.removeFromLeft(6);
+
+    normalizeButton.setBounds(topRow.removeFromLeft(95).withHeight(28));
     topRow.removeFromLeft(12);
 
     volumeSlider.setBounds(topRow.removeFromRight(100).withHeight(28));

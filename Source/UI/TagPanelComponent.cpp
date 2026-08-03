@@ -90,31 +90,17 @@ TagPanelComponent::TagPanelComponent(TagDatabaseManager& db)
     };
     addAndMakeVisible(addCustomTagButton);
 
-    // Reset All Data button
-    resetAllButton.setColour(juce::TextButton::buttonColourId, OpenWavLookAndFeel::favoriteRed.withAlpha(0.15f));
-    resetAllButton.setColour(juce::TextButton::textColourOffId, OpenWavLookAndFeel::favoriteRed.brighter(0.4f));
-    resetAllButton.onClick = [this] {
-        juce::AlertWindow::showAsync(
-            juce::MessageBoxOptions()
-                .withIconType(juce::MessageBoxIconType::WarningIcon)
-                .withTitle("Reset All Data")
-                .withMessage("Are you sure you want to reset all library items, custom tags, and scanned folders?\nThis action cannot be undone.")
-                .withButton("Reset Everything")
-                .withButton("Cancel"),
-            [this](int result) {
-                if (result == 1)
-                {
-                    selectedTags.clear();
-                    favoritesOnly = false;
-                    favoritesButton.setToggleState(false, juce::dontSendNotification);
-                    dbManager.clearAllData();
-                }
-            });
-    };
-    addAndMakeVisible(resetAllButton);
-
     refreshTags();
     refreshFolders();
+}
+
+void TagPanelComponent::clearAllFiltersAndSelection()
+{
+    selectedTags.clear();
+    favoritesOnly = false;
+    favoritesButton.setToggleState(false, juce::dontSendNotification);
+    refreshTags();
+    notifySelectionChanged();
 }
 
 TagPanelComponent::~TagPanelComponent()
@@ -208,10 +194,6 @@ void TagPanelComponent::refreshFolders()
 void TagPanelComponent::resized()
 {
     auto area = getLocalBounds().reduced(10, 10);
-
-    // Bottom-most Reset All Data button
-    resetAllButton.setBounds(area.removeFromBottom(26));
-    area.removeFromBottom(8);
 
     // Quick Filters Section Header
     filterHeaderLabel.setBounds(area.removeFromTop(16));

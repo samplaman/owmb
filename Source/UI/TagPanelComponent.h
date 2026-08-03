@@ -30,6 +30,7 @@ public:
 
     void refreshTags();
     void refreshFolders();
+    void clearAllFiltersAndSelection();
     const std::set<juce::String>& getSelectedTags() const { return selectedTags; }
     bool getMatchAllTags() const { return matchAll; }
     bool getFavoritesOnly() const { return favoritesOnly; }
@@ -63,7 +64,6 @@ private:
     juce::OwnedArray<juce::Label> folderLabels;
     juce::OwnedArray<juce::TextButton> folderRemoveButtons;
 
-    juce::TextButton resetAllButton { "Reset All Data" };
     std::set<juce::String> selectedTags;
 
     bool favoritesOnly { false };

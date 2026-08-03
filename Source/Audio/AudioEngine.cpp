@@ -594,6 +594,40 @@ bool AudioEngine::getAudioBufferCopy(juce::AudioBuffer<float>& destBuffer, doubl
     return true;
 }
 
+bool AudioEngine::normalizeLoadedSample()
+{
+    const juce::ScopedLock sl(voiceLock);
+    if (loadedVoice == nullptr || loadedVoice->buffer.getNumSamples() == 0)
+        return false;
+
+    float maxPeak = 0.0f;
+    int numChannels = loadedVoice->buffer.getNumChannels();
+    int numSamples = loadedVoice->buffer.getNumSamples();
+
+    for (int ch = 0; ch < numChannels; ++ch)
+    {
+        auto range = loadedVoice->buffer.findMinMax(ch, 0, numSamples);
+        float peak = std::max(std::abs(range.getStart()), std::abs(range.getEnd()));
+        if (peak > maxPeak)
+            maxPeak = peak;
+    }
+
+    if (maxPeak <= 0.00001f || std::abs(maxPeak - 1.0f) < 0.001f)
+    {
+        return false; // Already normalized or silent
+    }
+
+    float scaleFactor = 1.0f / maxPeak;
+    loadedVoice->buffer.applyGain(scaleFactor);
+
+    for (auto& voice : activeVoices)
+    {
+        voice->buffer.applyGain(scaleFactor);
+    }
+
+    return true;
+}
+
 void AudioEngine::setSampleBpm(double bpm)
 {
     sampleBpm.store(bpm);

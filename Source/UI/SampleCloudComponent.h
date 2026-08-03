@@ -99,6 +99,7 @@ private:
     std::vector<CloudNode> nodes;
     std::vector<CloudNode*> sortedNodePointers;
     std::vector<TagCluster> clusters;
+    std::vector<std::pair<size_t, size_t>> constellationEdges;
 
     int hoveredNodeIndex { -1 };
     int selectedNodeIndex { -1 };

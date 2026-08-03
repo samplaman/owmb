@@ -137,23 +137,44 @@ void SampleCloudComponent::paint(juce::Graphics& g)
 
     update3DTransforms();
 
-    // 1. Draw Clean Cluster Territory Halos (Perfect Circles)
+    // 1. Draw Organic Volumetric Cloud Halos (Soft Nebula Atmosphere)
     for (const auto& cluster : clusters)
     {
-        float baseRadius = std::max(45.0f, 30.0f + std::sqrt(static_cast<float>(cluster.count)) * 14.0f);
+        float baseRadius = std::max(55.0f, 35.0f + std::sqrt(static_cast<float>(cluster.count)) * 16.0f);
         float r = baseRadius * cluster.projectedScale;
         float depthAlpha = juce::jlimit(0.35f, 1.0f, 1.0f - (cluster.transformedPos.z + 300.0f) / 900.0f);
 
-        // Soft island land mass fill
-        g.setColour(cluster.colour.withAlpha(0.08f * depthAlpha));
-        g.fillEllipse(cluster.screenPos.x - r, cluster.screenPos.y - r, r * 2.0f, r * 2.0f);
+        // Multi-pass soft volumetric nebula atmosphere (no rigid sphere border rings)
+        juce::ColourGradient nebulaGrad(cluster.colour.withAlpha(0.14f * depthAlpha),
+                                        cluster.screenPos.x, cluster.screenPos.y,
+                                        cluster.colour.withAlpha(0.0f),
+                                        cluster.screenPos.x + r * 1.3f, cluster.screenPos.y + r * 1.3f,
+                                        true);
+        g.setGradientFill(nebulaGrad);
+        g.fillEllipse(cluster.screenPos.x - r * 1.3f, cluster.screenPos.y - r * 1.3f, r * 2.6f, r * 2.6f);
 
-        // Outer territory ring
-        g.setColour(cluster.colour.withAlpha(0.28f * depthAlpha));
-        g.drawEllipse(cluster.screenPos.x - r, cluster.screenPos.y - r, r * 2.0f, r * 2.0f, 1.2f);
+        // Core ambient density glow
+        g.setColour(cluster.colour.withAlpha(0.06f * depthAlpha));
+        g.fillEllipse(cluster.screenPos.x - r * 0.7f, cluster.screenPos.y - r * 0.7f, r * 1.4f, r * 1.4f);
     }
 
     auto viewBounds = getLocalBounds().toFloat().expanded(40.0f);
+
+    // 2. Draw Translucent Constellation Micro-Filament Lines for Nearby Scattered Cloud Nodes (Pre-computed linear O(E) pass)
+    for (const auto& edge : constellationEdges)
+    {
+        if (edge.first < nodes.size() && edge.second < nodes.size())
+        {
+            const auto& n1 = nodes[edge.first];
+            const auto& n2 = nodes[edge.second];
+            if (viewBounds.contains(n1.screenPos) && viewBounds.contains(n2.screenPos))
+            {
+                float depthAlpha = juce::jlimit(0.35f, 1.0f, 1.0f - (n1.transformedPos.z + 300.0f) / 900.0f);
+                g.setColour(n1.colour.withAlpha(0.08f * depthAlpha));
+                g.drawLine(n1.screenPos.x, n1.screenPos.y, n2.screenPos.x, n2.screenPos.y, 0.8f);
+            }
+        }
+    }
 
     // 3. Draw Z-Sorted 3D Sample Nodes (Back to Front)
     for (const auto* nodePtr : sortedNodePointers)
@@ -230,7 +251,7 @@ void SampleCloudComponent::paint(juce::Graphics& g)
     // 5. Sticky Top Header Badge
     if (!clusters.empty())
     {
-        juce::String mapHeaderText = "3D CONSTELLATION MAP (" + juce::String(nodes.size()) + " SAMPLES • " + juce::String(clusters.size()) + " SECTORS)";
+        juce::String mapHeaderText = "3D SCATTERED CLOUD MAP (" + juce::String(nodes.size()) + " SAMPLES • " + juce::String(clusters.size()) + " SECTORS)";
         juce::Font mapHeaderFont(11.0f, juce::Font::bold);
         float badgeWidth = static_cast<float>(mapHeaderFont.getStringWidth(mapHeaderText) + 24);
 
@@ -664,17 +685,38 @@ void SampleCloudComponent::calculateClusterLayout()
         int countIdx = tagItemCounts[node.primaryTag]++;
         int totalInTag = tagTotalCounts[node.primaryTag];
 
-        // 3D Fibonacci Sphere Constellation Packing
-        float phi = 2.39996323f;
-        float y = 1.0f - (static_cast<float>(countIdx) / std::max(1.0f, static_cast<float>(totalInTag - 1))) * 2.0f;
-        float radiusAtY = std::sqrt(std::max(0.0f, 1.0f - y * y));
+        // Volumetric Scattered Cloud Distribution (3D Nebula dispersion instead of rigid sphere shell)
+        uint32_t nodeHash = static_cast<uint32_t>(node.item.filePath.hashCode() ^ (countIdx * 2654435761u));
 
-        float clusterSphereRadius = std::max(40.0f, 25.0f + std::sqrt(static_cast<float>(totalInTag)) * 14.0f);
+        float phi = 2.39996323f; // Golden ratio angle (~137.5 deg)
+        float uNorm = static_cast<float>(countIdx + 0.5f) / std::max(1.0f, static_cast<float>(totalInTag));
+        float yDir = 1.0f - 2.0f * uNorm; // -1.0 to +1.0 direction
+        float radiusAtY = std::sqrt(std::max(0.05f, 1.0f - yDir * yDir));
 
-        float theta = countIdx * phi;
-        float xOffset = clusterSphereRadius * radiusAtY * std::cos(theta);
-        float zOffset = clusterSphereRadius * radiusAtY * std::sin(theta);
-        float yOffset = clusterSphereRadius * y;
+        float maxCloudRadius = std::max(55.0f, 30.0f + std::sqrt(static_cast<float>(totalInTag)) * 16.0f);
+
+        // Volumetric distance scattering: power law scatter for dense core + wide organic particle fringe
+        float scatterFactor = std::pow(static_cast<float>(nodeHash % 1000) / 1000.0f, 0.65f);
+        float rDist = maxCloudRadius * (0.12f + 0.88f * scatterFactor);
+
+        float theta = countIdx * phi + (nodeHash % 100) * 0.01f;
+        float xDir = radiusAtY * std::cos(theta);
+        float zDir = radiusAtY * std::sin(theta);
+
+        // Organic cloud shape stretch per cluster tag
+        uint32_t tagHash = static_cast<uint32_t>(node.primaryTag.hashCode());
+        float stretchX = 0.85f + ((tagHash % 70) / 100.0f); // 0.85 to 1.55
+        float stretchY = 0.75f + (((tagHash / 7) % 60) / 100.0f); // 0.75 to 1.35
+        float stretchZ = 0.85f + (((tagHash / 49) % 70) / 100.0f); // 0.85 to 1.55
+
+        // Fine jitter noise
+        float jitterX = static_cast<float>((static_cast<int>(nodeHash % 19) - 9)) * 1.5f;
+        float jitterY = static_cast<float>((static_cast<int>((nodeHash / 19) % 19) - 9)) * 1.5f;
+        float jitterZ = static_cast<float>((static_cast<int>((nodeHash / 361) % 19) - 9)) * 1.5f;
+
+        float xOffset = rDist * xDir * stretchX + jitterX;
+        float yOffset = rDist * yDir * stretchY + jitterY;
+        float zOffset = rDist * zDir * stretchZ + jitterZ;
 
         node.targetPos = { cPos.x + xOffset, cPos.y + yOffset, cPos.z + zOffset };
 
@@ -685,6 +727,26 @@ void SampleCloudComponent::calculateClusterLayout()
     }
 
     applyForceDirectedPhysics();
+
+    // Pre-compute 3D constellation micro-filament edges once to ensure 60 FPS performance
+    constellationEdges.clear();
+    for (size_t i = 0; i < nodes.size(); ++i)
+    {
+        size_t connections = 0;
+        for (size_t j = i + 1; j < nodes.size() && connections < 2; ++j)
+        {
+            if (nodes[i].primaryTag == nodes[j].primaryTag)
+            {
+                auto d = nodes[i].targetPos - nodes[j].targetPos;
+                float distSq = d.x * d.x + d.y * d.y + d.z * d.z;
+                if (distSq < 2000.0f)
+                {
+                    constellationEdges.push_back({ i, j });
+                    connections++;
+                }
+            }
+        }
+    }
 }
 
 void SampleCloudComponent::applyForceDirectedPhysics()
@@ -743,7 +805,7 @@ void SampleCloudComponent::applyForceDirectedPhysics()
 
                             auto delta = nodes[j].targetPos - nodes[i].targetPos;
                             float distSq = delta.x * delta.x + delta.y * delta.y + delta.z * delta.z;
-                            float minDist = nodes[i].radius + nodes[j].radius + 14.0f;
+                            float minDist = nodes[i].radius + nodes[j].radius + 6.0f;
                             float minDistSq = minDist * minDist;
 
                             if (distSq < minDistSq && distSq > 0.0001f)

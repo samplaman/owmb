@@ -67,6 +67,7 @@ public:
     double getSampleStartRatio() const { return sampleStartRatio; }
     double getSampleEndRatio() const { return sampleEndRatio; }
     bool getAudioBufferCopy(juce::AudioBuffer<float>& destBuffer, double& sampleRate) const;
+    bool normalizeLoadedSample();
 
     bool getAutoPlay() const { return autoPlayOnSelect; }
     void setAutoPlay(bool enabled) { autoPlayOnSelect = enabled; }

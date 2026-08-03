@@ -328,11 +328,8 @@ void OpenWavLookAndFeel::drawPopupMenuItem(juce::Graphics& g, const juce::Rectan
     {
         auto tickArea = r.removeFromLeft(16).toFloat();
         g.setColour(accentCyan);
-        juce::Path p;
-        p.startNewSubPath(tickArea.getX() + 2.0f, tickArea.getCentreY());
-        p.lineTo(tickArea.getX() + 6.0f, tickArea.getBottom() - 4.0f);
-        p.lineTo(tickArea.getRight() - 2.0f, tickArea.getY() + 4.0f);
-        g.strokePath(p, juce::PathStrokeType(2.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        float dotRadius = 3.0f;
+        g.fillEllipse(tickArea.getCentreX() - dotRadius, tickArea.getCentreY() - dotRadius, dotRadius * 2.0f, dotRadius * 2.0f);
     }
 
     if (icon != nullptr)
@@ -377,11 +374,8 @@ void OpenWavLookAndFeel::drawTickBox(juce::Graphics& g, juce::Component& /*compo
     if (ticked)
     {
         g.setColour(isEnabled ? accentCyan : textSecondary);
-        juce::Path p;
-        p.startNewSubPath(box.getX() + box.getWidth() * 0.25f, box.getCentreY());
-        p.lineTo(box.getX() + box.getWidth() * 0.45f, box.getBottom() - box.getHeight() * 0.25f);
-        p.lineTo(box.getRight() - box.getWidth() * 0.25f, box.getY() + box.getHeight() * 0.25f);
-        g.strokePath(p, juce::PathStrokeType(2.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        float dotRadius = std::min(box.getWidth(), box.getHeight()) * 0.22f;
+        g.fillEllipse(box.getCentreX() - dotRadius, box.getCentreY() - dotRadius, dotRadius * 2.0f, dotRadius * 2.0f);
     }
 }
 

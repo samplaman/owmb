@@ -175,6 +175,8 @@ void OpenWavAudioProcessorEditor::settingsRequested()
     menu.addItem(2, "Light Theme", true, !isDark);
     menu.addSeparator();
     menu.addItem(3, "Audio / MIDI Device Settings...");
+    menu.addSeparator();
+    menu.addItem(4, "Reset All Library Data...");
 
     menu.showMenuAsync(juce::PopupMenu::Options(), [this](int result) {
         if (result == 1) // Dark Theme
@@ -213,6 +215,24 @@ void OpenWavAudioProcessorEditor::settingsRequested()
                 "In VST3 / AU plugin mode, Audio and MIDI devices are managed by your host DAW.",
                 "OK"
             );
+        }
+        else if (result == 4) // Reset All Library Data
+        {
+            juce::AlertWindow::showAsync(
+                juce::MessageBoxOptions()
+                    .withIconType(juce::MessageBoxIconType::WarningIcon)
+                    .withTitle("Reset All Data")
+                    .withMessage("Are you sure you want to reset all library items, custom tags, and scanned folders?\nThis action cannot be undone.")
+                    .withButton("Reset Everything")
+                    .withButton("Cancel"),
+                [this](int alertResult) {
+                    if (alertResult == 1)
+                    {
+                        audioProcessor.getDatabaseManager().clearAllData();
+                        tagPanel.clearAllFiltersAndSelection();
+                        triggerFilterUpdate();
+                    }
+                });
         }
     });
 }

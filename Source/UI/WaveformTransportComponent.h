@@ -75,6 +75,7 @@ private:
     juce::TextButton loopButton { "Loop" };
     juce::TextButton autoPlayButton { "Auto" };
     juce::TextButton autoSliceButton { "Slice" };
+    juce::TextButton normalizeButton { "Normalize" };
 
     std::vector<double> sliceRatios;
 
