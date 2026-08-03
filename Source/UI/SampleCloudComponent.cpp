@@ -37,19 +37,18 @@ SampleCloudComponent::~SampleCloudComponent()
 
 juce::Point<float> SampleCloudComponent::project3DToScreen(Vector3D pos, Vector3D& outTransformed, float& outScale) const
 {
+    return project3DToScreen(pos, outTransformed, outScale, std::cos(rotX), std::sin(rotX), std::cos(rotY), std::sin(rotY));
+}
+
+juce::Point<float> SampleCloudComponent::project3DToScreen(Vector3D pos, Vector3D& outTransformed, float& outScale, float cosX, float sinX, float cosY, float sinY) const
+{
     auto center = getLocalBounds().getCentre().toFloat();
 
     // 1. Rotate around Y axis (Yaw rotY)
-    float cosY = std::cos(rotY);
-    float sinY = std::sin(rotY);
-
     float x1 = pos.x * cosY + pos.z * sinY;
     float z1 = -pos.x * sinY + pos.z * cosY;
 
     // 2. Rotate around X axis (Pitch rotX)
-    float cosX = std::cos(rotX);
-    float sinX = std::sin(rotX);
-
     float y2 = pos.y * cosX - z1 * sinX;
     float z2 = pos.y * sinX + z1 * cosX;
 
@@ -66,9 +65,14 @@ juce::Point<float> SampleCloudComponent::project3DToScreen(Vector3D pos, Vector3
 
 void SampleCloudComponent::update3DTransforms()
 {
+    float cosX = std::cos(rotX);
+    float sinX = std::sin(rotX);
+    float cosY = std::cos(rotY);
+    float sinY = std::sin(rotY);
+
     for (auto& cl : clusters)
     {
-        cl.screenPos = project3DToScreen(cl.centerPos, cl.transformedPos, cl.projectedScale);
+        cl.screenPos = project3DToScreen(cl.centerPos, cl.transformedPos, cl.projectedScale, cosX, sinX, cosY, sinY);
     }
 
     sortedNodePointers.clear();
@@ -78,7 +82,7 @@ void SampleCloudComponent::update3DTransforms()
     {
         auto& node = nodes[i];
         node.originalIndex = i;
-        node.screenPos = project3DToScreen(node.currentPos, node.transformedPos, node.projectedScale);
+        node.screenPos = project3DToScreen(node.currentPos, node.transformedPos, node.projectedScale, cosX, sinX, cosY, sinY);
         sortedNodePointers.push_back(&node);
     }
 
@@ -149,10 +153,17 @@ void SampleCloudComponent::paint(juce::Graphics& g)
         g.drawEllipse(cluster.screenPos.x - r, cluster.screenPos.y - r, r * 2.0f, r * 2.0f, 1.2f);
     }
 
+    auto viewBounds = getLocalBounds().toFloat().expanded(40.0f);
+
     // 3. Draw Z-Sorted 3D Sample Nodes (Back to Front)
     for (const auto* nodePtr : sortedNodePointers)
     {
         const auto& node = *nodePtr;
+
+        // Viewport Culling: Skip rendering nodes outside visible bounds
+        if (!viewBounds.contains(node.screenPos))
+            continue;
+
         int origIdx = static_cast<int>(node.originalIndex);
         bool isHovered = (origIdx == hoveredNodeIndex);
         bool isSelected = (origIdx == selectedNodeIndex);
@@ -161,6 +172,15 @@ void SampleCloudComponent::paint(juce::Graphics& g)
 
         float baseR = node.radius * node.hoverScale;
         float r = std::max(2.2f, baseR * node.projectedScale);
+
+        // Sub-pixel optimization for small distant non-hovered nodes
+        if (r < 2.5f && !isHovered && !isSelected)
+        {
+            juce::Colour nodeColor = node.colour;
+            g.setColour(nodeColor.withAlpha(depthAlpha));
+            g.fillEllipse(node.screenPos.x - r, node.screenPos.y - r, r * 2.0f, r * 2.0f);
+            continue;
+        }
 
         // Soft outer glow halo
         float glowR = r * (isSelected ? 2.0f : (isHovered ? 1.8f : 1.4f));
@@ -322,8 +342,6 @@ void SampleCloudComponent::resized()
     zoomOutButton.setBounds(topHud.removeFromRight(28).withHeight(26));
     topHud.removeFromRight(4);
     zoomInButton.setBounds(topHud.removeFromRight(28).withHeight(26));
-
-    calculateClusterLayout();
 }
 
 void SampleCloudComponent::timerCallback()
@@ -671,22 +689,73 @@ void SampleCloudComponent::calculateClusterLayout()
 
 void SampleCloudComponent::applyForceDirectedPhysics()
 {
-    for (int iter = 0; iter < 16; ++iter)
+    if (nodes.size() <= 1)
+        return;
+
+    const float cellSize = 25.0f; // Grid cell dimension for local clearance
+    const float invCellSize = 1.0f / cellSize;
+
+    auto getCellKey = [invCellSize](const Vector3D& pos) -> uint64_t {
+        int64_t x = static_cast<int64_t>(std::floor(pos.x * invCellSize)) & 0x1FFFFF;
+        int64_t y = static_cast<int64_t>(std::floor(pos.y * invCellSize)) & 0x1FFFFF;
+        int64_t z = static_cast<int64_t>(std::floor(pos.z * invCellSize)) & 0x1FFFFF;
+        return static_cast<uint64_t>((x << 42) | (y << 21) | z);
+    };
+
+    // Run 4 iterations of spatial grid-partitioned collision physics
+    for (int iter = 0; iter < 4; ++iter)
     {
+        std::unordered_map<uint64_t, std::vector<size_t>> grid;
+        grid.reserve(nodes.size());
+
         for (size_t i = 0; i < nodes.size(); ++i)
         {
-            for (size_t j = i + 1; j < nodes.size(); ++j)
-            {
-                auto delta = nodes[j].targetPos - nodes[i].targetPos;
-                float dist = std::sqrt(delta.x * delta.x + delta.y * delta.y + delta.z * delta.z);
-                float minDist = nodes[i].radius + nodes[j].radius + 14.0f;
+            grid[getCellKey(nodes[i].targetPos)].push_back(i);
+        }
 
-                if (dist < minDist && dist > 0.01f)
+        for (size_t i = 0; i < nodes.size(); ++i)
+        {
+            auto& posI = nodes[i].targetPos;
+            int64_t cx = static_cast<int64_t>(std::floor(posI.x * invCellSize));
+            int64_t cy = static_cast<int64_t>(std::floor(posI.y * invCellSize));
+            int64_t cz = static_cast<int64_t>(std::floor(posI.z * invCellSize));
+
+            for (int dx = -1; dx <= 1; ++dx)
+            {
+                for (int dy = -1; dy <= 1; ++dy)
                 {
-                    float overlap = (minDist - dist) * 0.5f;
-                    auto dir = delta / dist;
-                    nodes[i].targetPos = nodes[i].targetPos - dir * overlap;
-                    nodes[j].targetPos = nodes[j].targetPos + dir * overlap;
+                    for (int dz = -1; dz <= 1; ++dz)
+                    {
+                        uint64_t key = static_cast<uint64_t>(
+                            ((cx + dx) & 0x1FFFFF) << 42 |
+                            ((cy + dy) & 0x1FFFFF) << 21 |
+                            ((cz + dz) & 0x1FFFFF)
+                        );
+
+                        auto it = grid.find(key);
+                        if (it == grid.end())
+                            continue;
+
+                        for (size_t j : it->second)
+                        {
+                            if (j <= i)
+                                continue;
+
+                            auto delta = nodes[j].targetPos - nodes[i].targetPos;
+                            float distSq = delta.x * delta.x + delta.y * delta.y + delta.z * delta.z;
+                            float minDist = nodes[i].radius + nodes[j].radius + 14.0f;
+                            float minDistSq = minDist * minDist;
+
+                            if (distSq < minDistSq && distSq > 0.0001f)
+                            {
+                                float dist = std::sqrt(distSq);
+                                float overlap = (minDist - dist) * 0.5f;
+                                auto dir = delta / dist;
+                                nodes[i].targetPos = nodes[i].targetPos - dir * overlap;
+                                nodes[j].targetPos = nodes[j].targetPos + dir * overlap;
+                            }
+                        }
+                    }
                 }
             }
         }

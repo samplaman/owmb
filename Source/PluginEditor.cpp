@@ -1,5 +1,8 @@
 #include "PluginEditor.h"
 #include <juce_audio_plugin_client/Standalone/juce_StandaloneFilterWindow.h>
+#if __has_include(<BinaryData.h>)
+ #include <BinaryData.h>
+#endif
 
 #if JUCE_WINDOWS
  #ifndef NOMINMAX
@@ -289,6 +292,13 @@ void OpenWavAudioProcessorEditor::parentHierarchyChanged()
     {
         if (auto* dw = findParentComponentOfClass<juce::DocumentWindow>())
         {
+#if __has_include(<BinaryData.h>)
+            auto appIcon = juce::ImageFileFormat::loadFrom(BinaryData::owmbico_png, static_cast<size_t>(BinaryData::owmbico_pngSize));
+            if (appIcon.isValid())
+            {
+                dw->setIcon(appIcon);
+            }
+#endif
             dw->setUsingNativeTitleBar(true);
             dw->setResizable(true, true);
             dw->setResizeLimits(800, 650, 3840, 2160);

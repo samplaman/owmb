@@ -90,6 +90,7 @@ private:
     void showContextMenuForNode(int idx);
 
     juce::Point<float> project3DToScreen(Vector3D pos, Vector3D& outTransformed, float& outScale) const;
+    juce::Point<float> project3DToScreen(Vector3D pos, Vector3D& outTransformed, float& outScale, float cosX, float sinX, float cosY, float sinY) const;
     void update3DTransforms();
 
     TagDatabaseManager& dbManager;
