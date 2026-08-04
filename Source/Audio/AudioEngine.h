@@ -112,6 +112,7 @@ public:
     void getLiveInputLevels(float& leftLevel, float& rightLevel) const;
     bool getRecordedBufferCopy(juce::AudioBuffer<float>& destBuffer, double& sampleRate) const;
     juce::File saveRecordingToWav(const juce::String& baseFileName);
+    void playMetronomeClick(bool isAccent = false);
 
     void addListener(AudioEngineListener* listener);
     void removeListener(AudioEngineListener* listener);

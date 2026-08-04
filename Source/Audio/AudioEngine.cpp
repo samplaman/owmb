@@ -847,4 +847,39 @@ juce::File AudioEngine::saveRecordingToWav(const juce::String& baseFileName)
     return {};
 }
 
+void AudioEngine::playMetronomeClick(bool isAccent)
+{
+    const juce::ScopedLock sl(voiceLock);
+    double sr = (engineSampleRate > 0.0) ? engineSampleRate : 44100.0;
+    int clickLength = static_cast<int>(sr * 0.015); // 15ms tick
+
+    if (clickLength <= 0) return;
+
+    auto voice = std::make_shared<AudioVoice>();
+    voice->buffer.setSize(2, clickLength);
+    voice->buffer.clear();
+
+    double freq = isAccent ? 1200.0 : 800.0;
+    float gain = isAccent ? 0.65f : 0.45f;
+
+    for (int s = 0; s < clickLength; ++s)
+    {
+        float envelope = std::exp(-static_cast<float>(s) / (sr * 0.003f));
+        float sample = static_cast<float>(std::sin(2.0 * juce::MathConstants<double>::pi * freq * (s / sr)) * envelope * gain);
+        voice->buffer.setSample(0, s, sample);
+        voice->buffer.setSample(1, s, sample);
+    }
+
+    voice->ratio = 1.0;
+    voice->readPosition = 0.0;
+    voice->isLooping = false;
+    voice->finished = false;
+    voice->startRatio = 0.0;
+    voice->endRatio = 1.0;
+    voice->rootNote = 60;
+    voice->triggerMidiNote = -1;
+
+    activeVoices.push_back(voice);
+}
+
 } // namespace openwav

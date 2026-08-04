@@ -41,6 +41,16 @@ RecorderComponent::RecorderComponent(AudioEngine& engine, TagDatabaseManager& db
     };
     addAndMakeVisible(channelSelector);
 
+    // Count-In Selector
+    countInLabel.setFont(juce::Font(12.0f).boldened());
+    countInLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::textSecondary);
+    addAndMakeVisible(countInLabel);
+
+    countInSelector.addItem("Count-In: 3s", 1);
+    countInSelector.addItem("Count-In: Off", 2);
+    countInSelector.setSelectedId(1, juce::dontSendNotification);
+    addAndMakeVisible(countInSelector);
+
     // Name Label & Editor
     nameLabel.setFont(juce::Font(12.0f).boldened());
     nameLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::textSecondary);
@@ -172,6 +182,33 @@ void RecorderComponent::paint(juce::Graphics& g)
         g.drawText("Press RECORD to capture live audio stream...", scopeArea, juce::Justification::centred, true);
     }
 
+    // Beat Flash Pulse Overlay
+    if (flashAlpha > 0.01f)
+    {
+        g.setColour(OpenWavLookAndFeel::favoriteRed.withAlpha(flashAlpha * 0.35f));
+        g.fillRoundedRectangle(scopeArea, 6.0f);
+        flashAlpha *= 0.82f;
+    }
+
+    // Visual Countdown HUD Overlay
+    if (isCountingDown)
+    {
+        auto hudRect = scopeArea.withSizeKeepingCentre(160.0f, 120.0f);
+        g.setColour(OpenWavLookAndFeel::bgHeader.withAlpha(0.92f));
+        g.fillRoundedRectangle(hudRect, 16.0f);
+        g.setColour(OpenWavLookAndFeel::favoriteRed);
+        g.drawRoundedRectangle(hudRect, 16.0f, 2.5f);
+
+        auto numRect = hudRect.removeFromTop(80.0f);
+        g.setFont(juce::Font(56.0f).boldened());
+        g.setColour(OpenWavLookAndFeel::favoriteRed);
+        g.drawText(juce::String(countdownValue), numRect, juce::Justification::centred, false);
+
+        g.setFont(juce::Font(12.0f).boldened());
+        g.setColour(OpenWavLookAndFeel::textPrimary);
+        g.drawText("GET READY...", hudRect, juce::Justification::centred, false);
+    }
+
     // Draw Dual Stereo VU Level Meters (Left & Right)
     auto meterLeft = meterArea.removeFromLeft(14.0f);
     auto meterRight = meterArea.removeFromRight(14.0f);
@@ -217,12 +254,16 @@ void RecorderComponent::resized()
     channelSelector.setBounds(formRow.removeFromLeft(155));
     formRow.removeFromLeft(14);
 
+    countInLabel.setBounds(formRow.removeFromLeft(70));
+    countInSelector.setBounds(formRow.removeFromLeft(125));
+    formRow.removeFromLeft(14);
+
     nameLabel.setBounds(formRow.removeFromLeft(90));
-    nameEditor.setBounds(formRow.removeFromLeft(160));
+    nameEditor.setBounds(formRow.removeFromLeft(150));
     formRow.removeFromLeft(14);
 
     tagsLabel.setBounds(formRow.removeFromLeft(130));
-    tagsEditor.setBounds(formRow.removeFromLeft(160));
+    tagsEditor.setBounds(formRow.removeFromLeft(150));
     formRow.removeFromLeft(14);
 
     saveButton.setBounds(formRow.removeFromLeft(150));
@@ -270,6 +311,30 @@ void RecorderComponent::timerCallback()
     else
         smoothRightLevel += (normR - smoothRightLevel) * 0.25f;
 
+    if (isCountingDown)
+    {
+        uint32_t now = juce::Time::getMillisecondCounter();
+        if (now - lastBeatMs >= 1000)
+        {
+            lastBeatMs = now;
+            countdownValue--;
+            flashAlpha = 1.0f;
+
+            if (countdownValue > 0)
+            {
+                audioEngine.playMetronomeClick(false);
+            }
+            else
+            {
+                isCountingDown = false;
+                audioEngine.playMetronomeClick(true); // Accent click on GO!
+                audioEngine.startRecording();
+                recordButton.setButtonText("STOP");
+                recordButton.setToggleState(true, juce::dontSendNotification);
+            }
+        }
+    }
+
     if (audioEngine.isRecording())
     {
         double durSecs = audioEngine.getRecordingDurationSeconds();
@@ -288,6 +353,16 @@ void RecorderComponent::timerCallback()
 
 void RecorderComponent::toggleRecording()
 {
+    if (isCountingDown)
+    {
+        isCountingDown = false;
+        recordButton.setButtonText("RECORD");
+        recordButton.setToggleState(false, juce::dontSendNotification);
+        statusLabel.setText("Countdown cancelled", juce::dontSendNotification);
+        statusLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::textSecondary);
+        return;
+    }
+
     if (audioEngine.isRecording())
     {
         audioEngine.stopRecording();
@@ -309,9 +384,25 @@ void RecorderComponent::toggleRecording()
         // Reset default name to current timestamp
         nameEditor.setText("Rec_" + juce::Time::getCurrentTime().formatted("%Y%m%d_%H%M%S"));
 
-        audioEngine.startRecording();
-        recordButton.setButtonText("STOP");
-        recordButton.setToggleState(true, juce::dontSendNotification);
+        if (countInSelector.getSelectedId() == 1) // 3s Count-In enabled
+        {
+            isCountingDown = true;
+            countdownValue = 3;
+            lastBeatMs = juce::Time::getMillisecondCounter();
+            flashAlpha = 1.0f;
+            audioEngine.playMetronomeClick(false);
+            recordButton.setButtonText("CANCEL");
+            recordButton.setToggleState(true, juce::dontSendNotification);
+            statusLabel.setText("Counting down to record...", juce::dontSendNotification);
+            statusLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::favoriteRed);
+        }
+        else
+        {
+            audioEngine.playMetronomeClick(true);
+            audioEngine.startRecording();
+            recordButton.setButtonText("STOP");
+            recordButton.setToggleState(true, juce::dontSendNotification);
+        }
     }
 }
 

@@ -40,6 +40,9 @@ private:
     juce::Label channelLabel { {}, "Input Channel:" };
     juce::ComboBox channelSelector;
 
+    juce::Label countInLabel { {}, "Count-In:" };
+    juce::ComboBox countInSelector;
+
     juce::Label nameLabel { {}, "Sample Name:" };
     juce::TextEditor nameEditor;
 
@@ -53,6 +56,11 @@ private:
     float currentRightLevel { 0.0f };
     float smoothLeftLevel { 0.0f };
     float smoothRightLevel { 0.0f };
+
+    bool isCountingDown { false };
+    int countdownValue { 3 };
+    uint32_t lastBeatMs { 0 };
+    float flashAlpha { 0.0f };
 
     juce::File lastSavedFile;
     bool hasRecordedBuffer { false };
