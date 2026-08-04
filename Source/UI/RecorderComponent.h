@@ -37,6 +37,9 @@ private:
     juce::TextButton previewButton { "Preview" };
     juce::TextButton saveButton { "Save & Add to Library" };
 
+    juce::Label channelLabel { {}, "Input Channel:" };
+    juce::ComboBox channelSelector;
+
     juce::Label nameLabel { {}, "Sample Name:" };
     juce::TextEditor nameEditor;
 

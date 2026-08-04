@@ -21,6 +21,26 @@ RecorderComponent::RecorderComponent(AudioEngine& engine, TagDatabaseManager& db
     saveButton.setEnabled(false);
     addAndMakeVisible(saveButton);
 
+    // Input Channel Selector
+    channelLabel.setFont(juce::Font(12.0f).boldened());
+    channelLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::textSecondary);
+    addAndMakeVisible(channelLabel);
+
+    channelSelector.addItem("Stereo (Ch 1+2)", 1);
+    channelSelector.addItem("Mono - Input 1 (Left)", 2);
+    channelSelector.addItem("Mono - Input 2 (Right)", 3);
+    channelSelector.setSelectedId(1, juce::dontSendNotification);
+    channelSelector.onChange = [this] {
+        int id = channelSelector.getSelectedId();
+        if (id == 2)
+            audioEngine.setRecordingChannelMode(AudioEngine::RecordingChannelMode::MonoLeft);
+        else if (id == 3)
+            audioEngine.setRecordingChannelMode(AudioEngine::RecordingChannelMode::MonoRight);
+        else
+            audioEngine.setRecordingChannelMode(AudioEngine::RecordingChannelMode::Stereo);
+    };
+    addAndMakeVisible(channelSelector);
+
     // Name Label & Editor
     nameLabel.setFont(juce::Font(12.0f).boldened());
     nameLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::textSecondary);
@@ -187,24 +207,28 @@ void RecorderComponent::resized()
     // Form Controls Row (Sample Name, Tags, Buttons)
     auto formRow = area.removeFromTop(34);
 
-    recordButton.setBounds(formRow.removeFromLeft(110));
-    formRow.removeFromLeft(12);
-
-    timeLabel.setBounds(formRow.removeFromLeft(120));
-    formRow.removeFromLeft(16);
-
-    nameLabel.setBounds(formRow.removeFromLeft(90));
-    nameEditor.setBounds(formRow.removeFromLeft(180));
-    formRow.removeFromLeft(16);
-
-    tagsLabel.setBounds(formRow.removeFromLeft(140));
-    tagsEditor.setBounds(formRow.removeFromLeft(200));
-    formRow.removeFromLeft(16);
-
-    saveButton.setBounds(formRow.removeFromLeft(160));
+    recordButton.setBounds(formRow.removeFromLeft(100));
     formRow.removeFromLeft(10);
 
-    previewButton.setBounds(formRow.removeFromLeft(90));
+    timeLabel.setBounds(formRow.removeFromLeft(110));
+    formRow.removeFromLeft(12);
+
+    channelLabel.setBounds(formRow.removeFromLeft(95));
+    channelSelector.setBounds(formRow.removeFromLeft(155));
+    formRow.removeFromLeft(14);
+
+    nameLabel.setBounds(formRow.removeFromLeft(90));
+    nameEditor.setBounds(formRow.removeFromLeft(160));
+    formRow.removeFromLeft(14);
+
+    tagsLabel.setBounds(formRow.removeFromLeft(130));
+    tagsEditor.setBounds(formRow.removeFromLeft(160));
+    formRow.removeFromLeft(14);
+
+    saveButton.setBounds(formRow.removeFromLeft(150));
+    formRow.removeFromLeft(10);
+
+    previewButton.setBounds(formRow.removeFromLeft(80));
 
     statusLabel.setBounds(area.removeFromTop(24));
 }

@@ -95,10 +95,19 @@ public:
     juce::AudioFormatManager& getFormatManager() { return formatManager; }
     const juce::File& getCurrentFile() const { return currentFile; }
 
+    enum class RecordingChannelMode
+    {
+        Stereo,
+        MonoLeft,
+        MonoRight
+    };
+
     // Audio Recording Subsystem
     void startRecording();
     void stopRecording();
     bool isRecording() const { return recordingActive.load(); }
+    void setRecordingChannelMode(RecordingChannelMode mode) { channelMode.store(mode); }
+    RecordingChannelMode getRecordingChannelMode() const { return channelMode.load(); }
     double getRecordingDurationSeconds() const;
     void getLiveInputLevels(float& leftLevel, float& rightLevel) const;
     bool getRecordedBufferCopy(juce::AudioBuffer<float>& destBuffer, double& sampleRate) const;
@@ -136,6 +145,7 @@ private:
 
     // Live Recording State
     std::atomic<bool> recordingActive { false };
+    std::atomic<RecordingChannelMode> channelMode { RecordingChannelMode::Stereo };
     mutable juce::CriticalSection recordingLock;
     juce::AudioBuffer<float> recordingBuffer;
     int recordingWritePosition { 0 };

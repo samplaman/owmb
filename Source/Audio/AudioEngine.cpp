@@ -112,35 +112,47 @@ void AudioEngine::processNextAudioBlock(juce::AudioBuffer<float>& outputBuffer, 
         if (recordingActive.load())
         {
             const juce::ScopedLock sl(recordingLock);
+            auto mode = channelMode.load();
             int spaceLeft = recordingBuffer.getNumSamples() - recordingWritePosition;
             int toWrite = std::min(numSamples, spaceLeft);
-            if (toWrite > 0)
-            {
-                for (int ch = 0; ch < recordingBuffer.getNumChannels(); ++ch)
-                {
-                    int srcCh = std::min(ch, inChannels - 1);
-                    recordingBuffer.copyFrom(ch, recordingWritePosition, outputBuffer, srcCh, 0, toWrite);
-                }
-                recordingWritePosition += toWrite;
-            }
-            else
+            if (toWrite <= 0)
             {
                 int currentLen = recordingBuffer.getNumSamples();
                 int addChunk = static_cast<int>(engineSampleRate * 30.0); // add 30s
                 if (currentLen + addChunk <= static_cast<int>(engineSampleRate * 600.0)) // Max 10 min
                 {
                     recordingBuffer.setSize(2, currentLen + addChunk, true, true, false);
-                    for (int ch = 0; ch < recordingBuffer.getNumChannels(); ++ch)
-                    {
-                        int srcCh = std::min(ch, inChannels - 1);
-                        recordingBuffer.copyFrom(ch, recordingWritePosition, outputBuffer, srcCh, 0, numSamples);
-                    }
-                    recordingWritePosition += numSamples;
+                    spaceLeft = recordingBuffer.getNumSamples() - recordingWritePosition;
+                    toWrite = std::min(numSamples, spaceLeft);
                 }
                 else
                 {
                     recordingActive.store(false);
                 }
+            }
+
+            if (toWrite > 0 && recordingActive.load())
+            {
+                if (mode == RecordingChannelMode::MonoLeft)
+                {
+                    recordingBuffer.copyFrom(0, recordingWritePosition, outputBuffer, 0, 0, toWrite);
+                    recordingBuffer.copyFrom(1, recordingWritePosition, outputBuffer, 0, 0, toWrite);
+                }
+                else if (mode == RecordingChannelMode::MonoRight)
+                {
+                    int srcCh = std::min(1, inChannels - 1);
+                    recordingBuffer.copyFrom(0, recordingWritePosition, outputBuffer, srcCh, 0, toWrite);
+                    recordingBuffer.copyFrom(1, recordingWritePosition, outputBuffer, srcCh, 0, toWrite);
+                }
+                else // Stereo
+                {
+                    for (int ch = 0; ch < recordingBuffer.getNumChannels(); ++ch)
+                    {
+                        int srcCh = std::min(ch, inChannels - 1);
+                        recordingBuffer.copyFrom(ch, recordingWritePosition, outputBuffer, srcCh, 0, toWrite);
+                    }
+                }
+                recordingWritePosition += toWrite;
             }
         }
     }
