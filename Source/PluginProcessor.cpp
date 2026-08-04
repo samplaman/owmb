@@ -6,6 +6,7 @@ namespace openwav
 
 OpenWavAudioProcessor::OpenWavAudioProcessor()
     : AudioProcessor(BusesProperties()
+                     .withInput("Input", juce::AudioChannelSet::stereo(), true)
                      .withOutput("Output", juce::AudioChannelSet::stereo(), true))
 {
 }
@@ -30,16 +31,17 @@ bool OpenWavAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts) c
         && layouts.getMainOutputChannelSet() != juce::AudioChannelSet::stereo())
         return false;
 
+    if (layouts.getMainInputChannelSet() != juce::AudioChannelSet::disabled()
+        && layouts.getMainInputChannelSet() != juce::AudioChannelSet::mono()
+        && layouts.getMainInputChannelSet() != juce::AudioChannelSet::stereo())
+        return false;
+
     return true;
 }
 
 void OpenWavAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
 {
     juce::ScopedNoDenormals noDenormals;
-    auto totalNumOutputChannels = getTotalNumOutputChannels();
-
-    for (auto i = 0; i < totalNumOutputChannels; ++i)
-        buffer.clear(i, 0, buffer.getNumSamples());
 
     double hostBpm = 120.0;
     if (auto* playHead = getPlayHead())

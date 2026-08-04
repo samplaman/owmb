@@ -252,9 +252,23 @@ void RecorderComponent::timerCallback()
     float rawL = 0.0f, rawR = 0.0f;
     audioEngine.getLiveInputLevels(rawL, rawR);
 
-    // Smooth VU meter movement
-    smoothLeftLevel += (rawL - smoothLeftLevel) * 0.35f;
-    smoothRightLevel += (rawR - smoothRightLevel) * 0.35f;
+    // Convert linear peak amplitude (0.0 to 1.0) to responsive dB meter scale (-50dB to 0dB -> 0.0 to 1.0)
+    float dbL = (rawL > 0.001f) ? juce::Decibels::gainToDecibels(rawL, -50.0f) : -50.0f;
+    float dbR = (rawR > 0.001f) ? juce::Decibels::gainToDecibels(rawR, -50.0f) : -50.0f;
+
+    float normL = juce::jlimit(0.0f, 1.0f, (dbL + 50.0f) / 50.0f);
+    float normR = juce::jlimit(0.0f, 1.0f, (dbR + 50.0f) / 50.0f);
+
+    // Smooth VU meter response (fast attack, smooth decay)
+    if (normL > smoothLeftLevel)
+        smoothLeftLevel = normL;
+    else
+        smoothLeftLevel += (normL - smoothLeftLevel) * 0.25f;
+
+    if (normR > smoothRightLevel)
+        smoothRightLevel = normR;
+    else
+        smoothRightLevel += (normR - smoothRightLevel) * 0.25f;
 
     if (audioEngine.isRecording())
     {
