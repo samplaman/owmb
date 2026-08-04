@@ -95,6 +95,15 @@ public:
     juce::AudioFormatManager& getFormatManager() { return formatManager; }
     const juce::File& getCurrentFile() const { return currentFile; }
 
+    // Audio Recording Subsystem
+    void startRecording();
+    void stopRecording();
+    bool isRecording() const { return recordingActive.load(); }
+    double getRecordingDurationSeconds() const;
+    void getLiveInputLevels(float& leftLevel, float& rightLevel) const;
+    bool getRecordedBufferCopy(juce::AudioBuffer<float>& destBuffer, double& sampleRate) const;
+    juce::File saveRecordingToWav(const juce::String& baseFileName);
+
     void addListener(AudioEngineListener* listener);
     void removeListener(AudioEngineListener* listener);
 
@@ -124,6 +133,14 @@ private:
 
     std::atomic<double> sampleBpm { 0.0 };
     std::atomic<double> hostBpm { 120.0 };
+
+    // Live Recording State
+    std::atomic<bool> recordingActive { false };
+    mutable juce::CriticalSection recordingLock;
+    juce::AudioBuffer<float> recordingBuffer;
+    int recordingWritePosition { 0 };
+    std::atomic<float> liveInputLeft { 0.0f };
+    std::atomic<float> liveInputRight { 0.0f };
 
     double sampleStartRatio { 0.0 };
     double sampleEndRatio { 1.0 };

@@ -22,6 +22,7 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(OpenWavAudioProcessor& 
       sampleTable(p.getDatabaseManager(), p.getAudioEngine()),
       sampleCloud(p.getDatabaseManager(), p.getAudioEngine()),
       librariesComponent(p.getDatabaseManager(), p.getLibraryScanner(), p.getAudioEngine()),
+      recorderComponent(p.getAudioEngine(), p.getDatabaseManager()),
       waveformTransport(p.getAudioEngine())
 {
     bool isDark = audioProcessor.getDatabaseManager().isDarkMode();
@@ -41,6 +42,7 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(OpenWavAudioProcessor& 
     addAndMakeVisible(sampleTable);
     addChildComponent(sampleCloud);
     addChildComponent(librariesComponent);
+    addChildComponent(recorderComponent);
     addAndMakeVisible(waveformTransport);
 
     setResizable(true, true);
@@ -88,6 +90,7 @@ void OpenWavAudioProcessorEditor::resized()
     {
         sampleTable.setVisible(false);
         librariesComponent.setVisible(false);
+        recorderComponent.setVisible(false);
         sampleCloud.setVisible(true);
         sampleCloud.setBounds(area);
     }
@@ -95,13 +98,23 @@ void OpenWavAudioProcessorEditor::resized()
     {
         sampleTable.setVisible(false);
         sampleCloud.setVisible(false);
+        recorderComponent.setVisible(false);
         librariesComponent.setVisible(true);
         librariesComponent.setBounds(area);
+    }
+    else if (mode == ViewMode::Record)
+    {
+        sampleTable.setVisible(false);
+        sampleCloud.setVisible(false);
+        librariesComponent.setVisible(false);
+        recorderComponent.setVisible(true);
+        recorderComponent.setBounds(area);
     }
     else // ViewMode::List
     {
         sampleCloud.setVisible(false);
         librariesComponent.setVisible(false);
+        recorderComponent.setVisible(false);
         sampleTable.setVisible(true);
         sampleTable.setBounds(area);
     }
@@ -298,9 +311,9 @@ void OpenWavAudioProcessorEditor::filesDropped(const juce::StringArray& files, i
 void OpenWavAudioProcessorEditor::viewModeChanged(ViewMode mode)
 {
     resized();
-    if (mode == ViewMode::Cloud)
+    if (mode == ViewMode::Cloud || mode == ViewMode::List)
     {
-        sampleCloud.setItems(sampleTable.getDisplayedItems());
+        triggerFilterUpdate();
     }
 }
 

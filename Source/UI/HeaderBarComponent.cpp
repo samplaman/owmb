@@ -60,13 +60,15 @@ HeaderBarComponent::HeaderBarComponent(TagDatabaseManager& db, LibraryScanner& s
 
     btnAll.setToggleState(true, juce::dontSendNotification);
 
-    // View Switcher (List vs Cloud vs Librarys)
+    // View Switcher (List vs Cloud vs Library vs Record)
     btnListView.onClick = [this] { setViewMode(ViewMode::List); };
     btnCloudView.onClick = [this] { setViewMode(ViewMode::Cloud); };
     btnLibrariesView.onClick = [this] { setViewMode(ViewMode::Libraries); };
+    btnRecordView.onClick = [this] { setViewMode(ViewMode::Record); };
     addAndMakeVisible(btnListView);
     addAndMakeVisible(btnCloudView);
     addAndMakeVisible(btnLibrariesView);
+    addAndMakeVisible(btnRecordView);
     btnListView.setToggleState(true, juce::dontSendNotification);
 
     // Status Label
@@ -133,12 +135,14 @@ void HeaderBarComponent::resized()
 
     area.removeFromLeft(16);
 
-    // View Mode Toggle (List / Cloud / Library)
-    btnListView.setBounds(area.removeFromLeft(65).withHeight(btnHeight));
+    // View Mode Toggle (List / Cloud / Library / Record)
+    btnListView.setBounds(area.removeFromLeft(60).withHeight(btnHeight));
     area.removeFromLeft(gap);
-    btnCloudView.setBounds(area.removeFromLeft(75).withHeight(btnHeight));
+    btnCloudView.setBounds(area.removeFromLeft(68).withHeight(btnHeight));
     area.removeFromLeft(gap);
-    btnLibrariesView.setBounds(area.removeFromLeft(85).withHeight(btnHeight));
+    btnLibrariesView.setBounds(area.removeFromLeft(78).withHeight(btnHeight));
+    area.removeFromLeft(gap);
+    btnRecordView.setBounds(area.removeFromLeft(82).withHeight(btnHeight));
 
     area.removeFromLeft(16);
 
@@ -216,6 +220,7 @@ void HeaderBarComponent::setViewMode(ViewMode mode)
     btnListView.setToggleState(mode == ViewMode::List, juce::dontSendNotification);
     btnCloudView.setToggleState(mode == ViewMode::Cloud, juce::dontSendNotification);
     btnLibrariesView.setToggleState(mode == ViewMode::Libraries, juce::dontSendNotification);
+    btnRecordView.setToggleState(mode == ViewMode::Record, juce::dontSendNotification);
 
     listeners.call([mode](HeaderBarListener& l) {
         l.viewModeChanged(mode);

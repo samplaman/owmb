@@ -79,6 +79,8 @@ target_sources(OpenWav PRIVATE
     Source/UI/LibrariesComponent.cpp
     Source/UI/WaveformTransportComponent.h
     Source/UI/WaveformTransportComponent.cpp
+    Source/UI/RecorderComponent.h
+    Source/UI/RecorderComponent.cpp
     Source/PluginProcessor.h
     Source/PluginProcessor.cpp
     Source/PluginEditor.h

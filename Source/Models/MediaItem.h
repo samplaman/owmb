@@ -29,12 +29,38 @@ struct MediaItem
     std::set<juce::String> tags;     // Active tags (e.g. "Kick", "120BPM", "Loop", "Wav")
     int64_t dateAddedMs { 0 };       // Timestamp when added to index
     juce::String comment;            // User custom comment/notes
+    double zcr { 0.0 };              // Zero crossing rate
+    double highFreqRatio { 0.0 };    // High frequency ratio
+    double decayRatio { 0.0 };       // Decay ratio
+    double crestFactor { 0.0 };      // Crest factor
 
-    // DSP similarity features
-    double zcr { 0.0 };
-    double highFreqRatio { 0.0 };
-    double decayRatio { 0.0 };
-    double crestFactor { 0.0 };
+    // Pre-computed cached strings for high-performance zero-allocation UI paint & search
+    juce::String cachedFormattedDuration;
+    juce::String cachedFormattedSampleRate;
+    juce::String cachedUppercaseExtension;
+    juce::String cachedStarRating;
+    juce::String cachedLowerFileName;
+    juce::String cachedLowerFilePath;
+
+    void precomputeCachedStrings()
+    {
+        int mins = static_cast<int>(durationSeconds) / 60;
+        int secs = static_cast<int>(durationSeconds) % 60;
+        int ms = static_cast<int>((durationSeconds - static_cast<int>(durationSeconds)) * 10.0);
+        cachedFormattedDuration = juce::String::formatted("%d:%02d.%d", mins, secs, ms);
+
+        cachedFormattedSampleRate = juce::String(sampleRate / 1000.0, 1) + " kHz";
+        if (bitDepth > 0) cachedFormattedSampleRate += " / " + juce::String(bitDepth) + "b";
+
+        cachedUppercaseExtension = fileExtension.toUpperCase();
+
+        cachedStarRating.clear();
+        for (int s = 0; s < rating; ++s) cachedStarRating += juce::String::fromUTF8("\xe2\x98\x85");
+        for (int s = rating; s < 5; ++s) cachedStarRating += juce::String::fromUTF8("\xe2\x98\x86");
+
+        cachedLowerFileName = fileName.toLowerCase();
+        cachedLowerFilePath = filePath.toLowerCase();
+    }
 
     juce::var toVar() const
     {
@@ -105,6 +131,7 @@ struct MediaItem
             }
         }
 
+        item.precomputeCachedStrings();
         return item;
     }
 };

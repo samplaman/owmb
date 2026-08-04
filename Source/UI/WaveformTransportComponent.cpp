@@ -311,7 +311,6 @@ void WaveformTransportComponent::paint(juce::Graphics& g)
         auto waveformRect = trackBounds.reduced(8.0f, 8.0f);
         float totalWidth = waveformRect.getWidth();
 
-        // 1. Draw detailed waveform per pixel column
         int numPixels = static_cast<int>(totalWidth);
         float startX = waveformRect.getX();
 
@@ -328,15 +327,21 @@ void WaveformTransportComponent::paint(juce::Graphics& g)
         int numChannels = audioEngine.getNumChannels();
         if (numChannels <= 0)
             numChannels = thumbnail.getNumChannels();
-        float halfHeight = (waveformRect.getHeight() - 6.0f) * 0.5f;
+
+        float halfHeight = (waveformRect.getHeight() - 4.0f) * 0.5f;
         float centerY = waveformRect.getCentreY();
 
-        auto peaks = audioEngine.getWaveformPeaks();
-        int numPeakPoints = peaks.numPoints;
+        // Baseline zero line
+        g.setColour(OpenWavLookAndFeel::borderColour.withAlpha(0.3f));
+        g.drawHorizontalLine(static_cast<int>(centerY), waveformRect.getX(), waveformRect.getRight());
+
+        // Zero-lock peak snapshot retrieval
+        const auto peaks = audioEngine.getWaveformPeaks();
+        const int numPeakPoints = peaks.numPoints;
 
         for (int x = 0; x < numPixels; ++x)
         {
-            float pixelX = startX + x;
+            float pixelX = startX + static_cast<float>(x);
             double startRatioCol = static_cast<double>(x) / static_cast<double>(numPixels);
             double endRatioCol = static_cast<double>(x + 1) / static_cast<double>(numPixels);
 
@@ -345,64 +350,44 @@ void WaveformTransportComponent::paint(juce::Graphics& g)
 
             if (numPeakPoints > 0)
             {
-                int pIdx = juce::jlimit(0, numPeakPoints - 1, static_cast<int>(startRatioCol * numPeakPoints));
-                lMin = peaks.minLeft[static_cast<size_t>(pIdx)];
-                lMax = peaks.maxLeft[static_cast<size_t>(pIdx)];
-                rMin = peaks.minRight[static_cast<size_t>(pIdx)];
-                rMax = peaks.maxRight[static_cast<size_t>(pIdx)];
-            }
-            else
-            {
-                audioEngine.getMinMaxForRatioRange(startRatioCol, startRatioCol + (1.0 / numPixels), lMin, lMax, 0);
-                if (numChannels >= 2)
-                    audioEngine.getMinMaxForRatioRange(startRatioCol, startRatioCol + (1.0 / numPixels), rMin, rMax, 1);
-                else
+                int pStart = juce::jlimit(0, numPeakPoints - 1, static_cast<int>(startRatioCol * numPeakPoints));
+                int pEnd = juce::jlimit(pStart + 1, numPeakPoints, static_cast<int>(endRatioCol * numPeakPoints));
+
+                for (int p = pStart; p < pEnd; ++p)
                 {
-                    rMin = lMin;
-                    rMax = lMax;
+                    if (peaks.minLeft[static_cast<size_t>(p)] < lMin) lMin = peaks.minLeft[static_cast<size_t>(p)];
+                    if (peaks.maxLeft[static_cast<size_t>(p)] > lMax) lMax = peaks.maxLeft[static_cast<size_t>(p)];
+                    if (peaks.minRight[static_cast<size_t>(p)] < rMin) rMin = peaks.minRight[static_cast<size_t>(p)];
+                    if (peaks.maxRight[static_cast<size_t>(p)] > rMax) rMax = peaks.maxRight[static_cast<size_t>(p)];
                 }
             }
-
-            if (lMin == 0.0f && lMax == 0.0f && numChannels > 0)
+            else if (numChannels > 0)
             {
                 double unscaledDuration = thumbnail.getTotalLength();
-                double startTime = startRatioCol * unscaledDuration;
-                double endTime = endRatioCol * unscaledDuration;
-                thumbnail.getApproximateMinMax(startTime, endTime, 0, lMin, lMax);
-                if (numChannels >= 2)
-                    thumbnail.getApproximateMinMax(startTime, endTime, 1, rMin, rMax);
-                else
+                if (unscaledDuration > 0.0)
                 {
-                    rMin = lMin;
-                    rMax = lMax;
+                    double startTime = startRatioCol * unscaledDuration;
+                    double endTime = endRatioCol * unscaledDuration;
+                    thumbnail.getApproximateMinMax(startTime, endTime, 0, lMin, lMax);
+                    if (numChannels >= 2)
+                        thumbnail.getApproximateMinMax(startTime, endTime, 1, rMin, rMax);
+                    else
+                    {
+                        rMin = lMin;
+                        rMax = lMax;
+                    }
                 }
             }
 
-            auto boostPeak = [](float& minVal, float& maxVal) {
-                float peak = std::max(std::abs(minVal), std::abs(maxVal));
-                if (peak > 0.0001f)
-                {
-                    float boost = std::pow(peak, 0.65f) / peak;
-                    minVal *= boost;
-                    maxVal *= boost;
-                }
-                else
-                {
-                    minVal = -0.05f;
-                    maxVal = 0.05f;
-                }
-                minVal = juce::jlimit(-1.0f, 0.0f, minVal);
-                maxVal = juce::jlimit(0.0f, 1.0f, maxVal);
-            };
+            // High-precision linear peak dynamic height calculation
+            float lAbs = std::max(std::abs(lMin), std::abs(lMax));
+            float rAbs = std::max(std::abs(rMin), std::abs(rMax));
 
-            boostPeak(lMin, lMax);
-            boostPeak(rMin, rMax);
+            float lHeight = (lAbs > 0.001f) ? std::max(1.0f, lAbs * halfHeight) : (lMax == 0.0f && lMin == 0.0f ? 0.0f : 1.0f);
+            float rHeight = (rAbs > 0.001f) ? std::max(1.0f, rAbs * halfHeight) : (rMax == 0.0f && rMin == 0.0f ? 0.0f : 1.0f);
 
-            float lHeight = std::max(1.5f, lMax * halfHeight);
-            float lTopY = centerY - lHeight - 1.0f;
-
-            float rHeight = std::max(1.5f, std::abs(rMin) * halfHeight);
-            float rBottomY = centerY + 1.0f + rHeight;
+            float lTopY = centerY - lHeight;
+            float rBottomY = centerY + rHeight;
 
             bool inSelection = (pixelX >= selStartX && pixelX <= selEndX);
             bool isPlayed = (pixelX <= playheadX);
@@ -412,19 +397,21 @@ void WaveformTransportComponent::paint(juce::Graphics& g)
                 if (isPlayed)
                     g.setColour(OpenWavLookAndFeel::accentCyan);
                 else
-                    g.setColour(OpenWavLookAndFeel::textPrimary.withAlpha(0.65f));
+                    g.setColour(OpenWavLookAndFeel::textPrimary.withAlpha(0.85f));
             }
             else
             {
-                g.setColour(OpenWavLookAndFeel::textSecondary.withAlpha(0.20f));
+                g.setColour(OpenWavLookAndFeel::textSecondary.withAlpha(0.22f));
             }
 
-            g.drawVerticalLine(static_cast<int>(pixelX), lTopY, centerY - 1.0f);
-            g.drawVerticalLine(static_cast<int>(pixelX), centerY + 1.0f, rBottomY);
+            if (lHeight > 0.0f)
+                g.fillRect(juce::Rectangle<float>(pixelX, lTopY, 1.0f, std::max(1.0f, centerY - lTopY)));
+            if (rHeight > 0.0f)
+                g.fillRect(juce::Rectangle<float>(pixelX, centerY, 1.0f, std::max(1.0f, rBottomY - centerY)));
         }
 
         // Draw darker overlay for the non-selected sections
-        g.setColour(juce::Colours::black.withAlpha(0.35f));
+        g.setColour(juce::Colours::black.withAlpha(0.40f));
         if (selStartX > waveformRect.getX())
         {
             g.fillRect(waveformRect.getX(), waveformRect.getY(), selStartX - waveformRect.getX(), waveformRect.getHeight());
@@ -434,33 +421,33 @@ void WaveformTransportComponent::paint(juce::Graphics& g)
             g.fillRect(selEndX, waveformRect.getY(), waveformRect.getRight() - selEndX, waveformRect.getHeight());
         }
 
-        // Draw Selection Range Boundary Handles & Top Tabs
+        // Draw Selection Range Boundary Handles & Lines
         g.setColour(OpenWavLookAndFeel::accentCyan);
 
-        // Start handle line
+        // Start handle line & top badge
         g.drawVerticalLine(static_cast<int>(selStartX), waveformRect.getY(), waveformRect.getBottom());
-        g.fillRoundedRectangle(selStartX - 4.0f, waveformRect.getY() - 4.0f, 8.0f, 8.0f, 2.0f);
+        g.fillRoundedRectangle(selStartX - 4.0f, waveformRect.getY() - 2.0f, 8.0f, 8.0f, 2.0f);
 
-        // Draw End handle line
+        // End handle line & top badge
         g.drawVerticalLine(static_cast<int>(selEndX), waveformRect.getY(), waveformRect.getBottom());
-        g.fillRoundedRectangle(selEndX - 4.0f, waveformRect.getY() - 4.0f, 8.0f, 8.0f, 2.0f);
+        g.fillRoundedRectangle(selEndX - 4.0f, waveformRect.getY() - 2.0f, 8.0f, 8.0f, 2.0f);
 
         // Draw slice divider lines on main waveform
         for (size_t i = 1; i < sliceRatios.size(); ++i)
         {
             float sliceStartX = waveformRect.getX() + totalWidth * sliceRatios[i];
-            g.setColour(OpenWavLookAndFeel::borderColour.withAlpha(0.6f));
+            g.setColour(OpenWavLookAndFeel::borderColour.withAlpha(0.7f));
             float dashLengths[] = { 4.0f, 4.0f };
             g.drawDashedLine(juce::Line<float>(sliceStartX, waveformRect.getY(), sliceStartX, waveformRect.getBottom()), dashLengths, 2, 1.0f);
         }
 
-        // Draw Playhead Line & Playhead Knob
-        g.setColour(OpenWavLookAndFeel::accentCyan.brighter(0.4f));
-        g.drawLine(playheadX, trackBounds.getY() + 3.0f, playheadX, trackBounds.getBottom() - 3.0f, 2.0f);
+        // Draw Playhead Line & Glowing Playhead Knob
+        g.setColour(OpenWavLookAndFeel::accentCyan.brighter(0.5f));
+        g.drawLine(playheadX, trackBounds.getY() + 2.0f, playheadX, trackBounds.getBottom() - 2.0f, 2.0f);
         g.setColour(juce::Colours::white);
         g.fillEllipse(playheadX - 6.0f, trackBounds.getCentreY() - 6.0f, 12.0f, 12.0f);
         g.setColour(OpenWavLookAndFeel::accentCyan);
-        g.drawEllipse(playheadX - 6.0f, trackBounds.getCentreY() - 6.0f, 12.0f, 12.0f, 1.0f);
+        g.drawEllipse(playheadX - 6.0f, trackBounds.getCentreY() - 6.0f, 12.0f, 12.0f, 1.5f);
     }
     else
     {

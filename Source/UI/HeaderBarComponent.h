@@ -15,7 +15,8 @@ enum class ViewMode
 {
     List,
     Cloud,
-    Libraries
+    Libraries,
+    Record
 };
 
 class HeaderBarListener
@@ -86,6 +87,7 @@ private:
     juce::TextButton btnListView { "List" };
     juce::TextButton btnCloudView { "Cloud" };
     juce::TextButton btnLibrariesView { "Library" };
+    juce::TextButton btnRecordView { "Record" };
 
     juce::Label statusLabel;
     double scanProgressValue { 0.0 };

@@ -13,6 +13,7 @@
 #include "UI/SampleCloudComponent.h"
 #include "UI/LibrariesComponent.h"
 #include "UI/WaveformTransportComponent.h"
+#include "UI/RecorderComponent.h"
 
 namespace openwav
 {
@@ -73,6 +74,7 @@ private:
     SampleTableComponent sampleTable;
     SampleCloudComponent sampleCloud;
     LibrariesComponent librariesComponent;
+    RecorderComponent recorderComponent;
     WaveformTransportComponent waveformTransport;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(OpenWavAudioProcessorEditor)

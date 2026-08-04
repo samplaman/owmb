@@ -99,7 +99,51 @@ void AudioEngine::processNextAudioBlock(juce::AudioBuffer<float>& outputBuffer, 
         }
     }
 
-    midiMessages.clear();
+    // Capture live incoming audio levels and recording data before clearing buffer
+    int inChannels = outputBuffer.getNumChannels();
+    int numSamples = outputBuffer.getNumSamples();
+    if (inChannels > 0 && numSamples > 0)
+    {
+        float maxL = outputBuffer.getMagnitude(0, 0, numSamples);
+        float maxR = (inChannels >= 2) ? outputBuffer.getMagnitude(1, 0, numSamples) : maxL;
+        liveInputLeft.store(maxL);
+        liveInputRight.store(maxR);
+
+        if (recordingActive.load())
+        {
+            const juce::ScopedLock sl(recordingLock);
+            int spaceLeft = recordingBuffer.getNumSamples() - recordingWritePosition;
+            int toWrite = std::min(numSamples, spaceLeft);
+            if (toWrite > 0)
+            {
+                for (int ch = 0; ch < recordingBuffer.getNumChannels(); ++ch)
+                {
+                    int srcCh = std::min(ch, inChannels - 1);
+                    recordingBuffer.copyFrom(ch, recordingWritePosition, outputBuffer, srcCh, 0, toWrite);
+                }
+                recordingWritePosition += toWrite;
+            }
+            else
+            {
+                int currentLen = recordingBuffer.getNumSamples();
+                int addChunk = static_cast<int>(engineSampleRate * 30.0); // add 30s
+                if (currentLen + addChunk <= static_cast<int>(engineSampleRate * 600.0)) // Max 10 min
+                {
+                    recordingBuffer.setSize(2, currentLen + addChunk, true, true, false);
+                    for (int ch = 0; ch < recordingBuffer.getNumChannels(); ++ch)
+                    {
+                        int srcCh = std::min(ch, inChannels - 1);
+                        recordingBuffer.copyFrom(ch, recordingWritePosition, outputBuffer, srcCh, 0, numSamples);
+                    }
+                    recordingWritePosition += numSamples;
+                }
+                else
+                {
+                    recordingActive.store(false);
+                }
+            }
+        }
+    }
 
     outputBuffer.clear();
 
@@ -107,7 +151,6 @@ void AudioEngine::processNextAudioBlock(juce::AudioBuffer<float>& outputBuffer, 
     if (activeVoices.empty())
         return;
 
-    int numSamples = outputBuffer.getNumSamples();
     int outChannels = outputBuffer.getNumChannels();
 
     for (auto it = activeVoices.begin(); it != activeVoices.end(); )
@@ -285,16 +328,16 @@ bool AudioEngine::loadFile(const juce::File& audioFile, bool autoPlay)
         // Precompute waveform peaks for fast, zero-lock UI rendering
         WaveformPeaks peaks;
         peaks.numChannels = numChannels;
-        peaks.numPoints = 512;
-        peaks.minLeft.resize(512, 0.0f);
-        peaks.maxLeft.resize(512, 0.0f);
-        peaks.minRight.resize(512, 0.0f);
-        peaks.maxRight.resize(512, 0.0f);
+        peaks.numPoints = 2048;
+        peaks.minLeft.resize(2048, 0.0f);
+        peaks.maxLeft.resize(2048, 0.0f);
+        peaks.minRight.resize(2048, 0.0f);
+        peaks.maxRight.resize(2048, 0.0f);
 
-        for (int p = 0; p < 512; ++p)
+        for (int p = 0; p < 2048; ++p)
         {
-            int sStart = static_cast<int>((static_cast<double>(p) / 512.0) * numSamples);
-            int sEnd = static_cast<int>((static_cast<double>(p + 1) / 512.0) * numSamples);
+            int sStart = static_cast<int>((static_cast<double>(p) / 2048.0) * numSamples);
+            int sEnd = static_cast<int>((static_cast<double>(p + 1) / 2048.0) * numSamples);
             sEnd = juce::jlimit(sStart + 1, numSamples, sEnd);
             int numRead = sEnd - sStart;
 
@@ -707,6 +750,89 @@ void AudioEngine::updateVoiceRatios()
         }
         voice->ratio = newBaseRatio * midiFactor;
     }
+}
+
+void AudioEngine::startRecording()
+{
+    const juce::ScopedLock sl(recordingLock);
+    int initialAlloc = static_cast<int>(engineSampleRate * 60.0); // 60s initial buffer
+    recordingBuffer.setSize(2, initialAlloc, false, true, false);
+    recordingBuffer.clear();
+    recordingWritePosition = 0;
+    recordingActive.store(true);
+}
+
+void AudioEngine::stopRecording()
+{
+    recordingActive.store(false);
+}
+
+double AudioEngine::getRecordingDurationSeconds() const
+{
+    const juce::ScopedLock sl(recordingLock);
+    double sr = (engineSampleRate > 0.0) ? engineSampleRate : 44100.0;
+    return static_cast<double>(recordingWritePosition) / sr;
+}
+
+void AudioEngine::getLiveInputLevels(float& leftLevel, float& rightLevel) const
+{
+    leftLevel = liveInputLeft.load();
+    rightLevel = liveInputRight.load();
+}
+
+bool AudioEngine::getRecordedBufferCopy(juce::AudioBuffer<float>& destBuffer, double& sampleRate) const
+{
+    const juce::ScopedLock sl(recordingLock);
+    if (recordingWritePosition <= 0)
+        return false;
+
+    destBuffer.setSize(2, recordingWritePosition);
+    for (int ch = 0; ch < 2; ++ch)
+    {
+        destBuffer.copyFrom(ch, 0, recordingBuffer, ch, 0, recordingWritePosition);
+    }
+    sampleRate = engineSampleRate;
+    return true;
+}
+
+juce::File AudioEngine::saveRecordingToWav(const juce::String& baseFileName)
+{
+    juce::AudioBuffer<float> copyBuf;
+    double sr = engineSampleRate;
+    if (!getRecordedBufferCopy(copyBuf, sr) || copyBuf.getNumSamples() == 0)
+        return {};
+
+    juce::File recDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile("OWMB_Recordings");
+    recDir.createDirectory();
+
+    juce::String cleanName = juce::File::createLegalFileName(baseFileName);
+    if (cleanName.isEmpty())
+        cleanName = "Rec_" + juce::Time::getCurrentTime().formatted("%Y%m%d_%H%M%S");
+    if (!cleanName.endsWithIgnoreCase(".wav"))
+        cleanName += ".wav";
+
+    juce::File destFile = recDir.getChildFile(cleanName);
+    if (destFile.existsAsFile())
+        destFile.deleteFile();
+
+    juce::WavAudioFormat wavFormat;
+    std::unique_ptr<juce::AudioFormatWriter> writer(
+        wavFormat.createWriterFor(new juce::FileOutputStream(destFile),
+                                  sr,
+                                  copyBuf.getNumChannels(),
+                                  24, // 24-bit PCM WAV
+                                  {},
+                                  0)
+    );
+
+    if (writer != nullptr)
+    {
+        writer->writeFromAudioSampleBuffer(copyBuf, 0, copyBuf.getNumSamples());
+        writer.reset();
+        return destFile;
+    }
+
+    return {};
 }
 
 } // namespace openwav
