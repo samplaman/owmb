@@ -325,6 +325,8 @@ void OpenWavAudioProcessorEditor::parentHierarchyChanged()
     {
         if (auto* dw = findParentComponentOfClass<juce::DocumentWindow>())
         {
+            dw->setLookAndFeel(&lookAndFeel);
+            dw->sendLookAndFeelChange();
 #if __has_include(<BinaryData.h>)
             auto appIcon = juce::ImageFileFormat::loadFrom(BinaryData::owmbico_png, static_cast<size_t>(BinaryData::owmbico_pngSize));
             if (appIcon.isValid())

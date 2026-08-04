@@ -133,7 +133,16 @@ void OpenWavLookAndFeel::drawButtonBackground(
     fillColour = backgroundColour;
   }
 
-  if (button.getToggleState()) {
+  auto text = button.getButtonText().toLowerCase();
+  if (text.contains("mute")) {
+      if (button.getToggleState()) {
+          fillColour = favoriteRed.withAlpha(0.25f);
+      } else if (shouldDrawButtonAsHighlighted) {
+          fillColour = bgHover;
+      } else {
+          fillColour = bgCard;
+      }
+  } else if (button.getToggleState()) {
     fillColour = accentCyan.withAlpha(0.18f);
   } else if (shouldDrawButtonAsDown) {
     fillColour = accentBlue.withAlpha(0.35f);
@@ -144,7 +153,7 @@ void OpenWavLookAndFeel::drawButtonBackground(
   g.setColour(fillColour);
   g.fillRoundedRectangle(bounds, cornerRadius);
 
-  juce::Colour border = button.getToggleState() ? accentCyan : borderColour;
+  juce::Colour border = text.contains("mute") ? (button.getToggleState() ? favoriteRed : borderColour) : (button.getToggleState() ? accentCyan : borderColour);
   float stroke = button.getToggleState() ? 1.4f : 1.0f;
   g.setColour(border);
   g.drawRoundedRectangle(bounds, cornerRadius, stroke);
@@ -196,10 +205,12 @@ void OpenWavLookAndFeel::drawButtonText(juce::Graphics &g,
       svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M17 2.1l4 4-4 4\"/><path d=\"M3 12a9 9 0 0 1 15-6.7L21 8\"/><path d=\"M7 21.9l-4-4 4-4\"/><path d=\"M21 12a9 9 0 0 1-15 6.7l-3-2.7\"/></svg>";
   } else if (text == "Slice") {
       svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"6\" cy=\"6\" r=\"3\"/><circle cx=\"6\" cy=\"18\" r=\"3\"/><line x1=\"9.8\" y1=\"8.2\" x2=\"21\" y2=\"19.4\"/><line x1=\"9.8\" y1=\"15.8\" x2=\"21\" y2=\"4.6\"/></svg>";
+  } else if (text.containsIgnoreCase("mute")) {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M11 5L6 9H2v6h4l5 4V5z\"/><line x1=\"23\" y1=\"9\" x2=\"17\" y2=\"15\"/><line x1=\"17\" y1=\"9\" x2=\"23\" y2=\"15\"/></svg>";
   }
 
   g.setFont(juce::Font(11.5f).boldened());
-  juce::Colour textColour = button.getToggleState() ? accentCyan : textPrimary;
+  juce::Colour textColour = button.getButtonText().toLowerCase().contains("mute") ? (button.getToggleState() ? favoriteRed : textPrimary) : (button.getToggleState() ? accentCyan : textPrimary);
   g.setColour(textColour);
 
   if (svgString.isNotEmpty()) {
