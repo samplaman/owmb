@@ -22,6 +22,16 @@ public:
     virtual void sampleLoaded(const juce::String& filePath) = 0;
 };
 
+struct WaveformPeaks
+{
+    std::vector<float> minLeft;
+    std::vector<float> maxLeft;
+    std::vector<float> minRight;
+    std::vector<float> maxRight;
+    int numChannels { 0 };
+    int numPoints { 0 };
+};
+
 struct AudioVoice
 {
     juce::AudioBuffer<float> buffer;
@@ -62,6 +72,7 @@ public:
 
     void getMinMaxForTimeRange(double startTimeSecs, double endTimeSecs, float& minVal, float& maxVal, int channel = -1) const;
     void getMinMaxForRatioRange(double startRatio, double endRatio, float& minVal, float& maxVal, int channel = -1) const;
+    WaveformPeaks getWaveformPeaks() const;
 
     void setSampleRange(double startRatio, double endRatio);
     double getSampleStartRatio() const { return sampleStartRatio; }
@@ -100,6 +111,7 @@ private:
     juce::CriticalSection voiceLock;
     std::vector<std::shared_ptr<AudioVoice>> activeVoices;
     std::shared_ptr<AudioVoice> loadedVoice;
+    WaveformPeaks cachedWaveformPeaks;
     double engineSampleRate { 44100.0 };
     double currentFileSampleRate { 44100.0 };
     double stoppedPositionSecs { 0.0 };

@@ -331,6 +331,9 @@ void WaveformTransportComponent::paint(juce::Graphics& g)
         float halfHeight = (waveformRect.getHeight() - 6.0f) * 0.5f;
         float centerY = waveformRect.getCentreY();
 
+        auto peaks = audioEngine.getWaveformPeaks();
+        int numPeakPoints = peaks.numPoints;
+
         for (int x = 0; x < numPixels; ++x)
         {
             float pixelX = startX + x;
@@ -340,15 +343,24 @@ void WaveformTransportComponent::paint(juce::Graphics& g)
             float lMin = 0.0f, lMax = 0.0f;
             float rMin = 0.0f, rMax = 0.0f;
 
-            audioEngine.getMinMaxForRatioRange(startRatioCol, endRatioCol, lMin, lMax, 0);
-            if (numChannels >= 2)
+            if (numPeakPoints > 0)
             {
-                audioEngine.getMinMaxForRatioRange(startRatioCol, endRatioCol, rMin, rMax, 1);
+                int pIdx = juce::jlimit(0, numPeakPoints - 1, static_cast<int>(startRatioCol * numPeakPoints));
+                lMin = peaks.minLeft[static_cast<size_t>(pIdx)];
+                lMax = peaks.maxLeft[static_cast<size_t>(pIdx)];
+                rMin = peaks.minRight[static_cast<size_t>(pIdx)];
+                rMax = peaks.maxRight[static_cast<size_t>(pIdx)];
             }
             else
             {
-                rMin = lMin;
-                rMax = lMax;
+                audioEngine.getMinMaxForRatioRange(startRatioCol, startRatioCol + (1.0 / numPixels), lMin, lMax, 0);
+                if (numChannels >= 2)
+                    audioEngine.getMinMaxForRatioRange(startRatioCol, startRatioCol + (1.0 / numPixels), rMin, rMax, 1);
+                else
+                {
+                    rMin = lMin;
+                    rMax = lMax;
+                }
             }
 
             if (lMin == 0.0f && lMax == 0.0f && numChannels > 0)

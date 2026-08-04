@@ -446,20 +446,20 @@ void SampleTableComponent::cellClicked(int rowNumber, int columnId, const juce::
     }
 
     // If already selected, selectedRowsChanged won't trigger, so reload/play here.
-    // Otherwise table.selectRow below or click will trigger selectedRowsChanged.
+    // Otherwise table.selectRow below will trigger selectedRowsChanged.
     if (table.getSelectedRow() == rowNumber)
     {
         audioEngine.setSampleBpm(item.bpm);
         audioEngine.loadFile(juce::File(item.filePath), true);
+
+        listeners.call([item](SampleTableListener& l) {
+            l.sampleSelected(item);
+        });
     }
     else
     {
         table.selectRow(rowNumber);
     }
-
-    listeners.call([item](SampleTableListener& l) {
-        l.sampleSelected(item);
-    });
 }
 
 void SampleTableComponent::selectedRowsChanged(int lastRowSelected)

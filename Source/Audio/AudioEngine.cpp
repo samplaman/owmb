@@ -194,7 +194,7 @@ void AudioEngine::triggerNoteOn(int midiNoteNumber, float /*velocity*/)
     }
 
     auto voice = std::make_shared<AudioVoice>();
-    voice->buffer.makeCopyOf(loadedVoice->buffer);
+    voice->buffer = juce::AudioBuffer<float>(loadedVoice->buffer.getArrayOfWritePointers(), loadedVoice->buffer.getNumChannels(), loadedVoice->buffer.getNumSamples());
 
     // Pitch shift based on triggered midi note relative to root note
     double semitoneDiff = midiNoteNumber - loadedVoice->rootNote;
@@ -218,24 +218,12 @@ void AudioEngine::triggerNoteOn(int midiNoteNumber, float /*velocity*/)
 void AudioEngine::triggerNoteOff(int midiNoteNumber)
 {
     const juce::ScopedLock sl(voiceLock);
-    bool anyVoiceActive = false;
     for (auto& v : activeVoices)
     {
         if (v->triggerMidiNote == midiNoteNumber)
         {
             v->finished = true;
         }
-        else if (!v->finished)
-        {
-            anyVoiceActive = true;
-        }
-    }
-
-    if (!anyVoiceActive)
-    {
-        juce::MessageManager::callAsync([this] {
-            listeners.call([](AudioEngineListener& l) { l.playbackStateChanged(false); });
-        });
     }
 }
 
@@ -245,7 +233,6 @@ bool AudioEngine::loadFile(const juce::File& audioFile, bool autoPlay)
         return false;
 
     currentFile = audioFile;
-    thumbnail.setSource(new juce::FileInputSource(audioFile));
     auto loadId = ++currentLoadId;
 
     // Reset range selection on new file load
@@ -253,8 +240,11 @@ bool AudioEngine::loadFile(const juce::File& audioFile, bool autoPlay)
     sampleEndRatio = 1.0;
 
     std::thread([this, audioFile, autoPlay, loadId]() {
+        if (loadId != currentLoadId)
+            return;
+
         std::unique_ptr<juce::AudioFormatReader> reader(formatManager.createReaderFor(audioFile));
-        if (reader == nullptr)
+        if (reader == nullptr || loadId != currentLoadId)
             return;
 
         double fileSampleRate = reader->sampleRate;
@@ -276,20 +266,69 @@ bool AudioEngine::loadFile(const juce::File& audioFile, bool autoPlay)
         if (rootNoteVal < 0 || rootNoteVal > 127)
             rootNoteVal = 60; // Default to Middle C
 
+        if (loadId != currentLoadId)
+            return;
+
         auto voice = std::make_shared<AudioVoice>();
         voice->buffer.setSize(numChannels, numSamples);
         reader->read(&voice->buffer, 0, numSamples, 0, true, true);
+
+        if (loadId != currentLoadId)
+            return;
+
         voice->ratio = (engineSampleRate > 0.0) ? (fileSampleRate / engineSampleRate) : 1.0;
         voice->isLooping = isLoopingEnabled;
         voice->startRatio = 0.0;
         voice->endRatio = 1.0;
         voice->rootNote = rootNoteVal;
 
-        juce::MessageManager::callAsync([this, audioFile, autoPlay, loadId, voice, fileSampleRate]() {
+        // Precompute waveform peaks for fast, zero-lock UI rendering
+        WaveformPeaks peaks;
+        peaks.numChannels = numChannels;
+        peaks.numPoints = 512;
+        peaks.minLeft.resize(512, 0.0f);
+        peaks.maxLeft.resize(512, 0.0f);
+        peaks.minRight.resize(512, 0.0f);
+        peaks.maxRight.resize(512, 0.0f);
+
+        for (int p = 0; p < 512; ++p)
+        {
+            int sStart = static_cast<int>((static_cast<double>(p) / 512.0) * numSamples);
+            int sEnd = static_cast<int>((static_cast<double>(p + 1) / 512.0) * numSamples);
+            sEnd = juce::jlimit(sStart + 1, numSamples, sEnd);
+            int numRead = sEnd - sStart;
+
+            auto rL = voice->buffer.findMinMax(0, sStart, numRead);
+            peaks.minLeft[p] = rL.getStart();
+            peaks.maxLeft[p] = rL.getEnd();
+
+            if (numChannels >= 2)
+            {
+                auto rR = voice->buffer.findMinMax(1, sStart, numRead);
+                peaks.minRight[p] = rR.getStart();
+                peaks.maxRight[p] = rR.getEnd();
+            }
+            else
+            {
+                peaks.minRight[p] = peaks.minLeft[p];
+                peaks.maxRight[p] = peaks.maxLeft[p];
+            }
+        }
+
+        if (loadId != currentLoadId)
+            return;
+
+        juce::MessageManager::callAsync([this, audioFile, autoPlay, loadId, voice, fileSampleRate, peaks = std::move(peaks)]() mutable {
+            if (loadId != currentLoadId)
+                return;
+
+            thumbnail.setSource(new juce::FileInputSource(audioFile));
+
             {
                 const juce::ScopedLock sl(voiceLock);
                 currentFileSampleRate = fileSampleRate;
                 loadedVoice = voice;
+                cachedWaveformPeaks = std::move(peaks);
                 stoppedPositionSecs = 0.0;
                 activeVoices.clear(); // Kill previous voices so only the last selected voice plays
                 
@@ -298,7 +337,7 @@ bool AudioEngine::loadFile(const juce::File& audioFile, bool autoPlay)
                 if (autoPlay)
                 {
                     auto playVoice = std::make_shared<AudioVoice>();
-                    playVoice->buffer.makeCopyOf(loadedVoice->buffer);
+                    playVoice->buffer = juce::AudioBuffer<float>(loadedVoice->buffer.getArrayOfWritePointers(), loadedVoice->buffer.getNumChannels(), loadedVoice->buffer.getNumSamples());
                     playVoice->ratio = loadedVoice->ratio;
                     playVoice->readPosition = sampleStartRatio * playVoice->buffer.getNumSamples();
                     playVoice->isLooping = isLoopingEnabled;
@@ -326,7 +365,7 @@ void AudioEngine::play()
     if (loadedVoice != nullptr && activeVoices.empty())
     {
         auto voice = std::make_shared<AudioVoice>();
-        voice->buffer.makeCopyOf(loadedVoice->buffer);
+        voice->buffer = juce::AudioBuffer<float>(loadedVoice->buffer.getArrayOfWritePointers(), loadedVoice->buffer.getNumChannels(), loadedVoice->buffer.getNumSamples());
         voice->ratio = loadedVoice->ratio;
         
         double sr = (engineSampleRate > 0.0) ? engineSampleRate : 44100.0;
@@ -545,6 +584,12 @@ void AudioEngine::getMinMaxForRatioRange(double startRatio, double endRatio, flo
             if (range.getEnd() > maxVal) maxVal = range.getEnd();
         }
     }
+}
+
+WaveformPeaks AudioEngine::getWaveformPeaks() const
+{
+    const juce::ScopedLock sl(voiceLock);
+    return cachedWaveformPeaks;
 }
 
 void AudioEngine::changeListenerCallback(juce::ChangeBroadcaster* /*source*/)
