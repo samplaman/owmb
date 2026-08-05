@@ -117,6 +117,77 @@ if ($LASTEXITCODE -eq 0) {
         Write-Host "Note: Inno Setup (ISCC.exe) not found. Skipping installer creation." -ForegroundColor Yellow
     }
 
+    # 4. Building MSIX Package
+    $makeappx = (Get-Command makeappx -ErrorAction SilentlyContinue).Source
+    if (-not $makeappx) {
+        $sdkPaths = Get-ChildItem -Path "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -ErrorAction SilentlyContinue | Where-Object { $_.PSIsContainer }
+        foreach ($sdk in $sdkPaths) {
+            $candidate = Join-Path $sdk.FullName "x64\makeappx.exe"
+            if (Test-Path $candidate) {
+                $makeappx = $candidate
+                break
+            }
+        }
+    }
+
+    $signtool = (Get-Command signtool -ErrorAction SilentlyContinue).Source
+    if (-not $signtool) {
+        $sdkPaths = Get-ChildItem -Path "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -ErrorAction SilentlyContinue | Where-Object { $_.PSIsContainer }
+        foreach ($sdk in $sdkPaths) {
+            $candidate = Join-Path $sdk.FullName "x64\signtool.exe"
+            if (Test-Path $candidate) {
+                $signtool = $candidate
+                break
+            }
+        }
+    }
+
+    if ($makeappx -and (Test-Path "dist\OWMB-Windows-11-x64\OWMB.exe")) {
+        Write-Host "Building MSIX Package via makeappx.exe..." -ForegroundColor Cyan
+
+        if (-not (Test-Path "msix\Assets\Square44x44Logo.png")) {
+            & powershell -ExecutionPolicy Bypass -File "msix\generate_assets.ps1"
+        }
+
+        $msixLayout = "dist\OWMB-MSIX-Layout"
+        Remove-Item -Path $msixLayout -Recurse -Force -ErrorAction SilentlyContinue
+        New-Item -ItemType Directory -Path $msixLayout -Force | Out-Null
+
+        Copy-Item -Path "dist\OWMB-Windows-11-x64\OWMB.exe" -Destination "$msixLayout\OWMB.exe" -Force
+        Copy-Item -Path "msix\AppxManifest.xml" -Destination "$msixLayout\AppxManifest.xml" -Force
+        Copy-Item -Path "msix\Assets" -Destination "$msixLayout\Assets" -Recurse -Force
+
+        & $makeappx pack /d $msixLayout /p "OWMB.msix" /o
+        if (Test-Path "OWMB.msix") {
+            Write-Host "MSIX Package Created: OWMB.msix" -ForegroundColor Green
+
+            if ($signtool) {
+                Write-Host "Signing MSIX Package..." -ForegroundColor Cyan
+                $cert = Get-ChildItem Cert:\CurrentUser\My -ErrorAction SilentlyContinue | Where-Object { $_.Subject -match "CN=OWMB" } | Select-Object -First 1
+                if (-not $cert) {
+                    Write-Host "Creating self-signed developer certificate (CN=OWMB)..." -ForegroundColor Yellow
+                    $cert = New-SelfSignedCertificate -Type Custom -Subject "CN=OWMB" -KeyUsage DigitalSignature -FriendlyName "OWMB Dev Cert" -CertStoreLocation "Cert:\CurrentUser\My"
+                }
+                if ($cert) {
+                    & $signtool sign /fd SHA256 /sha1 $cert.Thumbprint "OWMB.msix"
+                    if ($LASTEXITCODE -eq 0) {
+                        Write-Host "MSIX Package Signed Successfully!" -ForegroundColor Green
+                    } else {
+                        Write-Host "Warning: MSIX signing failed." -ForegroundColor Yellow
+                    }
+                }
+            } else {
+                Write-Host "Note: signtool.exe not found. MSIX created unsigned." -ForegroundColor Yellow
+            }
+        } else {
+            Write-Host "ERROR: OWMB.msix was not created." -ForegroundColor Red
+        }
+    } else {
+        if (-not $makeappx) {
+            Write-Host "Note: makeappx.exe not found. Skipping MSIX package creation." -ForegroundColor Yellow
+        }
+    }
+
     Write-Host "Standalone Executable: OWMB-MicrosoftStore-Standalone.exe" -ForegroundColor Yellow
 } else {
     Write-Host "Build failed during compilation." -ForegroundColor Red

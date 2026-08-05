@@ -3,6 +3,7 @@
 /dist/
 *.exe
 *.vst3
+*.msix
 *.lib
 *.obj
 *.pdb
