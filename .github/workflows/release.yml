@@ -105,20 +105,33 @@ jobs:
         if: runner.os == 'Windows'
         shell: powershell
         run: |
+          Remove-Item -Path "dist" -Recurse -Force -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Path "dist\OWMB-Windows-11-x64" -Force
-          Get-ChildItem -Path "build" -Recurse -File -Filter "OWMB.vst3" | ForEach-Object { Copy-Item -Path $_.FullName -Destination "dist\OWMB-Windows-11-x64\OWMB.vst3" -Force }
-          Get-ChildItem -Path "build" -Recurse -File -Filter "OWMB.exe" | ForEach-Object { Copy-Item -Path $_.FullName -Destination "dist\OWMB-Windows-11-x64\OWMB.exe" -Force }
-          Get-ChildItem -Path "build" -Recurse -File -Filter "OpenWav Media Browser.exe" | ForEach-Object { Copy-Item -Path $_.FullName -Destination "dist\OWMB-Windows-11-x64\OWMB.exe" -Force }
+          Get-ChildItem -Path "build" -Recurse -Directory -Filter "OWMB.vst3" | Where-Object { $_.FullName -match 'Release' } | ForEach-Object { Copy-Item -Path $_.FullName -Destination "dist\OWMB-Windows-11-x64" -Recurse -Force }
+          Get-ChildItem -Path "build" -Recurse -File -Filter "OWMB.exe" | Where-Object { $_.FullName -match 'Release' } | ForEach-Object { Copy-Item -Path $_.FullName -Destination "dist\OWMB-Windows-11-x64\OWMB.exe" -Force }
+          Get-ChildItem -Path "build" -Recurse -File -Filter "OpenWav Media Browser.exe" | Where-Object { $_.FullName -match 'Release' } | ForEach-Object { Copy-Item -Path $_.FullName -Destination "dist\OWMB-Windows-11-x64\OWMB.exe" -Force }
           
           # Standalone unzipped EXEs for direct execution & Microsoft Store submission
-          Copy-Item -Path "dist\OWMB-Windows-11-x64\OWMB.exe" -Destination "OWMB-MicrosoftStore-Standalone.exe" -Force
-          Copy-Item -Path "dist\OWMB-Windows-11-x64\OWMB.exe" -Destination "OWMB.exe" -Force
+          if (Test-Path "dist\OWMB-Windows-11-x64\OWMB.exe") {
+              Copy-Item -Path "dist\OWMB-Windows-11-x64\OWMB.exe" -Destination "OWMB-MicrosoftStore-Standalone.exe" -Force
+              Copy-Item -Path "dist\OWMB-Windows-11-x64\OWMB.exe" -Destination "OWMB.exe" -Force
+          }
 
           # Build Installer executable (.exe) via Inno Setup
           $iscc = (Get-Command iscc -ErrorAction SilentlyContinue).Source
           if (-not $iscc) { $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" }
+          Write-Host "Running Inno Setup compiler: $iscc"
           & $iscc installer.iss
-          Copy-Item -Path "OWMB-Installer.exe" -Destination "OWMB-MicrosoftStore-Installer.exe" -Force
+          if ($LASTEXITCODE -ne 0) {
+              Write-Error "Inno Setup compilation failed with exit code $LASTEXITCODE"
+              exit $LASTEXITCODE
+          }
+          if (Test-Path "OWMB-Installer.exe") {
+              Copy-Item -Path "OWMB-Installer.exe" -Destination "OWMB-MicrosoftStore-Installer.exe" -Force
+          } else {
+              Write-Error "OWMB-Installer.exe was not created."
+              exit 1
+          }
 
           # Package Zip file
           Compress-Archive -Path "dist\OWMB-Windows-11-x64\*" -DestinationPath "OWMB-Windows-11-x64.zip" -Force

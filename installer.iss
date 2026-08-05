@@ -35,7 +35,7 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Files]
 Source: "dist\OWMB-Windows-11-x64\OWMB.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "dist\OWMB-Windows-11-x64\OWMB.vst3\*"; DestDir: "{commoncf}\VST3\OWMB.vst3"; Flags: ignoreversion recursesubdirs createallsubdirs; Check: VST3DirExists
+Source: "dist\OWMB-Windows-11-x64\OWMB.vst3\*"; DestDir: "{commoncf}\VST3\OWMB.vst3"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist; Check: VST3DirExists
 
 [Icons]
 Name: "{group}\{#MyAppFullTitle}"; Filename: "{app}\{#MyAppExeName}"

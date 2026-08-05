@@ -87,12 +87,16 @@ if ($LASTEXITCODE -eq 0) {
     Write-Host "Build Succeeded!" -ForegroundColor Green
 
     # Packaging for dist
+    Remove-Item -Path "dist" -Recurse -Force -ErrorAction SilentlyContinue
     New-Item -ItemType Directory -Path "dist\OWMB-Windows-11-x64" -Force | Out-Null
-    Get-ChildItem -Path "build" -Recurse -File -Filter "OWMB.vst3" | ForEach-Object { Copy-Item -Path $_.FullName -Destination "dist\OWMB-Windows-11-x64\OWMB.vst3" -Force }
-    Get-ChildItem -Path "build" -Recurse -File -Filter "OWMB.exe" | ForEach-Object { Copy-Item -Path $_.FullName -Destination "dist\OWMB-Windows-11-x64\OWMB.exe" -Force }
-    Get-ChildItem -Path "build" -Recurse -File -Filter "OpenWav Media Browser.exe" | ForEach-Object { Copy-Item -Path $_.FullName -Destination "dist\OWMB-Windows-11-x64\OWMB.exe" -Force }
+    Get-ChildItem -Path "build" -Recurse -Directory -Filter "OWMB.vst3" | Where-Object { $_.FullName -match 'Release' } | ForEach-Object { Copy-Item -Path $_.FullName -Destination "dist\OWMB-Windows-11-x64" -Recurse -Force }
+    Get-ChildItem -Path "build" -Recurse -File -Filter "OWMB.exe" | Where-Object { $_.FullName -match 'Release' } | ForEach-Object { Copy-Item -Path $_.FullName -Destination "dist\OWMB-Windows-11-x64\OWMB.exe" -Force }
+    Get-ChildItem -Path "build" -Recurse -File -Filter "OpenWav Media Browser.exe" | Where-Object { $_.FullName -match 'Release' } | ForEach-Object { Copy-Item -Path $_.FullName -Destination "dist\OWMB-Windows-11-x64\OWMB.exe" -Force }
 
-    Copy-Item -Path "dist\OWMB-Windows-11-x64\OWMB.exe" -Destination "OWMB-MicrosoftStore-Standalone.exe" -Force
+    if (Test-Path "dist\OWMB-Windows-11-x64\OWMB.exe") {
+        Copy-Item -Path "dist\OWMB-Windows-11-x64\OWMB.exe" -Destination "OWMB-MicrosoftStore-Standalone.exe" -Force
+        Copy-Item -Path "dist\OWMB-Windows-11-x64\OWMB.exe" -Destination "OWMB.exe" -Force
+    }
 
     $iscc = (Get-Command iscc -ErrorAction SilentlyContinue).Source
     if (-not $iscc -and (Test-Path "C:\Program Files (x86)\Inno Setup 6\ISCC.exe")) {
@@ -106,6 +110,8 @@ if ($LASTEXITCODE -eq 0) {
             Copy-Item -Path "OWMB-Installer.exe" -Destination "OWMB-MicrosoftStore-Installer.exe" -Force
             Write-Host "Installer Executable: OWMB-Installer.exe" -ForegroundColor Green
             Write-Host "Microsoft Store Installer: OWMB-MicrosoftStore-Installer.exe" -ForegroundColor Green
+        } else {
+            Write-Host "ERROR: OWMB-Installer.exe was not created by Inno Setup." -ForegroundColor Red
         }
     } else {
         Write-Host "Note: Inno Setup (ISCC.exe) not found. Skipping installer creation." -ForegroundColor Yellow
