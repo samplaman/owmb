@@ -22,10 +22,13 @@
 
 ## Download & Releases
 
-Pre-built binaries for **Windows 11** and **Linux Distros** are available under [GitHub Releases](https://github.com/samplaman/owmb/releases).
+Pre-built binaries and installers for **Windows 11**, **macOS**, and **Linux Distros** are available under [GitHub Releases](https://github.com/samplaman/owmb/releases).
 
-- **Windows 11**: `OWMB-Windows-11-x64.zip` (VST3 Plugin & Standalone `.exe`)
-- **Linux Distros**: `OWMB-Linux-Distros-x64.tar.gz` (VST3 Plugin & Standalone Executable)
+- **Microsoft Store / Standalone (.exe)**: `OWMB-MicrosoftStore-Standalone.exe` (Unzipped Direct Executable)
+- **Windows Installer (.exe)**: `OWMB-MicrosoftStore-Installer.exe` / `OWMB-Installer.exe` (Unzipped Setup Installer)
+- **Windows 11 Bundle (.zip)**: `OWMB-Windows-11-x64.zip` (VST3 Plugin & Standalone `.exe`)
+- **macOS Universal (.zip)**: `OWMB-macOS-Universal.zip` (VST3 Plugin, AU & Standalone App)
+- **Linux Distros (.tar.gz)**: `OWMB-Linux-Distros-x64.tar.gz` (VST3 Plugin & Standalone Executable)
 
 ---
 

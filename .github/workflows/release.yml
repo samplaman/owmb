@@ -97,13 +97,30 @@ jobs:
         if: runner.os == 'macOS'
         run: cmake --build build --config Release --parallel 4
 
-      - name: Package Windows 11 Release (.zip)
+      - name: Install Inno Setup (Windows)
+        if: runner.os == 'Windows'
+        run: choco install innosetup -y
+
+      - name: Package Windows Release & Installer (.exe)
         if: runner.os == 'Windows'
         shell: powershell
         run: |
           New-Item -ItemType Directory -Path "dist\OWMB-Windows-11-x64" -Force
           Get-ChildItem -Path "build" -Recurse -File -Filter "OWMB.vst3" | ForEach-Object { Copy-Item -Path $_.FullName -Destination "dist\OWMB-Windows-11-x64\OWMB.vst3" -Force }
           Get-ChildItem -Path "build" -Recurse -File -Filter "OWMB.exe" | ForEach-Object { Copy-Item -Path $_.FullName -Destination "dist\OWMB-Windows-11-x64\OWMB.exe" -Force }
+          Get-ChildItem -Path "build" -Recurse -File -Filter "OpenWav Media Browser.exe" | ForEach-Object { Copy-Item -Path $_.FullName -Destination "dist\OWMB-Windows-11-x64\OWMB.exe" -Force }
+          
+          # Standalone unzipped EXEs for direct execution & Microsoft Store submission
+          Copy-Item -Path "dist\OWMB-Windows-11-x64\OWMB.exe" -Destination "OWMB-MicrosoftStore-Standalone.exe" -Force
+          Copy-Item -Path "dist\OWMB-Windows-11-x64\OWMB.exe" -Destination "OWMB.exe" -Force
+
+          # Build Installer executable (.exe) via Inno Setup
+          $iscc = (Get-Command iscc -ErrorAction SilentlyContinue).Source
+          if (-not $iscc) { $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" }
+          & $iscc installer.iss
+          Copy-Item -Path "OWMB-Installer.exe" -Destination "OWMB-MicrosoftStore-Installer.exe" -Force
+
+          # Package Zip file
           Compress-Archive -Path "dist\OWMB-Windows-11-x64\*" -DestinationPath "OWMB-Windows-11-x64.zip" -Force
 
       - name: Package macOS Universal Release (.zip)
@@ -135,7 +152,12 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: OWMB-Windows-11-x64
-          path: OWMB-Windows-11-x64.zip
+          path: |
+            OWMB-Windows-11-x64.zip
+            OWMB.exe
+            OWMB-MicrosoftStore-Standalone.exe
+            OWMB-Installer.exe
+            OWMB-MicrosoftStore-Installer.exe
 
       - name: Upload macOS Build Artifact
         if: runner.os == 'macOS'
@@ -177,6 +199,11 @@ jobs:
           prerelease: false
           generate_release_notes: true
           files: |
+            OWMB.exe
+            OWMB-Installer.exe
+            OWMB-MicrosoftStore-Standalone.exe
+            OWMB-MicrosoftStore-Installer.exe
             OWMB-Windows-11-x64.zip
             OWMB-macOS-Universal.zip
             OWMB-Linux-Distros-x64.tar.gz
+
