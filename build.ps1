@@ -163,10 +163,10 @@ if ($LASTEXITCODE -eq 0) {
 
             if ($signtool) {
                 Write-Host "Signing MSIX Package..." -ForegroundColor Cyan
-                $cert = Get-ChildItem Cert:\CurrentUser\My -ErrorAction SilentlyContinue | Where-Object { $_.Subject -match "CN=OWMB" } | Select-Object -First 1
+                $cert = Get-ChildItem Cert:\CurrentUser\My -ErrorAction SilentlyContinue | Where-Object { $_.Subject -match "CN=eoinodowd" } | Select-Object -First 1
                 if (-not $cert) {
-                    Write-Host "Creating self-signed developer certificate (CN=OWMB)..." -ForegroundColor Yellow
-                    $cert = New-SelfSignedCertificate -Type Custom -Subject "CN=OWMB" -KeyUsage DigitalSignature -FriendlyName "OWMB Dev Cert" -CertStoreLocation "Cert:\CurrentUser\My"
+                    Write-Host "Creating self-signed developer certificate (CN=eoinodowd)..." -ForegroundColor Yellow
+                    $cert = New-SelfSignedCertificate -Type Custom -Subject "CN=eoinodowd" -KeyUsage DigitalSignature -FriendlyName "eoinodowd Dev Cert" -CertStoreLocation "Cert:\CurrentUser\My"
                 }
                 if ($cert) {
                     & $signtool sign /fd SHA256 /sha1 $cert.Thumbprint "OWMB.msix"

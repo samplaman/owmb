@@ -7,13 +7,13 @@
 
   <Identity
     Name="OWMB.OpenWavMediaBrowser"
-    Publisher="CN=OWMB"
+    Publisher="CN=eoinodowd"
     Version="1.0.0.0"
     ProcessorArchitecture="x64" />
 
   <Properties>
     <DisplayName>OpenWav Media Browser</DisplayName>
-    <PublisherDisplayName>OWMB</PublisherDisplayName>
+    <PublisherDisplayName>eoinodowd</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
   </Properties>
 
