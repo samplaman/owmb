@@ -6,13 +6,13 @@
   IgnorableNamespaces="uap rescap">
 
   <Identity
-    Name="OWMB.OpenWavMediaBrowser"
-    Publisher="CN=eoinodowd"
+    Name="eoinodowd.owmb"
+    Publisher="CN=2AD133D7-BD45-4E2F-B530-93A406A2D383"
     Version="1.0.0.0"
     ProcessorArchitecture="x64" />
 
   <Properties>
-    <DisplayName>OpenWav Media Browser</DisplayName>
+    <DisplayName>OWMB</DisplayName>
     <PublisherDisplayName>eoinodowd</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
   </Properties>
@@ -28,7 +28,7 @@
   <Applications>
     <Application Id="OWMB" Executable="OWMB.exe" EntryPoint="Windows.FullTrustApplication">
       <uap:VisualElements
-        DisplayName="OpenWav Media Browser"
+        DisplayName="OWMB"
         Description="OpenWav Audio Media Browser and Sample Management Tool"
         BackgroundColor="transparent"
         Square150x150Logo="Assets\Square150x150Logo.png"
