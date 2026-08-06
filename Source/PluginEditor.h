@@ -14,6 +14,7 @@
 #include "UI/LibrariesComponent.h"
 #include "UI/WaveformTransportComponent.h"
 #include "UI/RecorderComponent.h"
+#include "UI/ScanProgressDialog.h"
 
 namespace openwav
 {
@@ -60,6 +61,7 @@ public:
     void filesDropped(const juce::StringArray& files, int x, int y) override;
 
     void parentHierarchyChanged() override;
+    void setTagPanelWidth(int newWidth);
 
 private:
     void triggerFilterUpdate();
@@ -71,11 +73,35 @@ private:
 
     HeaderBarComponent headerBar;
     TagPanelComponent tagPanel;
+
+    class LeftPanelResizerBar : public juce::Component
+    {
+    public:
+        explicit LeftPanelResizerBar(OpenWavAudioProcessorEditor& ownerComponent)
+            : owner(ownerComponent)
+        {
+            setMouseCursor(juce::MouseCursor::LeftRightResizeCursor);
+        }
+
+        void paint(juce::Graphics& g) override;
+        void mouseDown(const juce::MouseEvent& e) override;
+        void mouseDrag(const juce::MouseEvent& e) override;
+
+    private:
+        OpenWavAudioProcessorEditor& owner;
+        int dragStartX { 0 };
+        int startWidth { 240 };
+    };
+
+    LeftPanelResizerBar leftPanelResizer;
+    int tagPanelWidth { 240 };
+
     SampleTableComponent sampleTable;
     SampleCloudComponent sampleCloud;
     LibrariesComponent librariesComponent;
     RecorderComponent recorderComponent;
     WaveformTransportComponent waveformTransport;
+    ScanProgressDialog scanProgressDialog;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(OpenWavAudioProcessorEditor)
 };

@@ -81,6 +81,8 @@ target_sources(OpenWav PRIVATE
     Source/UI/WaveformTransportComponent.cpp
     Source/UI/RecorderComponent.h
     Source/UI/RecorderComponent.cpp
+    Source/UI/ScanProgressDialog.h
+    Source/UI/ScanProgressDialog.cpp
     Source/PluginProcessor.h
     Source/PluginProcessor.cpp
     Source/PluginEditor.h

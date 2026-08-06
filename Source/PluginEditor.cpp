@@ -19,11 +19,13 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(OpenWavAudioProcessor& 
       audioProcessor(p),
       headerBar(p.getDatabaseManager(), p.getLibraryScanner()),
       tagPanel(p.getDatabaseManager()),
+      leftPanelResizer(*this),
       sampleTable(p.getDatabaseManager(), p.getAudioEngine()),
       sampleCloud(p.getDatabaseManager(), p.getAudioEngine()),
       librariesComponent(p.getDatabaseManager(), p.getLibraryScanner(), p.getAudioEngine()),
       recorderComponent(p.getAudioEngine(), p.getDatabaseManager()),
-      waveformTransport(p.getAudioEngine())
+      waveformTransport(p.getAudioEngine()),
+      scanProgressDialog(p.getLibraryScanner())
 {
     bool isDark = audioProcessor.getDatabaseManager().isDarkMode();
     OpenWavLookAndFeel::setDarkTheme(isDark);
@@ -39,11 +41,13 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(OpenWavAudioProcessor& 
 
     addAndMakeVisible(headerBar);
     addAndMakeVisible(tagPanel);
+    addAndMakeVisible(leftPanelResizer);
     addAndMakeVisible(sampleTable);
     addChildComponent(sampleCloud);
     addChildComponent(librariesComponent);
     addChildComponent(recorderComponent);
     addAndMakeVisible(waveformTransport);
+    addChildComponent(scanProgressDialog);
 
     setResizable(true, true);
     setResizeLimits(800, 650, 3840, 2160);
@@ -69,6 +73,46 @@ OpenWavAudioProcessorEditor::~OpenWavAudioProcessorEditor()
     setLookAndFeel(nullptr);
 }
 
+void OpenWavAudioProcessorEditor::LeftPanelResizerBar::paint(juce::Graphics& g)
+{
+    g.fillAll(OpenWavLookAndFeel::bgDark);
+    g.setColour(OpenWavLookAndFeel::borderColour);
+    g.drawVerticalLine(getWidth() / 2, 0.0f, static_cast<float>(getHeight()));
+
+    // Sleek cyan grip handle in vertical center
+    g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.7f));
+    float cx = getWidth() * 0.5f;
+    float cy = getHeight() * 0.5f;
+    g.fillRoundedRectangle(cx - 1.5f, cy - 14.0f, 3.0f, 28.0f, 1.5f);
+}
+
+void OpenWavAudioProcessorEditor::LeftPanelResizerBar::mouseDown(const juce::MouseEvent& e)
+{
+    dragStartX = e.getEventRelativeTo(&owner).x;
+    startWidth = owner.tagPanelWidth;
+}
+
+void OpenWavAudioProcessorEditor::LeftPanelResizerBar::mouseDrag(const juce::MouseEvent& e)
+{
+    int currentX = e.getEventRelativeTo(&owner).x;
+    int deltaX = currentX - dragStartX;
+    owner.setTagPanelWidth(startWidth + deltaX);
+}
+
+void OpenWavAudioProcessorEditor::setTagPanelWidth(int newWidth)
+{
+    int minW = 160;
+    int maxW = std::min(600, getWidth() - 300);
+    int clampedW = juce::jlimit(minW, maxW, newWidth);
+
+    if (tagPanelWidth != clampedW)
+    {
+        tagPanelWidth = clampedW;
+        resized();
+        repaint();
+    }
+}
+
 void OpenWavAudioProcessorEditor::paint(juce::Graphics& g)
 {
     g.fillAll(OpenWavLookAndFeel::bgDark);
@@ -81,8 +125,10 @@ void OpenWavAudioProcessorEditor::resized()
     headerBar.setBounds(area.removeFromTop(54));
     waveformTransport.setBounds(area.removeFromBottom(300));
 
-    // Middle Split View
-    tagPanel.setBounds(area.removeFromLeft(220));
+    // Left Split View with Resizer Bar
+    int currentTagWidth = juce::jlimit(160, std::max(160, area.getWidth() - 300), tagPanelWidth);
+    tagPanel.setBounds(area.removeFromLeft(currentTagWidth));
+    leftPanelResizer.setBounds(area.removeFromLeft(6));
 
     auto mode = headerBar.getCurrentViewMode();
 
@@ -118,6 +164,9 @@ void OpenWavAudioProcessorEditor::resized()
         sampleTable.setVisible(true);
         sampleTable.setBounds(area);
     }
+
+    scanProgressDialog.setBounds(getLocalBounds());
+    scanProgressDialog.toFront(true);
 }
 
 void OpenWavAudioProcessorEditor::searchTextChanged(const juce::String& /*newText*/)

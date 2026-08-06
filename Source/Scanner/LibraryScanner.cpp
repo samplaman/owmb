@@ -53,7 +53,7 @@ void LibraryScanner::run()
 {
     listeners.call([](ScannerListener& l) { l.scanStarted(); });
 
-    std::vector<juce::File> foundFiles;
+    std::vector<juce::File> newFilesToScan;
 
     for (const auto& folderPath : targetFolders)
     {
@@ -76,19 +76,39 @@ void LibraryScanner::run()
             if (file.getFileName().startsWith(".") || file.getFileName().startsWithIgnoreCase("._") || file.isHidden())
                 continue;
 
-            foundFiles.push_back(file);
+            auto absPath = file.getFullPathName();
+            juce::String id = juce::String::toHexString(absPath.hashCode64());
+
+            MediaItem existingItem;
+            if (db.getItemById(id, existingItem))
+            {
+                if (existingItem.fileSizeBytes == file.getSize() &&
+                    existingItem.dateAddedMs == file.getLastModificationTime().toMilliseconds())
+                {
+                    // File already scanned and unmodified -> skip!
+                    continue;
+                }
+            }
+
+            newFilesToScan.push_back(file);
         }
     }
 
-    int totalProcessed = 0;
+    std::atomic<int> processedCount { 0 };
 
-    if (!foundFiles.empty() && !threadShouldExit() && !cancelRequested)
+    if (!newFilesToScan.empty() && !threadShouldExit() && !cancelRequested)
     {
-        unsigned int numThreads = std::max(1u, std::thread::hardware_concurrency());
-        size_t total = foundFiles.size();
+        unsigned int hardwareCores = std::thread::hardware_concurrency();
+        // Cap worker thread count to at most 4 (and half of available cores) to prevent OS sluggishness and leave CPU headroom
+        unsigned int numThreads = std::max(1u, std::min(4u, (hardwareCores > 2) ? (hardwareCores / 2) : 1u));
+        size_t total = newFilesToScan.size();
         size_t chunkSize = (total + numThreads - 1) / numThreads;
 
-        std::vector<std::future<std::vector<MediaItem>>> futures;
+        listeners.call([total](ScannerListener& l) {
+            l.scanProgress(0, static_cast<int>(total), "Starting analysis of new files...");
+        });
+
+        std::vector<std::future<void>> futures;
 
         for (unsigned int t = 0; t < numThreads; ++t)
         {
@@ -97,36 +117,50 @@ void LibraryScanner::run()
 
             if (startIdx >= endIdx) break;
 
-            futures.push_back(std::async(std::launch::async, [this, &foundFiles, startIdx, endIdx]() {
+            futures.push_back(std::async(std::launch::async, [this, &newFilesToScan, startIdx, endIdx, total, &processedCount]() {
                 std::vector<MediaItem> localItems;
-                localItems.reserve(endIdx - startIdx);
+                localItems.reserve(32);
+
                 for (size_t i = startIdx; i < endIdx; ++i)
                 {
                     if (threadShouldExit() || cancelRequested) break;
-                    auto item = processAudioFile(foundFiles[i]);
+                    auto item = processAudioFile(newFilesToScan[i]);
                     if (item.filePath.isNotEmpty())
+                    {
                         localItems.push_back(item);
+                    }
+
+                    int count = ++processedCount;
+                    juce::String fileName = newFilesToScan[i].getFileName();
+
+                    if (localItems.size() >= 32)
+                    {
+                        db.addItems(localItems);
+                        localItems.clear();
+                    }
+
+                    listeners.call([count, total, fileName](ScannerListener& l) {
+                        l.scanProgress(count, static_cast<int>(total), fileName);
+                    });
+
+                    std::this_thread::yield();
                 }
-                return localItems;
+
+                if (!localItems.empty() && !cancelRequested)
+                {
+                    db.addItems(localItems);
+                }
             }));
         }
 
         for (auto& fut : futures)
         {
-            auto localItems = fut.get();
-            if (!localItems.empty() && !threadShouldExit())
-            {
-                totalProcessed += static_cast<int>(localItems.size());
-                db.addItems(localItems);
-                listeners.call([totalProcessed, total](ScannerListener& l) {
-                    l.scanProgress(totalProcessed, static_cast<int>(total), "Parallel scanner running...");
-                });
-            }
+            fut.get();
         }
     }
 
-    listeners.call([totalProcessed](ScannerListener& l) {
-        l.scanFinished(totalProcessed);
+    listeners.call([finalCount = processedCount.load()](ScannerListener& l) {
+        l.scanFinished(finalCount);
     });
 }
 
