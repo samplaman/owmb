@@ -71,6 +71,8 @@ ScanProgressDialog::ScanProgressDialog(LibraryScanner& libraryScanner)
         }
     };
     addAndMakeVisible(actionButton);
+
+    lookAndFeelChanged();
 }
 
 ScanProgressDialog::~ScanProgressDialog()
@@ -79,8 +81,22 @@ ScanProgressDialog::~ScanProgressDialog()
     scanner.removeListener(this);
 }
 
+void ScanProgressDialog::lookAndFeelChanged()
+{
+    titleLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::accentCyan);
+    statusLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::textPrimary);
+    currentFileLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::textPrimary.withAlpha(0.9f));
+    elapsedTimeTitleLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::textSecondary);
+    elapsedTimeValueLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::accentCyan);
+    estimatedTimeTitleLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::textSecondary);
+    estimatedTimeValueLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::textPrimary);
+
+    repaint();
+}
+
 void ScanProgressDialog::showDialog()
 {
+    lookAndFeelChanged();
     startTimeMs = juce::Time::getMillisecondCounterHiRes();
     elapsedTimeSec = 0.0;
     estimatedTimeRemainingSec = -1.0;
@@ -136,7 +152,13 @@ void ScanProgressDialog::scanProgress(int processed, int total, const juce::Stri
         {
             statusLabel.setText("Scanning audio files...", juce::dontSendNotification);
         }
-        currentFileLabel.setText(currentFile, juce::dontSendNotification);
+
+        juce::File f(currentFile);
+        juce::String displayName = f.getFileName();
+        if (displayName.isEmpty())
+            displayName = currentFile;
+
+        currentFileLabel.setText(displayName, juce::dontSendNotification);
         repaint();
     });
 }

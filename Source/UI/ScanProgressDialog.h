@@ -23,6 +23,7 @@ public:
     void paint(juce::Graphics& g) override;
     void resized() override;
     void mouseDown(const juce::MouseEvent& event) override;
+    void lookAndFeelChanged() override;
 
     // ScannerListener Callbacks
     void scanStarted() override;
