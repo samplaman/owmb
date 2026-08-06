@@ -15,6 +15,7 @@
 #include "UI/WaveformTransportComponent.h"
 #include "UI/RecorderComponent.h"
 #include "UI/ScanProgressDialog.h"
+#include "UI/AboutDialog.h"
 
 namespace openwav
 {
@@ -102,6 +103,7 @@ private:
     RecorderComponent recorderComponent;
     WaveformTransportComponent waveformTransport;
     ScanProgressDialog scanProgressDialog;
+    AboutDialog aboutDialog;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(OpenWavAudioProcessorEditor)
 };

@@ -48,6 +48,7 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(OpenWavAudioProcessor& 
     addChildComponent(recorderComponent);
     addAndMakeVisible(waveformTransport);
     addChildComponent(scanProgressDialog);
+    addChildComponent(aboutDialog);
 
     setResizable(true, true);
     setResizeLimits(800, 650, 3840, 2160);
@@ -167,6 +168,8 @@ void OpenWavAudioProcessorEditor::resized()
 
     scanProgressDialog.setBounds(getLocalBounds());
     scanProgressDialog.toFront(true);
+    aboutDialog.setBounds(getLocalBounds());
+    aboutDialog.toFront(true);
 }
 
 void OpenWavAudioProcessorEditor::searchTextChanged(const juce::String& /*newText*/)
@@ -239,6 +242,8 @@ void OpenWavAudioProcessorEditor::settingsRequested()
     menu.addItem(3, "Audio / MIDI Device Settings...");
     menu.addSeparator();
     menu.addItem(4, "Reset All Library Data...");
+    menu.addSeparator();
+    menu.addItem(5, "About OWMB...");
 
     menu.showMenuAsync(juce::PopupMenu::Options(), [this](int result) {
         if (result == 1) // Dark Theme
@@ -295,6 +300,10 @@ void OpenWavAudioProcessorEditor::settingsRequested()
                         triggerFilterUpdate();
                     }
                 });
+        }
+        else if (result == 5) // About OWMB...
+        {
+            aboutDialog.showDialog();
         }
     });
 }
