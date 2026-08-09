@@ -100,6 +100,7 @@ AboutDialog::AboutDialog()
     };
     addAndMakeVisible(closeButton);
 
+    setSize(480, 350);
     lookAndFeelChanged();
 }
 
@@ -120,97 +121,82 @@ void AboutDialog::lookAndFeelChanged()
 void AboutDialog::showDialog()
 {
     lookAndFeelChanged();
-    setVisible(true);
-    toFront(true);
+    
+    if (dialogWindow == nullptr)
+    {
+        juce::DialogWindow::LaunchOptions opts;
+        opts.content.setNonOwned(this);
+        opts.dialogTitle = "About OWMB";
+        opts.dialogBackgroundColour = OpenWavLookAndFeel::bgCard;
+        opts.escapeKeyTriggersCloseButton = true;
+        opts.useNativeTitleBar = true;
+        opts.resizable = false;
+        
+        dialogWindow = opts.launchAsync();
+    }
 }
 
 void AboutDialog::hideDialog()
 {
-    setVisible(false);
+    if (dialogWindow != nullptr)
+        dialogWindow->exitModalState(0);
 }
 
 void AboutDialog::mouseDown(const juce::MouseEvent& /*event*/)
 {
-    // Intercept mouse clicks so modal dialog blocks clicks behind it
 }
 
 void AboutDialog::paint(juce::Graphics& g)
 {
-    if (!isVisible())
-        return;
-
-    auto bounds = getLocalBounds();
-
-    // 1. Semi-transparent backdrop overlay over full app window
-    g.fillAll(juce::Colours::black.withAlpha(0.65f));
-
-    // 2. Central Card Bounds
-    int cardWidth = std::min(480, bounds.getWidth() - 40);
-    int cardHeight = 350;
-    auto cardBounds = bounds.withSizeKeepingCentre(cardWidth, cardHeight).toFloat();
-
-    // Card background drop shadow
-    g.setColour(juce::Colours::black.withAlpha(0.4f));
-    g.fillRoundedRectangle(cardBounds.translated(0.0f, 4.0f), 14.0f);
-
-    // Card background
-    g.setColour(OpenWavLookAndFeel::bgCard);
-    g.fillRoundedRectangle(cardBounds, 14.0f);
-
-    // Card border
-    g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.6f));
-    g.drawRoundedRectangle(cardBounds, 14.0f, 1.5f);
+    g.fillAll(OpenWavLookAndFeel::bgCard);
 
     // Separator line above buttons
+    auto bounds = getLocalBounds();
     g.setColour(OpenWavLookAndFeel::borderColour.withAlpha(0.6f));
-    g.drawHorizontalLine(static_cast<int>(cardBounds.getBottom() - 56.0f), cardBounds.getX() + 20.0f, cardBounds.getRight() - 20.0f);
+    g.drawHorizontalLine(static_cast<int>(bounds.getBottom() - 56.0f), 20.0f, bounds.getRight() - 20.0f);
 }
 
 void AboutDialog::resized()
 {
     auto bounds = getLocalBounds();
-    int cardWidth = std::min(480, bounds.getWidth() - 40);
-    int cardHeight = 350;
-    auto cardBounds = bounds.withSizeKeepingCentre(cardWidth, cardHeight);
-
-    int cx = cardBounds.getX();
-    int cy = cardBounds.getY();
-    int cw = cardBounds.getWidth();
+    
+    int cx = bounds.getX();
+    int cy = bounds.getY();
+    int cw = bounds.getWidth();
 
     int curY = cy + 16;
-    if (logoComponent.isVisible())
+    
+    if (logoComponent.getImage().isValid())
     {
-        logoComponent.setBounds(cardBounds.getCentreX() - 30, curY, 60, 60);
-        curY += 66;
+        logoComponent.setBounds(cx + (cw - 64) / 2, curY, 64, 64);
+        curY += 76;
     }
 
-    titleLabel.setBounds(cx + 20, curY, cw - 40, 26);
+    titleLabel.setBounds(cx, curY, cw, 30);
     curY += 28;
-
-    subtitleLabel.setBounds(cx + 20, curY, cw - 40, 20);
-    curY += 22;
-
-    versionLabel.setBounds(cx + 20, curY, cw - 40, 18);
+    subtitleLabel.setBounds(cx, curY, cw, 24);
     curY += 24;
+    versionLabel.setBounds(cx, curY, cw, 20);
+    curY += 32;
 
-    descriptionLabel.setBounds(cx + 24, curY, cw - 48, 36);
-    curY += 38;
+    descriptionLabel.setBounds(cx + 20, curY, cw - 40, 40);
+    curY += 48;
 
-    licenseButton.setBounds(cardBounds.getCentreX() - 110, curY, 220, 24);
-    curY += 28;
+    licenseButton.setBounds(cx + (cw - 200) / 2, curY, 200, 24);
+    curY += 32;
 
-    copyrightLabel.setBounds(cx + 20, curY, cw - 40, 18);
+    copyrightLabel.setBounds(cx, curY, cw, 20);
+    
+    // Bottom Buttons Row
+    int btnWidth = 100;
+    int gap = 16;
+    int totalWidth = btnWidth * 3 + gap * 2;
+    int startX = cx + (cw - totalWidth) / 2;
+    int btnY = bounds.getBottom() - 44;
 
-    // Buttons Row at bottom
-    int btnY = cardBounds.getBottom() - 46;
-    int btnWidth = 120;
-    int gap = 10;
-    int totalBtnsW = btnWidth * 3 + gap * 2;
-    int startX = cardBounds.getCentreX() - totalBtnsW / 2;
-
-    githubButton.setBounds(startX, btnY, btnWidth, 32);
-    websiteButton.setBounds(startX + btnWidth + gap, btnY, btnWidth, 32);
-    closeButton.setBounds(startX + (btnWidth + gap) * 2, btnY, btnWidth, 32);
+    githubButton.setBounds(startX, btnY, btnWidth, 28);
+    websiteButton.setBounds(startX + btnWidth + gap, btnY, btnWidth, 28);
+    closeButton.setBounds(startX + (btnWidth + gap) * 2, btnY, btnWidth, 28);
 }
 
 } // namespace openwav

@@ -34,6 +34,8 @@ private:
   juce::TextButton websiteButton{"Website"};
   juce::TextButton closeButton{"Close"};
 
+  juce::Component::SafePointer<juce::DialogWindow> dialogWindow;
+
   JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(AboutDialog)
 };
 

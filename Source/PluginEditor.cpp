@@ -54,8 +54,6 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(OpenWavAudioProcessor& 
     addChildComponent(librariesComponent);
     addChildComponent(recorderComponent);
     addAndMakeVisible(waveformTransport);
-    addChildComponent(scanProgressDialog);
-    addChildComponent(aboutDialog);
 
     setResizable(true, true);
     setResizeLimits(800, 650, 3840, 2160);
@@ -173,11 +171,6 @@ void OpenWavAudioProcessorEditor::resized()
         sampleTable.setVisible(true);
         sampleTable.setBounds(area);
     }
-
-    scanProgressDialog.setBounds(getLocalBounds());
-    scanProgressDialog.toFront(true);
-    aboutDialog.setBounds(getLocalBounds());
-    aboutDialog.toFront(true);
 }
 
 void OpenWavAudioProcessorEditor::searchTextChanged(const juce::String& /*newText*/)

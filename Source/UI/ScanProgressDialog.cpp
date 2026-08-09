@@ -72,6 +72,7 @@ ScanProgressDialog::ScanProgressDialog(LibraryScanner& libraryScanner)
     };
     addAndMakeVisible(actionButton);
 
+    setSize(500, 280);
     lookAndFeelChanged();
 }
 
@@ -117,20 +118,31 @@ void ScanProgressDialog::showDialog()
     actionButton.setButtonText("Cancel Scan");
     actionButton.setEnabled(true);
 
-    setVisible(true);
-    toFront(true);
+    if (dialogWindow == nullptr)
+    {
+        juce::DialogWindow::LaunchOptions opts;
+        opts.content.setNonOwned(this);
+        opts.dialogTitle = "Scan Progress";
+        opts.dialogBackgroundColour = OpenWavLookAndFeel::bgCard;
+        opts.escapeKeyTriggersCloseButton = false;
+        opts.useNativeTitleBar = true;
+        opts.resizable = false;
+        
+        dialogWindow = opts.launchAsync();
+    }
+    
     startTimer(100);
 }
 
 void ScanProgressDialog::hideDialog()
 {
     stopTimer();
-    setVisible(false);
+    if (dialogWindow != nullptr)
+        dialogWindow->exitModalState(0);
 }
 
 void ScanProgressDialog::mouseDown(const juce::MouseEvent& /*event*/)
 {
-    // Intercept mouse clicks so interaction with background controls is blocked while modal dialogue is active
 }
 
 void ScanProgressDialog::scanStarted()
@@ -257,37 +269,18 @@ juce::String ScanProgressDialog::formatTime(double seconds)
 
 void ScanProgressDialog::paint(juce::Graphics& g)
 {
-    if (!isVisible())
-        return;
-
+    g.fillAll(OpenWavLookAndFeel::bgCard);
     auto bounds = getLocalBounds();
-
-    // 1. Semi-transparent backdrop overlay over full app window
-    g.fillAll(juce::Colours::black.withAlpha(0.65f));
-
-    // 2. Central Card Bounds
-    int cardWidth = std::min(520, bounds.getWidth() - 40);
-    int cardHeight = 280;
-    auto cardBounds = bounds.withSizeKeepingCentre(cardWidth, cardHeight).toFloat();
-
-    // Card background drop shadow
-    g.setColour(juce::Colours::black.withAlpha(0.4f));
-    g.fillRoundedRectangle(cardBounds.translated(0.0f, 4.0f), 14.0f);
-
-    // Card background
-    g.setColour(OpenWavLookAndFeel::bgCard);
-    g.fillRoundedRectangle(cardBounds, 14.0f);
-
-    // Card border
-    g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.6f));
-    g.drawRoundedRectangle(cardBounds, 14.0f, 1.5f);
+    int cw = bounds.getWidth();
+    int cx = bounds.getX();
+    int cy = bounds.getY();
 
     // 3. Progress Bar Drawing
     int proc = filesProcessed.load();
     int tot = totalFiles.load();
     float pct = (tot > 0) ? std::min(1.0f, std::max(0.0f, static_cast<float>(proc) / static_cast<float>(tot))) : (isFinished.load() ? 1.0f : 0.0f);
 
-    juce::Rectangle<float> progressTrack(cardBounds.getX() + 30.0f, cardBounds.getY() + 115.0f, cardBounds.getWidth() - 60.0f, 26.0f);
+    juce::Rectangle<float> progressTrack(cx + 30.0f, cy + 115.0f, cw - 60.0f, 26.0f);
 
     // Track Background
     g.setColour(OpenWavLookAndFeel::bgDark);
@@ -314,12 +307,12 @@ void ScanProgressDialog::paint(juce::Graphics& g)
     g.drawText(pctStr, progressTrack, juce::Justification::centred, false);
 
     // Stats Card Outlines (Elapsed & Estimated Boxes)
-    float statsY = cardBounds.getY() + 152.0f;
-    float boxW = (cardBounds.getWidth() - 70.0f) * 0.5f;
+    float statsY = bounds.getY() + 152.0f;
+    float boxW = (bounds.getWidth() - 70.0f) * 0.5f;
     float boxH = 50.0f;
 
-    juce::Rectangle<float> elapsedBox(cardBounds.getX() + 30.0f, statsY, boxW, boxH);
-    juce::Rectangle<float> estimatedBox(cardBounds.getX() + 40.0f + boxW, statsY, boxW, boxH);
+    juce::Rectangle<float> elapsedBox(cx + 30.0f, statsY, boxW, boxH);
+    juce::Rectangle<float> estimatedBox(cx + 40.0f + boxW, statsY, boxW, boxH);
 
     g.setColour(OpenWavLookAndFeel::bgDark.withAlpha(0.6f));
     g.fillRoundedRectangle(elapsedBox, 8.0f);
@@ -333,26 +326,26 @@ void ScanProgressDialog::paint(juce::Graphics& g)
 void ScanProgressDialog::resized()
 {
     auto bounds = getLocalBounds();
-    int cardWidth = std::min(520, bounds.getWidth() - 40);
-    int cardHeight = 280;
-    auto cardBounds = bounds.withSizeKeepingCentre(cardWidth, cardHeight);
+    int cw = bounds.getWidth();
+    int cx = bounds.getX();
+    int cy = bounds.getY();
 
-    titleLabel.setBounds(cardBounds.getX() + 20, cardBounds.getY() + 16, cardBounds.getWidth() - 40, 24);
-    statusLabel.setBounds(cardBounds.getX() + 20, cardBounds.getY() + 46, cardBounds.getWidth() - 40, 20);
-    currentFileLabel.setBounds(cardBounds.getX() + 20, cardBounds.getY() + 68, cardBounds.getWidth() - 40, 18);
+    titleLabel.setBounds(cx + 20, cy + 16, cw - 40, 24);
+    statusLabel.setBounds(cx + 20, cy + 46, cw - 40, 20);
+    currentFileLabel.setBounds(cx + 20, cy + 68, cw - 40, 18);
 
     // Stats Boxes Layout
-    int statsY = cardBounds.getY() + 154;
-    int boxW = (cardBounds.getWidth() - 70) / 2;
+    int statsY = cy + 154;
+    int boxW = (cw - 70) / 2;
 
-    elapsedTimeTitleLabel.setBounds(cardBounds.getX() + 30, statsY + 4, boxW, 14);
-    elapsedTimeValueLabel.setBounds(cardBounds.getX() + 30, statsY + 20, boxW, 24);
+    elapsedTimeTitleLabel.setBounds(cx + 30, statsY + 4, boxW, 14);
+    elapsedTimeValueLabel.setBounds(cx + 30, statsY + 20, boxW, 24);
 
-    estimatedTimeTitleLabel.setBounds(cardBounds.getX() + 40 + boxW, statsY + 4, boxW, 14);
-    estimatedTimeValueLabel.setBounds(cardBounds.getX() + 40 + boxW, statsY + 20, boxW, 24);
+    estimatedTimeTitleLabel.setBounds(cx + 40 + boxW, statsY + 4, boxW, 14);
+    estimatedTimeValueLabel.setBounds(cx + 40 + boxW, statsY + 20, boxW, 24);
 
     // Action Button
-    actionButton.setBounds(cardBounds.getCentreX() - 70, cardBounds.getY() + cardBounds.getHeight() - 48, 140, 32);
+    actionButton.setBounds(cx + (cw - 140) / 2, bounds.getBottom() - 48, 140, 32);
 }
 
 } // namespace openwav

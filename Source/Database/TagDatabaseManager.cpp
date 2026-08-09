@@ -666,9 +666,28 @@ void TagDatabaseManager::removeScanFolder(const juce::String& folderPath)
 std::vector<juce::String> TagDatabaseManager::getScanFolders() const
 {
     const juce::ScopedLock sl(lock);
-    std::vector<juce::String> res;
+    std::vector<juce::String> sortedFolders;
     for (const auto& f : scanFolders)
-        res.push_back(f);
+        sortedFolders.push_back(f);
+        
+    std::sort(sortedFolders.begin(), sortedFolders.end());
+    
+    std::vector<juce::String> res;
+    for (const auto& folderPath : sortedFolders)
+    {
+        bool isSubFolder = false;
+        juce::File f(folderPath);
+        for (const auto& parentPath : res)
+        {
+            if (f.isAChildOf(juce::File(parentPath)))
+            {
+                isSubFolder = true;
+                break;
+            }
+        }
+        if (!isSubFolder)
+            res.push_back(folderPath);
+    }
     return res;
 }
 
