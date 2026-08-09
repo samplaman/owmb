@@ -1,5 +1,15 @@
 #include "AboutDialog.h"
 #include "OpenWavLookAndFeel.h"
+
+#if JUCE_WINDOWS
+ #ifndef NOMINMAX
+  #define NOMINMAX
+ #endif
+ #include <windows.h>
+ #include <dwmapi.h>
+ #pragma comment(lib, "dwmapi.lib")
+#endif
+
 #if __has_include(<BinaryData.h>)
  #include <BinaryData.h>
 #endif
@@ -133,6 +143,19 @@ void AboutDialog::showDialog()
         opts.resizable = false;
         
         dialogWindow = opts.launchAsync();
+
+#if JUCE_WINDOWS
+        if (dialogWindow != nullptr)
+        {
+            if (auto* peer = dialogWindow->getPeer())
+            {
+                HWND hwnd = (HWND)peer->getNativeHandle();
+                BOOL isDark = OpenWavLookAndFeel::isDarkTheme() ? TRUE : FALSE;
+                DwmSetWindowAttribute(hwnd, 20, &isDark, sizeof(isDark));
+                DwmSetWindowAttribute(hwnd, 19, &isDark, sizeof(isDark));
+            }
+        }
+#endif
     }
 }
 

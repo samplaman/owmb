@@ -29,6 +29,7 @@ public:
 
     // Theme switching
     static void setDarkTheme(bool useDark);
+    static bool isDarkTheme() { return bgDark.getBrightness() < 0.5f; }
     static void setPrimaryColour(juce::Colour colour);
     static void resetPrimaryColour();
     static bool hasCustomPrimaryColour;

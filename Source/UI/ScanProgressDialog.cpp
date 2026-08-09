@@ -2,6 +2,15 @@
 #include "OpenWavLookAndFeel.h"
 #include <cmath>
 
+#if JUCE_WINDOWS
+ #ifndef NOMINMAX
+  #define NOMINMAX
+ #endif
+ #include <windows.h>
+ #include <dwmapi.h>
+ #pragma comment(lib, "dwmapi.lib")
+#endif
+
 namespace openwav
 {
 
@@ -129,6 +138,19 @@ void ScanProgressDialog::showDialog()
         opts.resizable = false;
         
         dialogWindow = opts.launchAsync();
+
+#if JUCE_WINDOWS
+        if (dialogWindow != nullptr)
+        {
+            if (auto* peer = dialogWindow->getPeer())
+            {
+                HWND hwnd = (HWND)peer->getNativeHandle();
+                BOOL isDark = OpenWavLookAndFeel::isDarkTheme() ? TRUE : FALSE;
+                DwmSetWindowAttribute(hwnd, 20, &isDark, sizeof(isDark));
+                DwmSetWindowAttribute(hwnd, 19, &isDark, sizeof(isDark));
+            }
+        }
+#endif
     }
     
     startTimer(100);
