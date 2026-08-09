@@ -14,8 +14,6 @@ elseif (UNIX AND NOT APPLE)
         -Wno-stringop-overflow
         -Wno-array-bounds
     )
-    string(APPEND CMAKE_CXX_FLAGS " -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 -Wno-format-truncation -Wno-stringop-overflow -Wno-array-bounds")
-    string(APPEND CMAKE_C_FLAGS " -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 -Wno-format-truncation -Wno-stringop-overflow -Wno-array-bounds")
 endif()
 
 # Fetch JUCE from GitHub if not already available locally
@@ -28,7 +26,6 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(juce)
 
 if (APPLE)
-    set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "Build architectures for macOS")
     set(CMAKE_OSX_DEPLOYMENT_TARGET "10.15" CACHE STRING "Minimum macOS version")
 endif()
 
@@ -54,6 +51,8 @@ juce_add_plugin(OpenWav
     ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/owmbico.png"
     ICON_SMALL "${CMAKE_CURRENT_SOURCE_DIR}/owmbico.png"
 )
+
+juce_generate_juce_header(OpenWav)
 
 juce_add_binary_data(OpenWavAssets
     SOURCES
@@ -98,13 +97,20 @@ target_sources(OpenWav PRIVATE
 
 target_compile_definitions(OpenWav PRIVATE
     JUCE_WEB_BROWSER=0
-    JUCE_USE_CURL=1
     JUCE_VST3_CAN_REPLACE_VST2=0
     JUCE_MODAL_LOOPS_PERMITTED=1
     JUCE_USE_MP3AUDIOFORMAT=1
     JUCE_USE_FLAC=1
     JUCE_USE_OGGVORBIS=1
 )
+
+if (UNIX AND NOT APPLE)
+    target_compile_definitions(OpenWav PRIVATE JUCE_USE_CURL=1)
+    find_package(CURL REQUIRED)
+    target_link_libraries(OpenWav PRIVATE ${CURL_LIBRARIES})
+else()
+    target_compile_definitions(OpenWav PRIVATE JUCE_USE_CURL=0)
+endif()
 
 target_link_libraries(OpenWav PRIVATE
     OpenWavAssets
@@ -121,10 +127,3 @@ target_link_libraries(OpenWav PRIVATE
     juce::juce_gui_basics
     juce::juce_gui_extra
 )
-
-if (UNIX AND NOT APPLE)
-    find_package(CURL REQUIRED)
-    target_link_libraries(OpenWav PRIVATE ${CURL_LIBRARIES})
-endif()
-
-juce_generate_juce_header(OpenWav)
