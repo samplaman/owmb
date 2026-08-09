@@ -178,7 +178,7 @@ void TagPanelComponent::refreshFolders()
 
         auto* lbl = new juce::Label({}, displayName);
         lbl->setFont(juce::Font(11.0f).boldened());
-        lbl->setColour(juce::Label::textColourId, OpenWavLookAndFeel::textPrimary);
+        lbl->setColour(juce::Label::textColourId, juce::Colours::white);
         lbl->setTooltip(folderPath);
         folderLabels.add(lbl);
         folderListContainer.addAndMakeVisible(lbl);
