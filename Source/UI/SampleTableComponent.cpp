@@ -642,16 +642,10 @@ juce::var SampleTableComponent::getDragSourceDescription(const juce::SparseSet<i
         int r = selectedRows[0];
         if (r >= 0 && r < static_cast<int>(displayedItems.size()))
         {
-            // Initiate external drag drop into DAWs asynchronously
-            juce::StringArray files;
-            files.add(displayedItems[static_cast<size_t>(r)].filePath);
-            
-            juce::MessageManager::callAsync([files] {
-                juce::DragAndDropContainer::performExternalDragDropOfFiles(files, false);
-            });
+            return displayedItems[static_cast<size_t>(r)].filePath;
         }
     }
-    return {}; // Return empty var to bypass JUCE's internal drag loop and let OS handle it
+    return {};
 }
 
 void SampleTableComponent::showContextMenuForRow(int rowNumber)
