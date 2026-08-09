@@ -642,6 +642,16 @@ juce::var SampleTableComponent::getDragSourceDescription(const juce::SparseSet<i
         int r = selectedRows[0];
         if (r >= 0 && r < static_cast<int>(displayedItems.size()))
         {
+            auto& mouse = juce::Desktop::getInstance().getMainMouseSource();
+            if (mouse.isDragging())
+            {
+                juce::StringArray files;
+                files.add(displayedItems[static_cast<size_t>(r)].filePath);
+
+                juce::MessageManager::callAsync([files] {
+                    juce::DragAndDropContainer::performExternalDragDropOfFiles(files, false);
+                });
+            }
             return displayedItems[static_cast<size_t>(r)].filePath;
         }
     }
