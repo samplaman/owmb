@@ -11,77 +11,6 @@
 namespace openwav
 {
 
-class CommentCellComponent : public juce::Component, public juce::TextEditor::Listener
-{
-public:
-    CommentCellComponent(TagDatabaseManager& db)
-        : dbManager(db)
-    {
-        editor.setMultiLine(false);
-        editor.setReturnKeyStartsNewLine(false);
-        editor.setReadOnly(false);
-        editor.setScrollbarsShown(false);
-        editor.setCaretVisible(true);
-        editor.setPopupMenuEnabled(true);
-        editor.addListener(this);
-        
-        // Style it to match OpenWav list cells
-        editor.setBorder(juce::BorderSize<int>(0));
-        editor.setJustification(juce::Justification::centredLeft);
-        editor.setIndents(4, 0);
-        editor.setColour(juce::TextEditor::backgroundColourId, juce::Colours::transparentBlack);
-        editor.setColour(juce::TextEditor::outlineColourId, juce::Colours::transparentBlack);
-        editor.setColour(juce::TextEditor::focusedOutlineColourId, juce::Colours::transparentBlack);
-        editor.setColour(juce::TextEditor::textColourId, OpenWavLookAndFeel::textPrimary);
-        
-        addAndMakeVisible(editor);
-    }
-    
-    void updateRow(int newRowNumber, std::function<juce::String(int)> itemIdProvider, const juce::String& newComment)
-    {
-        rowNumber = newRowNumber;
-        getItemId = itemIdProvider;
-        
-        if (editor.getText() != newComment)
-        {
-            editor.setText(newComment, juce::dontSendNotification);
-        }
-    }
-    
-    void resized() override
-    {
-        editor.setBounds(getLocalBounds().reduced(2, 2));
-    }
-    
-    void textEditorFocusLost(juce::TextEditor&) override
-    {
-        saveComment();
-    }
-    
-    void textEditorReturnKeyPressed(juce::TextEditor&) override
-    {
-        saveComment();
-    }
-    
-private:
-    void saveComment()
-    {
-        if (getItemId)
-        {
-            auto itemId = getItemId(rowNumber);
-            if (itemId.isNotEmpty())
-            {
-                dbManager.setComment(itemId, editor.getText());
-            }
-        }
-    }
-    
-    TagDatabaseManager& dbManager;
-    int rowNumber = -1;
-    std::function<juce::String(int)> getItemId;
-    juce::TextEditor editor;
-};
-
 SampleTableComponent::SampleTableComponent(TagDatabaseManager& db, AudioEngine& engine)
     : dbManager(db), audioEngine(engine)
 {
@@ -97,7 +26,6 @@ SampleTableComponent::SampleTableComponent(TagDatabaseManager& db, AudioEngine& 
     header.addColumn("Sample Rate", 6, 95, 70, 150);
     header.addColumn("Rating", 7, 75, 60, 100);
     header.addColumn("Fav", 8, 40, 40, 40, juce::TableHeaderComponent::notResizable);
-    header.addColumn("Comment", 9, 200, 100, 600);
 
     table.setModel(this);
     table.setRowHeight(32);
@@ -158,8 +86,8 @@ void SampleTableComponent::resized()
     int availableWidth = totalWidth - 76;
     if (availableWidth > 100)
     {
-        // Default sum of resizable column widths is 955 px.
-        double scale = static_cast<double>(availableWidth) / 955.0;
+        // Default sum of resizable column widths is 755 px.
+        double scale = static_cast<double>(availableWidth) / 755.0;
         
         header.setColumnWidth(2, static_cast<int>(220 * scale));
         header.setColumnWidth(3, static_cast<int>(230 * scale));
@@ -167,7 +95,6 @@ void SampleTableComponent::resized()
         header.setColumnWidth(5, static_cast<int>(65 * scale));
         header.setColumnWidth(6, static_cast<int>(95 * scale));
         header.setColumnWidth(7, static_cast<int>(75 * scale));
-        header.setColumnWidth(9, static_cast<int>(200 * scale));
     }
 }
 
@@ -225,6 +152,7 @@ void SampleTableComponent::updateFilter(const juce::String& searchKeyword,
 
         if (found)
         {
+            cachedSimilarityTargetItem = targetItem;
             similarityTargetName = targetItem.fileName;
             similarityBannerLabel.setText("SHOWING ACOUSTICALLY SIMILAR SOUNDS TO: " + similarityTargetName, juce::dontSendNotification);
 
@@ -333,61 +261,57 @@ void SampleTableComponent::paintCell(juce::Graphics& g, int rowNumber, int colum
             g.setColour(rowIsSelected ? OpenWavLookAndFeel::accentCyan : OpenWavLookAndFeel::textPrimary);
             g.setFont(rowIsSelected ? juce::Font(13.0f).boldened() : juce::Font(13.0f));
 
-            if (similarityTargetId.isNotEmpty())
+            if (similarityTargetId.isNotEmpty() && cachedSimilarityTargetItem.id == similarityTargetId)
             {
-                MediaItem targetItem;
-                if (dbManager.getItemById(similarityTargetId, targetItem))
+                if (item.id == similarityTargetId)
                 {
-                    if (item.id == similarityTargetId)
+                    juce::Font badgeFont(10.0f, juce::Font::bold);
+                    juce::String badgeText = "TARGET";
+                    int badgeW = badgeFont.getStringWidth(badgeText) + 10;
+                    auto targetBounds = bounds.removeFromRight(badgeW).toFloat().withHeight(16.0f);
+                    targetBounds.setY((height - 16.0f) * 0.5f);
+
+                    g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.25f));
+                    g.fillRoundedRectangle(targetBounds, 4.0f);
+                    g.setColour(OpenWavLookAndFeel::accentCyan);
+                    g.drawRoundedRectangle(targetBounds, 4.0f, 1.0f);
+                    g.setFont(badgeFont);
+                    g.drawText(badgeText, targetBounds, juce::Justification::centred, true);
+
+                    bounds.removeFromRight(6);
+                }
+                else
+                {
+                    float matchPct = TagDatabaseManager::calculateMatchPercentage(cachedSimilarityTargetItem, item);
+                    float matchRatio = juce::jlimit(0.0f, 1.0f, matchPct / 100.0f);
+
+                    int barWidth = 80;
+                    float barHeight = 14.0f;
+                    auto barOuter = bounds.removeFromRight(barWidth).toFloat().withHeight(barHeight);
+                    barOuter.setY((height - barHeight) * 0.5f);
+
+                    // Background track
+                    g.setColour(OpenWavLookAndFeel::bgDark.withAlpha(0.6f));
+                    g.fillRoundedRectangle(barOuter, 3.0f);
+                    g.setColour(OpenWavLookAndFeel::borderColour);
+                    g.drawRoundedRectangle(barOuter, 3.0f, 1.0f);
+
+                    // Filled match progress bar scaled 0 to 100%
+                    if (matchRatio > 0.01f)
                     {
-                        juce::Font badgeFont(10.0f, juce::Font::bold);
-                        juce::String badgeText = "TARGET";
-                        int badgeW = badgeFont.getStringWidth(badgeText) + 10;
-                        auto targetBounds = bounds.removeFromRight(badgeW).toFloat().withHeight(16.0f);
-                        targetBounds.setY((height - 16.0f) * 0.5f);
-
-                        g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.25f));
-                        g.fillRoundedRectangle(targetBounds, 4.0f);
-                        g.setColour(OpenWavLookAndFeel::accentCyan);
-                        g.drawRoundedRectangle(targetBounds, 4.0f, 1.0f);
-                        g.setFont(badgeFont);
-                        g.drawText(badgeText, targetBounds, juce::Justification::centred, true);
-
-                        bounds.removeFromRight(6);
+                        auto fillWidth = std::max(4.0f, (barOuter.getWidth() - 2.0f) * matchRatio);
+                        auto fillBounds = juce::Rectangle<float>(barOuter.getX() + 1.0f, barOuter.getY() + 1.0f, fillWidth, barOuter.getHeight() - 2.0f);
+                        g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.65f));
+                        g.fillRoundedRectangle(fillBounds, 2.0f);
                     }
-                    else
-                    {
-                        float matchPct = TagDatabaseManager::calculateMatchPercentage(targetItem, item);
-                        float matchRatio = juce::jlimit(0.0f, 1.0f, matchPct / 100.0f);
 
-                        int barWidth = 80;
-                        float barHeight = 14.0f;
-                        auto barOuter = bounds.removeFromRight(barWidth).toFloat().withHeight(barHeight);
-                        barOuter.setY((height - barHeight) * 0.5f);
+                    // Percentage text (e.g. "98%")
+                    juce::String pctStr = juce::String(juce::roundToInt(matchPct)) + "%";
+                    g.setColour(OpenWavLookAndFeel::textPrimary);
+                    g.setFont(juce::Font(10.0f).boldened());
+                    g.drawText(pctStr, barOuter, juce::Justification::centred, true);
 
-                        // Background track
-                        g.setColour(OpenWavLookAndFeel::bgDark.withAlpha(0.6f));
-                        g.fillRoundedRectangle(barOuter, 3.0f);
-                        g.setColour(OpenWavLookAndFeel::borderColour);
-                        g.drawRoundedRectangle(barOuter, 3.0f, 1.0f);
-
-                        // Filled match progress bar scaled 0 to 100%
-                        if (matchRatio > 0.01f)
-                        {
-                            auto fillWidth = std::max(4.0f, (barOuter.getWidth() - 2.0f) * matchRatio);
-                            auto fillBounds = juce::Rectangle<float>(barOuter.getX() + 1.0f, barOuter.getY() + 1.0f, fillWidth, barOuter.getHeight() - 2.0f);
-                            g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.65f));
-                            g.fillRoundedRectangle(fillBounds, 2.0f);
-                        }
-
-                        // Percentage text (e.g. "98%")
-                        juce::String pctStr = juce::String(juce::roundToInt(matchPct)) + "%";
-                        g.setColour(OpenWavLookAndFeel::textPrimary);
-                        g.setFont(juce::Font(10.0f).boldened());
-                        g.drawText(pctStr, barOuter, juce::Justification::centred, true);
-
-                        bounds.removeFromRight(6);
-                    }
+                    bounds.removeFromRight(6);
                 }
             }
 
@@ -428,33 +352,47 @@ void SampleTableComponent::paintCell(juce::Graphics& g, int rowNumber, int colum
         case 4: // Duration
         {
             g.setColour(OpenWavLookAndFeel::textSecondary);
-            g.drawText(formatDuration(item.durationSeconds), bounds, juce::Justification::centredLeft, true);
+            g.drawText(item.cachedFormattedDuration.isNotEmpty() ? item.cachedFormattedDuration : formatDuration(item.durationSeconds), bounds, juce::Justification::centredLeft, true);
             break;
         }
 
         case 5: // Format
         {
             g.setColour(OpenWavLookAndFeel::accentCyan);
-            g.drawText(item.fileExtension.toUpperCase(), bounds, juce::Justification::centredLeft, true);
+            g.drawText(item.cachedUppercaseExtension.isNotEmpty() ? item.cachedUppercaseExtension : item.fileExtension.toUpperCase(), bounds, juce::Justification::centredLeft, true);
             break;
         }
 
         case 6: // Sample Rate / Bit Depth
         {
             g.setColour(OpenWavLookAndFeel::textSecondary);
-            juce::String srStr = juce::String(item.sampleRate / 1000.0, 1) + " kHz";
-            if (item.bitDepth > 0) srStr += " / " + juce::String(item.bitDepth) + "b";
-            g.drawText(srStr, bounds, juce::Justification::centredLeft, true);
+            if (item.cachedFormattedSampleRate.isNotEmpty())
+            {
+                g.drawText(item.cachedFormattedSampleRate, bounds, juce::Justification::centredLeft, true);
+            }
+            else
+            {
+                juce::String srStr = juce::String(item.sampleRate / 1000.0, 1) + " kHz";
+                if (item.bitDepth > 0) srStr += " / " + juce::String(item.bitDepth) + "b";
+                g.drawText(srStr, bounds, juce::Justification::centredLeft, true);
+            }
             break;
         }
 
         case 7: // Rating Stars
         {
             g.setColour(juce::Colours::gold);
-            juce::String stars;
-            for (int s = 0; s < item.rating; ++s) stars += juce::String::fromUTF8("\xe2\x98\x85");
-            for (int s = item.rating; s < 5; ++s) stars += juce::String::fromUTF8("\xe2\x98\x86");
-            g.drawText(stars, bounds, juce::Justification::centredLeft, true);
+            if (item.cachedStarRating.isNotEmpty())
+            {
+                g.drawText(item.cachedStarRating, bounds, juce::Justification::centredLeft, true);
+            }
+            else
+            {
+                juce::String stars;
+                for (int s = 0; s < item.rating; ++s) stars += juce::String::fromUTF8("\xe2\x98\x85");
+                for (int s = item.rating; s < 5; ++s) stars += juce::String::fromUTF8("\xe2\x98\x86");
+                g.drawText(stars, bounds, juce::Justification::centredLeft, true);
+            }
             break;
         }
 
@@ -494,35 +432,10 @@ void SampleTableComponent::paintCell(juce::Graphics& g, int rowNumber, int colum
     }
 }
 
-juce::Component* SampleTableComponent::refreshComponentForCell(int rowNumber, int columnId, bool /*isRowSelected*/, juce::Component* existingComponentToUpdate)
+juce::Component* SampleTableComponent::refreshComponentForCell(int /*rowNumber*/, int /*columnId*/, bool /*isRowSelected*/, juce::Component* existingComponentToUpdate)
 {
-    if (columnId != 9)
-    {
-        delete existingComponentToUpdate;
-        return nullptr;
-    }
-
-    if (rowNumber < 0 || rowNumber >= static_cast<int>(displayedItems.size()))
-    {
-        delete existingComponentToUpdate;
-        return nullptr;
-    }
-
-    const auto& item = displayedItems[static_cast<size_t>(rowNumber)];
-
-    auto* commentComp = dynamic_cast<CommentCellComponent*>(existingComponentToUpdate);
-    if (commentComp == nullptr)
-    {
-        commentComp = new CommentCellComponent(dbManager);
-    }
-
-    commentComp->updateRow(rowNumber, [this](int r) -> juce::String {
-        if (r >= 0 && r < static_cast<int>(displayedItems.size()))
-            return displayedItems[static_cast<size_t>(r)].id;
-        return {};
-    }, item.comment);
-
-    return commentComp;
+    delete existingComponentToUpdate;
+    return nullptr;
 }
 
 void SampleTableComponent::cellClicked(int rowNumber, int columnId, const juce::MouseEvent& e)

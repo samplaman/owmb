@@ -38,12 +38,17 @@ public:
 
 private:
     void run() override;
-    MediaItem processAudioFile(const juce::File& file);
+    MediaItem processAudioFile(const juce::File& file, juce::AudioFormatManager& localFormatManager);
+
+    void notifyScanStarted();
+    void notifyScanProgress(int filesProcessed, int totalFiles, const juce::String& currentFile);
+    void notifyScanFinished(int totalFilesDiscovered);
 
     TagDatabaseManager& db;
     juce::AudioFormatManager formatManager;
     std::vector<juce::String> targetFolders;
     std::atomic<bool> cancelRequested { false };
+    juce::CriticalSection listenerLock;
     juce::ListenerList<ScannerListener> listeners;
 };
 

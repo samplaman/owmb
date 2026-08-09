@@ -49,9 +49,31 @@ void LibraryScanner::cancelScan()
     signalThreadShouldExit();
 }
 
+void LibraryScanner::notifyScanStarted()
+{
+    const juce::ScopedLock sl(listenerLock);
+    listeners.call([](ScannerListener& l) { l.scanStarted(); });
+}
+
+void LibraryScanner::notifyScanProgress(int filesProcessed, int totalFiles, const juce::String& currentFile)
+{
+    const juce::ScopedLock sl(listenerLock);
+    listeners.call([filesProcessed, totalFiles, currentFile](ScannerListener& l) {
+        l.scanProgress(filesProcessed, totalFiles, currentFile);
+    });
+}
+
+void LibraryScanner::notifyScanFinished(int totalFilesDiscovered)
+{
+    const juce::ScopedLock sl(listenerLock);
+    listeners.call([totalFilesDiscovered](ScannerListener& l) {
+        l.scanFinished(totalFilesDiscovered);
+    });
+}
+
 void LibraryScanner::run()
 {
-    listeners.call([](ScannerListener& l) { l.scanStarted(); });
+    notifyScanStarted();
 
     std::vector<juce::File> newFilesToScan;
 
@@ -104,9 +126,7 @@ void LibraryScanner::run()
         size_t total = newFilesToScan.size();
         size_t chunkSize = (total + numThreads - 1) / numThreads;
 
-        listeners.call([total](ScannerListener& l) {
-            l.scanProgress(0, static_cast<int>(total), "Starting high-speed analysis of new files...");
-        });
+        notifyScanProgress(0, static_cast<int>(total), "Starting high-speed analysis of new files...");
 
         std::vector<std::future<void>> futures;
 
@@ -118,13 +138,16 @@ void LibraryScanner::run()
             if (startIdx >= endIdx) break;
 
             futures.push_back(std::async(std::launch::async, [this, &newFilesToScan, startIdx, endIdx, total, &processedCount]() {
+                juce::AudioFormatManager localFormatManager;
+                localFormatManager.registerBasicFormats();
+
                 std::vector<MediaItem> localItems;
                 localItems.reserve(64);
 
                 for (size_t i = startIdx; i < endIdx; ++i)
                 {
                     if (threadShouldExit() || cancelRequested) break;
-                    auto item = processAudioFile(newFilesToScan[i]);
+                    auto item = processAudioFile(newFilesToScan[i], localFormatManager);
                     if (item.filePath.isNotEmpty())
                     {
                         localItems.push_back(item);
@@ -135,21 +158,19 @@ void LibraryScanner::run()
 
                     if (localItems.size() >= 64)
                     {
-                        // Add items to in-memory map without triggering heavy disk serialization
-                        db.addItems(localItems, false);
+                        // Add items to in-memory map without triggering heavy disk serialization or UI rebuilds
+                        db.addItems(localItems, false, false);
                         localItems.clear();
                     }
 
-                    listeners.call([count, total, fileName](ScannerListener& l) {
-                        l.scanProgress(count, static_cast<int>(total), fileName);
-                    });
+                    notifyScanProgress(count, static_cast<int>(total), fileName);
 
                     std::this_thread::yield();
                 }
 
                 if (!localItems.empty() && !cancelRequested)
                 {
-                    db.addItems(localItems, false);
+                    db.addItems(localItems, false, false);
                 }
             }));
         }
@@ -159,16 +180,16 @@ void LibraryScanner::run()
             fut.get();
         }
 
-        // Save entire updated database to JSON file once at end of scan
+        // Notify UI and save entire updated database to JSON file once at end of scan
         if (!cancelRequested)
         {
+            db.notifyIndexUpdated();
+            db.notifyTagsUpdated();
             db.saveToFile();
         }
     }
 
-    listeners.call([finalCount = processedCount.load()](ScannerListener& l) {
-        l.scanFinished(finalCount);
-    });
+    notifyScanFinished(processedCount.load());
 }
 
 static bool parseWavHeaderFast(const juce::File& file, double& sampleRate, int& numChannels, int& bitDepth, double& durationSeconds)
@@ -200,13 +221,20 @@ static bool parseWavHeaderFast(const juce::File& file, double& sampleRate, int& 
 
     uint32_t fmtChunkSize = 0;
     std::memcpy(&fmtChunkSize, header + 16, 4);
+    if (fmtChunkSize < 16 || fmtChunkSize > 10000)
+        return false;
 
-    int64_t dataChunkPos = 20 + fmtChunkSize;
+    int64_t dataChunkPos = 20 + static_cast<int64_t>(fmtChunkSize);
     uint32_t dataSize = 0;
 
-    while (dataChunkPos < stream.getTotalLength() - 8)
+    int iterations = 0;
+    int64_t streamLength = stream.getTotalLength();
+
+    while (dataChunkPos >= 0 && dataChunkPos < streamLength - 8 && iterations++ < 50)
     {
-        stream.setPosition(dataChunkPos);
+        if (!stream.setPosition(dataChunkPos))
+            break;
+
         char chunkId[4];
         uint32_t chunkSize = 0;
         if (stream.read(chunkId, 4) < 4 || stream.read(&chunkSize, 4) < 4)
@@ -217,14 +245,19 @@ static bool parseWavHeaderFast(const juce::File& file, double& sampleRate, int& 
             dataSize = chunkSize;
             break;
         }
-        dataChunkPos += 8 + chunkSize;
+
+        int64_t nextPos = dataChunkPos + 8 + static_cast<int64_t>(chunkSize);
+        if (nextPos <= dataChunkPos || nextPos >= streamLength)
+            break;
+
+        dataChunkPos = nextPos;
     }
 
     if (dataSize == 0)
         return false;
 
     int bytesPerSample = (bits / 8) * channels;
-    if (bytesPerSample == 0)
+    if (bytesPerSample <= 0)
         return false;
 
     uint64_t totalSamples = dataSize / bytesPerSample;
@@ -234,12 +267,15 @@ static bool parseWavHeaderFast(const juce::File& file, double& sampleRate, int& 
     bitDepth = static_cast<int>(bits);
     durationSeconds = static_cast<double>(totalSamples) / sampleRate;
 
+    if (durationSeconds <= 0.0 || durationSeconds > 86400.0)
+        return false;
+
     return true;
 }
 
 static void analyzeAudioData(juce::AudioFormatReader* reader, MediaItem& item)
 {
-    if (reader == nullptr || reader->sampleRate <= 0.0 || reader->lengthInSamples <= 0)
+    if (reader == nullptr || reader->sampleRate <= 0.0 || reader->lengthInSamples <= 0 || reader->numChannels <= 0)
         return;
 
     juce::int64 lengthInSamples = reader->lengthInSamples;
@@ -458,7 +494,7 @@ static void analyzeAudioData(juce::AudioFormatReader* reader, MediaItem& item)
         item.tags.insert("#Warm");
 }
 
-MediaItem LibraryScanner::processAudioFile(const juce::File& file)
+MediaItem LibraryScanner::processAudioFile(const juce::File& file, juce::AudioFormatManager& localFormatManager)
 {
     MediaItem item;
     if (!file.existsAsFile() || file.getFileName().startsWith(".") || file.getFileName().startsWithIgnoreCase("._") || file.isHidden())
@@ -493,7 +529,7 @@ MediaItem LibraryScanner::processAudioFile(const juce::File& file)
     }
 
     // Read audio header metadata using JUCE format reader as fallback
-    std::unique_ptr<juce::AudioFormatReader> reader(formatManager.createReaderFor(file));
+    std::unique_ptr<juce::AudioFormatReader> reader(localFormatManager.createReaderFor(file));
     if (reader != nullptr)
     {
         if (!headerParsed)

@@ -82,6 +82,7 @@ private:
     juce::ListenerList<SampleTableListener> listeners;
     juce::String similarityTargetId;
     juce::String similarityTargetName;
+    MediaItem cachedSimilarityTargetItem;
 
     juce::Label similarityBannerLabel;
     juce::TextButton clearSimilarityButton { "X" };

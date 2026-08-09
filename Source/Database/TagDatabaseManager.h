@@ -42,7 +42,7 @@ public:
     // Item Operations
     bool getItemById(const juce::String& itemId, MediaItem& item) const;
     void addOrUpdateItem(const MediaItem& item);
-    void addItems(const std::vector<MediaItem>& items, bool saveNow = true);
+    void addItems(const std::vector<MediaItem>& items, bool saveNow = true, bool notifyListeners = true);
     void addTagToItem(const juce::String& itemId, const juce::String& tag);
     void removeTagFromItem(const juce::String& itemId, const juce::String& tag);
     void toggleFavorite(const juce::String& itemId);
@@ -52,6 +52,10 @@ public:
     void clearLibrary();
     void clearAllData();
     void reTagAllItems();
+
+    // Listener Notifications
+    void notifyIndexUpdated();
+    void notifyTagsUpdated();
 
     // Tag Auto-Inference Helper
     static std::set<juce::String> inferTagsFromPath(const juce::String& filePath, double durationSeconds = 0.0, int numChannels = 0);
@@ -85,8 +89,6 @@ public:
 
 private:
     juce::File getDatabaseFile() const;
-    void notifyIndexUpdated();
-    void notifyTagsUpdated();
 
     mutable juce::CriticalSection lock;
     std::map<juce::String, MediaItem> itemsMap; // ID -> MediaItem

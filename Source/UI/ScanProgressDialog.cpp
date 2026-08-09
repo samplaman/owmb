@@ -102,7 +102,10 @@ void ScanProgressDialog::showDialog()
     estimatedTimeRemainingSec = -1.0;
     filesProcessed = 0;
     totalFiles = 0;
-    currentFileName = "Preparing scan...";
+    {
+        const juce::ScopedLock sl(fileLabelLock);
+        currentFileName = "Preparing scan...";
+    }
     isScanning = true;
     isFinished = false;
 
@@ -141,26 +144,10 @@ void ScanProgressDialog::scanProgress(int processed, int total, const juce::Stri
 {
     filesProcessed = processed;
     totalFiles = total;
-    currentFileName = currentFile;
-
-    juce::MessageManager::callAsync([this, processed, total, currentFile] {
-        if (total > 0)
-        {
-            statusLabel.setText("Processing: " + juce::String(processed) + " / " + juce::String(total) + " files", juce::dontSendNotification);
-        }
-        else
-        {
-            statusLabel.setText("Scanning audio files...", juce::dontSendNotification);
-        }
-
-        juce::File f(currentFile);
-        juce::String displayName = f.getFileName();
-        if (displayName.isEmpty())
-            displayName = currentFile;
-
-        currentFileLabel.setText(displayName, juce::dontSendNotification);
-        repaint();
-    });
+    {
+        const juce::ScopedLock sl(fileLabelLock);
+        currentFileName = currentFile;
+    }
 }
 
 void ScanProgressDialog::scanFinished(int totalDiscovered)
@@ -206,6 +193,28 @@ void ScanProgressDialog::timerCallback()
 
     int proc = filesProcessed.load();
     int tot = totalFiles.load();
+
+    if (tot > 0)
+    {
+        statusLabel.setText("Processing: " + juce::String(proc) + " / " + juce::String(tot) + " files", juce::dontSendNotification);
+    }
+    else
+    {
+        statusLabel.setText("Scanning audio files...", juce::dontSendNotification);
+    }
+
+    juce::String nameToDisplay;
+    {
+        const juce::ScopedLock sl(fileLabelLock);
+        nameToDisplay = currentFileName;
+    }
+
+    juce::File f(nameToDisplay);
+    juce::String displayName = f.getFileName();
+    if (displayName.isEmpty())
+        displayName = nameToDisplay;
+
+    currentFileLabel.setText(displayName, juce::dontSendNotification);
 
     if (proc > 2 && tot > proc && elapsedTimeSec > 0.5)
     {

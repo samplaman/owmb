@@ -176,7 +176,7 @@ void TagDatabaseManager::addOrUpdateItem(const MediaItem& item)
     notifyTagsUpdated();
 }
 
-void TagDatabaseManager::addItems(const std::vector<MediaItem>& items, bool saveNow)
+void TagDatabaseManager::addItems(const std::vector<MediaItem>& items, bool saveNow, bool notifyListeners)
 {
     if (items.empty()) return;
 
@@ -187,8 +187,11 @@ void TagDatabaseManager::addItems(const std::vector<MediaItem>& items, bool save
             itemsMap[item.id] = item;
         }
     }
-    notifyIndexUpdated();
-    notifyTagsUpdated();
+    if (notifyListeners)
+    {
+        notifyIndexUpdated();
+        notifyTagsUpdated();
+    }
     if (saveNow)
     {
         saveToFile();
@@ -622,11 +625,13 @@ void TagDatabaseManager::removeListener(TagDatabaseListener* listener)
 
 void TagDatabaseManager::notifyIndexUpdated()
 {
+    const juce::ScopedLock sl(lock);
     listeners.call([](TagDatabaseListener& l) { l.libraryIndexUpdated(); });
 }
 
 void TagDatabaseManager::notifyTagsUpdated()
 {
+    const juce::ScopedLock sl(lock);
     listeners.call([](TagDatabaseListener& l) { l.tagsUpdated(); });
 }
 

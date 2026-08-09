@@ -41,6 +41,7 @@ private:
 
     std::atomic<int> filesProcessed { 0 };
     std::atomic<int> totalFiles { 0 };
+    juce::CriticalSection fileLabelLock;
     juce::String currentFileName { "Scanning..." };
     std::atomic<bool> isScanning { false };
     std::atomic<bool> isFinished { false };
