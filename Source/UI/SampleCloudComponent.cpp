@@ -5,12 +5,20 @@
   #define NOMINMAX
  #endif
  #include <windows.h>
+ #include <GL/gl.h>
 #endif
 #include <cmath>
-
 #include <algorithm>
 #include <unordered_map>
 #include <limits>
+
+#if defined(_WIN32)
+extern "C" {
+    __declspec(dllimport) void __stdcall glEnable(unsigned int cap);
+    __declspec(dllimport) void __stdcall glBlendFunc(unsigned int sfactor, unsigned int dfactor);
+    __declspec(dllimport) void __stdcall glDrawArrays(unsigned int mode, int first, int count);
+}
+#endif
 
 namespace openwav
 {
@@ -18,631 +26,251 @@ namespace openwav
 SampleCloudComponent::SampleCloudComponent(TagDatabaseManager& db, AudioEngine& engine)
     : dbManager(db), audioEngine(engine)
 {
-    zoomInButton.onClick = [this] {
-        zoomScale = juce::jlimit(0.3f, 4.0f, zoomScale * 1.25f);
-        repaint();
-    };
-    zoomOutButton.onClick = [this] {
-        zoomScale = juce::jlimit(0.3f, 4.0f, zoomScale * 0.8f);
-        repaint();
-    };
-    resetZoomButton.onClick = [this] {
-        resetZoomAndPan();
+    zoomInButton.onClick = [this] { zoomScale = juce::jlimit(0.3f, 4.0f, zoomScale * 1.25f); repaint(); };
+    zoomOutButton.onClick = [this] { zoomScale = juce::jlimit(0.3f, 4.0f, zoomScale * 0.8f); repaint(); };
+    resetZoomButton.onClick = [this] { resetZoomAndPan(); };
+    
+    viewModeButton.onClick = [this] {
+        is2DMode = !is2DMode;
+        if (is2DMode) {
+            saved3DRotX = targetRotX;
+            saved3DRotY = targetRotY;
+            targetRotX = 0.0f;
+            targetRotY = 0.0f;
+        } else {
+            targetRotX = saved3DRotX;
+            targetRotY = saved3DRotY;
+        }
+        viewModeButton.setButtonText(is2DMode ? "3D" : "2D");
     };
 
     addAndMakeVisible(zoomInButton);
     addAndMakeVisible(zoomOutButton);
     addAndMakeVisible(resetZoomButton);
+    addAndMakeVisible(viewModeButton);
+    addAndMakeVisible(autoRotateButton);
+
+    autoRotateButton.onClick = [this] {
+        autoRotate = !autoRotate;
+        autoRotateButton.setButtonText(autoRotate ? "Stop Spin" : "Spin");
+    };
+
+    openGLContext.setOpenGLVersionRequired(juce::OpenGLContext::OpenGLVersion::openGL3_2);
+    openGLContext.setRenderer(this);
+    openGLContext.attachTo(*this);
+    openGLContext.setContinuousRepainting(true); // Enable continuous repainting for twinkling animation
 
     startTimerHz(60);
 }
 
 SampleCloudComponent::~SampleCloudComponent()
 {
+    openGLContext.detach();
     stopTimer();
-}
-
-juce::Point<float> SampleCloudComponent::project3DToScreen(Vector3D pos, Vector3D& outTransformed, float& outScale) const
-{
-    return project3DToScreen(pos, outTransformed, outScale, std::cos(rotX), std::sin(rotX), std::cos(rotY), std::sin(rotY));
-}
-
-juce::Point<float> SampleCloudComponent::project3DToScreen(Vector3D pos, Vector3D& outTransformed, float& outScale, float cosX, float sinX, float cosY, float sinY) const
-{
-    auto center = getLocalBounds().getCentre().toFloat();
-
-    // 1. Rotate around Y axis (Yaw rotY)
-    float x1 = pos.x * cosY + pos.z * sinY;
-    float z1 = -pos.x * sinY + pos.z * cosY;
-
-    // 2. Rotate around X axis (Pitch rotX)
-    float y2 = pos.y * cosX - z1 * sinX;
-    float z2 = pos.y * sinX + z1 * cosX;
-
-    outTransformed = { x1, y2, z2 };
-
-    // 3. Orthographic 3D Projection (No FOV distortion)
-    outScale = zoomScale;
-
-    float screenX = center.x + x1 * outScale + panOffset.x;
-    float screenY = center.y + y2 * outScale + panOffset.y;
-
-    return { screenX, screenY };
-}
-
-void SampleCloudComponent::update3DTransforms()
-{
-    float cosX = std::cos(rotX);
-    float sinX = std::sin(rotX);
-    float cosY = std::cos(rotY);
-    float sinY = std::sin(rotY);
-
-    for (auto& cl : clusters)
-    {
-        cl.screenPos = project3DToScreen(cl.centerPos, cl.transformedPos, cl.projectedScale, cosX, sinX, cosY, sinY);
-    }
-
-    sortedNodePointers.clear();
-    sortedNodePointers.reserve(nodes.size());
-
-    for (size_t i = 0; i < nodes.size(); ++i)
-    {
-        auto& node = nodes[i];
-        node.originalIndex = i;
-        node.screenPos = project3DToScreen(node.currentPos, node.transformedPos, node.projectedScale, cosX, sinX, cosY, sinY);
-        sortedNodePointers.push_back(&node);
-    }
-
-    // Sort by transformed Z (Back to front: Painter's Algorithm)
-    std::sort(sortedNodePointers.begin(), sortedNodePointers.end(), [](const CloudNode* a, const CloudNode* b) {
-        return a->transformedPos.z > b->transformedPos.z;
-    });
-}
-
-void SampleCloudComponent::resetZoomAndPan()
-{
-    zoomScale = 1.0f;
-    panOffset = { 0.0f, 0.0f };
-    targetRotX = 0.35f;
-    targetRotY = 0.45f;
-    cameraDistance = 850.0f;
-    repaint();
-}
-
-void SampleCloudComponent::paint(juce::Graphics& g)
-{
-    auto bounds = getLocalBounds().toFloat();
-    juce::Colour centerColour, outerColour;
-
-    if (OpenWavLookAndFeel::bgDark.getPerceivedBrightness() < 0.5f)
-    {
-        // Dark Mode: deep celestial radial glow towards the center
-        centerColour = OpenWavLookAndFeel::bgDark.interpolatedWith(OpenWavLookAndFeel::accentCyan, 0.08f);
-        outerColour = OpenWavLookAndFeel::bgDark;
-    }
-    else
-    {
-        // Light Mode: clean soft depth
-        centerColour = OpenWavLookAndFeel::bgDark;
-        outerColour = OpenWavLookAndFeel::bgDark.darker(0.04f);
-    }
-
-    juce::ColourGradient cg (centerColour, bounds.getCentreX(), bounds.getCentreY(),
-                             outerColour, 0.0f, 0.0f,
-                             true); // true = radial gradient
-
-    g.setGradientFill (cg);
-    g.fillAll();
-
-    if (nodes.empty())
-    {
-        g.setFont(juce::Font(14.0f));
-        g.setColour(OpenWavLookAndFeel::textSecondary);
-        g.drawText("No samples found. Add a folder or adjust filters.", getLocalBounds(), juce::Justification::centred, true);
-        return;
-    }
-
-    update3DTransforms();
-
-    // 1. Draw Organic Volumetric Cloud Halos (Soft Nebula Atmosphere)
-    for (const auto& cluster : clusters)
-    {
-        float baseRadius = std::max(55.0f, 35.0f + std::sqrt(static_cast<float>(cluster.count)) * 16.0f);
-        float r = baseRadius * cluster.projectedScale;
-        float depthAlpha = juce::jlimit(0.35f, 1.0f, 1.0f - (cluster.transformedPos.z + 300.0f) / 900.0f);
-
-        // Multi-pass soft volumetric nebula atmosphere (no rigid sphere border rings)
-        juce::ColourGradient nebulaGrad(cluster.colour.withAlpha(0.14f * depthAlpha),
-                                        cluster.screenPos.x, cluster.screenPos.y,
-                                        cluster.colour.withAlpha(0.0f),
-                                        cluster.screenPos.x + r * 1.3f, cluster.screenPos.y + r * 1.3f,
-                                        true);
-        g.setGradientFill(nebulaGrad);
-        g.fillEllipse(cluster.screenPos.x - r * 1.3f, cluster.screenPos.y - r * 1.3f, r * 2.6f, r * 2.6f);
-
-        // Core ambient density glow
-        g.setColour(cluster.colour.withAlpha(0.06f * depthAlpha));
-        g.fillEllipse(cluster.screenPos.x - r * 0.7f, cluster.screenPos.y - r * 0.7f, r * 1.4f, r * 1.4f);
-    }
-
-    auto viewBounds = getLocalBounds().toFloat().expanded(40.0f);
-
-    // 2. Draw Translucent Constellation Micro-Filament Lines for Nearby Scattered Cloud Nodes (Pre-computed linear O(E) pass)
-    for (const auto& edge : constellationEdges)
-    {
-        if (edge.first < nodes.size() && edge.second < nodes.size())
-        {
-            const auto& n1 = nodes[edge.first];
-            const auto& n2 = nodes[edge.second];
-            if (viewBounds.contains(n1.screenPos) && viewBounds.contains(n2.screenPos))
-            {
-                float depthAlpha = juce::jlimit(0.35f, 1.0f, 1.0f - (n1.transformedPos.z + 300.0f) / 900.0f);
-                g.setColour(n1.colour.withAlpha(0.08f * depthAlpha));
-                g.drawLine(n1.screenPos.x, n1.screenPos.y, n2.screenPos.x, n2.screenPos.y, 0.8f);
-            }
-        }
-    }
-
-    // 3. Draw Z-Sorted 3D Sample Nodes (Back to Front)
-    for (const auto* nodePtr : sortedNodePointers)
-    {
-        const auto& node = *nodePtr;
-
-        // Viewport Culling: Skip rendering nodes outside visible bounds
-        if (!viewBounds.contains(node.screenPos))
-            continue;
-
-        int origIdx = static_cast<int>(node.originalIndex);
-        bool isHovered = (origIdx == hoveredNodeIndex);
-        bool isSelected = (origIdx == selectedNodeIndex);
-
-        float depthAlpha = juce::jlimit(0.45f, 1.0f, 1.0f - (node.transformedPos.z + 300.0f) / 900.0f);
-
-        float baseR = node.radius * node.hoverScale;
-        float r = std::max(2.2f, baseR * node.projectedScale);
-
-        // Sub-pixel optimization for small distant non-hovered nodes
-        if (r < 2.5f && !isHovered && !isSelected)
-        {
-            juce::Colour nodeColor = node.colour;
-            g.setColour(nodeColor.withAlpha(depthAlpha));
-            g.fillEllipse(node.screenPos.x - r, node.screenPos.y - r, r * 2.0f, r * 2.0f);
-            continue;
-        }
-
-        // Soft outer glow halo
-        float glowR = r * (isSelected ? 2.0f : (isHovered ? 1.8f : 1.4f));
-        float alpha = isSelected ? 0.45f : (isHovered ? 0.40f : 0.22f);
-        g.setColour(node.colour.withAlpha(alpha * depthAlpha));
-        g.fillEllipse(node.screenPos.x - glowR, node.screenPos.y - glowR, glowR * 2.0f, glowR * 2.0f);
-
-        // Vibrant Color Fill
-        juce::Colour nodeColor = node.colour;
-        if (isHovered)
-            nodeColor = juce::Colours::white;
-        else if (isSelected)
-            nodeColor = OpenWavLookAndFeel::accentCyan;
-
-        g.setColour(nodeColor.withAlpha(depthAlpha));
-        g.fillEllipse(node.screenPos.x - r, node.screenPos.y - r, r * 2.0f, r * 2.0f);
-
-        // Ring highlight if hovered or selected
-        if (isHovered || isSelected)
-        {
-            g.setColour(isHovered ? juce::Colours::white : OpenWavLookAndFeel::accentCyan);
-            g.drawEllipse(node.screenPos.x - r, node.screenPos.y - r, r * 2.0f, r * 2.0f, 1.4f);
-        }
-    }
-
-    // 4. Draw 3D Category Badges over Cluster Centroids
-    for (const auto& cluster : clusters)
-    {
-        juce::String badgeText = cluster.tag.toUpperCase() + " (" + juce::String(cluster.count) + ")";
-        juce::Font badgeFont(11.0f, juce::Font::bold);
-        int textWidth = badgeFont.getStringWidth(badgeText) + 20;
-
-        float depthAlpha = juce::jlimit(0.25f, 1.0f, 1.0f - (cluster.transformedPos.z + 300.0f) / 900.0f);
-
-        juce::Rectangle<float> badgeBounds(cluster.screenPos.x - textWidth * 0.5f, cluster.screenPos.y - 28.0f * cluster.projectedScale, static_cast<float>(textWidth), 22.0f);
-
-        g.setColour(OpenWavLookAndFeel::bgCard.withAlpha(0.92f * depthAlpha));
-        g.fillRoundedRectangle(badgeBounds, 11.0f);
-        g.setColour(cluster.colour.withAlpha(depthAlpha));
-        g.drawRoundedRectangle(badgeBounds, 11.0f, 1.4f);
-
-        g.setColour(OpenWavLookAndFeel::textPrimary.withAlpha(depthAlpha));
-        g.setFont(badgeFont);
-        g.drawText(badgeText, badgeBounds, juce::Justification::centred, true);
-    }
-
-    // 5. Sticky Top Header Badge
-    if (!clusters.empty())
-    {
-        juce::String mapHeaderText = "3D SCATTERED CLOUD MAP (" + juce::String(nodes.size()) + " SAMPLES • " + juce::String(clusters.size()) + " SECTORS)";
-        juce::Font mapHeaderFont(11.0f, juce::Font::bold);
-        float badgeWidth = static_cast<float>(mapHeaderFont.getStringWidth(mapHeaderText) + 24);
-
-        juce::Rectangle<float> headerBadgeBounds(12.0f, 8.0f, badgeWidth, 28.0f);
-
-        g.setColour(OpenWavLookAndFeel::bgCard.withAlpha(0.92f));
-        g.fillRoundedRectangle(headerBadgeBounds, 6.0f);
-        g.setColour(OpenWavLookAndFeel::borderColour);
-        g.drawRoundedRectangle(headerBadgeBounds, 6.0f, 1.0f);
-
-        g.setFont(mapHeaderFont);
-        g.setColour(OpenWavLookAndFeel::accentCyan);
-        g.drawText(mapHeaderText, headerBadgeBounds, juce::Justification::centred, true);
-    }
-
-    // 6. Floating Hover Card with Mini Waveform Preview
-    if (hoveredNodeIndex >= 0 && hoveredNodeIndex < static_cast<int>(nodes.size()))
-    {
-        const auto& item = nodes[static_cast<size_t>(hoveredNodeIndex)].item;
-        const auto screenPos = nodes[static_cast<size_t>(hoveredNodeIndex)].screenPos;
-
-        juce::Rectangle<float> cardBounds(screenPos.x + 14.0f, screenPos.y - 55.0f, 210.0f, 85.0f);
-
-        if (cardBounds.getRight() > getWidth() - 10) cardBounds.setX(screenPos.x - 224.0f);
-        if (cardBounds.getY() < 10) cardBounds.setY(screenPos.y + 14.0f);
-
-        g.setColour(OpenWavLookAndFeel::bgCard.withAlpha(0.96f));
-        g.fillRoundedRectangle(cardBounds, 8.0f);
-        g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.7f));
-        g.drawRoundedRectangle(cardBounds, 8.0f, 1.2f);
-
-        auto contentArea = cardBounds.reduced(8.0f);
-
-        g.setColour(OpenWavLookAndFeel::textPrimary);
-        g.setFont(juce::Font(12.0f).boldened());
-        g.drawText(item.fileName, contentArea.removeFromTop(18.0f), juce::Justification::left, true);
-
-        g.setColour(OpenWavLookAndFeel::textSecondary);
-        g.setFont(juce::Font(11.0f));
-        juce::String metaStr = juce::String(item.durationSeconds, 2) + "s  |  " +
-                              juce::String(item.sampleRate / 1000.0, 1) + "kHz / " +
-                              juce::String(item.bitDepth) + "b";
-        g.drawText(metaStr, contentArea.removeFromTop(16.0f), juce::Justification::left, true);
-
-        juce::String tagList;
-        for (const auto& t : item.tags)
-            tagList += (t.startsWith("#") ? t : "#" + t) + " ";
-        g.setColour(OpenWavLookAndFeel::accentCyan);
-        g.drawText(tagList, contentArea.removeFromTop(16.0f), juce::Justification::left, true);
-
-        auto waveRect = contentArea.reduced(2.0f, 2.0f);
-        g.setColour(OpenWavLookAndFeel::bgDark);
-        g.fillRoundedRectangle(waveRect, 3.0f);
-
-        g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.75f));
-        int numBars = static_cast<int>(waveRect.getWidth() / 4.0f);
-        uint32_t seed = static_cast<uint32_t>(item.filePath.hashCode());
-
-        for (int b = 0; b < numBars; ++b)
-        {
-            seed = seed * 1664525u + 1013904223u;
-            float barH = (0.25f + ((seed % 100) / 100.0f) * 0.75f) * waveRect.getHeight();
-            float barX = waveRect.getX() + b * 4.0f + 1.0f;
-            float barY = waveRect.getCentreY() - barH * 0.5f;
-            g.fillRect(barX, barY, 2.0f, barH);
-        }
-    }
-
-    // 7. Bottom HUD Category Legend Bar
-    if (!clusters.empty())
-    {
-        float legendX = 14.0f;
-        float legendY = static_cast<float>(getHeight() - 32);
-
-        g.setColour(OpenWavLookAndFeel::bgCard.withAlpha(0.85f));
-        g.fillRoundedRectangle(10.0f, legendY - 4.0f, static_cast<float>(getWidth() - 20), 26.0f, 6.0f);
-
-        g.setFont(juce::Font(11.0f).boldened());
-
-        for (const auto& cl : clusters)
-        {
-            if (legendX + 80.0f > getWidth() - 330)
-                break;
-
-            g.setColour(cl.colour);
-            g.fillEllipse(legendX, legendY + 4.0f, 8.0f, 8.0f);
-
-            g.setColour(OpenWavLookAndFeel::textSecondary);
-            juce::String tagLabel = cl.tag;
-            int textW = g.getCurrentFont().getStringWidth(tagLabel) + 16;
-            g.drawText(tagLabel, legendX + 12.0f, legendY, textW, 16, juce::Justification::left, true);
-
-            legendX += textW + 14.0f;
-        }
-    }
-
-    // Bottom-Right 3D HUD Control Helper
-    g.setFont(juce::Font(10.0f));
-    g.setColour(OpenWavLookAndFeel::textSecondary);
-    g.drawText("Drag to rotate 3D view | Wheel to zoom | Mid-click to pan", getWidth() - 320, getHeight() - 28, 300, 18, juce::Justification::right, true);
-}
-
-void SampleCloudComponent::resized()
-{
-    auto area = getLocalBounds().reduced(12);
-    auto topHud = area.removeFromTop(28);
-
-    resetZoomButton.setBounds(topHud.removeFromRight(85).withHeight(26));
-    topHud.removeFromRight(6);
-    zoomOutButton.setBounds(topHud.removeFromRight(28).withHeight(26));
-    topHud.removeFromRight(4);
-    zoomInButton.setBounds(topHud.removeFromRight(28).withHeight(26));
-}
-
-void SampleCloudComponent::timerCallback()
-{
-    pulsePhase += 0.1f;
-    if (pulsePhase > juce::MathConstants<float>::twoPi)
-        pulsePhase -= juce::MathConstants<float>::twoPi;
-
-    bool needsRepaint = false;
-
-    // Smooth 3D camera rotation interpolation
-    float drotX = targetRotX - rotX;
-    float drotY = targetRotY - rotY;
-
-    if (std::abs(drotX) > 0.001f || std::abs(drotY) > 0.001f)
-    {
-        rotX += drotX * 0.15f;
-        rotY += drotY * 0.15f;
-        needsRepaint = true;
-    }
-
-    for (size_t i = 0; i < nodes.size(); ++i)
-    {
-        auto& node = nodes[i];
-        float targetScale = (static_cast<int>(i) == hoveredNodeIndex) ? 2.2f : 1.0f;
-        float ds = targetScale - node.hoverScale;
-        if (std::abs(ds) > 0.01f)
-        {
-            node.hoverScale += ds * 0.25f;
-            needsRepaint = true;
-        }
-
-        Vector3D dPos = node.targetPos - node.currentPos;
-        if (std::abs(dPos.x) > 0.5f || std::abs(dPos.y) > 0.5f || std::abs(dPos.z) > 0.5f)
-        {
-            node.currentPos = node.currentPos + dPos * 0.12f;
-            needsRepaint = true;
-        }
-    }
-
-    if (needsRepaint || isPanning || isRotating)
-        repaint();
-}
-
-void SampleCloudComponent::mouseMove(const juce::MouseEvent& e)
-{
-    int prevHover = hoveredNodeIndex;
-    hoveredNodeIndex = findNodeAtPosition(e.position);
-
-    if (prevHover != hoveredNodeIndex)
-    {
-        if (hoveredNodeIndex >= 0)
-            setMouseCursor(juce::MouseCursor::PointingHandCursor);
-        else
-            setMouseCursor(juce::MouseCursor::NormalCursor);
-
-        repaint();
-    }
-}
-
-void SampleCloudComponent::mouseDown(const juce::MouseEvent& e)
-{
-    int idx = findNodeAtPosition(e.position);
-
-    if (e.mods.isPopupMenu() && idx >= 0 && idx < static_cast<int>(nodes.size()))
-    {
-        showContextMenuForNode(idx);
-        return;
-    }
-
-    if (idx >= 0 && idx < static_cast<int>(nodes.size()))
-    {
-        isPanning = false;
-        isRotating = false;
-        hasStartedDrag = false;
-        selectedNodeIndex = idx;
-        const auto& item = nodes[static_cast<size_t>(idx)].item;
-
-        audioEngine.setSampleBpm(item.bpm);
-        audioEngine.loadFile(juce::File(item.filePath), true);
-
-        listeners.call([item](SampleCloudListener& l) {
-            l.cloudSampleSelected(item);
-        });
-
-        repaint();
-    }
-    else if (e.mods.isMiddleButtonDown() || e.mods.isShiftDown())
-    {
-        isPanning = true;
-        isRotating = false;
-        setMouseCursor(juce::MouseCursor::DraggingHandCursor);
-        mouseDragStartPos = e.position;
-        dragStartPan = panOffset;
-    }
-    else
-    {
-        // Dragging left mouse button on background rotates 3D camera
-        isRotating = true;
-        isPanning = false;
-        setMouseCursor(juce::MouseCursor::DraggingHandCursor);
-        mouseDragStartPos = e.position;
-        dragStartRotX = targetRotX;
-        dragStartRotY = targetRotY;
-    }
-}
-
-void SampleCloudComponent::mouseDrag(const juce::MouseEvent& e)
-{
-    if (isRotating)
-    {
-        auto delta = e.position - mouseDragStartPos;
-        targetRotY = dragStartRotY + delta.x * 0.008f;
-        targetRotX = juce::jlimit(-1.4f, 1.4f, dragStartRotX + delta.y * 0.008f);
-        repaint();
-    }
-    else if (isPanning)
-    {
-        panOffset = dragStartPan + (e.position - mouseDragStartPos);
-        repaint();
-    }
-    else if (e.mouseWasDraggedSinceMouseDown() && selectedNodeIndex >= 0 && selectedNodeIndex < static_cast<int>(nodes.size()))
-    {
-#if JUCE_WINDOWS
-        bool isLeftCtrl = (GetKeyState(VK_LCONTROL) & 0x8000) != 0;
-#else
-        bool isLeftCtrl = e.mods.isCtrlDown() || juce::ModifierKeys::getCurrentModifiersRealtime().isCtrlDown();
-#endif
-
-        if (isLeftCtrl)
-        {
-            if (!hasStartedDrag)
-            {
-                hasStartedDrag = true;
-                const auto& item = nodes[static_cast<size_t>(selectedNodeIndex)].item;
-                juce::StringArray filesToDrag;
-                filesToDrag.add(item.filePath);
-                
-                juce::MessageManager::callAsync([filesToDrag] {
-                    juce::DragAndDropContainer::performExternalDragDropOfFiles(filesToDrag, false);
-                });
-            }
-        }
-        else
-        {
-            // Without Left Ctrl, mouse drag on node rotates 3D camera instead of file drag & drop
-            isRotating = true;
-            mouseDragStartPos = e.position;
-            dragStartRotX = targetRotX;
-            dragStartRotY = targetRotY;
-        }
-    }
-}
-
-void SampleCloudComponent::mouseUp(const juce::MouseEvent& /*e*/)
-{
-    isPanning = false;
-    isRotating = false;
-    setMouseCursor(hoveredNodeIndex >= 0 ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
-}
-
-void SampleCloudComponent::mouseDoubleClick(const juce::MouseEvent& e)
-{
-    int idx = findNodeAtPosition(e.position);
-    if (idx >= 0 && idx < static_cast<int>(nodes.size()))
-    {
-        const auto& item = nodes[static_cast<size_t>(idx)].item;
-
-        if (audioEngine.getCurrentFile().getFullPathName() == item.filePath && audioEngine.isPlaying())
-            audioEngine.pause();
-        else
-        {
-            audioEngine.setSampleBpm(item.bpm);
-            audioEngine.loadFile(juce::File(item.filePath), true);
-        }
-
-        listeners.call([item](SampleCloudListener& l) {
-            l.cloudSampleDoubleClicked(item);
-        });
-    }
-    else
-    {
-        resetZoomAndPan();
-    }
-}
-
-void SampleCloudComponent::mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel)
-{
-    float zoomFactor = (wheel.deltaY > 0.0f) ? 1.15f : 0.87f;
-    float oldZoom = zoomScale;
-    zoomScale = juce::jlimit(0.3f, 4.0f, zoomScale * zoomFactor);
-
-    auto center = getLocalBounds().getCentre().toFloat();
-    auto mousePos = e.position;
-    panOffset = panOffset + (mousePos - center - panOffset) * (1.0f - zoomScale / oldZoom);
-
-    repaint();
-}
-
-static juce::String getPrimaryCategoryTag(const std::set<juce::String>& tags)
-{
-    if (tags.empty())
-        return "General";
-
-    // Priority order for 3D Cloud View clustering (Instruments, Types, Sound Categories)
-    const char* priorityCategories[] = {
-        "#Kick", "#SubKick", "#Snare", "#Rimshot", "#Clap", "#Snap",
-        "#HiHat", "#OpenHat", "#ClosedHat", "#Tom", "#Cymbal", "#Crash", "#Ride",
-        "#Shaker", "#Tambourine", "#Cowbell", "#Conga", "#Bongo", "#Percussion",
-        "#Bass", "#SubBass", "#SynthBass", "#ReeseBass", "#808Bass",
-        "#Synth", "#Lead", "#Pad", "#Pluck", "#Arp", "#Keys", "#Piano", "#Rhodes",
-        "#Organ", "#Guitar", "#AcousticGuitar", "#ElectricGuitar", "#Strings",
-        "#Brass", "#Sax", "#Flute", "#Bell", "#Marimba",
-        "#Vocal", "#Vox", "#Chant", "#Acapella", "#VocalChop", "#Speech",
-        "#FX", "#Riser", "#Downlifter", "#Impact", "#SubDrop", "#Sweep", "#Noise",
-        "#Foley", "#Vinyl", "#Atmosphere", "#Texture", "#Glitch",
-        "#808", "#909",
-        "#DrumLoop", "#MelodicLoop", "#VocalLoop", "#PercLoop", "#BassLoop", "#TopLoop",
-        "#Loop", "#OneShot"
-    };
-
-    for (const char* cat : priorityCategories)
-    {
-        if (tags.find(cat) != tags.end())
-            return cat;
-    }
-
-    for (const auto& tag : tags)
-    {
-        if (tag.endsWithIgnoreCase("BPM")) continue;
-        if (tag.startsWithIgnoreCase("#Key_")) continue;
-        if (tag.equalsIgnoreCase("#Wav") || tag.equalsIgnoreCase("#MP3") || tag.equalsIgnoreCase("#FLAC") ||
-            tag.equalsIgnoreCase("#OGG") || tag.equalsIgnoreCase("#AIFF")) continue;
-        if (tag.equalsIgnoreCase("#Stereo") || tag.equalsIgnoreCase("#Mono") ||
-            tag.equalsIgnoreCase("#Short") || tag.equalsIgnoreCase("#Long")) continue;
-
-        return tag;
-    }
-
-    return "General";
+    layoutActive = false;
+    if (layoutThread.joinable()) layoutThread.join();
 }
 
 void SampleCloudComponent::setItems(const std::vector<MediaItem>& items)
 {
-    resetZoomAndPan();
-    nodes.clear();
-    nodes.reserve(items.size());
+    uint64_t newHash = items.size();
+    for (const auto& item : items)
+    {
+        newHash ^= static_cast<uint64_t>(item.id.hashCode());
+        newHash = (newHash << 5) | (newHash >> 59);
+    }
+    if (newHash == currentDataHash && !nodes.empty()) return;
+    currentDataHash = newHash;
+
+    layoutActive = false;
+    if (layoutThread.joinable()) layoutThread.join();
+
+    layoutActive = true;
+    layoutPending = true;
+    repaint();
+
+    auto itemsCopy = items;
+    layoutThread = std::thread([this, itemsCopy]() {
+        runLayoutAsync(itemsCopy);
+    });
+}
+
+void SampleCloudComponent::runLayoutAsync(std::vector<MediaItem> items)
+{
+    std::vector<CloudNode> newNodes;
+    newNodes.reserve(items.size());
 
     for (const auto& item : items)
     {
         CloudNode node;
         node.item = item;
-
         node.primaryTag = getPrimaryCategoryTag(item.tags);
         node.colour = getColourForTag(node.primaryTag);
-
         float dur = static_cast<float>(item.durationSeconds);
         node.radius = juce::jlimit(3.0f, 9.0f, 3.0f + dur * 1.0f);
         node.hoverScale = 1.0f;
-
-        nodes.push_back(node);
+        newNodes.push_back(node);
     }
 
-    calculateClusterLayout();
-    repaint();
+    auto [newClusters, newEdges] = calculateClusterLayoutInternal(newNodes);
+    
+    if (!layoutActive.load()) return;
+
+    juce::Component::SafePointer<SampleCloudComponent> safeThis(this);
+    juce::MessageManager::callAsync([safeThis, newNodes = std::move(newNodes), newClusters = std::move(newClusters), newEdges = std::move(newEdges)]() mutable {
+        if (auto* comp = safeThis.getComponent())
+        {
+            if (!comp->layoutActive.load()) return;
+            
+            comp->nodes = std::move(newNodes);
+            comp->clusters = std::move(newClusters);
+            comp->constellationEdges = std::move(newEdges);
+    
+            comp->vertexBuffer.clear();
+            comp->vertexBuffer.reserve(comp->nodes.size() + comp->clusters.size());
+            
+            // Render a large glowing planet at the center of each cluster for the label
+            for (const auto& c : comp->clusters)
+            {
+                comp->vertexBuffer.push_back({
+                    c.centerPos.x, c.centerPos.y, c.centerPos.z,
+                    c.colour.getFloatRed(), c.colour.getFloatGreen(), c.colour.getFloatBlue(), c.colour.getFloatAlpha() * 0.85f,
+                    38.0f // Massive planet radius
+                });
+            }
+            
+            for (const auto& n : comp->nodes)
+            {
+                comp->vertexBuffer.push_back({
+                    n.targetPos.x, n.targetPos.y, n.targetPos.z,
+                    n.colour.getFloatRed(), n.colour.getFloatGreen(), n.colour.getFloatBlue(), n.colour.getFloatAlpha(),
+                    n.radius
+                });
+            }
+            comp->vboNeedsUpdate = true;
+            
+            comp->layoutPending = false;
+            comp->revealAlpha = 0.0f;
+            comp->repaint();
+        }
+    });
+}
+
+std::pair<std::vector<SampleCloudComponent::TagCluster>, std::vector<std::pair<size_t, size_t>>> SampleCloudComponent::calculateClusterLayoutInternal(std::vector<CloudNode>& nodesCopy)
+{
+    std::vector<TagCluster> outClusters;
+    if (nodesCopy.empty()) return {outClusters, {}};
+
+    std::unordered_map<juce::String, TagCluster> clusterMap;
+    for (const auto& n : nodesCopy)
+    {
+        auto& c = clusterMap[n.primaryTag];
+        c.tag = n.primaryTag;
+        c.colour = n.colour;
+        c.count++;
+    }
+
+    for (const auto& pair : clusterMap)
+        outClusters.push_back(pair.second);
+
+    std::sort(outClusters.begin(), outClusters.end(), [](const TagCluster& a, const TagCluster& b) {
+        return a.count > b.count;
+    });
+
+    size_t tagCount = outClusters.size();
+    if (tagCount > 0)
+    {
+        float baseRadius = 450.0f;
+        float goldenAngle = 2.39996323f;
+
+        for (size_t i = 0; i < tagCount; ++i)
+        {
+            auto tagLower = outClusters[i].tag.toLowerCase();
+
+            if (tagLower.contains("kick")) outClusters[i].centerPos = { -320.0f, -40.0f, -120.0f };
+            else if (tagLower.contains("snare")) outClusters[i].centerPos = { 320.0f, -40.0f, 120.0f };
+            else if (tagLower.contains("bass")) outClusters[i].centerPos = { 0.0f, 320.0f, 180.0f };
+            else if (tagLower.contains("hat") || tagLower.contains("hihat")) outClusters[i].centerPos = { 0.0f, -320.0f, -180.0f };
+            else if (tagLower.contains("perc")) outClusters[i].centerPos = { 450.0f, 160.0f, -220.0f };
+            else if (tagLower.contains("synth") || tagLower.contains("lead")) outClusters[i].centerPos = { -450.0f, -160.0f, 220.0f };
+            else
+            {
+                float theta = static_cast<float>(i) * goldenAngle;
+                float r = baseRadius + (i * 65.0f);
+                float x = r * std::cos(theta);
+                float z = r * std::sin(theta);
+                float y = (i % 2 == 0 ? 1.0f : -1.0f) * (60.0f + (i * 25.0f));
+
+                outClusters[i].centerPos = { x, y, z };
+            }
+        }
+        
+        for (int iter = 0; iter < 16; ++iter)
+        {
+            for (size_t i = 0; i < tagCount; ++i)
+            {
+                for (size_t j = i + 1; j < tagCount; ++j)
+                {
+                    auto delta = outClusters[j].centerPos - outClusters[i].centerPos;
+                    float dist = std::sqrt(delta.x * delta.x + delta.y * delta.y + delta.z * delta.z);
+                    float r1 = std::max(45.0f, 30.0f + std::sqrt(static_cast<float>(outClusters[i].count)) * 14.0f);
+                    float r2 = std::max(45.0f, 30.0f + std::sqrt(static_cast<float>(outClusters[j].count)) * 14.0f);
+                    float minDist = r1 + r2 + 60.0f;
+
+                    if (dist < minDist && dist > 0.01f)
+                    {
+                        float overlap = (minDist - dist) * 0.5f;
+                        auto dir = delta / dist;
+                        outClusters[i].centerPos = outClusters[i].centerPos - dir * overlap;
+                        outClusters[j].centerPos = outClusters[j].centerPos + dir * overlap;
+                    }
+                }
+            }
+        }
+    }
+
+    std::unordered_map<juce::String, Vector3D> tagCenters;
+    std::unordered_map<juce::String, int> tagTotalCounts;
+    for (const auto& cl : outClusters)
+    {
+        tagCenters[cl.tag] = cl.centerPos;
+        tagTotalCounts[cl.tag] = cl.count;
+    }
+
+    std::unordered_map<juce::String, int> tagItemCounts;
+    for (auto& node : nodesCopy)
+    {
+        auto cPos = tagCenters[node.primaryTag];
+        int countIdx = tagItemCounts[node.primaryTag]++;
+        int totalInTag = tagTotalCounts[node.primaryTag];
+
+        uint32_t nodeHash = static_cast<uint32_t>(node.item.filePath.hashCode() ^ (countIdx * 2654435761u));
+
+        float phi = 2.39996323f;
+        float uNorm = static_cast<float>(countIdx + 0.5f) / std::max(1.0f, static_cast<float>(totalInTag));
+        float yDir = 1.0f - 2.0f * uNorm;
+        float radiusAtY = std::sqrt(std::max(0.05f, 1.0f - yDir * yDir));
+
+        float maxCloudRadius = std::max(55.0f, 30.0f + std::sqrt(static_cast<float>(totalInTag)) * 16.0f);
+        float scatterFactor = std::pow(static_cast<float>(nodeHash % 1000) / 1000.0f, 0.65f);
+        float rDist = maxCloudRadius * (0.12f + 0.88f * scatterFactor);
+
+        float theta = countIdx * phi + (nodeHash % 100) * 0.01f;
+        float xDir = radiusAtY * std::cos(theta);
+        float zDir = radiusAtY * std::sin(theta);
+
+        node.targetPos = { cPos.x + rDist * xDir, cPos.y + rDist * yDir, cPos.z + rDist * zDir };
+        node.currentPos = node.targetPos;
+    }
+
+    // Edges calculation removed for O(N^2) performance reasons, as OpenGL doesn't render CPU edges anymore
+    std::vector<std::pair<size_t, size_t>> outEdges;
+    return {outClusters, outEdges};
 }
 
 void SampleCloudComponent::selectItemById(const juce::String& itemId)
 {
-    if (itemId.isEmpty())
-        return;
-
+    if (itemId.isEmpty()) return;
     for (size_t i = 0; i < nodes.size(); ++i)
     {
         if (nodes[i].item.id == itemId)
@@ -654,295 +282,268 @@ void SampleCloudComponent::selectItemById(const juce::String& itemId)
     }
 }
 
-void SampleCloudComponent::calculateClusterLayout()
+void SampleCloudComponent::paint(juce::Graphics& g)
 {
-    if (nodes.empty())
+    if (layoutPending)
     {
-        clusters.clear();
+        g.setColour(juce::Colours::white);
+        g.setFont(18.0f);
+        g.drawText("Layout Computing...", getLocalBounds(), juce::Justification::centred);
         return;
     }
-
-    std::unordered_map<juce::String, TagCluster> clusterMap;
-    for (const auto& n : nodes)
+    
+    // Draw vignette
+    float w = (float)getWidth();
+    float h = (float)getHeight();
+    juce::ColourGradient vignette(juce::Colours::transparentBlack, 
+                                  w * 0.5f, h * 0.5f,
+                                  juce::Colours::black.withAlpha(0.65f), 
+                                  0.0f, 0.0f, true);
+    g.setGradientFill(vignette);
+    g.fillRect(getLocalBounds());
+    
+    // Draw 2D ring highlight over OpenGL surface
+    if (hoveredNodeIndex >= 0 || selectedNodeIndex >= 0)
     {
-        auto& c = clusterMap[n.primaryTag];
-        c.tag = n.primaryTag;
-        c.colour = n.colour;
-        c.count++;
-    }
-
-    clusters.clear();
-    for (const auto& pair : clusterMap)
-    {
-        clusters.push_back(pair.second);
-    }
-
-    std::sort(clusters.begin(), clusters.end(), [](const TagCluster& a, const TagCluster& b) {
-        return a.count > b.count;
-    });
-
-    size_t tagCount = clusters.size();
-    if (tagCount > 0)
-    {
-        float baseRadius = 450.0f;
-        float goldenAngle = 2.39996323f; // Golden ratio angle (~137.5 deg)
-
-        for (size_t i = 0; i < tagCount; ++i)
+        if (lastViewProjectionMatrix.mat[15] != 0.0f) 
         {
-            auto tagLower = clusters[i].tag.toLowerCase();
-
-            if (tagLower.contains("kick"))
+            float halfW = getWidth() * 0.5f;
+            float halfH = getHeight() * 0.5f;
+            for (int i : {hoveredNodeIndex, selectedNodeIndex})
             {
-                clusters[i].centerPos = { -320.0f, -40.0f, -120.0f };
-            }
-            else if (tagLower.contains("snare"))
-            {
-                clusters[i].centerPos = { 320.0f, -40.0f, 120.0f };
-            }
-            else if (tagLower.contains("bass"))
-            {
-                clusters[i].centerPos = { 0.0f, 320.0f, 180.0f };
-            }
-            else if (tagLower.contains("hat") || tagLower.contains("hihat"))
-            {
-                clusters[i].centerPos = { 0.0f, -320.0f, -180.0f };
-            }
-            else if (tagLower.contains("perc"))
-            {
-                clusters[i].centerPos = { 450.0f, 160.0f, -220.0f };
-            }
-            else if (tagLower.contains("synth") || tagLower.contains("lead"))
-            {
-                clusters[i].centerPos = { -450.0f, -160.0f, 220.0f };
-            }
-            else
-            {
-                float theta = static_cast<float>(i) * goldenAngle;
-                float r = baseRadius + (i * 65.0f);
-                float x = r * std::cos(theta);
-                float z = r * std::sin(theta);
-                float y = (i % 2 == 0 ? 1.0f : -1.0f) * (60.0f + (i * 25.0f));
-
-                clusters[i].centerPos = { x, y, z };
-            }
-        }
-
-        // Cluster-cluster 3D repulsion pass to ensure zero overlap between tag spheres
-        for (int iter = 0; iter < 16; ++iter)
-        {
-            for (size_t i = 0; i < tagCount; ++i)
-            {
-                for (size_t j = i + 1; j < tagCount; ++j)
+                if (i >= 0 && i < nodes.size())
                 {
-                    auto delta = clusters[j].centerPos - clusters[i].centerPos;
-                    float dist = std::sqrt(delta.x * delta.x + delta.y * delta.y + delta.z * delta.z);
-                    float r1 = std::max(45.0f, 30.0f + std::sqrt(static_cast<float>(clusters[i].count)) * 14.0f);
-                    float r2 = std::max(45.0f, 30.0f + std::sqrt(static_cast<float>(clusters[j].count)) * 14.0f);
-                    float minDist = r1 + r2 + 60.0f; // Generous 60px clearance buffer
-
-                    if (dist < minDist && dist > 0.01f)
+                    auto& n = nodes[i];
+                    juce::Vector3D<float> p(n.currentPos.x, n.currentPos.y, n.currentPos.z);
+                    float w = lastViewProjectionMatrix.mat[3] * p.x + lastViewProjectionMatrix.mat[7] * p.y + lastViewProjectionMatrix.mat[11] * p.z + lastViewProjectionMatrix.mat[15]; float spX = lastViewProjectionMatrix.mat[0] * p.x + lastViewProjectionMatrix.mat[4] * p.y + lastViewProjectionMatrix.mat[8] * p.z + lastViewProjectionMatrix.mat[12]; float spY = lastViewProjectionMatrix.mat[1] * p.x + lastViewProjectionMatrix.mat[5] * p.y + lastViewProjectionMatrix.mat[9] * p.z + lastViewProjectionMatrix.mat[13]; float spZ = lastViewProjectionMatrix.mat[2] * p.x + lastViewProjectionMatrix.mat[6] * p.y + lastViewProjectionMatrix.mat[10] * p.z + lastViewProjectionMatrix.mat[14];
+                    if (spZ > 0.0f)
                     {
-                        float overlap = (minDist - dist) * 0.5f;
-                        auto dir = delta / dist;
-                        clusters[i].centerPos = clusters[i].centerPos - dir * overlap;
-                        clusters[j].centerPos = clusters[j].centerPos + dir * overlap;
+                        float sx = halfW + (spX / w) * halfW;
+                        float sy = halfH - (spY / w) * halfH;
+                        float r = std::max(2.2f, n.radius * 2.0f);
+                        g.setColour(i == hoveredNodeIndex ? juce::Colours::white : OpenWavLookAndFeel::accentCyan);
+                        g.drawEllipse(sx - r - 2.0f, sy - r - 2.0f, (r + 2.0f) * 2.0f, (r + 2.0f) * 2.0f, 2.0f);
                     }
                 }
             }
         }
     }
 
-    std::unordered_map<juce::String, Vector3D> tagCenters;
-    std::unordered_map<juce::String, int> tagTotalCounts;
-    for (const auto& cl : clusters)
+    auto viewBounds = getLocalBounds().toFloat();
+    for (const auto& cluster : clusters)
     {
-        tagCenters[cl.tag] = cl.centerPos;
-        tagTotalCounts[cl.tag] = cl.count;
-    }
-
-    std::unordered_map<juce::String, int> tagItemCounts;
-
-    for (auto& node : nodes)
-    {
-        auto cPos = tagCenters[node.primaryTag];
-        int countIdx = tagItemCounts[node.primaryTag]++;
-        int totalInTag = tagTotalCounts[node.primaryTag];
-
-        // Volumetric Scattered Cloud Distribution (3D Nebula dispersion instead of rigid sphere shell)
-        uint32_t nodeHash = static_cast<uint32_t>(node.item.filePath.hashCode() ^ (countIdx * 2654435761u));
-
-        float phi = 2.39996323f; // Golden ratio angle (~137.5 deg)
-        float uNorm = static_cast<float>(countIdx + 0.5f) / std::max(1.0f, static_cast<float>(totalInTag));
-        float yDir = 1.0f - 2.0f * uNorm; // -1.0 to +1.0 direction
-        float radiusAtY = std::sqrt(std::max(0.05f, 1.0f - yDir * yDir));
-
-        float maxCloudRadius = std::max(55.0f, 30.0f + std::sqrt(static_cast<float>(totalInTag)) * 16.0f);
-
-        // Volumetric distance scattering: power law scatter for dense core + wide organic particle fringe
-        float scatterFactor = std::pow(static_cast<float>(nodeHash % 1000) / 1000.0f, 0.65f);
-        float rDist = maxCloudRadius * (0.12f + 0.88f * scatterFactor);
-
-        float theta = countIdx * phi + (nodeHash % 100) * 0.01f;
-        float xDir = radiusAtY * std::cos(theta);
-        float zDir = radiusAtY * std::sin(theta);
-
-        // Organic cloud shape stretch per cluster tag
-        uint32_t tagHash = static_cast<uint32_t>(node.primaryTag.hashCode());
-        float stretchX = 0.85f + ((tagHash % 70) / 100.0f); // 0.85 to 1.55
-        float stretchY = 0.75f + (((tagHash / 7) % 60) / 100.0f); // 0.75 to 1.35
-        float stretchZ = 0.85f + (((tagHash / 49) % 70) / 100.0f); // 0.85 to 1.55
-
-        // Fine jitter noise
-        float jitterX = static_cast<float>((static_cast<int>(nodeHash % 19) - 9)) * 1.5f;
-        float jitterY = static_cast<float>((static_cast<int>((nodeHash / 19) % 19) - 9)) * 1.5f;
-        float jitterZ = static_cast<float>((static_cast<int>((nodeHash / 361) % 19) - 9)) * 1.5f;
-
-        float xOffset = rDist * xDir * stretchX + jitterX;
-        float yOffset = rDist * yDir * stretchY + jitterY;
-        float zOffset = rDist * zDir * stretchZ + jitterZ;
-
-        node.targetPos = { cPos.x + xOffset, cPos.y + yOffset, cPos.z + zOffset };
-
-        if (std::abs(node.currentPos.x) < 0.1f && std::abs(node.currentPos.y) < 0.1f && std::abs(node.currentPos.z) < 0.1f)
+        juce::Vector3D<float> cp(cluster.centerPos.x, cluster.centerPos.y, cluster.centerPos.z);
+        float w = lastViewProjectionMatrix.mat[3] * cp.x + lastViewProjectionMatrix.mat[7] * cp.y + lastViewProjectionMatrix.mat[11] * cp.z + lastViewProjectionMatrix.mat[15];
+        if (w > 0.0f)
         {
-            node.currentPos = node.targetPos;
-        }
-    }
-
-    applyForceDirectedPhysics();
-
-    // Pre-compute 3D constellation micro-filament edges once to ensure 60 FPS performance
-    constellationEdges.clear();
-    for (size_t i = 0; i < nodes.size(); ++i)
-    {
-        size_t connections = 0;
-        for (size_t j = i + 1; j < nodes.size() && connections < 2; ++j)
-        {
-            if (nodes[i].primaryTag == nodes[j].primaryTag)
-            {
-                auto d = nodes[i].targetPos - nodes[j].targetPos;
-                float distSq = d.x * d.x + d.y * d.y + d.z * d.z;
-                if (distSq < 2000.0f)
-                {
-                    constellationEdges.push_back({ i, j });
-                    connections++;
-                }
-            }
+            float spX = lastViewProjectionMatrix.mat[0] * cp.x + lastViewProjectionMatrix.mat[4] * cp.y + lastViewProjectionMatrix.mat[8] * cp.z + lastViewProjectionMatrix.mat[12];
+            float spY = lastViewProjectionMatrix.mat[1] * cp.x + lastViewProjectionMatrix.mat[5] * cp.y + lastViewProjectionMatrix.mat[9] * cp.z + lastViewProjectionMatrix.mat[13];
+            float spZ = lastViewProjectionMatrix.mat[2] * cp.x + lastViewProjectionMatrix.mat[6] * cp.y + lastViewProjectionMatrix.mat[10] * cp.z + lastViewProjectionMatrix.mat[14];
+            float sx = getWidth() * 0.5f + (spX / w) * getWidth() * 0.5f;
+            float sy = getHeight() * 0.5f - (spY / w) * getHeight() * 0.5f;
+            
+            juce::String text = cluster.tag.toUpperCase();
+            juce::Font font(14.0f, juce::Font::bold);
+            float textWidth = font.getStringWidthFloat(text) + 16.0f;
+            
+            g.setColour(juce::Colours::black.withAlpha(0.8f * revealAlpha));
+            g.setFont(font);
+            g.drawText(text, sx - textWidth * 0.5f + 1.0f, sy - 12.0f + 1.0f, textWidth, 24.0f, juce::Justification::centred);
+            
+            g.setColour(juce::Colours::white.withAlpha(0.95f * revealAlpha));
+            g.drawText(text, sx - textWidth * 0.5f, sy - 12.0f, textWidth, 24.0f, juce::Justification::centred);
         }
     }
 }
 
-void SampleCloudComponent::applyForceDirectedPhysics()
+void SampleCloudComponent::timerCallback()
 {
-    if (nodes.size() <= 1)
-        return;
+    bool needsRepaint = false;
 
-    const float cellSize = 25.0f; // Grid cell dimension for local clearance
-    const float invCellSize = 1.0f / cellSize;
-
-    auto getCellKey = [invCellSize](const Vector3D& pos) -> uint64_t {
-        int64_t x = static_cast<int64_t>(std::floor(pos.x * invCellSize)) & 0x1FFFFF;
-        int64_t y = static_cast<int64_t>(std::floor(pos.y * invCellSize)) & 0x1FFFFF;
-        int64_t z = static_cast<int64_t>(std::floor(pos.z * invCellSize)) & 0x1FFFFF;
-        return static_cast<uint64_t>((x << 42) | (y << 21) | z);
-    };
-
-    // Run 4 iterations of spatial grid-partitioned collision physics
-    for (int iter = 0; iter < 4; ++iter)
+    if (revealAlpha < 1.0f && !layoutPending)
     {
-        std::unordered_map<uint64_t, std::vector<size_t>> grid;
-        grid.reserve(nodes.size());
+        revealAlpha = std::min(1.0f, revealAlpha + 0.03f);
+        needsRepaint = true;
+    }
 
-        for (size_t i = 0; i < nodes.size(); ++i)
-        {
-            grid[getCellKey(nodes[i].targetPos)].push_back(i);
-        }
+    if (std::abs(targetRotX - rotX) > 0.001f || std::abs(targetRotY - rotY) > 0.001f)
+    {
+        rotX += (targetRotX - rotX) * 0.1f;
+        rotY += (targetRotY - rotY) * 0.1f;
+        needsRepaint = true;
+    }
 
-        for (size_t i = 0; i < nodes.size(); ++i)
-        {
-            auto& posI = nodes[i].targetPos;
-            int64_t cx = static_cast<int64_t>(std::floor(posI.x * invCellSize));
-            int64_t cy = static_cast<int64_t>(std::floor(posI.y * invCellSize));
-            int64_t cz = static_cast<int64_t>(std::floor(posI.z * invCellSize));
+    if (!isPanning && !isRotating && !is2DMode && autoRotate)
+    {
+        targetRotY -= 0.0005f; 
+        needsRepaint = true;
+    }
 
-            for (int dx = -1; dx <= 1; ++dx)
-            {
-                for (int dy = -1; dy <= 1; ++dy)
-                {
-                    for (int dz = -1; dz <= 1; ++dz)
-                    {
-                        uint64_t key = static_cast<uint64_t>(
-                            ((cx + dx) & 0x1FFFFF) << 42 |
-                            ((cy + dy) & 0x1FFFFF) << 21 |
-                            ((cz + dz) & 0x1FFFFF)
-                        );
+    pulsePhase += 0.05f;
 
-                        auto it = grid.find(key);
-                        if (it == grid.end())
-                            continue;
+    if (needsRepaint) repaint();
+}
 
-                        for (size_t j : it->second)
-                        {
-                            if (j <= i)
-                                continue;
+void SampleCloudComponent::resetZoomAndPan()
+{
+    zoomScale = 1.0f;
+    panOffset = { 0.0f, 0.0f };
+    targetRotX = 0.35f;
+    targetRotY = 0.45f;
+    is2DMode = false;
+    viewModeButton.setButtonText("2D");
+    repaint();
+}
 
-                            auto delta = nodes[j].targetPos - nodes[i].targetPos;
-                            float distSq = delta.x * delta.x + delta.y * delta.y + delta.z * delta.z;
-                            float minDist = nodes[i].radius + nodes[j].radius + 6.0f;
-                            float minDistSq = minDist * minDist;
+void SampleCloudComponent::resized()
+{
+    auto b = getLocalBounds();
+    zoomInButton.setBounds(b.getRight() - 50, b.getBottom() - 140, 40, 40);
+    zoomOutButton.setBounds(b.getRight() - 50, b.getBottom() - 90, 40, 40);
+    resetZoomButton.setBounds(b.getRight() - 120, b.getBottom() - 40, 110, 30);
+    viewModeButton.setBounds(b.getRight() - 170, b.getBottom() - 40, 40, 30);
+    autoRotateButton.setBounds(b.getRight() - 280, b.getBottom() - 40, 100, 30);
+}
 
-                            if (distSq < minDistSq && distSq > 0.0001f)
-                            {
-                                float dist = std::sqrt(distSq);
-                                float overlap = (minDist - dist) * 0.5f;
-                                auto dir = delta / dist;
-                                nodes[i].targetPos = nodes[i].targetPos - dir * overlap;
-                                nodes[j].targetPos = nodes[j].targetPos + dir * overlap;
-                            }
-                        }
-                    }
-                }
-            }
-        }
+void SampleCloudComponent::mouseDown(const juce::MouseEvent& e)
+{
+    mouseDragStartPos = e.position;
+    isRotating = false;
+    isPanning = false;
+
+    if (e.mods.isRightButtonDown() || e.mods.isShiftDown())
+    {
+        isPanning = true;
+        dragStartPan = panOffset;
+    }
+    else
+    {
+        isRotating = true;
+        dragStartRotX = targetRotX;
+        dragStartRotY = targetRotY;
     }
 }
 
-int SampleCloudComponent::findNodeAtPosition(juce::Point<float> screenPos) const
+void SampleCloudComponent::mouseDrag(const juce::MouseEvent& e)
 {
+    if (is2DMode && isRotating) {
+        isRotating = false;
+        isPanning = true;
+        dragStartPan = panOffset;
+    }
+
+    auto delta = e.position - mouseDragStartPos;
+    if (isPanning)
+    {
+        panOffset.x = dragStartPan.x - (delta.x * 2.0f / zoomScale);
+        panOffset.y = dragStartPan.y - (delta.y * 2.0f / zoomScale);
+    }
+    else if (isRotating)
+    {
+        targetRotY = dragStartRotY - (delta.x * 0.01f);
+        targetRotX = juce::jlimit(-juce::MathConstants<float>::halfPi, juce::MathConstants<float>::halfPi, dragStartRotX - (delta.y * 0.01f));
+    }
+    repaint();
+}
+
+void SampleCloudComponent::mouseUp(const juce::MouseEvent& e)
+{
+    if (e.getDistanceFromDragStart() < 3.0f)
+    {
+        if (e.mods.isPopupMenu())
+        {
+            if (hoveredNodeIndex >= 0) showContextMenuForNode(hoveredNodeIndex);
+        }
+        else
+        {
+            if (hoveredNodeIndex >= 0)
+            {
+                selectedNodeIndex = hoveredNodeIndex;
+                listeners.call([&](SampleCloudListener& l) { l.cloudSampleSelected(nodes[selectedNodeIndex].item); });
+                repaint();
+            }
+        }
+    }
+    isRotating = false;
+    isPanning = false;
+}
+
+void SampleCloudComponent::mouseMove(const juce::MouseEvent& e)
+{
+    if (nodes.empty() || lastViewProjectionMatrix.mat[15] == 0.0f) return;
+    
     int bestIndex = -1;
     float bestZ = std::numeric_limits<float>::max();
+    float halfW = getWidth() * 0.5f;
+    float halfH = getHeight() * 0.5f;
 
     for (size_t i = 0; i < nodes.size(); ++i)
     {
-        const auto& node = nodes[i];
-        float hitR = (node.radius + 4.0f) * node.projectedScale;
-        float maxHit = std::max(12.0f, hitR);
-        float dist = node.screenPos.getDistanceFrom(screenPos);
-        if (dist <= maxHit)
+        auto& n = nodes[i];
+        juce::Vector3D<float> p(n.currentPos.x, n.currentPos.y, n.currentPos.z);
+        float w = lastViewProjectionMatrix.mat[3] * p.x + lastViewProjectionMatrix.mat[7] * p.y + lastViewProjectionMatrix.mat[11] * p.z + lastViewProjectionMatrix.mat[15];
+        if (w > 0.0f)
         {
-            if (node.transformedPos.z < bestZ)
+            float spX = lastViewProjectionMatrix.mat[0] * p.x + lastViewProjectionMatrix.mat[4] * p.y + lastViewProjectionMatrix.mat[8] * p.z + lastViewProjectionMatrix.mat[12];
+            float spY = lastViewProjectionMatrix.mat[1] * p.x + lastViewProjectionMatrix.mat[5] * p.y + lastViewProjectionMatrix.mat[9] * p.z + lastViewProjectionMatrix.mat[13];
+            float spZ = lastViewProjectionMatrix.mat[2] * p.x + lastViewProjectionMatrix.mat[6] * p.y + lastViewProjectionMatrix.mat[10] * p.z + lastViewProjectionMatrix.mat[14];
+            float sx = halfW + (spX / w) * halfW;
+            float sy = halfH - (spY / w) * halfH;
+            float dx = sx - e.x;
+            float dy = sy - e.y;
+            if (dx*dx + dy*dy < 144.0f)
             {
-                bestZ = node.transformedPos.z;
-                bestIndex = static_cast<int>(i);
+                if (spZ < bestZ)
+                {
+                    bestZ = spZ;
+                    bestIndex = static_cast<int>(i);
+                }
             }
         }
     }
-    return bestIndex;
+    
+    if (bestIndex != hoveredNodeIndex)
+    {
+        hoveredNodeIndex = bestIndex;
+        repaint();
+    }
+}
+
+void SampleCloudComponent::mouseWheelMove(const juce::MouseEvent&, const juce::MouseWheelDetails& wheel)
+{
+    zoomScale = juce::jlimit(0.3f, 4.0f, zoomScale * (1.0f + wheel.deltaY * 2.0f));
+    repaint();
+}
+
+void SampleCloudComponent::mouseDoubleClick(const juce::MouseEvent& e)
+{
+    if (hoveredNodeIndex >= 0)
+    {
+        listeners.call([&](SampleCloudListener& l) { l.cloudSampleDoubleClicked(nodes[hoveredNodeIndex].item); });
+    }
+}
+
+void SampleCloudComponent::addListener(SampleCloudListener* listener) { listeners.add(listener); }
+void SampleCloudComponent::removeListener(SampleCloudListener* listener) { listeners.remove(listener); }
+
+juce::String SampleCloudComponent::getPrimaryCategoryTag(const std::set<juce::String>& tags) const
+{
+    if (tags.empty()) return "Untagged";
+    return *tags.begin();
 }
 
 juce::Colour SampleCloudComponent::getColourForTag(const juce::String& tag) const
 {
     auto t = tag.toLowerCase();
-    if (t.contains("kick"))  return juce::Colour(0xffe53935); // Rich Crimson
-    if (t.contains("snare")) return juce::Colour(0xfff57c00); // Warm Terracotta Amber
-    if (t.contains("hat") || t.contains("hihat")) return juce::Colour(0xff0288d1); // Oceanic Azure Blue
-    if (t.contains("perc"))  return juce::Colour(0xff2e7d32); // Rich Emerald Green
-    if (t.contains("bass"))  return juce::Colour(0xff673ab7); // Royal Indigo Violet
-    if (t.contains("synth") || t.contains("lead")) return juce::Colour(0xffffb300); // Warm Golden Amber
-    if (t.contains("loop"))  return juce::Colour(0xff00897b); // Deep Teal
-    if (t.contains("vocal")) return juce::Colour(0xffc2185b); // Rich Plum Berry
+    if (t.contains("kick")) return juce::Colour(0xffe53935);
+    if (t.contains("snare")) return juce::Colour(0xfff57c00);
+    if (t.contains("hat") || t.contains("hihat")) return juce::Colour(0xff0288d1);
+    if (t.contains("perc")) return juce::Colour(0xff2e7d32);
+    if (t.contains("bass")) return juce::Colour(0xff673ab7);
+    if (t.contains("synth") || t.contains("lead")) return juce::Colour(0xffffb300);
+    if (t.contains("loop")) return juce::Colour(0xff00897b);
+    if (t.contains("vocal")) return juce::Colour(0xffc2185b);
 
-    // Tailored non-neon HSL mapping for custom tags
     uint32_t hash = static_cast<uint32_t>(tag.hashCode());
     float hue = (hash % 360) / 360.0f;
     return juce::Colour::fromHSV(hue, 0.65f, 0.85f, 1.0f);
@@ -950,60 +551,190 @@ juce::Colour SampleCloudComponent::getColourForTag(const juce::String& tag) cons
 
 void SampleCloudComponent::showContextMenuForNode(int idx)
 {
-    if (idx < 0 || idx >= static_cast<int>(nodes.size()))
-        return;
-
-    const auto& item = nodes[static_cast<size_t>(idx)].item;
+    if (idx < 0 || idx >= static_cast<int>(nodes.size())) return;
+    const auto& item = nodes[idx].item;
 
     juce::PopupMenu menu;
     menu.addSectionHeader(item.fileName);
     menu.addItem(1, item.isFavorite ? "Remove from Favorites" : "Add to Favorites");
     menu.addItem(2, "Add Custom Tag...");
-    menu.addItem(3, "Reveal in File Explorer / Finder");
+    menu.addItem(3, "Reveal in Explorer");
 
     menu.showMenuAsync(juce::PopupMenu::Options(), [this, item](int result) {
-        if (result == 1)
-        {
-            dbManager.toggleFavorite(item.id);
-        }
-        else if (result == 2)
-        {
-            auto alert = std::make_shared<juce::AlertWindow>("Add Custom Tag", "Enter a new custom tag for " + item.fileName + ":", juce::AlertWindow::QuestionIcon);
-            alert->addTextEditor("tagInput", "", "Tag (e.g. Kick, #Sub, Vocal)");
-            if (auto* ed = alert->getTextEditor("tagInput"))
-            {
-                ed->setJustification(juce::Justification::centredLeft);
-                ed->setIndents(4, 0);
-            }
-            alert->addButton("Add Tag", 1, juce::KeyPress(juce::KeyPress::returnKey));
-            alert->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
-
-            alert->enterModalState(true, juce::ModalCallbackFunction::create([this, alert, item](int btnResult) {
-                if (btnResult == 1)
-                {
-                    auto newTag = alert->getTextEditorContents("tagInput").trim();
-                    if (newTag.isNotEmpty())
-                    {
-                        dbManager.addTagToItem(item.id, newTag);
-                    }
-                }
-            }));
-        }
-        else if (result == 3)
-        {
-            juce::File(item.filePath).revealToUser();
-        }
+        if (result == 1) dbManager.toggleFavorite(item.id);
+        else if (result == 3) juce::File(item.filePath).revealToUser();
     });
 }
 
-void SampleCloudComponent::addListener(SampleCloudListener* listener)
+// ==============================================================================
+// RAW OPENGL RENDERING
+// ==============================================================================
+
+#ifndef GL_FALSE
+ #define GL_FALSE 0
+#endif
+#ifndef GL_FLOAT
+ #define GL_FLOAT 0x1406
+#endif
+#ifndef GL_POINTS
+ #define GL_POINTS 0x0000
+#endif
+#ifndef GL_ARRAY_BUFFER
+ #define GL_ARRAY_BUFFER 0x8892
+#endif
+#ifndef GL_STATIC_DRAW
+ #define GL_STATIC_DRAW 0x88E4
+#endif
+#ifndef GL_BLEND
+ #define GL_BLEND 0x0BE2
+#endif
+#ifndef GL_SRC_ALPHA
+ #define GL_SRC_ALPHA 0x0302
+#endif
+#ifndef GL_ONE_MINUS_SRC_ALPHA
+ #define GL_ONE_MINUS_SRC_ALPHA 0x0303
+#endif
+
+void SampleCloudComponent::newOpenGLContextCreated()
 {
-    listeners.add(listener);
+    openGLContext.extensions.glGenBuffers(1, &vbo);
+    vboNeedsUpdate = true;
+
+    juce::String vertexShader =
+        "#version 150\n"
+        "in vec3 position;\n"
+        "in vec4 colour;\n"
+        "in float radius;\n"
+        "uniform mat4 projectionMatrix;\n"
+        "uniform mat4 viewMatrix;\n"
+        "uniform float revealAlpha;\n"
+        "uniform float time;\n"
+        "out vec4 destColour;\n"
+        
+        "float rand(vec2 co){ return fract(sin(dot(co.xy ,vec2(12.9898,78.233))) * 43758.5453); }\n"
+        
+        "void main()\n"
+        "{\n"
+        "    vec4 viewPos = viewMatrix * vec4(position, 1.0);\n"
+        "    gl_Position = projectionMatrix * viewPos;\n"
+        "    float phase = position.x * 0.1 + position.y * 0.15 + position.z * 0.05;\n"
+        "    float noise = rand(position.xy * 0.01) * 0.5;\n"
+        "    float twinkle = 0.65 + 0.35 * sin(time * (1.5 + noise) + phase) * cos(time * 0.8 + phase * 1.3);\n"
+        "    float depthFade = clamp(600.0 / max(1.0, -viewPos.z), 0.15, 1.0);\n"
+        "    destColour = colour;\n"
+        "    destColour.rgb *= twinkle * depthFade;\n"
+        "    destColour.a *= revealAlpha * depthFade;\n"
+        "    gl_PointSize = max(3.0, radius * 6000.0 / max(1.0, -viewPos.z));\n"
+        "}\n";
+
+    juce::String fragmentShader =
+        "#version 150\n"
+        "in vec4 destColour;\n"
+        "out vec4 finalColour;\n"
+        "void main()\n"
+        "{\n"
+        "    vec2 p = gl_PointCoord * 2.0 - vec2(1.0);\n"
+        "    float r = dot(p, p);\n"
+        "    if (r > 1.0) discard;\n"
+        "    float alpha = 1.0 - smoothstep(0.8, 1.0, r);\n"
+        "    finalColour = vec4(destColour.rgb, destColour.a * alpha);\n"
+        "}\n";
+
+    shaderProgram.reset(new juce::OpenGLShaderProgram(openGLContext));
+    if (shaderProgram->addVertexShader(vertexShader) &&
+        shaderProgram->addFragmentShader(fragmentShader) &&
+        shaderProgram->link())
+    {
+        // Success
+    }
 }
 
-void SampleCloudComponent::removeListener(SampleCloudListener* listener)
+void SampleCloudComponent::renderOpenGL()
 {
-    listeners.remove(listener);
+    juce::OpenGLHelpers::clear(juce::Colour::fromRGB(32, 32, 32));
+
+    if (layoutPending || !shaderProgram || vertexBuffer.empty()) return;
+
+    bool isLightMode = OpenWavLookAndFeel::bgCard.getBrightness() > 0.5f;
+
+    // We must manually call glEnable and glBlendFunc
+    // Since we don't have glew, we can use the JUCE OpenGLHelpers or just rely on the driver
+    // But glBlendFunc, glEnable, glDrawArrays are standard OpenGL 1.1 available in opengl32.dll
+    ::glEnable(GL_BLEND);
+    ::glBlendFunc(GL_SRC_ALPHA, isLightMode ? GL_ONE_MINUS_SRC_ALPHA : 1); // 1 = GL_ONE Additive blending for bloom in dark mode
+    
+    #ifndef GL_PROGRAM_POINT_SIZE
+    #define GL_PROGRAM_POINT_SIZE 0x8642
+    #endif
+    ::glEnable(GL_PROGRAM_POINT_SIZE);
+
+    shaderProgram->use();
+
+    float aspect = getWidth() / (float)getHeight();
+    auto projectionMatrix = juce::Matrix3D<float>::fromFrustum(-aspect * 0.1f, aspect * 0.1f, -0.1f, 0.1f, 0.2f, 10000.0f);
+    
+    juce::Matrix3D<float> viewMatrix;
+    viewMatrix = viewMatrix * juce::Matrix3D<float>::fromTranslation({-panOffset.x, panOffset.y, -cameraDistance / zoomScale});
+    
+    // Matrix3D rotation requires manual building or usage of rotation(Vector3D)
+    float crx = std::cos(rotX), srx = std::sin(rotX);
+    float cry = std::cos(rotY), sry = std::sin(rotY);
+    juce::Matrix3D<float> rotMatrix(
+        cry, 0.0f, sry, 0.0f,
+        srx*sry, crx, -srx*cry, 0.0f,
+        -crx*sry, srx, crx*cry, 0.0f,
+        0.0f, 0.0f, 0.0f, 1.0f
+    );
+    viewMatrix = viewMatrix * rotMatrix;
+    
+    lastViewProjectionMatrix = projectionMatrix * viewMatrix;
+
+    GLuint progID = shaderProgram->getProgramID();
+    openGLContext.extensions.glUniformMatrix4fv(openGLContext.extensions.glGetUniformLocation(progID, "projectionMatrix"), 1, GL_FALSE, projectionMatrix.mat);
+    openGLContext.extensions.glUniformMatrix4fv(openGLContext.extensions.glGetUniformLocation(progID, "viewMatrix"), 1, GL_FALSE, viewMatrix.mat);
+    openGLContext.extensions.glUniform1f(openGLContext.extensions.glGetUniformLocation(progID, "revealAlpha"), revealAlpha);
+    openGLContext.extensions.glUniform1f(openGLContext.extensions.glGetUniformLocation(progID, "time"), static_cast<float>(juce::Time::getMillisecondCounterHiRes() / 1000.0));
+    openGLContext.extensions.glUniform1f(openGLContext.extensions.glGetUniformLocation(progID, "isLightMode"), isLightMode ? 1.0f : 0.0f);
+
+    openGLContext.extensions.glBindBuffer(GL_ARRAY_BUFFER, vbo);
+
+    if (vboNeedsUpdate)
+    {
+        openGLContext.extensions.glBufferData(GL_ARRAY_BUFFER, vertexBuffer.size() * sizeof(Vertex), vertexBuffer.data(), GL_STATIC_DRAW);
+        vboNeedsUpdate = false;
+    }
+
+    GLint posAttr = openGLContext.extensions.glGetAttribLocation(progID, "position");
+    GLint colAttr = openGLContext.extensions.glGetAttribLocation(progID, "colour");
+    GLint radAttr = openGLContext.extensions.glGetAttribLocation(progID, "radius");
+
+    if (posAttr >= 0)
+    {
+        openGLContext.extensions.glVertexAttribPointer(posAttr, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (GLvoid*)offsetof(Vertex, x));
+        openGLContext.extensions.glEnableVertexAttribArray(posAttr);
+    }
+    if (colAttr >= 0)
+    {
+        openGLContext.extensions.glVertexAttribPointer(colAttr, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex), (GLvoid*)offsetof(Vertex, r));
+        openGLContext.extensions.glEnableVertexAttribArray(colAttr);
+    }
+    if (radAttr >= 0)
+    {
+        openGLContext.extensions.glVertexAttribPointer(radAttr, 1, GL_FLOAT, GL_FALSE, sizeof(Vertex), (GLvoid*)offsetof(Vertex, radius));
+        openGLContext.extensions.glEnableVertexAttribArray(radAttr);
+    }
+
+    ::glDrawArrays(GL_POINTS, 0, (GLsizei)vertexBuffer.size());
+
+    if (posAttr >= 0) openGLContext.extensions.glDisableVertexAttribArray(posAttr);
+    if (colAttr >= 0) openGLContext.extensions.glDisableVertexAttribArray(colAttr);
+    if (radAttr >= 0) openGLContext.extensions.glDisableVertexAttribArray(radAttr);
+}
+
+void SampleCloudComponent::openGLContextClosing()
+{
+    openGLContext.extensions.glDeleteBuffers(1, &vbo);
+    shaderProgram.reset();
 }
 
 } // namespace openwav

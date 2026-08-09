@@ -1,4 +1,4 @@
-#include "PluginEditor.h"
+﻿#include "PluginEditor.h"
 #include <juce_audio_plugin_client/Standalone/juce_StandaloneFilterWindow.h>
 #if __has_include(<BinaryData.h>)
  #include <BinaryData.h>
@@ -509,7 +509,7 @@ void OpenWavAudioProcessorEditor::cloudSampleSelected(const MediaItem& item)
     sampleTable.selectItemById(item.id);
 }
 
-void OpenWavAudioProcessorEditor::cloudSampleDoubleClicked(const MediaItem& /*item*/)
+void OpenWavAudioProcessorEditor::cloudSampleDoubleClicked(const MediaItem& item)
 {
 }
 
