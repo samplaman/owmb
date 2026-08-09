@@ -97,6 +97,19 @@ SampleTableComponent::SampleTableComponent(TagDatabaseManager& db, AudioEngine& 
     table.setMultipleSelectionEnabled(false);
     table.setWantsKeyboardFocus(true);
 
+    similarityBannerLabel.setFont(juce::Font(12.0f, juce::Font::bold));
+    similarityBannerLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::accentCyan);
+    addChildComponent(similarityBannerLabel);
+
+    clearSimilarityButton.setButtonText(juce::String::fromUTF8("\xe2\x9c\x95"));
+    clearSimilarityButton.setTooltip("Clear similarity filter");
+    clearSimilarityButton.onClick = [this] {
+        similarityTargetId = "";
+        similarityTargetName = "";
+        updateFilter(currentKeyword, currentSelectedTags, currentMatchAll, currentExtFilter, currentFavOnly);
+    };
+    addChildComponent(clearSimilarityButton);
+
     addAndMakeVisible(table);
     updateFilter("", {}, false, "All", false);
 }
@@ -114,10 +127,25 @@ void SampleTableComponent::paint(juce::Graphics& g)
 
 void SampleTableComponent::resized()
 {
-    table.setBounds(getLocalBounds());
+    auto area = getLocalBounds();
+    if (similarityTargetId.isNotEmpty())
+    {
+        auto bannerRow = area.removeFromTop(30).reduced(4, 2);
+        similarityBannerLabel.setVisible(true);
+        clearSimilarityButton.setVisible(true);
+        clearSimilarityButton.setBounds(bannerRow.removeFromRight(26));
+        similarityBannerLabel.setBounds(bannerRow);
+    }
+    else
+    {
+        similarityBannerLabel.setVisible(false);
+        clearSimilarityButton.setVisible(false);
+    }
+
+    table.setBounds(area);
     
     auto& header = table.getHeader();
-    int totalWidth = getWidth();
+    int totalWidth = area.getWidth();
     
     // Fixed columns: Column 1 (36 px) + Column 8 (40 px) = 76 px
     int availableWidth = totalWidth - 76;
@@ -190,18 +218,22 @@ void SampleTableComponent::updateFilter(const juce::String& searchKeyword,
 
         if (found)
         {
+            similarityTargetName = targetItem.fileName;
+            similarityBannerLabel.setText("SHOWING ACOUSTICALLY SIMILAR SOUNDS TO: " + similarityTargetName, juce::dontSendNotification);
+
             std::sort(displayedItems.begin(), displayedItems.end(), [targetItem](const MediaItem& a, const MediaItem& b) {
                 if (a.id == targetItem.id) return true;
                 if (b.id == targetItem.id) return false;
 
-                double distA = calculateDistance(a, targetItem);
-                double distB = calculateDistance(b, targetItem);
+                double distA = TagDatabaseManager::calculateAcousticDistance(a, targetItem);
+                double distB = TagDatabaseManager::calculateAcousticDistance(b, targetItem);
                 return distA < distB;
             });
         }
         else
         {
             similarityTargetId = "";
+            similarityTargetName = "";
             std::sort(displayedItems.begin(), displayedItems.end(), [](const MediaItem& a, const MediaItem& b) {
                 return a.fileName.compareIgnoreCase(b.fileName) < 0;
             });
@@ -209,13 +241,21 @@ void SampleTableComponent::updateFilter(const juce::String& searchKeyword,
     }
     else
     {
+        similarityTargetName = "";
         std::sort(displayedItems.begin(), displayedItems.end(), [](const MediaItem& a, const MediaItem& b) {
             return a.fileName.compareIgnoreCase(b.fileName) < 0;
         });
     }
 
+    resized();
+
     table.updateContent();
     table.repaint();
+
+    if (similarityTargetId.isNotEmpty())
+    {
+        table.scrollToEnsureRowIsOnscreen(0);
+    }
 
     listeners.call([this](SampleTableListener& l) {
         l.displayedItemsChanged(displayedItems);
@@ -285,6 +325,65 @@ void SampleTableComponent::paintCell(juce::Graphics& g, int rowNumber, int colum
         {
             g.setColour(rowIsSelected ? OpenWavLookAndFeel::accentCyan : OpenWavLookAndFeel::textPrimary);
             g.setFont(rowIsSelected ? juce::Font(13.0f).boldened() : juce::Font(13.0f));
+
+            if (similarityTargetId.isNotEmpty())
+            {
+                MediaItem targetItem;
+                if (dbManager.getItemById(similarityTargetId, targetItem))
+                {
+                    if (item.id == similarityTargetId)
+                    {
+                        juce::Font badgeFont(10.0f, juce::Font::bold);
+                        juce::String badgeText = "TARGET";
+                        int badgeW = badgeFont.getStringWidth(badgeText) + 10;
+                        auto targetBounds = bounds.removeFromRight(badgeW).toFloat().withHeight(16.0f);
+                        targetBounds.setY((height - 16.0f) * 0.5f);
+
+                        g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.25f));
+                        g.fillRoundedRectangle(targetBounds, 4.0f);
+                        g.setColour(OpenWavLookAndFeel::accentCyan);
+                        g.drawRoundedRectangle(targetBounds, 4.0f, 1.0f);
+                        g.setFont(badgeFont);
+                        g.drawText(badgeText, targetBounds, juce::Justification::centred, true);
+
+                        bounds.removeFromRight(6);
+                    }
+                    else
+                    {
+                        float matchPct = TagDatabaseManager::calculateMatchPercentage(targetItem, item);
+                        float matchRatio = juce::jlimit(0.0f, 1.0f, matchPct / 100.0f);
+
+                        int barWidth = 80;
+                        float barHeight = 14.0f;
+                        auto barOuter = bounds.removeFromRight(barWidth).toFloat().withHeight(barHeight);
+                        barOuter.setY((height - barHeight) * 0.5f);
+
+                        // Background track
+                        g.setColour(OpenWavLookAndFeel::bgDark.withAlpha(0.6f));
+                        g.fillRoundedRectangle(barOuter, 3.0f);
+                        g.setColour(OpenWavLookAndFeel::borderColour);
+                        g.drawRoundedRectangle(barOuter, 3.0f, 1.0f);
+
+                        // Filled match progress bar scaled 0 to 100%
+                        if (matchRatio > 0.01f)
+                        {
+                            auto fillWidth = std::max(4.0f, (barOuter.getWidth() - 2.0f) * matchRatio);
+                            auto fillBounds = juce::Rectangle<float>(barOuter.getX() + 1.0f, barOuter.getY() + 1.0f, fillWidth, barOuter.getHeight() - 2.0f);
+                            g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.65f));
+                            g.fillRoundedRectangle(fillBounds, 2.0f);
+                        }
+
+                        // Percentage text (e.g. "98%")
+                        juce::String pctStr = juce::String(juce::roundToInt(matchPct)) + "%";
+                        g.setColour(OpenWavLookAndFeel::textPrimary);
+                        g.setFont(juce::Font(10.0f, juce::Font::bold));
+                        g.drawText(pctStr, barOuter, juce::Justification::centred, true);
+
+                        bounds.removeFromRight(6);
+                    }
+                }
+            }
+
             g.drawText(item.fileName, bounds, juce::Justification::centredLeft, true);
             break;
         }
@@ -449,8 +548,12 @@ void SampleTableComponent::cellClicked(int rowNumber, int columnId, const juce::
     // Otherwise table.selectRow below will trigger selectedRowsChanged.
     if (table.getSelectedRow() == rowNumber)
     {
-        audioEngine.setSampleBpm(item.bpm);
-        audioEngine.loadFile(juce::File(item.filePath), true);
+        juce::File fileToLoad(item.filePath);
+        if (fileToLoad.existsAsFile())
+        {
+            audioEngine.setSampleBpm(item.bpm);
+            audioEngine.loadFile(fileToLoad, true);
+        }
 
         listeners.call([item](SampleTableListener& l) {
             l.sampleSelected(item);
@@ -467,11 +570,12 @@ void SampleTableComponent::selectedRowsChanged(int lastRowSelected)
     if (lastRowSelected >= 0 && lastRowSelected < static_cast<int>(displayedItems.size()))
     {
         const auto& item = displayedItems[static_cast<size_t>(lastRowSelected)];
+        juce::File fileToLoad(item.filePath);
         
-        if (audioEngine.getCurrentFile() != juce::File(item.filePath))
+        if (fileToLoad.existsAsFile() && audioEngine.getCurrentFile() != fileToLoad)
         {
             audioEngine.setSampleBpm(item.bpm);
-            audioEngine.loadFile(juce::File(item.filePath), true);
+            audioEngine.loadFile(fileToLoad, true);
         }
 
         listeners.call([item](SampleTableListener& l) {
@@ -493,6 +597,22 @@ void SampleTableComponent::moveSelection(int delta)
 
     table.selectRow(nextRow);
     table.scrollToEnsureRowIsOnscreen(nextRow);
+}
+
+void SampleTableComponent::selectItemById(const juce::String& itemId)
+{
+    if (itemId.isEmpty())
+        return;
+
+    for (size_t i = 0; i < displayedItems.size(); ++i)
+    {
+        if (displayedItems[i].id == itemId)
+        {
+            table.selectRow(static_cast<int>(i), false, false);
+            table.scrollToEnsureRowIsOnscreen(static_cast<int>(i));
+            break;
+        }
+    }
 }
 
 void SampleTableComponent::cellDoubleClicked(int rowNumber, int /*columnId*/, const juce::MouseEvent& /*e*/)
@@ -621,6 +741,7 @@ void SampleTableComponent::showContextMenuForRow(int rowNumber)
         {
             similarityTargetId = item.id;
             updateFilter(currentKeyword, currentSelectedTags, currentMatchAll, currentExtFilter, currentFavOnly);
+            table.scrollToEnsureRowIsOnscreen(0);
         }
         else if (result == 5)
         {
@@ -951,15 +1072,7 @@ bool SampleTableComponent::mayDragToExternalWindows() const
 
 double SampleTableComponent::calculateDistance(const MediaItem& a, const MediaItem& b)
 {
-    double d_zcr = (a.zcr - b.zcr) * 2.0;
-    double d_hfr = (a.highFreqRatio - b.highFreqRatio) * 1.0;
-    double d_dr = (a.decayRatio - b.decayRatio) * 1.5;
-    
-    double cf_a = juce::jlimit(1.0, 10.0, a.crestFactor);
-    double cf_b = juce::jlimit(1.0, 10.0, b.crestFactor);
-    double d_cf = (cf_a - cf_b) * 0.15;
-
-    return std::sqrt(d_zcr * d_zcr + d_hfr * d_hfr + d_dr * d_dr + d_cf * d_cf);
+    return TagDatabaseManager::calculateAcousticDistance(a, b);
 }
 
 } // namespace openwav

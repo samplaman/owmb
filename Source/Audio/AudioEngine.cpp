@@ -58,6 +58,10 @@ static int getRootNoteFromWavSmplHeader(const juce::File& file)
 
 AudioEngine::AudioEngine()
 {
+    formatManager.registerFormat(new juce::WavAudioFormat(), true);
+    formatManager.registerFormat(new juce::AiffAudioFormat(), false);
+    formatManager.registerFormat(new juce::FlacAudioFormat(), false);
+    formatManager.registerFormat(new juce::OggVorbisAudioFormat(), false);
     formatManager.registerBasicFormats();
     backgroundThread.startThread(juce::Thread::Priority::high);
 }
@@ -102,62 +106,200 @@ void AudioEngine::processNextAudioBlock(juce::AudioBuffer<float>& outputBuffer, 
     // Capture live incoming audio levels and recording data before clearing buffer
     int inChannels = outputBuffer.getNumChannels();
     int numSamples = outputBuffer.getNumSamples();
+    bool monitorInput = !inputMuted.load();
+
+    juce::AudioBuffer<float> inputMonitorBuffer;
+
     if (inChannels > 0 && numSamples > 0)
     {
-        float maxL = outputBuffer.getMagnitude(0, 0, numSamples);
-        float maxR = (inChannels >= 2) ? outputBuffer.getMagnitude(1, 0, numSamples) : maxL;
-        liveInputLeft.store(maxL);
-        liveInputRight.store(maxR);
-
-        if (recordingActive.load())
+        if (monitorInput)
         {
-            const juce::ScopedLock sl(recordingLock);
-            auto mode = channelMode.load();
-            int spaceLeft = recordingBuffer.getNumSamples() - recordingWritePosition;
-            int toWrite = std::min(numSamples, spaceLeft);
-            if (toWrite <= 0)
+            // Apply Live Real-Time 3-Band Parametric EQ & 80Hz Low Cut to incoming live audio
+            float lowF = eqLowFreq.load();
+            float lowG = eqLowGain.load();
+            float midF = eqMidFreq.load();
+            float midG = eqMidGain.load();
+            float highF = eqHighFreq.load();
+            float highG = eqHighGain.load();
+            bool lowCut = eqLowCutEnabled.load();
+
+            struct BiquadCoeffs
             {
-                int currentLen = recordingBuffer.getNumSamples();
-                int addChunk = static_cast<int>(engineSampleRate * 30.0); // add 30s
-                if (currentLen + addChunk <= static_cast<int>(engineSampleRate * 600.0)) // Max 10 min
+                float b0 { 1.0f }, b1 { 0.0f }, b2 { 0.0f }, a1 { 0.0f }, a2 { 0.0f };
+            };
+
+            auto calcCoeffs = [fs = engineSampleRate](int type, float f0, float gainDb, float Q) -> BiquadCoeffs {
+                BiquadCoeffs c;
+                if (fs <= 0.0) return c;
+                float w0 = 2.0f * juce::MathConstants<float>::pi * f0 / static_cast<float>(fs);
+                float cosW = std::cos(w0);
+                float sinW = std::sin(w0);
+                float alpha = sinW / (2.0f * Q);
+                float A = std::pow(10.0f, gainDb / 40.0f);
+
+                float a0 = 1.0f;
+                if (type == 0) // Low Cut (80Hz High Pass)
                 {
-                    recordingBuffer.setSize(2, currentLen + addChunk, true, true, false);
-                    spaceLeft = recordingBuffer.getNumSamples() - recordingWritePosition;
-                    toWrite = std::min(numSamples, spaceLeft);
+                    c.b0 = (1.0f + cosW) * 0.5f;
+                    c.b1 = -(1.0f + cosW);
+                    c.b2 = (1.0f + cosW) * 0.5f;
+                    a0 = 1.0f + alpha;
+                    c.a1 = -2.0f * cosW;
+                    c.a2 = 1.0f - alpha;
                 }
-                else
+                else if (type == 1) // Low Shelf
                 {
-                    recordingActive.store(false);
+                    float beta = std::sqrt(A) / Q;
+                    c.b0 = A * ((A + 1.0f) - (A - 1.0f) * cosW + beta * sinW);
+                    c.b1 = 2.0f * A * ((A - 1.0f) - (A + 1.0f) * cosW);
+                    c.b2 = A * ((A + 1.0f) - (A - 1.0f) * cosW - beta * sinW);
+                    a0 = (A + 1.0f) + (A - 1.0f) * cosW + beta * sinW;
+                    c.a1 = -2.0f * ((A - 1.0f) + (A + 1.0f) * cosW);
+                    c.a2 = (A + 1.0f) + (A - 1.0f) * cosW - beta * sinW;
                 }
+                else if (type == 2) // Mid Peak/Bell
+                {
+                    c.b0 = 1.0f + alpha * A;
+                    c.b1 = -2.0f * cosW;
+                    c.b2 = 1.0f - alpha * A;
+                    a0 = 1.0f + alpha / A;
+                    c.a1 = -2.0f * cosW;
+                    c.a2 = 1.0f - alpha / A;
+                }
+                else if (type == 3) // High Shelf
+                {
+                    float beta = std::sqrt(A) / Q;
+                    c.b0 = A * ((A + 1.0f) + (A - 1.0f) * cosW + beta * sinW);
+                    c.b1 = -2.0f * A * ((A - 1.0f) + (A + 1.0f) * cosW);
+                    c.b2 = A * ((A + 1.0f) + (A - 1.0f) * cosW - beta * sinW);
+                    a0 = (A + 1.0f) - (A - 1.0f) * cosW + beta * sinW;
+                    c.a1 = 2.0f * ((A - 1.0f) - (A + 1.0f) * cosW);
+                    c.a2 = (A + 1.0f) - (A - 1.0f) * cosW - beta * sinW;
+                }
+
+                if (std::abs(a0) > 1e-6f)
+                {
+                    c.b0 /= a0;
+                    c.b1 /= a0;
+                    c.b2 /= a0;
+                    c.a1 /= a0;
+                    c.a2 /= a0;
+                }
+                return c;
+            };
+
+            auto processFilter = [numSamples](float* samples, const BiquadCoeffs& c, BiquadState& s) {
+                for (int i = 0; i < numSamples; ++i)
+                {
+                    float x = samples[i];
+                    float y = c.b0 * x + c.b1 * s.x1 + c.b2 * s.x2 - c.a1 * s.y1 - c.a2 * s.y2;
+                    s.x2 = s.x1;
+                    s.x1 = x;
+                    s.y2 = s.y1;
+                    s.y1 = y;
+                    samples[i] = y;
+                }
+            };
+
+            if (lowCut)
+            {
+                auto c = calcCoeffs(0, 80.0f, 0.0f, 0.707f);
+                for (int ch = 0; ch < inChannels; ++ch)
+                    processFilter(outputBuffer.getWritePointer(ch), c, inputFilterStates[0][std::min(ch, 1)]);
             }
 
-            if (toWrite > 0 && recordingActive.load())
+            if (std::abs(lowG) > 0.05f)
             {
-                if (mode == RecordingChannelMode::MonoLeft)
+                auto c = calcCoeffs(1, lowF, lowG, 0.707f);
+                for (int ch = 0; ch < inChannels; ++ch)
+                    processFilter(outputBuffer.getWritePointer(ch), c, inputFilterStates[1][std::min(ch, 1)]);
+            }
+
+            if (std::abs(midG) > 0.05f)
+            {
+                auto c = calcCoeffs(2, midF, midG, 1.0f);
+                for (int ch = 0; ch < inChannels; ++ch)
+                    processFilter(outputBuffer.getWritePointer(ch), c, inputFilterStates[2][std::min(ch, 1)]);
+            }
+
+            if (std::abs(highG) > 0.05f)
+            {
+                auto c = calcCoeffs(3, highF, highG, 0.707f);
+                for (int ch = 0; ch < inChannels; ++ch)
+                    processFilter(outputBuffer.getWritePointer(ch), c, inputFilterStates[3][std::min(ch, 1)]);
+            }
+
+            inputMonitorBuffer.makeCopyOf(outputBuffer);
+
+            float maxL = outputBuffer.getMagnitude(0, 0, numSamples);
+            float maxR = (inChannels >= 2) ? outputBuffer.getMagnitude(1, 0, numSamples) : maxL;
+            liveInputLeft.store(maxL);
+            liveInputRight.store(maxR);
+
+            if (recordingActive.load())
+            {
+                const juce::ScopedLock sl(recordingLock);
+                auto mode = channelMode.load();
+                int spaceLeft = recordingBuffer.getNumSamples() - recordingWritePosition;
+                int toWrite = std::min(numSamples, spaceLeft);
+                if (toWrite <= 0)
                 {
-                    recordingBuffer.copyFrom(0, recordingWritePosition, outputBuffer, 0, 0, toWrite);
-                    recordingBuffer.copyFrom(1, recordingWritePosition, outputBuffer, 0, 0, toWrite);
-                }
-                else if (mode == RecordingChannelMode::MonoRight)
-                {
-                    int srcCh = std::min(1, inChannels - 1);
-                    recordingBuffer.copyFrom(0, recordingWritePosition, outputBuffer, srcCh, 0, toWrite);
-                    recordingBuffer.copyFrom(1, recordingWritePosition, outputBuffer, srcCh, 0, toWrite);
-                }
-                else // Stereo
-                {
-                    for (int ch = 0; ch < recordingBuffer.getNumChannels(); ++ch)
+                    int currentLen = recordingBuffer.getNumSamples();
+                    int addChunk = static_cast<int>(engineSampleRate * 30.0); // add 30s
+                    if (currentLen + addChunk <= static_cast<int>(engineSampleRate * 600.0)) // Max 10 min
                     {
-                        int srcCh = std::min(ch, inChannels - 1);
-                        recordingBuffer.copyFrom(ch, recordingWritePosition, outputBuffer, srcCh, 0, toWrite);
+                        recordingBuffer.setSize(2, currentLen + addChunk, true, true, false);
+                        spaceLeft = recordingBuffer.getNumSamples() - recordingWritePosition;
+                        toWrite = std::min(numSamples, spaceLeft);
+                    }
+                    else
+                    {
+                        recordingActive.store(false);
                     }
                 }
-                recordingWritePosition += toWrite;
+
+                if (toWrite > 0 && recordingActive.load())
+                {
+                    if (mode == RecordingChannelMode::MonoLeft)
+                    {
+                        recordingBuffer.copyFrom(0, recordingWritePosition, outputBuffer, 0, 0, toWrite);
+                        recordingBuffer.copyFrom(1, recordingWritePosition, outputBuffer, 0, 0, toWrite);
+                    }
+                    else if (mode == RecordingChannelMode::MonoRight)
+                    {
+                        int srcCh = std::min(1, inChannels - 1);
+                        recordingBuffer.copyFrom(0, recordingWritePosition, outputBuffer, srcCh, 0, toWrite);
+                        recordingBuffer.copyFrom(1, recordingWritePosition, outputBuffer, srcCh, 0, toWrite);
+                    }
+                    else // Stereo
+                    {
+                        for (int ch = 0; ch < recordingBuffer.getNumChannels(); ++ch)
+                        {
+                            int srcCh = std::min(ch, inChannels - 1);
+                            recordingBuffer.copyFrom(ch, recordingWritePosition, outputBuffer, srcCh, 0, toWrite);
+                        }
+                    }
+                    recordingWritePosition += toWrite;
+                }
             }
+        }
+        else
+        {
+            liveInputLeft.store(0.0f);
+            liveInputRight.store(0.0f);
         }
     }
 
     outputBuffer.clear();
+
+    if (monitorInput && inputMonitorBuffer.getNumChannels() > 0 && inputMonitorBuffer.getNumSamples() > 0)
+    {
+        for (int ch = 0; ch < outputBuffer.getNumChannels(); ++ch)
+        {
+            int srcCh = std::min(ch, inputMonitorBuffer.getNumChannels() - 1);
+            outputBuffer.addFrom(ch, 0, inputMonitorBuffer, srcCh, 0, numSamples);
+        }
+    }
 
     const juce::ScopedLock sl(voiceLock);
     if (activeVoices.empty())
@@ -880,6 +1022,17 @@ void AudioEngine::playMetronomeClick(bool isAccent)
     voice->triggerMidiNote = -1;
 
     activeVoices.push_back(voice);
+}
+
+void AudioEngine::setInputParametricEq(float lowF, float lowG, float midF, float midG, float highF, float highG, bool lowCut)
+{
+    eqLowFreq.store(lowF);
+    eqLowGain.store(lowG);
+    eqMidFreq.store(midF);
+    eqMidGain.store(midG);
+    eqHighFreq.store(highF);
+    eqHighGain.store(highG);
+    eqLowCutEnabled.store(lowCut);
 }
 
 } // namespace openwav

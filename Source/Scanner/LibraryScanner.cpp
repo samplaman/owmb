@@ -99,13 +99,13 @@ void LibraryScanner::run()
     if (!newFilesToScan.empty() && !threadShouldExit() && !cancelRequested)
     {
         unsigned int hardwareCores = std::thread::hardware_concurrency();
-        // Cap worker thread count to at most 4 (and half of available cores) to prevent OS sluggishness and leave CPU headroom
-        unsigned int numThreads = std::max(1u, std::min(4u, (hardwareCores > 2) ? (hardwareCores / 2) : 1u));
+        // Dynamically scale worker threads to utilize available hardware CPU cores (up to 16 threads)
+        unsigned int numThreads = std::max(2u, std::min(16u, (hardwareCores > 1) ? (hardwareCores - 1) : 2u));
         size_t total = newFilesToScan.size();
         size_t chunkSize = (total + numThreads - 1) / numThreads;
 
         listeners.call([total](ScannerListener& l) {
-            l.scanProgress(0, static_cast<int>(total), "Starting analysis of new files...");
+            l.scanProgress(0, static_cast<int>(total), "Starting high-speed analysis of new files...");
         });
 
         std::vector<std::future<void>> futures;
@@ -119,7 +119,7 @@ void LibraryScanner::run()
 
             futures.push_back(std::async(std::launch::async, [this, &newFilesToScan, startIdx, endIdx, total, &processedCount]() {
                 std::vector<MediaItem> localItems;
-                localItems.reserve(32);
+                localItems.reserve(64);
 
                 for (size_t i = startIdx; i < endIdx; ++i)
                 {
@@ -133,9 +133,10 @@ void LibraryScanner::run()
                     int count = ++processedCount;
                     juce::String fileName = newFilesToScan[i].getFileName();
 
-                    if (localItems.size() >= 32)
+                    if (localItems.size() >= 64)
                     {
-                        db.addItems(localItems);
+                        // Add items to in-memory map without triggering heavy disk serialization
+                        db.addItems(localItems, false);
                         localItems.clear();
                     }
 
@@ -148,7 +149,7 @@ void LibraryScanner::run()
 
                 if (!localItems.empty() && !cancelRequested)
                 {
-                    db.addItems(localItems);
+                    db.addItems(localItems, false);
                 }
             }));
         }
@@ -156,6 +157,12 @@ void LibraryScanner::run()
         for (auto& fut : futures)
         {
             fut.get();
+        }
+
+        // Save entire updated database to JSON file once at end of scan
+        if (!cancelRequested)
+        {
+            db.saveToFile();
         }
     }
 
@@ -241,8 +248,8 @@ static void analyzeAudioData(juce::AudioFormatReader* reader, MediaItem& item)
         lengthInSamples /= 2;
     }
 
-    // Read up to 6 seconds of mono audio (channel 0)
-    int maxSamplesToAnalyze = static_cast<int>(std::min(lengthInSamples, static_cast<juce::int64>(reader->sampleRate * 6.0)));
+    // Read up to 1.5 seconds of mono audio (channel 0) for high-speed analysis
+    int maxSamplesToAnalyze = static_cast<int>(std::min(lengthInSamples, static_cast<juce::int64>(reader->sampleRate * 1.5)));
     if (maxSamplesToAnalyze <= 128)
         return;
 
@@ -436,10 +443,19 @@ static void analyzeAudioData(juce::AudioFormatReader* reader, MediaItem& item)
                 if (estimatedBpm >= 50.0 && estimatedBpm <= 200.0)
                 {
                     item.bpm = estimatedBpm;
+                    item.tags.insert("#" + juce::String(juce::roundToInt(estimatedBpm)) + "BPM");
                 }
             }
         }
     }
+
+    // 5. Acoustic DSP Character Tagging
+    if (crestFactor > 4.2f)
+        item.tags.insert("#Punchy");
+    if (highFreqRatio >= 0.70)
+        item.tags.insert("#Bright");
+    else if (highFreqRatio < 0.15 && zcr < 0.05)
+        item.tags.insert("#Warm");
 }
 
 MediaItem LibraryScanner::processAudioFile(const juce::File& file)
@@ -468,9 +484,6 @@ MediaItem LibraryScanner::processAudioFile(const juce::File& file)
             return existingItem;
         }
     }
-
-    // Auto-infer tags from path and file type
-    item.tags = TagDatabaseManager::inferTagsFromPath(absPath);
 
     bool headerParsed = false;
     // Try ultra-fast binary header parsing first for WAV files
@@ -501,6 +514,13 @@ MediaItem LibraryScanner::processAudioFile(const juce::File& file)
 
         // Run local DSP-based shallow ML classifier and BPM estimation
         analyzeAudioData(reader.get(), item);
+    }
+
+    // Auto-infer tags from path, file type, channels, and duration
+    auto pathTags = TagDatabaseManager::inferTagsFromPath(absPath, item.durationSeconds, item.numChannels);
+    for (const auto& t : pathTags)
+    {
+        item.tags.insert(t);
     }
 
     return item;

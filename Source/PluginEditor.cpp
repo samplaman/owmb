@@ -313,8 +313,9 @@ void OpenWavAudioProcessorEditor::tagFilterSelectionChanged(const std::set<juce:
     triggerFilterUpdate();
 }
 
-void OpenWavAudioProcessorEditor::sampleSelected(const MediaItem& /*item*/)
+void OpenWavAudioProcessorEditor::sampleSelected(const MediaItem& item)
 {
+    sampleCloud.selectItemById(item.id);
 }
 
 void OpenWavAudioProcessorEditor::sampleDoubleClicked(const MediaItem& /*item*/)
@@ -409,8 +410,9 @@ void OpenWavAudioProcessorEditor::parentHierarchyChanged()
     }
 }
 
-void OpenWavAudioProcessorEditor::cloudSampleSelected(const MediaItem& /*item*/)
+void OpenWavAudioProcessorEditor::cloudSampleSelected(const MediaItem& item)
 {
+    sampleTable.selectItemById(item.id);
 }
 
 void OpenWavAudioProcessorEditor::cloudSampleDoubleClicked(const MediaItem& /*item*/)

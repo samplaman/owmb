@@ -106,6 +106,8 @@ public:
     void startRecording();
     void stopRecording();
     bool isRecording() const { return recordingActive.load(); }
+    void setInputMuted(bool muted) { inputMuted.store(muted); }
+    bool isInputMuted() const { return inputMuted.load(); }
     void setRecordingChannelMode(RecordingChannelMode mode) { channelMode.store(mode); }
     RecordingChannelMode getRecordingChannelMode() const { return channelMode.load(); }
     double getRecordingDurationSeconds() const;
@@ -113,6 +115,7 @@ public:
     bool getRecordedBufferCopy(juce::AudioBuffer<float>& destBuffer, double& sampleRate) const;
     juce::File saveRecordingToWav(const juce::String& baseFileName);
     void playMetronomeClick(bool isAccent = false);
+    void setInputParametricEq(float lowF, float lowG, float midF, float midG, float highF, float highG, bool lowCut);
 
     void addListener(AudioEngineListener* listener);
     void removeListener(AudioEngineListener* listener);
@@ -146,12 +149,27 @@ private:
 
     // Live Recording State
     std::atomic<bool> recordingActive { false };
+    std::atomic<bool> inputMuted { true };
     std::atomic<RecordingChannelMode> channelMode { RecordingChannelMode::Stereo };
     mutable juce::CriticalSection recordingLock;
     juce::AudioBuffer<float> recordingBuffer;
     int recordingWritePosition { 0 };
     std::atomic<float> liveInputLeft { 0.0f };
     std::atomic<float> liveInputRight { 0.0f };
+    struct BiquadState
+    {
+        float x1 { 0.0f }, x2 { 0.0f }, y1 { 0.0f }, y2 { 0.0f };
+    };
+
+    std::atomic<float> eqLowFreq { 120.0f };
+    std::atomic<float> eqLowGain { 0.0f };
+    std::atomic<float> eqMidFreq { 1200.0f };
+    std::atomic<float> eqMidGain { 0.0f };
+    std::atomic<float> eqHighFreq { 8000.0f };
+    std::atomic<float> eqHighGain { 0.0f };
+    std::atomic<bool> eqLowCutEnabled { false };
+
+    BiquadState inputFilterStates[4][2]; // 4 filters, 2 channels
 
     double sampleStartRatio { 0.0 };
     double sampleEndRatio { 1.0 };

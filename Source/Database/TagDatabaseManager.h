@@ -42,7 +42,7 @@ public:
     // Item Operations
     bool getItemById(const juce::String& itemId, MediaItem& item) const;
     void addOrUpdateItem(const MediaItem& item);
-    void addItems(const std::vector<MediaItem>& items);
+    void addItems(const std::vector<MediaItem>& items, bool saveNow = true);
     void addTagToItem(const juce::String& itemId, const juce::String& tag);
     void removeTagFromItem(const juce::String& itemId, const juce::String& tag);
     void toggleFavorite(const juce::String& itemId);
@@ -51,9 +51,12 @@ public:
     void removeMissingFiles();
     void clearLibrary();
     void clearAllData();
+    void reTagAllItems();
 
     // Tag Auto-Inference Helper
-    static std::set<juce::String> inferTagsFromPath(const juce::String& filePath);
+    static std::set<juce::String> inferTagsFromPath(const juce::String& filePath, double durationSeconds = 0.0, int numChannels = 0);
+    static double calculateAcousticDistance(const MediaItem& a, const MediaItem& b);
+    static float calculateMatchPercentage(const MediaItem& a, const MediaItem& b);
 
     // Persistence
     void loadFromFile();

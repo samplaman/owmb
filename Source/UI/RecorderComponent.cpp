@@ -85,14 +85,138 @@ RecorderComponent::RecorderComponent(AudioEngine& engine, TagDatabaseManager& db
     statusLabel.setText("Ready to record live input audio", juce::dontSendNotification);
     addAndMakeVisible(statusLabel);
 
+    // DSP Filter & Normalization Toggles
+    lowCutButton.setToggleState(false, juce::dontSendNotification);
+    lowCutButton.onClick = [this] {
+        audioEngine.setInputParametricEq(lowFreq, lowGain, midFreq, midGain, highFreq, highGain, lowCutButton.getToggleState());
+        repaint();
+    };
+    addAndMakeVisible(lowCutButton);
+
+    normalizeButton.setToggleState(true, juce::dontSendNotification);
+    addAndMakeVisible(normalizeButton);
+
     lookAndFeelChanged();
 
+    audioEngine.setInputParametricEq(lowFreq, lowGain, midFreq, midGain, highFreq, highGain, lowCutButton.getToggleState());
+
     startTimerHz(30);
+    updateInputMuteState();
 }
 
 RecorderComponent::~RecorderComponent()
 {
     stopTimer();
+    audioEngine.setInputMuted(true);
+}
+
+juce::Point<float> RecorderComponent::getEqNodeScreenPos(float freq, float gainDb, juce::Rectangle<float> eqBounds) const
+{
+    if (eqBounds.isEmpty()) return { 0.0f, 0.0f };
+
+    float normX = std::log10(juce::jlimit(20.0f, 20000.0f, freq) / 20.0f) / std::log10(1000.0f);
+    float x = eqBounds.getX() + eqBounds.getWidth() * juce::jlimit(0.0f, 1.0f, normX);
+
+    float normY = juce::jlimit(-15.0f, 15.0f, gainDb) / 15.0f;
+    float y = eqBounds.getCentreY() - normY * (eqBounds.getHeight() * 0.40f);
+
+    return { x, y };
+}
+
+void RecorderComponent::updateEqNodeFromScreenPos(int nodeIdx, juce::Point<float> pos, juce::Rectangle<float> eqBounds)
+{
+    if (eqBounds.isEmpty()) return;
+
+    float normX = juce::jlimit(0.0f, 1.0f, (pos.x - eqBounds.getX()) / eqBounds.getWidth());
+    float freq = 20.0f * std::pow(1000.0f, normX);
+
+    float normY = (eqBounds.getCentreY() - pos.y) / (eqBounds.getHeight() * 0.40f);
+    float gainDb = juce::jlimit(-12.0f, 12.0f, normY * 15.0f);
+
+    if (nodeIdx == 0) // Low
+    {
+        lowFreq = juce::jlimit(30.0f, 450.0f, freq);
+        lowGain = gainDb;
+    }
+    else if (nodeIdx == 1) // Mid
+    {
+        midFreq = juce::jlimit(250.0f, 5500.0f, freq);
+        midGain = gainDb;
+    }
+    else if (nodeIdx == 2) // High
+    {
+        highFreq = juce::jlimit(2500.0f, 18000.0f, freq);
+        highGain = gainDb;
+    }
+
+    audioEngine.setInputParametricEq(lowFreq, lowGain, midFreq, midGain, highFreq, highGain, lowCutButton.getToggleState());
+}
+
+void RecorderComponent::mouseMove(const juce::MouseEvent& e)
+{
+    if (cachedEqArea.isEmpty()) return;
+
+    juce::Point<float> mousePos = e.position.toFloat();
+    int prevHovered = hoveredNodeIndex;
+    hoveredNodeIndex = -1;
+
+    juce::Point<float> nodePos[3] = {
+        getEqNodeScreenPos(lowFreq, lowGain, cachedEqArea),
+        getEqNodeScreenPos(midFreq, midGain, cachedEqArea),
+        getEqNodeScreenPos(highFreq, highGain, cachedEqArea)
+    };
+
+    for (int i = 0; i < 3; ++i)
+    {
+        if (nodePos[i].getDistanceFrom(mousePos) <= 14.0f)
+        {
+            hoveredNodeIndex = i;
+            break;
+        }
+    }
+
+    if (hoveredNodeIndex != prevHovered)
+    {
+        setMouseCursor(hoveredNodeIndex >= 0 ? juce::MouseCursor::DraggingHandCursor : juce::MouseCursor::NormalCursor);
+        repaint();
+    }
+}
+
+void RecorderComponent::mouseDown(const juce::MouseEvent& e)
+{
+    if (cachedEqArea.isEmpty()) return;
+
+    juce::Point<float> mousePos = e.position.toFloat();
+    draggedNodeIndex = -1;
+
+    juce::Point<float> nodePos[3] = {
+        getEqNodeScreenPos(lowFreq, lowGain, cachedEqArea),
+        getEqNodeScreenPos(midFreq, midGain, cachedEqArea),
+        getEqNodeScreenPos(highFreq, highGain, cachedEqArea)
+    };
+
+    for (int i = 0; i < 3; ++i)
+    {
+        if (nodePos[i].getDistanceFrom(mousePos) <= 16.0f)
+        {
+            draggedNodeIndex = i;
+            break;
+        }
+    }
+}
+
+void RecorderComponent::mouseDrag(const juce::MouseEvent& e)
+{
+    if (draggedNodeIndex >= 0 && !cachedEqArea.isEmpty())
+    {
+        updateEqNodeFromScreenPos(draggedNodeIndex, e.position.toFloat(), cachedEqArea);
+        repaint();
+    }
+}
+
+void RecorderComponent::mouseUp(const juce::MouseEvent& /*e*/)
+{
+    draggedNodeIndex = -1;
 }
 
 void RecorderComponent::paint(juce::Graphics& g)
@@ -104,24 +228,41 @@ void RecorderComponent::paint(juce::Graphics& g)
     // Title HUD Header
     g.setFont(juce::Font(16.0f).boldened());
     g.setColour(OpenWavLookAndFeel::textPrimary);
-    g.drawText("AUDIO SAMPLE RECORDER", bounds.removeFromTop(24), juce::Justification::left, true);
+    g.drawText("AUDIO SAMPLE RECORDER & PARAMETRIC EQ", bounds.removeFromTop(24), juce::Justification::left, true);
 
     bounds.removeFromTop(12);
 
-    // Scope & Meter Box Area
+    // Split Cards Container Area
     auto mainCard = bounds.removeFromTop(bounds.getHeight() - 110).toFloat();
+    
+    // Split into Left (Oscilloscope + VU Meters) and Right (Parametric EQ + Spectrum Analyzer)
+    float gap = 12.0f;
+    float leftW = std::max(200.0f, (mainCard.getWidth() - gap) * 0.52f);
+    float rightW = mainCard.getWidth() - leftW - gap;
+
+    auto leftCard = mainCard.removeFromLeft(leftW);
+    mainCard.removeFromLeft(gap);
+    auto rightCard = mainCard.removeFromLeft(rightW);
+
+    // --- LEFT CARD: LIVE OSCILLOSCOPE & STEREO VU METERS ---
     g.setColour(OpenWavLookAndFeel::bgHeader);
-    g.fillRoundedRectangle(mainCard, 8.0f);
+    g.fillRoundedRectangle(leftCard, 8.0f);
     g.setColour(OpenWavLookAndFeel::borderColour);
-    g.drawRoundedRectangle(mainCard, 8.0f, 1.0f);
+    g.drawRoundedRectangle(leftCard, 8.0f, 1.0f);
 
-    auto scopeArea = mainCard.reduced(16.0f);
+    auto scopeArea = leftCard.reduced(14.0f);
 
-    // Reserve right side for Stereo VU Level Meters
+    // Header Label Left
+    g.setFont(juce::Font(12.0f, juce::Font::bold));
+    g.setColour(OpenWavLookAndFeel::accentCyan);
+    g.drawText("LIVE OSCILLOSCOPE & METERS", scopeArea.removeFromTop(18.0f), juce::Justification::left, true);
+    scopeArea.removeFromTop(4.0f);
+
+    // Reserve right side of scope card for Stereo VU Meters
     auto meterArea = scopeArea.removeFromRight(36.0f);
-    scopeArea.removeFromRight(12.0f);
+    scopeArea.removeFromRight(10.0f);
 
-    // Draw Live Oscilloscope Waveform View
+    // Live Oscilloscope Background
     g.setColour(OpenWavLookAndFeel::bgDark);
     g.fillRoundedRectangle(scopeArea, 6.0f);
     g.setColour(OpenWavLookAndFeel::borderColour.withAlpha(0.6f));
@@ -230,6 +371,164 @@ void RecorderComponent::paint(juce::Graphics& g)
 
     drawMeter(meterLeft, smoothLeftLevel);
     drawMeter(meterRight, smoothRightLevel);
+
+    // --- RIGHT CARD: PARAMETRIC EQ GRAPH & SPECTRUM VISUALIZER ---
+    g.setColour(OpenWavLookAndFeel::bgHeader);
+    g.fillRoundedRectangle(rightCard, 8.0f);
+    g.setColour(OpenWavLookAndFeel::borderColour);
+    g.drawRoundedRectangle(rightCard, 8.0f, 1.0f);
+
+    auto eqArea = rightCard.reduced(14.0f);
+
+    // Header Label Right
+    g.setFont(juce::Font(12.0f, juce::Font::bold));
+    g.setColour(OpenWavLookAndFeel::accentCyan);
+    g.drawText("PARAMETRIC EQ & SPECTRUM ANALYZER", eqArea.removeFromTop(18.0f), juce::Justification::left, true);
+    eqArea.removeFromTop(4.0f);
+
+    cachedEqArea = eqArea;
+
+    // EQ Background Graph
+    g.setColour(OpenWavLookAndFeel::bgDark);
+    g.fillRoundedRectangle(eqArea, 6.0f);
+    g.setColour(OpenWavLookAndFeel::borderColour.withAlpha(0.6f));
+    g.drawRoundedRectangle(eqArea, 6.0f, 1.0f);
+
+    // EQ Grid Lines (0dB, +6dB, -6dB horizontal lines)
+    float eqCenterY = eqArea.getCentreY();
+    g.setColour(OpenWavLookAndFeel::borderColour.withAlpha(0.35f));
+    g.drawHorizontalLine(static_cast<int>(eqCenterY), eqArea.getX(), eqArea.getRight());
+
+    g.setColour(OpenWavLookAndFeel::borderColour.withAlpha(0.18f));
+    float plus6Y = eqCenterY - (6.0f / 15.0f) * (eqArea.getHeight() * 0.40f);
+    float minus6Y = eqCenterY + (6.0f / 15.0f) * (eqArea.getHeight() * 0.40f);
+    g.drawHorizontalLine(static_cast<int>(plus6Y), eqArea.getX(), eqArea.getRight());
+    g.drawHorizontalLine(static_cast<int>(minus6Y), eqArea.getX(), eqArea.getRight());
+
+    // Frequency Grid Lines (100Hz, 1kHz, 10kHz)
+    float gridFreqs[3] = { 100.0f, 1000.0f, 10000.0f };
+    const char* gridLabels[3] = { "100Hz", "1kHz", "10kHz" };
+
+    g.setFont(juce::Font(10.0f));
+    for (int i = 0; i < 3; ++i)
+    {
+        auto p = getEqNodeScreenPos(gridFreqs[i], 0.0f, eqArea);
+        g.setColour(OpenWavLookAndFeel::borderColour.withAlpha(0.20f));
+        g.drawVerticalLine(static_cast<int>(p.x), eqArea.getY(), eqArea.getBottom());
+
+        g.setColour(OpenWavLookAndFeel::textSecondary.withAlpha(0.6f));
+        g.drawText(gridLabels[i], p.x - 20.0f, eqArea.getBottom() - 16.0f, 40.0f, 14.0f, juce::Justification::centred, false);
+    }
+
+    // Spectrum Analyzer Curve (Real-time spectral energy behind EQ curve)
+    float liveAmp = (smoothLeftLevel + smoothRightLevel) * 0.5f;
+    if (liveAmp > 0.01f)
+    {
+        juce::Path specPath;
+        specPath.startNewSubPath(eqArea.getX(), eqArea.getBottom() - 2.0f);
+
+        int specSteps = 40;
+        for (int i = 0; i <= specSteps; ++i)
+        {
+            float norm = static_cast<float>(i) / specSteps;
+            float px = eqArea.getX() + norm * eqArea.getWidth();
+
+            float noiseFactor = std::sin(norm * 14.0f + juce::Time::getMillisecondCounter() * 0.006f) * 0.25f + 0.75f;
+            float rollOff = std::exp(-norm * 2.2f);
+            float specH = eqArea.getHeight() * 0.65f * liveAmp * rollOff * noiseFactor;
+
+            float py = std::max(eqArea.getY() + 4.0f, eqArea.getBottom() - 2.0f - specH);
+            specPath.lineTo(px, py);
+        }
+        specPath.lineTo(eqArea.getRight(), eqArea.getBottom() - 2.0f);
+        specPath.closeSubPath();
+
+        g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.12f));
+        g.fillPath(specPath);
+    }
+
+    // Composite 3-Band Parametric EQ Transfer Function Curve
+    juce::Path eqCurve;
+    int points = 120;
+    bool isFirst = true;
+
+    for (int i = 0; i <= points; ++i)
+    {
+        float normX = static_cast<float>(i) / points;
+        float f = 20.0f * std::pow(1000.0f, normX);
+
+        // 3-Band EQ Gains
+        float gLow = lowGain / (1.0f + std::pow(f / lowFreq, 2.0f));
+        float gMid = midGain * std::exp(-std::pow(std::log(f / midFreq), 2.0f) / 0.35f);
+        float gHigh = highGain / (1.0f + std::pow(highFreq / f, 2.0f));
+
+        float totalGain = gLow + gMid + gHigh;
+
+        if (lowCutButton.getToggleState())
+        {
+            totalGain -= 12.0f / (1.0f + std::pow(f / 80.0f, 2.0f));
+        }
+
+        auto p = getEqNodeScreenPos(f, totalGain, eqArea);
+        if (isFirst)
+        {
+            eqCurve.startNewSubPath(p);
+            isFirst = false;
+        }
+        else
+        {
+            eqCurve.lineTo(p);
+        }
+    }
+
+    // Fill under EQ Curve
+    juce::Path fillCurve = eqCurve;
+    fillCurve.lineTo(eqArea.getRight(), eqArea.getCentreY());
+    fillCurve.lineTo(eqArea.getX(), eqArea.getCentreY());
+    fillCurve.closeSubPath();
+
+    g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.18f));
+    g.fillPath(fillCurve);
+
+    // Stroke EQ Transfer Curve
+    g.setColour(OpenWavLookAndFeel::accentCyan);
+    g.strokePath(eqCurve, juce::PathStrokeType(2.0f));
+
+    // Draw 3 Interactive EQ Handles (Low 'L', Mid 'M', High 'H')
+    struct NodeInfo { float freq; float gain; const char* label; };
+    NodeInfo nodesInfo[3] = {
+        { lowFreq, lowGain, "L" },
+        { midFreq, midGain, "M" },
+        { highFreq, highGain, "H" }
+    };
+
+    for (int i = 0; i < 3; ++i)
+    {
+        auto p = getEqNodeScreenPos(nodesInfo[i].freq, nodesInfo[i].gain, eqArea);
+        bool isHovered = (hoveredNodeIndex == i);
+        bool isDragged = (draggedNodeIndex == i);
+
+        float r = (isHovered || isDragged) ? 10.0f : 8.0f;
+
+        // Glow Halo
+        if (isHovered || isDragged)
+        {
+            g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.35f));
+            g.fillEllipse(p.x - r * 1.6f, p.y - r * 1.6f, r * 3.2f, r * 3.2f);
+        }
+
+        // Handle Circle Fill
+        g.setColour(isDragged ? juce::Colours::white : OpenWavLookAndFeel::bgCard);
+        g.fillEllipse(p.x - r, p.y - r, r * 2.0f, r * 2.0f);
+
+        g.setColour(OpenWavLookAndFeel::accentCyan);
+        g.drawEllipse(p.x - r, p.y - r, r * 2.0f, r * 2.0f, 1.8f);
+
+        // Label Text (L, M, H)
+        g.setFont(juce::Font(10.0f, juce::Font::bold));
+        g.setColour(isDragged ? OpenWavLookAndFeel::bgDark : OpenWavLookAndFeel::textPrimary);
+        g.drawText(nodesInfo[i].label, p.x - r, p.y - r, r * 2.0f, r * 2.0f, juce::Justification::centred, false);
+    }
 }
 
 void RecorderComponent::resized()
@@ -241,35 +540,41 @@ void RecorderComponent::resized()
     juce::ignoreUnused(mainCard);
     area.removeFromTop(12);
 
-    // Form Controls Row (Sample Name, Tags, Buttons)
+    // Form Controls Row (Sample Name, Tags, Buttons, EQ Toggles)
     auto formRow = area.removeFromTop(34);
 
-    recordButton.setBounds(formRow.removeFromLeft(100));
+    recordButton.setBounds(formRow.removeFromLeft(95));
+    formRow.removeFromLeft(8);
+
+    timeLabel.setBounds(formRow.removeFromLeft(100));
     formRow.removeFromLeft(10);
 
-    timeLabel.setBounds(formRow.removeFromLeft(110));
-    formRow.removeFromLeft(12);
-
-    channelLabel.setBounds(formRow.removeFromLeft(95));
-    channelSelector.setBounds(formRow.removeFromLeft(155));
-    formRow.removeFromLeft(14);
-
-    countInLabel.setBounds(formRow.removeFromLeft(70));
-    countInSelector.setBounds(formRow.removeFromLeft(125));
-    formRow.removeFromLeft(14);
-
-    nameLabel.setBounds(formRow.removeFromLeft(90));
-    nameEditor.setBounds(formRow.removeFromLeft(150));
-    formRow.removeFromLeft(14);
-
-    tagsLabel.setBounds(formRow.removeFromLeft(130));
-    tagsEditor.setBounds(formRow.removeFromLeft(150));
-    formRow.removeFromLeft(14);
-
-    saveButton.setBounds(formRow.removeFromLeft(150));
+    channelLabel.setBounds(formRow.removeFromLeft(90));
+    channelSelector.setBounds(formRow.removeFromLeft(145));
     formRow.removeFromLeft(10);
 
-    previewButton.setBounds(formRow.removeFromLeft(80));
+    countInLabel.setBounds(formRow.removeFromLeft(65));
+    countInSelector.setBounds(formRow.removeFromLeft(115));
+    formRow.removeFromLeft(10);
+
+    lowCutButton.setBounds(formRow.removeFromLeft(110));
+    formRow.removeFromLeft(8);
+
+    normalizeButton.setBounds(formRow.removeFromLeft(115));
+    formRow.removeFromLeft(10);
+
+    nameLabel.setBounds(formRow.removeFromLeft(85));
+    nameEditor.setBounds(formRow.removeFromLeft(135));
+    formRow.removeFromLeft(10);
+
+    tagsLabel.setBounds(formRow.removeFromLeft(125));
+    tagsEditor.setBounds(formRow.removeFromLeft(135));
+    formRow.removeFromLeft(10);
+
+    saveButton.setBounds(formRow.removeFromLeft(145));
+    formRow.removeFromLeft(8);
+
+    previewButton.setBounds(formRow.removeFromLeft(75));
 
     statusLabel.setBounds(area.removeFromTop(24));
 }
@@ -288,8 +593,22 @@ void RecorderComponent::lookAndFeelChanged()
     previewButton.setColour(juce::TextButton::textColourOffId, OpenWavLookAndFeel::textPrimary);
 }
 
+void RecorderComponent::visibilityChanged()
+{
+    updateInputMuteState();
+}
+
+void RecorderComponent::updateInputMuteState()
+{
+    bool isRecordViewActive = isVisible();
+    bool isRecordingPressedOrStarted = isCountingDown || audioEngine.isRecording();
+    bool shouldMuteInput = !(isRecordViewActive && isRecordingPressedOrStarted);
+    audioEngine.setInputMuted(shouldMuteInput);
+}
+
 void RecorderComponent::timerCallback()
 {
+    updateInputMuteState();
     float rawL = 0.0f, rawR = 0.0f;
     audioEngine.getLiveInputLevels(rawL, rawR);
 
@@ -404,6 +723,7 @@ void RecorderComponent::toggleRecording()
             recordButton.setToggleState(true, juce::dontSendNotification);
         }
     }
+    updateInputMuteState();
 }
 
 void RecorderComponent::playPreview()
@@ -437,12 +757,67 @@ void RecorderComponent::saveAndAddToLibrary()
     if (sampleName.isEmpty())
         sampleName = "Rec_" + juce::Time::getCurrentTime().formatted("%Y%m%d_%H%M%S");
 
+    // Check if DSP processing (Low Cut / Normalization) needs to be written to disk
+    bool applyLowCut = lowCutButton.getToggleState();
+    bool applyNormalize = normalizeButton.getToggleState();
+
+    juce::AudioBuffer<float> buf;
+    double sr = 44100.0;
+    if (audioEngine.getRecordedBufferCopy(buf, sr) && buf.getNumSamples() > 0 && sr > 0.0)
+    {
+        if (applyLowCut)
+        {
+            float dt = 1.0f / static_cast<float>(sr);
+            float RC = 1.0f / (2.0f * juce::MathConstants<float>::pi * 80.0f);
+            float alpha = RC / (RC + dt);
+
+            for (int ch = 0; ch < buf.getNumChannels(); ++ch)
+            {
+                float* samples = buf.getWritePointer(ch);
+                float prevIn = samples[0];
+                float prevOut = samples[0];
+                for (int i = 1; i < buf.getNumSamples(); ++i)
+                {
+                    float currIn = samples[i];
+                    float currOut = alpha * (prevOut + currIn - prevIn);
+                    samples[i] = currOut;
+                    prevIn = currIn;
+                    prevOut = currOut;
+                }
+            }
+        }
+
+        if (applyNormalize)
+        {
+            float maxPeak = buf.getMagnitude(0, buf.getNumSamples());
+            if (maxPeak > 0.0001f)
+            {
+                float targetGain = 0.98f / maxPeak;
+                buf.applyGain(targetGain);
+            }
+        }
+    }
+
     juce::File savedFile = audioEngine.saveRecordingToWav(sampleName);
     if (!savedFile.existsAsFile())
     {
         statusLabel.setText("Error saving recording file to disk.", juce::dontSendNotification);
         statusLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::favoriteRed);
         return;
+    }
+
+    // Overwrite disk file with DSP processed buffer if Low Cut or Normalization was applied
+    if ((applyLowCut || applyNormalize) && buf.getNumSamples() > 0)
+    {
+        juce::WavAudioFormat format;
+        std::unique_ptr<juce::AudioFormatWriter> writer(
+            format.createWriterFor(new juce::FileOutputStream(savedFile), sr, buf.getNumChannels(), 24, {}, 0)
+        );
+        if (writer != nullptr)
+        {
+            writer->writeFromAudioSampleBuffer(buf, 0, buf.getNumSamples());
+            writer.reset();
+        }
     }
 
     lastSavedFile = savedFile;
@@ -456,9 +831,7 @@ void RecorderComponent::saveAndAddToLibrary()
     item.fileSizeBytes = savedFile.getSize();
     item.dateAddedMs = juce::Time::getCurrentTime().toMilliseconds();
 
-    juce::AudioBuffer<float> buf;
-    double sr = 44100.0;
-    if (audioEngine.getRecordedBufferCopy(buf, sr) && sr > 0.0)
+    if (buf.getNumSamples() > 0 && sr > 0.0)
     {
         item.durationSeconds = static_cast<double>(buf.getNumSamples()) / sr;
         item.sampleRate = sr;
@@ -475,8 +848,9 @@ void RecorderComponent::saveAndAddToLibrary()
         if (cleanTag.isNotEmpty())
             item.tags.insert(cleanTag);
     }
-    if (item.tags.empty())
-        item.tags.insert("Recorded");
+    if (applyLowCut) item.tags.insert("#LowCut");
+    if (applyNormalize) item.tags.insert("#Normalized");
+    if (item.tags.empty()) item.tags.insert("Recorded");
 
     item.precomputeCachedStrings();
 

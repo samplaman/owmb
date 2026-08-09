@@ -297,7 +297,8 @@ void SampleCloudComponent::paint(juce::Graphics& g)
         g.drawText(metaStr, contentArea.removeFromTop(16.0f), juce::Justification::left, true);
 
         juce::String tagList;
-        for (const auto& t : item.tags) tagList += "#" + t + " ";
+        for (const auto& t : item.tags)
+            tagList += (t.startsWith("#") ? t : "#" + t) + " ";
         g.setColour(OpenWavLookAndFeel::accentCyan);
         g.drawText(tagList, contentArea.removeFromTop(16.0f), juce::Justification::left, true);
 
@@ -542,6 +543,49 @@ void SampleCloudComponent::mouseWheelMove(const juce::MouseEvent& e, const juce:
     repaint();
 }
 
+static juce::String getPrimaryCategoryTag(const std::set<juce::String>& tags)
+{
+    if (tags.empty())
+        return "General";
+
+    // Priority order for 3D Cloud View clustering (Instruments, Types, Sound Categories)
+    const char* priorityCategories[] = {
+        "#Kick", "#SubKick", "#Snare", "#Rimshot", "#Clap", "#Snap",
+        "#HiHat", "#OpenHat", "#ClosedHat", "#Tom", "#Cymbal", "#Crash", "#Ride",
+        "#Shaker", "#Tambourine", "#Cowbell", "#Conga", "#Bongo", "#Percussion",
+        "#Bass", "#SubBass", "#SynthBass", "#ReeseBass", "#808Bass",
+        "#Synth", "#Lead", "#Pad", "#Pluck", "#Arp", "#Keys", "#Piano", "#Rhodes",
+        "#Organ", "#Guitar", "#AcousticGuitar", "#ElectricGuitar", "#Strings",
+        "#Brass", "#Sax", "#Flute", "#Bell", "#Marimba",
+        "#Vocal", "#Vox", "#Chant", "#Acapella", "#VocalChop", "#Speech",
+        "#FX", "#Riser", "#Downlifter", "#Impact", "#SubDrop", "#Sweep", "#Noise",
+        "#Foley", "#Vinyl", "#Atmosphere", "#Texture", "#Glitch",
+        "#808", "#909",
+        "#DrumLoop", "#MelodicLoop", "#VocalLoop", "#PercLoop", "#BassLoop", "#TopLoop",
+        "#Loop", "#OneShot"
+    };
+
+    for (const char* cat : priorityCategories)
+    {
+        if (tags.find(cat) != tags.end())
+            return cat;
+    }
+
+    for (const auto& tag : tags)
+    {
+        if (tag.endsWithIgnoreCase("BPM")) continue;
+        if (tag.startsWithIgnoreCase("#Key_")) continue;
+        if (tag.equalsIgnoreCase("#Wav") || tag.equalsIgnoreCase("#MP3") || tag.equalsIgnoreCase("#FLAC") ||
+            tag.equalsIgnoreCase("#OGG") || tag.equalsIgnoreCase("#AIFF")) continue;
+        if (tag.equalsIgnoreCase("#Stereo") || tag.equalsIgnoreCase("#Mono") ||
+            tag.equalsIgnoreCase("#Short") || tag.equalsIgnoreCase("#Long")) continue;
+
+        return tag;
+    }
+
+    return "General";
+}
+
 void SampleCloudComponent::setItems(const std::vector<MediaItem>& items)
 {
     resetZoomAndPan();
@@ -553,11 +597,7 @@ void SampleCloudComponent::setItems(const std::vector<MediaItem>& items)
         CloudNode node;
         node.item = item;
 
-        if (!item.tags.empty())
-            node.primaryTag = *item.tags.begin();
-        else
-            node.primaryTag = "General";
-
+        node.primaryTag = getPrimaryCategoryTag(item.tags);
         node.colour = getColourForTag(node.primaryTag);
 
         float dur = static_cast<float>(item.durationSeconds);
@@ -569,6 +609,22 @@ void SampleCloudComponent::setItems(const std::vector<MediaItem>& items)
 
     calculateClusterLayout();
     repaint();
+}
+
+void SampleCloudComponent::selectItemById(const juce::String& itemId)
+{
+    if (itemId.isEmpty())
+        return;
+
+    for (size_t i = 0; i < nodes.size(); ++i)
+    {
+        if (nodes[i].item.id == itemId)
+        {
+            selectedNodeIndex = static_cast<int>(i);
+            repaint();
+            break;
+        }
+    }
 }
 
 void SampleCloudComponent::calculateClusterLayout()

@@ -446,13 +446,18 @@ static void extractFileObj(const juce::var& itemVar, std::vector<PixeldrainFile>
     outFiles.push_back(f);
 }
 
-static juce::URL::InputStreamOptions makeHttpOptions(const juce::String& authHeader = {}, int timeoutMs = 10000)
+static juce::URL::InputStreamOptions makeHttpOptions(const juce::String& authHeader = {}, int timeoutMs = 10000, bool acceptJson = true)
 {
     auto opts = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
                     .withConnectionTimeoutMs(timeoutMs)
                     .withNumRedirectsToFollow(5);
 
-    juce::String extraHeaders = "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) OpenWav/1.0\r\nAccept: application/json";
+    juce::String extraHeaders = "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) OpenWav/1.0";
+    if (acceptJson)
+        extraHeaders += "\r\nAccept: application/json";
+    else
+        extraHeaders += "\r\nAccept: */*";
+
     if (authHeader.isNotEmpty())
         extraHeaders += "\r\n" + authHeader;
 
@@ -1029,13 +1034,45 @@ bool LibrariesComponent::downloadFileSync(const juce::String& fileId,
                                          juce::Component::SafePointer<LibrariesComponent> safeThis,
                                          bool isPreview)
 {
-    juce::String downloadUrlStr;
-    if (fileId.startsWith("/"))
-        downloadUrlStr = "https://pixeldrain.com/api/filesystem" + fileId + "?download";
-    else
-        downloadUrlStr = "https://pixeldrain.com/api/file/" + fileId + "?download";
+    juce::String cleanId = fileId.trim();
+    juce::StringArray candidateUrls;
 
-    juce::URL url(downloadUrlStr);
+    if (cleanId.startsWithIgnoreCase("http://") || cleanId.startsWithIgnoreCase("https://"))
+    {
+        juce::String fullUrl = cleanId;
+        if (fullUrl.contains("/u/"))
+        {
+            juce::String idPart = fullUrl.substring(fullUrl.indexOf("/u/") + 3);
+            if (idPart.contains("?")) idPart = idPart.upToFirstOccurrenceOf("?", false, false);
+            candidateUrls.add("https://pixeldrain.com/api/file/" + idPart + "?download");
+            candidateUrls.add("https://pixeldrain.com/api/file/" + idPart);
+        }
+        else
+        {
+            if (!fullUrl.contains("?download") && !fullUrl.contains("&download"))
+                candidateUrls.add(fullUrl + (fullUrl.contains("?") ? "&download" : "?download"));
+            candidateUrls.add(fullUrl);
+        }
+    }
+    else if (cleanId.startsWith("/"))
+    {
+        candidateUrls.add("https://pixeldrain.com/api/filesystem" + cleanId + "?download");
+        candidateUrls.add("https://pixeldrain.com/api/filesystem" + cleanId);
+    }
+    else if (cleanId.startsWithIgnoreCase("filesystem/"))
+    {
+        juce::String pathPart = cleanId.substring(11);
+        candidateUrls.add("https://pixeldrain.com/api/filesystem/" + pathPart + "?download");
+        candidateUrls.add("https://pixeldrain.com/api/filesystem/" + pathPart);
+    }
+    else
+    {
+        if (cleanId.startsWithIgnoreCase("file/"))
+            cleanId = cleanId.substring(5);
+
+        candidateUrls.add("https://pixeldrain.com/api/file/" + cleanId + "?download");
+        candidateUrls.add("https://pixeldrain.com/api/file/" + cleanId);
+    }
 
     auto target = parsePixeldrainInput(apiKey);
     juce::String authHeader;
@@ -1044,65 +1081,102 @@ bool LibrariesComponent::downloadFileSync(const juce::String& fileId,
         authHeader = "Authorization: Basic " + juce::Base64::toBase64(":" + target.idOrKey);
     }
 
-    std::unique_ptr<juce::InputStream> stream(url.createInputStream(makeHttpOptions(authHeader, 15000)));
     bool success = false;
 
-    if (stream != nullptr)
+    for (const auto& downloadUrlStr : candidateUrls)
     {
-        destFile.deleteFile();
-        auto outStream = destFile.createOutputStream();
-        if (outStream != nullptr)
+        if (shouldExit() || safeThis == nullptr) break;
+
+        juce::URL url(downloadUrlStr);
+        std::unique_ptr<juce::InputStream> stream(url.createInputStream(makeHttpOptions(authHeader, 15000, false)));
+
+        if (stream == nullptr && authHeader.isNotEmpty())
         {
-            int64_t totalBytes = stream->getTotalLength();
-            int64_t bytesWritten = 0;
-            char buffer[8192];
+            // Fallback retry without auth header if private account header failed
+            stream = url.createInputStream(makeHttpOptions("", 15000, false));
+        }
 
-            while (!stream->isExhausted())
+        if (stream != nullptr)
+        {
+            destFile.deleteFile();
+            auto outStream = destFile.createOutputStream();
+            if (outStream != nullptr)
             {
-                if (shouldExit() || safeThis == nullptr)
-                    break;
+                int64_t totalBytes = stream->getTotalLength();
+                int64_t bytesWritten = 0;
+                char buffer[8192];
 
-                int bytesRead = stream->read(buffer, sizeof(buffer));
-                if (bytesRead <= 0) break;
-                outStream->write(buffer, static_cast<size_t>(bytesRead));
-                bytesWritten += bytesRead;
-
-                if (totalBytes > 0)
+                while (!stream->isExhausted())
                 {
-                    double progress = static_cast<double>(bytesWritten) / totalBytes;
-                    juce::MessageManager::callAsync([safeThis, fileId, progress, isPreview, fileName] {
-                        if (safeThis != nullptr)
-                        {
-                            for (auto& f : safeThis->allRemoteFiles)
+                    if (shouldExit() || safeThis == nullptr)
+                        break;
+
+                    int bytesRead = stream->read(buffer, sizeof(buffer));
+                    if (bytesRead <= 0) break;
+                    outStream->write(buffer, static_cast<size_t>(bytesRead));
+                    bytesWritten += bytesRead;
+
+                    if (totalBytes > 0)
+                    {
+                        double progress = static_cast<double>(bytesWritten) / totalBytes;
+                        juce::MessageManager::callAsync([safeThis, fileId, progress, isPreview, fileName] {
+                            if (safeThis != nullptr)
                             {
-                                if (f.id == fileId)
+                                for (auto& f : safeThis->allRemoteFiles)
                                 {
-                                    if (isPreview)
-                                        f.previewProgress = progress;
-                                    else
-                                        f.downloadProgress = progress;
+                                    if (f.id == fileId)
+                                    {
+                                        if (isPreview)
+                                            f.previewProgress = progress;
+                                        else
+                                            f.downloadProgress = progress;
+                                    }
+                                }
+                                safeThis->filterRemoteFiles();
+
+                                if (isPreview)
+                                {
+                                    safeThis->statusLabel.setText("Streaming preview: " + fileName + " (" + juce::String(juce::roundToInt(progress * 100.0)) + "%)", juce::dontSendNotification);
                                 }
                             }
-                            safeThis->filterRemoteFiles();
-
-                            if (isPreview)
-                            {
-                                safeThis->statusLabel.setText("Streaming preview: " + fileName + " (" + juce::String(juce::roundToInt(progress * 100.0)) + "%)", juce::dontSendNotification);
-                            }
-                        }
-                    });
+                        });
+                    }
                 }
+                outStream->flush();
+
+                if (destFile.existsAsFile() && destFile.getSize() > 128)
+                {
+                    juce::FileInputStream checkStream(destFile);
+                    if (checkStream.openedOk())
+                    {
+                        char firstChars[32] = {0};
+                        int readBytes = checkStream.read(firstChars, 31);
+                        juce::String startStr(firstChars, static_cast<size_t>(readBytes));
+                        startStr = startStr.trim();
+
+                        // Reject JSON / HTML error responses from Pixeldrain
+                        if (!startStr.startsWith("{") && !startStr.startsWith("<") &&
+                            !startStr.containsIgnoreCase("error") && !startStr.containsIgnoreCase("404"))
+                        {
+                            success = true;
+                        }
+                    }
+                }
+
+                if (success)
+                    break;
+                else
+                    destFile.deleteFile();
             }
-            outStream->flush();
-            success = destFile.existsAsFile() && destFile.getSize() > 0;
         }
     }
-    else
+
+    if (!success)
     {
         juce::MessageManager::callAsync([safeThis, fileName] {
             if (safeThis != nullptr)
             {
-                safeThis->statusLabel.setText("Failed to connect or access: " + fileName, juce::dontSendNotification);
+                safeThis->statusLabel.setText("Failed to connect or stream preview: " + fileName, juce::dontSendNotification);
             }
         });
     }
@@ -1147,15 +1221,27 @@ void LibrariesComponent::previewFile(int displayedIndex)
 
     // Replace path separators in the file ID to prevent creating directories or invalid filenames in the temp folder
     juce::String safeId = targetItem.id.replace("/", "_").replace("\\", "_");
-    juce::File previewFile = juce::File::getSpecialLocation(juce::File::tempDirectory)
-                                .getChildFile("owmb_preview_" + safeId + juce::File(targetItem.name).getFileExtension());
+    juce::String ext = juce::File(targetItem.name).getFileExtension();
+    if (ext.isEmpty()) ext = ".wav";
 
-    if (previewFile.existsAsFile() && previewFile.getSize() > 0)
+    juce::File previewFile = juce::File::getSpecialLocation(juce::File::tempDirectory)
+                                .getChildFile("owmb_preview_" + safeId + ext);
+
+    if (previewFile.existsAsFile() && previewFile.getSize() > 128)
     {
-        targetItem.previewPath = previewFile.getFullPathName();
-        audioEngine.loadFile(previewFile, true);
-        statusLabel.setText("Playing preview from cache: " + targetItem.name, juce::dontSendNotification);
-        return;
+        std::unique_ptr<juce::AudioFormatReader> reader(audioEngine.getFormatManager().createReaderFor(previewFile));
+        if (reader != nullptr && reader->lengthInSamples > 0)
+        {
+            targetItem.previewPath = previewFile.getFullPathName();
+            audioEngine.loadFile(previewFile, true);
+            statusLabel.setText("Playing preview: " + targetItem.name, juce::dontSendNotification);
+            return;
+        }
+        else
+        {
+            // Delete corrupt or incomplete cached preview file so it can be cleanly re-downloaded
+            previewFile.deleteFile();
+        }
     }
 
     statusLabel.setText("Streaming preview: " + targetItem.name + "...", juce::dontSendNotification);
@@ -1202,14 +1288,26 @@ void LibrariesComponent::handlePreviewFinished(const juce::String& fileId, const
         if (f.id == fileId)
         {
             f.isPreviewing = false;
-            if (success)
+            if (success && previewFile.existsAsFile() && previewFile.getSize() > 128)
             {
-                f.previewPath = previewFile.getFullPathName();
-                audioEngine.loadFile(previewFile, true);
-                statusLabel.setText("Playing preview: " + f.name, juce::dontSendNotification);
+                std::unique_ptr<juce::AudioFormatReader> reader(audioEngine.getFormatManager().createReaderFor(previewFile));
+                if (reader != nullptr && reader->lengthInSamples > 0)
+                {
+                    f.previewPath = previewFile.getFullPathName();
+                    audioEngine.loadFile(previewFile, true);
+                    statusLabel.setText("Playing preview: " + f.name, juce::dontSendNotification);
+                }
+                else
+                {
+                    previewFile.deleteFile();
+                    statusLabel.setText("Preview file format error: " + f.name, juce::dontSendNotification);
+                }
             }
             else
             {
+                if (previewFile.existsAsFile())
+                    previewFile.deleteFile();
+
                 statusLabel.setText("Preview stream failed for: " + f.name, juce::dontSendNotification);
             }
         }

@@ -90,6 +90,11 @@ TagPanelComponent::TagPanelComponent(TagDatabaseManager& db)
     };
     addAndMakeVisible(addCustomTagButton);
 
+    autoTagButton.onClick = [this] {
+        dbManager.reTagAllItems();
+    };
+    addAndMakeVisible(autoTagButton);
+
     refreshTags();
     refreshFolders();
 }
@@ -208,7 +213,9 @@ void TagPanelComponent::resized()
     matchModeToggle.setBounds(area.removeFromTop(20));
     area.removeFromTop(6);
 
-    addCustomTagButton.setBounds(area.removeFromTop(26));
+    auto customTagRow = area.removeFromTop(26);
+    addCustomTagButton.setBounds(customTagRow.removeFromLeft(customTagRow.getWidth() / 2 - 2));
+    autoTagButton.setBounds(customTagRow);
     area.removeFromTop(12);
 
     // Scanned Folders Section (Fixed/Flexible Height at Bottom of remaining space)

@@ -52,6 +52,7 @@ private:
     juce::TextButton clearFiltersButton { "Clear Tags" };
     juce::ToggleButton matchModeToggle { "Match All Tags (AND)" };
     juce::TextButton addCustomTagButton { "+ Add Custom Tag..." };
+    juce::TextButton autoTagButton { "Auto-Tag Library" };
 
     juce::Label tagsHeaderLabel { {}, "TAGS" };
     juce::Viewport tagViewport;

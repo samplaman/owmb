@@ -77,6 +77,7 @@ public:
     void mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel) override;
 
     void setItems(const std::vector<MediaItem>& items);
+    void selectItemById(const juce::String& itemId);
     void resetZoomAndPan();
 
     void addListener(SampleCloudListener* listener);

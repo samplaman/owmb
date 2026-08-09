@@ -52,6 +52,7 @@ public:
     bool mayDragToExternalWindows() const override;
 
     void moveSelection(int delta);
+    void selectItemById(const juce::String& itemId);
 
     // TagDatabaseListener callbacks
     void libraryIndexUpdated() override;
@@ -80,6 +81,10 @@ private:
 
     juce::ListenerList<SampleTableListener> listeners;
     juce::String similarityTargetId;
+    juce::String similarityTargetName;
+
+    juce::Label similarityBannerLabel;
+    juce::TextButton clearSimilarityButton { "X" };
     static double calculateDistance(const MediaItem& a, const MediaItem& b);
 };
 
