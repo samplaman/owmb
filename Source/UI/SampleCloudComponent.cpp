@@ -6,6 +6,10 @@
  #endif
  #include <windows.h>
  #include <GL/gl.h>
+#elif JUCE_MAC
+ #include <OpenGL/gl.h>
+#elif JUCE_LINUX
+ #include <GL/gl.h>
 #endif
 #include <cmath>
 #include <algorithm>
