@@ -28,6 +28,13 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(OpenWavAudioProcessor& 
       scanProgressDialog(p.getLibraryScanner())
 {
     bool isDark = audioProcessor.getDatabaseManager().isDarkMode();
+    juce::String savedColourHex = audioProcessor.getDatabaseManager().getPrimaryColourHex();
+    if (savedColourHex.isNotEmpty())
+    {
+        juce::Colour c = juce::Colour::fromString(savedColourHex);
+        if (c.getAlpha() > 0)
+            OpenWavLookAndFeel::setPrimaryColour(c);
+    }
     OpenWavLookAndFeel::setDarkTheme(isDark);
     lookAndFeel.updateColors();
 
@@ -238,6 +245,20 @@ void OpenWavAudioProcessorEditor::settingsRequested()
 
     menu.addItem(1, "Dark Theme", true, isDark);
     menu.addItem(2, "Light Theme", true, !isDark);
+
+    juce::PopupMenu colourSubMenu;
+    colourSubMenu.addItem(10, "Cyan (Default #00C8DC)");
+    colourSubMenu.addItem(11, "Electric Blue (#008CFF)");
+    colourSubMenu.addItem(12, "Neon Purple (#A040FF)");
+    colourSubMenu.addItem(13, "Emerald Green (#00E676)");
+    colourSubMenu.addItem(14, "Sunset Amber (#FFAB00)");
+    colourSubMenu.addItem(15, "Crimson Red (#FF3D00)");
+    colourSubMenu.addSeparator();
+    colourSubMenu.addItem(16, "Custom Colour Picker...");
+    colourSubMenu.addItem(17, "Reset to Theme Default");
+
+    menu.addSubMenu("Primary UI Colour", colourSubMenu);
+
     menu.addSeparator();
     menu.addItem(3, "Audio / MIDI Device Settings...");
     menu.addSeparator();
@@ -246,6 +267,14 @@ void OpenWavAudioProcessorEditor::settingsRequested()
     menu.addItem(5, "About OWMB...");
 
     menu.showMenuAsync(juce::PopupMenu::Options(), [this](int result) {
+        auto applyColour = [this](juce::Colour c, const juce::String& hexStr) {
+            OpenWavLookAndFeel::setPrimaryColour(c);
+            audioProcessor.getDatabaseManager().setPrimaryColourHex(hexStr);
+            lookAndFeel.updateColors();
+            sendLookAndFeelChange();
+            repaint();
+        };
+
         if (result == 1) // Dark Theme
         {
             audioProcessor.getDatabaseManager().setDarkMode(true);
@@ -261,6 +290,71 @@ void OpenWavAudioProcessorEditor::settingsRequested()
             lookAndFeel.updateColors();
             sendLookAndFeelChange();
             updateNativeTitleBarTheme();
+        }
+        else if (result == 10) // Cyan
+            applyColour(juce::Colour::fromRGB(0, 200, 220), "#ff00c8dc");
+        else if (result == 11) // Electric Blue
+            applyColour(juce::Colour::fromRGB(0, 140, 255), "#ff008cff");
+        else if (result == 12) // Neon Purple
+            applyColour(juce::Colour::fromRGB(160, 64, 255), "#ffa040ff");
+        else if (result == 13) // Emerald Green
+            applyColour(juce::Colour::fromRGB(0, 230, 118), "#ff00e676");
+        else if (result == 14) // Sunset Amber
+            applyColour(juce::Colour::fromRGB(255, 171, 0), "#ffffab00");
+        else if (result == 15) // Crimson Red
+            applyColour(juce::Colour::fromRGB(255, 61, 0), "#ffff3d00");
+        else if (result == 17) // Reset to Default
+        {
+            OpenWavLookAndFeel::resetPrimaryColour();
+            audioProcessor.getDatabaseManager().setPrimaryColourHex("");
+            lookAndFeel.updateColors();
+            sendLookAndFeelChange();
+            repaint();
+        }
+        else if (result == 16) // Custom Colour Picker...
+        {
+            auto* selector = new juce::ColourSelector(
+                juce::ColourSelector::showColourAtTop |
+                juce::ColourSelector::showSliders |
+                juce::ColourSelector::showColourspace
+            );
+            selector->setCurrentColour(OpenWavLookAndFeel::accentCyan);
+            selector->setSize(340, 300);
+
+            class ColourPickerWindow : public juce::DialogWindow, public juce::ChangeListener
+            {
+            public:
+                ColourPickerWindow(juce::ColourSelector* selectorComp, std::function<void(juce::Colour)> onColor)
+                    : DialogWindow("Custom Primary UI Colour", OpenWavLookAndFeel::bgDark, true, true),
+                      onColor(onColor), selector(selectorComp)
+                {
+                    setContentOwned(selectorComp, true);
+                    selectorComp->addChangeListener(this);
+                    setUsingNativeTitleBar(true);
+                    setResizable(false, false);
+                    centreWithSize(getWidth(), getHeight());
+                    setVisible(true);
+                }
+
+                void closeButtonPressed() override
+                {
+                    setVisible(false);
+                }
+
+                void changeListenerCallback(juce::ChangeBroadcaster*) override
+                {
+                    if (selector && onColor)
+                        onColor(selector->getCurrentColour());
+                }
+
+            private:
+                std::function<void(juce::Colour)> onColor;
+                juce::ColourSelector* selector;
+            };
+
+            new ColourPickerWindow(selector, [applyColour](juce::Colour newC) {
+                applyColour(newC, newC.toString());
+            });
         }
         else if (result == 3) // Audio/MIDI Settings
         {

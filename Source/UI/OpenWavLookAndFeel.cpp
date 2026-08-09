@@ -23,6 +23,32 @@ juce::Colour OpenWavLookAndFeel::borderColour =
 juce::Colour OpenWavLookAndFeel::favoriteRed =
     juce::Colour::fromRGB(120, 120, 120);
 
+juce::Colour OpenWavLookAndFeel::customPrimaryColour = juce::Colour::fromRGB(0, 200, 220);
+bool OpenWavLookAndFeel::hasCustomPrimaryColour = false;
+
+void OpenWavLookAndFeel::setPrimaryColour(juce::Colour colour)
+{
+    hasCustomPrimaryColour = true;
+    customPrimaryColour = colour;
+    accentCyan = colour;
+    accentBlue = colour.withMultipliedBrightness(0.85f);
+}
+
+void OpenWavLookAndFeel::resetPrimaryColour()
+{
+    hasCustomPrimaryColour = false;
+    if (bgDark.getBrightness() < 0.5f)
+    {
+        accentCyan = juce::Colour::fromRGB(0, 200, 220);
+        accentBlue = juce::Colour::fromRGB(0, 140, 255);
+    }
+    else
+    {
+        accentCyan = juce::Colour::fromRGB(60, 60, 60);
+        accentBlue = juce::Colour::fromRGB(110, 110, 110);
+    }
+}
+
 void OpenWavLookAndFeel::setDarkTheme(bool useDark)
 {
     if (useDark)
@@ -31,8 +57,8 @@ void OpenWavLookAndFeel::setDarkTheme(bool useDark)
         bgHeader = juce::Colour::fromRGB(30, 30, 30);
         bgCard = juce::Colour::fromRGB(32, 32, 32);
         bgHover = juce::Colour::fromRGB(48, 48, 48);
-        accentCyan = juce::Colour::fromRGB(0, 200, 220);
-        accentBlue = juce::Colour::fromRGB(0, 140, 255);
+        accentCyan = hasCustomPrimaryColour ? customPrimaryColour : juce::Colour::fromRGB(0, 200, 220);
+        accentBlue = hasCustomPrimaryColour ? customPrimaryColour.withMultipliedBrightness(0.85f) : juce::Colour::fromRGB(0, 140, 255);
         textPrimary = juce::Colour::fromRGB(240, 240, 240);
         textSecondary = juce::Colour::fromRGB(160, 160, 160);
         borderColour = juce::Colour::fromRGB(50, 50, 50);
@@ -44,8 +70,8 @@ void OpenWavLookAndFeel::setDarkTheme(bool useDark)
         bgHeader = juce::Colour::fromRGB(255, 255, 255);
         bgCard = juce::Colour::fromRGB(255, 255, 255);
         bgHover = juce::Colour::fromRGB(225, 225, 225);
-        accentCyan = juce::Colour::fromRGB(60, 60, 60);
-        accentBlue = juce::Colour::fromRGB(110, 110, 110);
+        accentCyan = hasCustomPrimaryColour ? customPrimaryColour : juce::Colour::fromRGB(60, 60, 60);
+        accentBlue = hasCustomPrimaryColour ? customPrimaryColour.withMultipliedBrightness(0.85f) : juce::Colour::fromRGB(110, 110, 110);
         textPrimary = juce::Colour::fromRGB(30, 30, 30);
         textSecondary = juce::Colour::fromRGB(100, 100, 100);
         borderColour = juce::Colour::fromRGB(215, 215, 215);

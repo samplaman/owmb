@@ -1,5 +1,12 @@
 #include "SampleTableComponent.h"
 #include "OpenWavLookAndFeel.h"
+#if JUCE_WINDOWS
+ #ifndef NOMINMAX
+  #define NOMINMAX
+ #endif
+ #include <windows.h>
+#endif
+
 
 namespace openwav
 {
@@ -637,6 +644,15 @@ void SampleTableComponent::cellDoubleClicked(int rowNumber, int /*columnId*/, co
 
 juce::var SampleTableComponent::getDragSourceDescription(const juce::SparseSet<int>& selectedRows)
 {
+#if JUCE_WINDOWS
+    bool isLeftCtrl = (GetKeyState(VK_LCONTROL) & 0x8000) != 0;
+#else
+    bool isLeftCtrl = juce::ModifierKeys::getCurrentModifiersRealtime().isCtrlDown();
+#endif
+
+    if (!isLeftCtrl)
+        return {};
+
     if (selectedRows.size() > 0)
     {
         int r = selectedRows[0];

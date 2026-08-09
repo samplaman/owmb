@@ -1,5 +1,12 @@
 #include "WaveformTransportComponent.h"
 #include "OpenWavLookAndFeel.h"
+#if JUCE_WINDOWS
+ #ifndef NOMINMAX
+  #define NOMINMAX
+ #endif
+ #include <windows.h>
+#endif
+
 
 namespace openwav
 {
@@ -165,10 +172,19 @@ void SlicesGridComponent::mouseDrag(const juce::MouseEvent& e)
 {
     if (clickedSliceIndex >= 0 && e.mouseWasDraggedSinceMouseDown())
     {
-        int sliceIdx = clickedSliceIndex;
-        clickedSliceIndex = -1; // Reset to prevent multiple triggerings
-        if (onSliceDragged != nullptr)
-            onSliceDragged(sliceIdx);
+#if JUCE_WINDOWS
+        bool isLeftCtrl = (GetKeyState(VK_LCONTROL) & 0x8000) != 0;
+#else
+        bool isLeftCtrl = e.mods.isCtrlDown() || juce::ModifierKeys::getCurrentModifiersRealtime().isCtrlDown();
+#endif
+
+        if (isLeftCtrl)
+        {
+            int sliceIdx = clickedSliceIndex;
+            clickedSliceIndex = -1; // Reset to prevent multiple triggerings
+            if (onSliceDragged != nullptr)
+                onSliceDragged(sliceIdx);
+        }
     }
 }
 

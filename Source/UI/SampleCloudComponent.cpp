@@ -1,6 +1,13 @@
 #include "SampleCloudComponent.h"
 #include "OpenWavLookAndFeel.h"
+#if JUCE_WINDOWS
+ #ifndef NOMINMAX
+  #define NOMINMAX
+ #endif
+ #include <windows.h>
+#endif
 #include <cmath>
+
 #include <algorithm>
 #include <unordered_map>
 #include <limits>
@@ -485,16 +492,36 @@ void SampleCloudComponent::mouseDrag(const juce::MouseEvent& e)
         panOffset = dragStartPan + (e.position - mouseDragStartPos);
         repaint();
     }
-    else if (e.mouseWasDraggedSinceMouseDown() && !hasStartedDrag && selectedNodeIndex >= 0 && selectedNodeIndex < static_cast<int>(nodes.size()))
+    else if (e.mouseWasDraggedSinceMouseDown() && selectedNodeIndex >= 0 && selectedNodeIndex < static_cast<int>(nodes.size()))
     {
-        hasStartedDrag = true;
-        const auto& item = nodes[static_cast<size_t>(selectedNodeIndex)].item;
-        juce::StringArray filesToDrag;
-        filesToDrag.add(item.filePath);
-        
-        juce::MessageManager::callAsync([filesToDrag] {
-            juce::DragAndDropContainer::performExternalDragDropOfFiles(filesToDrag, false);
-        });
+#if JUCE_WINDOWS
+        bool isLeftCtrl = (GetKeyState(VK_LCONTROL) & 0x8000) != 0;
+#else
+        bool isLeftCtrl = e.mods.isCtrlDown() || juce::ModifierKeys::getCurrentModifiersRealtime().isCtrlDown();
+#endif
+
+        if (isLeftCtrl)
+        {
+            if (!hasStartedDrag)
+            {
+                hasStartedDrag = true;
+                const auto& item = nodes[static_cast<size_t>(selectedNodeIndex)].item;
+                juce::StringArray filesToDrag;
+                filesToDrag.add(item.filePath);
+                
+                juce::MessageManager::callAsync([filesToDrag] {
+                    juce::DragAndDropContainer::performExternalDragDropOfFiles(filesToDrag, false);
+                });
+            }
+        }
+        else
+        {
+            // Without Left Ctrl, mouse drag on node rotates 3D camera instead of file drag & drop
+            isRotating = true;
+            mouseDragStartPos = e.position;
+            dragStartRotX = targetRotX;
+            dragStartRotY = targetRotY;
+        }
     }
 }
 

@@ -574,6 +574,9 @@ void TagDatabaseManager::loadFromFile()
 
     if (obj->hasProperty("isDarkMode"))
         darkThemeActive = static_cast<bool>(obj->getProperty("isDarkMode"));
+
+    if (obj->hasProperty("primaryColourHex"))
+        primaryColourHex = obj->getProperty("primaryColourHex").toString();
 }
 
 void TagDatabaseManager::saveToFile()
@@ -596,6 +599,7 @@ void TagDatabaseManager::saveToFile()
         rootObj->setProperty("pixeldrainApiKey", pixeldrainApiKey);
         rootObj->setProperty("downloadFolder", downloadFolder);
         rootObj->setProperty("isDarkMode", darkThemeActive);
+        rootObj->setProperty("primaryColourHex", primaryColourHex);
     }
 
     rootObj->setProperty("items", itemsArray);
@@ -711,6 +715,21 @@ void TagDatabaseManager::setDarkMode(bool useDark)
     {
         const juce::ScopedLock sl(lock);
         darkThemeActive = useDark;
+    }
+    saveToFile();
+}
+
+juce::String TagDatabaseManager::getPrimaryColourHex() const
+{
+    const juce::ScopedLock sl(lock);
+    return primaryColourHex;
+}
+
+void TagDatabaseManager::setPrimaryColourHex(const juce::String& hex)
+{
+    {
+        const juce::ScopedLock sl(lock);
+        primaryColourHex = hex;
     }
     saveToFile();
 }

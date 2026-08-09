@@ -29,6 +29,10 @@ public:
 
     // Theme switching
     static void setDarkTheme(bool useDark);
+    static void setPrimaryColour(juce::Colour colour);
+    static void resetPrimaryColour();
+    static bool hasCustomPrimaryColour;
+    static juce::Colour customPrimaryColour;
     void updateColors();
 
     // JUCE LookAndFeel Overrides

@@ -80,6 +80,8 @@ public:
     // Theme Settings Persistence
     bool isDarkMode() const;
     void setDarkMode(bool useDark);
+    juce::String getPrimaryColourHex() const;
+    void setPrimaryColourHex(const juce::String& hex);
 
 private:
     juce::File getDatabaseFile() const;
@@ -92,6 +94,7 @@ private:
     juce::String pixeldrainApiKey;
     juce::String downloadFolder;
     bool darkThemeActive = false;
+    juce::String primaryColourHex;
     juce::ListenerList<TagDatabaseListener> listeners;
 };
 
