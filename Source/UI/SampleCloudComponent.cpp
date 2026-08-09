@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <unordered_map>
 #include <limits>
+#include <cstddef>
 
 #if defined(_WIN32)
 extern "C" {
