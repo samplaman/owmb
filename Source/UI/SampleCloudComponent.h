@@ -8,6 +8,9 @@
 #endif
 #include <thread>
 #include <atomic>
+#include <vector>
+#include <set>
+#include <utility>
 #include "../Models/MediaItem.h"
 #include "../Database/TagDatabaseManager.h"
 #include "../Audio/AudioEngine.h"
