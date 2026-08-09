@@ -1088,7 +1088,7 @@ bool LibrariesComponent::downloadFileSync(const juce::String& fileId,
         if (shouldExit() || safeThis == nullptr) break;
 
         juce::URL url(downloadUrlStr);
-        std::unique_ptr<juce::InputStream> stream(url.createInputStream(makeHttpOptions(authHeader, 15000, false)));
+        auto stream = url.createInputStream(makeHttpOptions(authHeader, 15000, false));
 
         if (stream == nullptr && authHeader.isNotEmpty())
         {
