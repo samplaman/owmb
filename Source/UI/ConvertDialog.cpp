@@ -158,6 +158,186 @@ void ConvertDialog::hideDialog()
         dialogWindow->exitModalState(0);
 }
 
+class ConversionTask : public juce::ThreadWithProgressWindow
+{
+public:
+    ConversionTask(const juce::File& src, const juce::File& dst, double tSR, int tBits, juce::AudioFormat* fmt, TagDatabaseManager& db, AudioEngine& engine, const MediaItem& item)
+        : juce::ThreadWithProgressWindow("Converting Audio...", true, true),
+          sourceFile(src), destFile(dst), targetSampleRate(tSR), targetBitDepth(tBits), targetFormat(fmt), dbManager(db), audioEngine(engine), currentItem(item)
+    {
+    }
+
+    void run() override
+    {
+        std::unique_ptr<juce::AudioFormatReader> reader(audioEngine.getFormatManager().createReaderFor(sourceFile));
+        if (reader == nullptr)
+        {
+            showError("Could not open source file.");
+            return;
+        }
+
+        double srcSR = reader->sampleRate;
+        double dstSR = (targetSampleRate > 0.0) ? targetSampleRate : srcSR;
+        int srcBits = reader->bitsPerSample;
+        int dstBits = (targetBitDepth > 0) ? targetBitDepth : srcBits;
+
+        auto possibleDepths = targetFormat->getPossibleBitDepths();
+        if (!possibleDepths.isEmpty() && !possibleDepths.contains(dstBits))
+        {
+            int bestBits = possibleDepths[0];
+            for (int depth : possibleDepths)
+            {
+                if (depth <= dstBits)
+                    bestBits = std::max(bestBits, depth);
+            }
+            dstBits = bestBits;
+        }
+
+        juce::int64 numSamples64 = reader->lengthInSamples;
+        if (sourceFile.getFileExtension().toLowerCase() == ".mp3" && srcSR < 32000.0)
+            numSamples64 /= 2;
+
+        int numChannels = reader->numChannels;
+        if (numSamples64 <= 0 || numSamples64 > 0x7FFFFFFF || numChannels <= 0)
+        {
+            showError("Invalid audio file properties.");
+            return;
+        }
+
+        if (destFile.existsAsFile())
+            destFile.deleteFile();
+
+        auto outStream = std::make_unique<juce::FileOutputStream>(destFile);
+        if (outStream->failedToOpen())
+        {
+            showError("Could not open destination file for writing.");
+            return;
+        }
+
+        auto* rawStream = outStream.release();
+        std::unique_ptr<juce::AudioFormatWriter> writer(targetFormat->createWriterFor(rawStream, dstSR, numChannels, dstBits, {}, 0));
+
+        if (writer == nullptr)
+        {
+            showError("Could not create audio writer for format.");
+            return;
+        }
+
+        bool requiresResampling = std::abs(dstSR - srcSR) > 0.01;
+        double speedRatio = srcSR / dstSR;
+
+        std::vector<juce::LagrangeInterpolator> interpolators(static_cast<size_t>(numChannels));
+
+        const int blockSize = 32768;
+        juce::AudioBuffer<float> srcBuffer(numChannels, blockSize);
+
+        juce::int64 samplesProcessed = 0;
+        bool success = true;
+
+        while (samplesProcessed < numSamples64)
+        {
+            if (threadShouldExit())
+            {
+                writer.reset();
+                destFile.deleteFile();
+                return; // Cancelled
+            }
+
+            int numToProcess = static_cast<int>(std::min(static_cast<juce::int64>(blockSize), numSamples64 - samplesProcessed));
+            if (!reader->read(&srcBuffer, 0, numToProcess, samplesProcessed, true, true))
+            {
+                success = false;
+                break;
+            }
+
+            if (requiresResampling)
+            {
+                int dstSamples = static_cast<int>(std::round(numToProcess / speedRatio));
+                juce::AudioBuffer<float> dstBuffer(numChannels, dstSamples);
+
+                for (int ch = 0; ch < numChannels; ++ch)
+                {
+                    interpolators[ch].process(speedRatio,
+                                              srcBuffer.getReadPointer(ch),
+                                              dstBuffer.getWritePointer(ch),
+                                              dstSamples);
+                }
+
+                if (!writer->writeFromAudioSampleBuffer(dstBuffer, 0, dstSamples))
+                {
+                    success = false;
+                    break;
+                }
+            }
+            else
+            {
+                if (!writer->writeFromAudioSampleBuffer(srcBuffer, 0, numToProcess))
+                {
+                    success = false;
+                    break;
+                }
+            }
+
+            samplesProcessed += numToProcess;
+            setProgress(static_cast<double>(samplesProcessed) / static_cast<double>(numSamples64));
+        }
+
+        writer.reset();
+
+        if (!success)
+        {
+            destFile.deleteFile();
+            showError("Failed to write converted audio data.");
+            return;
+        }
+
+        // Successfully converted
+        MediaItem newItem;
+        newItem.filePath = destFile.getFullPathName();
+        newItem.fileName = destFile.getFileName();
+        newItem.fileExtension = destFile.getFileExtension().toLowerCase();
+        newItem.fileSizeBytes = destFile.getSize();
+        newItem.dateAddedMs = destFile.getLastModificationTime().toMilliseconds();
+        newItem.id = juce::String::toHexString(destFile.getFullPathName().hashCode64());
+        
+        newItem.tags = TagDatabaseManager::inferTagsFromPath(destFile.getFullPathName());
+        newItem.tags.insert("#Converted");
+        for (const auto& tag : currentItem.tags)
+            newItem.tags.insert(tag);
+
+        newItem.sampleRate = dstSR;
+        newItem.numChannels = numChannels;
+        newItem.bitDepth = dstBits;
+        
+        double totalOutputSamples = requiresResampling ? static_cast<double>(numSamples64) / speedRatio : static_cast<double>(numSamples64);
+        newItem.durationSeconds = totalOutputSamples / dstSR;
+
+        dbManager.addOrUpdateItem(newItem);
+        dbManager.saveToFile();
+
+        juce::MessageManager::callAsync([path = destFile.getFullPathName()] {
+            juce::NativeMessageBox::showMessageBoxAsync(juce::AlertWindow::InfoIcon, "Conversion Successful", "File converted successfully and added to library:\n" + path);
+        });
+    }
+
+private:
+    void showError(const juce::String& message)
+    {
+        juce::MessageManager::callAsync([message] {
+            juce::NativeMessageBox::showMessageBoxAsync(juce::AlertWindow::WarningIcon, "Conversion Failed", message);
+        });
+    }
+
+    juce::File sourceFile;
+    juce::File destFile;
+    double targetSampleRate;
+    int targetBitDepth;
+    juce::AudioFormat* targetFormat;
+    TagDatabaseManager& dbManager;
+    AudioEngine& audioEngine;
+    MediaItem currentItem;
+};
+
 void ConvertDialog::performConversion()
 {
     int formatIdx = formatCombo.getSelectedId() - 1;
@@ -222,77 +402,10 @@ void ConvertDialog::performConversion()
         if (!destFile.getFileExtension().equalsIgnoreCase(targetExt))
             destFile = destFile.withFileExtension(targetExt);
             
-        std::unique_ptr<juce::AudioFormatReader> reader(audioEngine.getFormatManager().createReaderFor(juce::File(currentItem.filePath)));
-        if (reader == nullptr)
+        auto task = std::make_shared<ConversionTask>(juce::File(currentItem.filePath), destFile, targetSampleRate, targetBitDepth, targetFormat, dbManager, audioEngine, currentItem);
+        if (task->runThread())
         {
-            juce::NativeMessageBox::showMessageBoxAsync(juce::AlertWindow::WarningIcon, "Conversion Failed", "Could not open source file.");
-            return;
-        }
-        
-        double srcSR = reader->sampleRate;
-        double dstSR = (targetSampleRate > 0.0) ? targetSampleRate : srcSR;
-        int srcBits = reader->bitsPerSample;
-        int dstBits = (targetBitDepth > 0) ? targetBitDepth : srcBits;
-        
-        juce::int64 numSamples64 = reader->lengthInSamples;
-        int numChannels = reader->numChannels;
-        
-        if (numSamples64 <= 0 || numSamples64 > 0x7FFFFFFF || numChannels <= 0)
-        {
-            juce::NativeMessageBox::showMessageBoxAsync(juce::AlertWindow::WarningIcon, "Conversion Failed", "Invalid audio file properties.");
-            return;
-        }
-        
-        int numSamples = static_cast<int>(numSamples64);
-        juce::AudioBuffer<float> srcBuffer(numChannels, numSamples);
-        if (!reader->read(&srcBuffer, 0, numSamples, 0, true, true))
-        {
-            juce::NativeMessageBox::showMessageBoxAsync(juce::AlertWindow::WarningIcon, "Conversion Failed", "Failed to read audio data from source.");
-            return;
-        }
-        
-        auto outStream = std::make_unique<juce::FileOutputStream>(destFile);
-        if (outStream->failedToOpen())
-        {
-            juce::NativeMessageBox::showMessageBoxAsync(juce::AlertWindow::WarningIcon, "Conversion Failed", "Could not open destination file for writing.");
-            return;
-        }
-        
-        outStream->setPosition(0);
-        outStream->truncate();
-        
-        std::unique_ptr<juce::AudioFormatWriter> writer(targetFormat->createWriterFor(outStream.get(), dstSR, numChannels, dstBits, {}, 0));
-        if (writer == nullptr)
-        {
-            juce::NativeMessageBox::showMessageBoxAsync(juce::AlertWindow::WarningIcon, "Conversion Failed", "Could not create audio writer for format.");
-            return;
-        }
-        
-        outStream.release(); // writer takes ownership
-        bool success = writer->writeFromAudioSampleBuffer(srcBuffer, 0, numSamples);
-        writer.reset();
-        
-        if (success)
-        {
-            MediaItem newItem;
-            newItem.id = juce::Uuid().toString();
-            newItem.filePath = destFile.getFullPathName();
-            newItem.fileName = destFile.getFileName();
-            newItem.durationSeconds = numSamples / dstSR;
-            newItem.isFavorite = false;
-            
-            newItem.tags.insert("#Converted");
-            for (const auto& tag : currentItem.tags)
-                newItem.tags.insert(tag);
-                
-            dbManager.addOrUpdateItem(newItem);
-            dbManager.saveToFile();
-            
-            juce::NativeMessageBox::showMessageBoxAsync(juce::AlertWindow::InfoIcon, "Conversion Successful", "File converted successfully and added to library:\n" + destFile.getFullPathName());
-        }
-        else
-        {
-            juce::NativeMessageBox::showMessageBoxAsync(juce::AlertWindow::WarningIcon, "Conversion Failed", "Failed to write converted audio data.");
+            // Thread completed successfully (it manages its own success/error notifications)
         }
     });
 }
