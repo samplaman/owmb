@@ -89,6 +89,8 @@ target_sources(OpenWav PRIVATE
     Source/UI/ScanProgressDialog.cpp
     Source/UI/AboutDialog.h
     Source/UI/AboutDialog.cpp
+    Source/UI/ConvertDialog.h
+    Source/UI/ConvertDialog.cpp
     Source/PluginProcessor.h
     Source/PluginProcessor.cpp
     Source/PluginEditor.h

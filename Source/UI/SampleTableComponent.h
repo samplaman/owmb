@@ -8,6 +8,7 @@
 #include "../Database/TagDatabaseManager.h"
 #include "../Audio/AudioEngine.h"
 #include "../Models/MediaItem.h"
+#include "ConvertDialog.h"
 
 namespace openwav
 {
@@ -87,6 +88,8 @@ private:
     juce::Label similarityBannerLabel;
     juce::TextButton clearSimilarityButton { "X" };
     static double calculateDistance(const MediaItem& a, const MediaItem& b);
+
+    std::unique_ptr<ConvertDialog> convertDialog;
 };
 
 } // namespace openwav
