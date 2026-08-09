@@ -80,13 +80,9 @@ private:
     juce::File lastSavedFile;
     bool hasRecordedBuffer { false };
 
-    // Interactive 3-Band Parametric EQ Parameters
-    float lowFreq { 120.0f };   // 20Hz - 500Hz
-    float lowGain { 0.0f };     // -12dB to +12dB
-    float midFreq { 1200.0f };  // 200Hz - 5000Hz
-    float midGain { 0.0f };     // -12dB to +12dB
-    float highFreq { 8000.0f }; // 2000Hz - 20000Hz
-    float highGain { 0.0f };    // -12dB to +12dB
+    // Interactive 9-Band Parametric EQ Parameters
+    std::array<float, 9> eqFreqs { 60.0f, 120.0f, 250.0f, 500.0f, 1000.0f, 2000.0f, 4000.0f, 8000.0f, 16000.0f };
+    std::array<float, 9> eqGains { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
 
     juce::Rectangle<float> cachedEqArea;
     int draggedNodeIndex { -1 };

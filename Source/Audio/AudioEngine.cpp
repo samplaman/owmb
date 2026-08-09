@@ -63,6 +63,14 @@ AudioEngine::AudioEngine()
     formatManager.registerFormat(new juce::FlacAudioFormat(), false);
     formatManager.registerFormat(new juce::OggVorbisAudioFormat(), false);
     formatManager.registerBasicFormats();
+
+    float baseFreqs[9] = { 60.0f, 120.0f, 250.0f, 500.0f, 1000.0f, 2000.0f, 4000.0f, 8000.0f, 16000.0f };
+    for (int i = 0; i < 9; ++i)
+    {
+        eqFreqs[i].store(baseFreqs[i]);
+        eqGains[i].store(0.0f);
+    }
+
     backgroundThread.startThread(juce::Thread::Priority::high);
 }
 
@@ -114,13 +122,7 @@ void AudioEngine::processNextAudioBlock(juce::AudioBuffer<float>& outputBuffer, 
     {
         if (monitorInput)
         {
-            // Apply Live Real-Time 3-Band Parametric EQ & 80Hz Low Cut to incoming live audio
-            float lowF = eqLowFreq.load();
-            float lowG = eqLowGain.load();
-            float midF = eqMidFreq.load();
-            float midG = eqMidGain.load();
-            float highF = eqHighFreq.load();
-            float highG = eqHighGain.load();
+            // Apply Live Real-Time 9-Band Parametric EQ & 80Hz Low Cut to incoming live audio
             bool lowCut = eqLowCutEnabled.load();
 
             struct BiquadCoeffs
@@ -208,25 +210,18 @@ void AudioEngine::processNextAudioBlock(juce::AudioBuffer<float>& outputBuffer, 
                     processFilter(outputBuffer.getWritePointer(ch), c, inputFilterStates[0][std::min(ch, 1)]);
             }
 
-            if (std::abs(lowG) > 0.05f)
+            for (int band = 0; band < 9; ++band)
             {
-                auto c = calcCoeffs(1, lowF, lowG, 0.707f);
-                for (int ch = 0; ch < inChannels; ++ch)
-                    processFilter(outputBuffer.getWritePointer(ch), c, inputFilterStates[1][std::min(ch, 1)]);
-            }
-
-            if (std::abs(midG) > 0.05f)
-            {
-                auto c = calcCoeffs(2, midF, midG, 1.0f);
-                for (int ch = 0; ch < inChannels; ++ch)
-                    processFilter(outputBuffer.getWritePointer(ch), c, inputFilterStates[2][std::min(ch, 1)]);
-            }
-
-            if (std::abs(highG) > 0.05f)
-            {
-                auto c = calcCoeffs(3, highF, highG, 0.707f);
-                for (int ch = 0; ch < inChannels; ++ch)
-                    processFilter(outputBuffer.getWritePointer(ch), c, inputFilterStates[3][std::min(ch, 1)]);
+                float f = eqFreqs[band].load();
+                float g = eqGains[band].load();
+                
+                if (std::abs(g) > 0.05f)
+                {
+                    // Use a slightly sharper Q for the 9-band EQ
+                    auto c = calcCoeffs(1 + band, f, g, 1.414f);
+                    for (int ch = 0; ch < inChannels; ++ch)
+                        processFilter(outputBuffer.getWritePointer(ch), c, inputFilterStates[1 + band][std::min(ch, 1)]);
+                }
             }
 
             inputMonitorBuffer.makeCopyOf(outputBuffer);
@@ -1024,14 +1019,13 @@ void AudioEngine::playMetronomeClick(bool isAccent)
     activeVoices.push_back(voice);
 }
 
-void AudioEngine::setInputParametricEq(float lowF, float lowG, float midF, float midG, float highF, float highG, bool lowCut)
+void AudioEngine::setInputParametricEq(const std::array<float, 9>& freqs, const std::array<float, 9>& gains, bool lowCut)
 {
-    eqLowFreq.store(lowF);
-    eqLowGain.store(lowG);
-    eqMidFreq.store(midF);
-    eqMidGain.store(midG);
-    eqHighFreq.store(highF);
-    eqHighGain.store(highG);
+    for (int i = 0; i < 9; ++i)
+    {
+        eqFreqs[i].store(freqs[i]);
+        eqGains[i].store(gains[i]);
+    }
     eqLowCutEnabled.store(lowCut);
 }
 

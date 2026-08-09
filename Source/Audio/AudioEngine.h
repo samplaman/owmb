@@ -119,7 +119,7 @@ public:
     bool getRecordedBufferCopy(juce::AudioBuffer<float>& destBuffer, double& sampleRate) const;
     juce::File saveRecordingToWav(const juce::String& baseFileName);
     void playMetronomeClick(bool isAccent = false);
-    void setInputParametricEq(float lowF, float lowG, float midF, float midG, float highF, float highG, bool lowCut);
+    void setInputParametricEq(const std::array<float, 9>& freqs, const std::array<float, 9>& gains, bool lowCut);
 
     void addListener(AudioEngineListener* listener);
     void removeListener(AudioEngineListener* listener);
@@ -165,15 +165,11 @@ private:
         float x1 { 0.0f }, x2 { 0.0f }, y1 { 0.0f }, y2 { 0.0f };
     };
 
-    std::atomic<float> eqLowFreq { 120.0f };
-    std::atomic<float> eqLowGain { 0.0f };
-    std::atomic<float> eqMidFreq { 1200.0f };
-    std::atomic<float> eqMidGain { 0.0f };
-    std::atomic<float> eqHighFreq { 8000.0f };
-    std::atomic<float> eqHighGain { 0.0f };
+    std::array<std::atomic<float>, 9> eqFreqs;
+    std::array<std::atomic<float>, 9> eqGains;
     std::atomic<bool> eqLowCutEnabled { false };
 
-    BiquadState inputFilterStates[4][2]; // 4 filters, 2 channels
+    BiquadState inputFilterStates[10][2]; // 10 filters, 2 channels
 
     double sampleStartRatio { 0.0 };
     double sampleEndRatio { 1.0 };

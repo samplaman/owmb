@@ -88,7 +88,7 @@ RecorderComponent::RecorderComponent(AudioEngine& engine, TagDatabaseManager& db
     // DSP Filter & Normalization Toggles
     lowCutButton.setToggleState(false, juce::dontSendNotification);
     lowCutButton.onClick = [this] {
-        audioEngine.setInputParametricEq(lowFreq, lowGain, midFreq, midGain, highFreq, highGain, lowCutButton.getToggleState());
+        audioEngine.setInputParametricEq(eqFreqs, eqGains, lowCutButton.getToggleState());
         repaint();
     };
     addAndMakeVisible(lowCutButton);
@@ -98,7 +98,7 @@ RecorderComponent::RecorderComponent(AudioEngine& engine, TagDatabaseManager& db
 
     lookAndFeelChanged();
 
-    audioEngine.setInputParametricEq(lowFreq, lowGain, midFreq, midGain, highFreq, highGain, lowCutButton.getToggleState());
+    audioEngine.setInputParametricEq(eqFreqs, eqGains, lowCutButton.getToggleState());
 
     startTimerHz(30);
     updateInputMuteState();
@@ -133,23 +133,13 @@ void RecorderComponent::updateEqNodeFromScreenPos(int nodeIdx, juce::Point<float
     float normY = (eqBounds.getCentreY() - pos.y) / (eqBounds.getHeight() * 0.40f);
     float gainDb = juce::jlimit(-12.0f, 12.0f, normY * 15.0f);
 
-    if (nodeIdx == 0) // Low
+    if (nodeIdx >= 0 && nodeIdx < 9)
     {
-        lowFreq = juce::jlimit(30.0f, 450.0f, freq);
-        lowGain = gainDb;
-    }
-    else if (nodeIdx == 1) // Mid
-    {
-        midFreq = juce::jlimit(250.0f, 5500.0f, freq);
-        midGain = gainDb;
-    }
-    else if (nodeIdx == 2) // High
-    {
-        highFreq = juce::jlimit(2500.0f, 18000.0f, freq);
-        highGain = gainDb;
+        eqFreqs[nodeIdx] = juce::jlimit(20.0f, 20000.0f, freq);
+        eqGains[nodeIdx] = gainDb;
     }
 
-    audioEngine.setInputParametricEq(lowFreq, lowGain, midFreq, midGain, highFreq, highGain, lowCutButton.getToggleState());
+    audioEngine.setInputParametricEq(eqFreqs, eqGains, lowCutButton.getToggleState());
 }
 
 void RecorderComponent::mouseMove(const juce::MouseEvent& e)
@@ -160,15 +150,10 @@ void RecorderComponent::mouseMove(const juce::MouseEvent& e)
     int prevHovered = hoveredNodeIndex;
     hoveredNodeIndex = -1;
 
-    juce::Point<float> nodePos[3] = {
-        getEqNodeScreenPos(lowFreq, lowGain, cachedEqArea),
-        getEqNodeScreenPos(midFreq, midGain, cachedEqArea),
-        getEqNodeScreenPos(highFreq, highGain, cachedEqArea)
-    };
-
-    for (int i = 0; i < 3; ++i)
+    for (int i = 0; i < 9; ++i)
     {
-        if (nodePos[i].getDistanceFrom(mousePos) <= 14.0f)
+        juce::Point<float> nodePos = getEqNodeScreenPos(eqFreqs[i], eqGains[i], cachedEqArea);
+        if (nodePos.getDistanceFrom(mousePos) <= 14.0f)
         {
             hoveredNodeIndex = i;
             break;
@@ -189,15 +174,10 @@ void RecorderComponent::mouseDown(const juce::MouseEvent& e)
     juce::Point<float> mousePos = e.position.toFloat();
     draggedNodeIndex = -1;
 
-    juce::Point<float> nodePos[3] = {
-        getEqNodeScreenPos(lowFreq, lowGain, cachedEqArea),
-        getEqNodeScreenPos(midFreq, midGain, cachedEqArea),
-        getEqNodeScreenPos(highFreq, highGain, cachedEqArea)
-    };
-
-    for (int i = 0; i < 3; ++i)
+    for (int i = 0; i < 9; ++i)
     {
-        if (nodePos[i].getDistanceFrom(mousePos) <= 16.0f)
+        juce::Point<float> nodePos = getEqNodeScreenPos(eqFreqs[i], eqGains[i], cachedEqArea);
+        if (nodePos.getDistanceFrom(mousePos) <= 16.0f)
         {
             draggedNodeIndex = i;
             break;
@@ -447,7 +427,7 @@ void RecorderComponent::paint(juce::Graphics& g)
         g.fillPath(specPath);
     }
 
-    // Composite 3-Band Parametric EQ Transfer Function Curve
+    // Composite 9-Band Parametric EQ Transfer Function Curve
     juce::Path eqCurve;
     int points = 120;
     bool isFirst = true;
@@ -457,12 +437,11 @@ void RecorderComponent::paint(juce::Graphics& g)
         float normX = static_cast<float>(i) / points;
         float f = 20.0f * std::pow(1000.0f, normX);
 
-        // 3-Band EQ Gains
-        float gLow = lowGain / (1.0f + std::pow(f / lowFreq, 2.0f));
-        float gMid = midGain * std::exp(-std::pow(std::log(f / midFreq), 2.0f) / 0.35f);
-        float gHigh = highGain / (1.0f + std::pow(highFreq / f, 2.0f));
-
-        float totalGain = gLow + gMid + gHigh;
+        float totalGain = 0.0f;
+        for (int b = 0; b < 9; ++b)
+        {
+            totalGain += eqGains[b] * std::exp(-std::pow(std::log(f / eqFreqs[b]), 2.0f) / 0.35f);
+        }
 
         if (lowCutButton.getToggleState())
         {
@@ -494,17 +473,10 @@ void RecorderComponent::paint(juce::Graphics& g)
     g.setColour(OpenWavLookAndFeel::accentCyan);
     g.strokePath(eqCurve, juce::PathStrokeType(2.0f));
 
-    // Draw 3 Interactive EQ Handles (Low 'L', Mid 'M', High 'H')
-    struct NodeInfo { float freq; float gain; const char* label; };
-    NodeInfo nodesInfo[3] = {
-        { lowFreq, lowGain, "L" },
-        { midFreq, midGain, "M" },
-        { highFreq, highGain, "H" }
-    };
-
-    for (int i = 0; i < 3; ++i)
+    // Draw 9 Interactive EQ Handles
+    for (int i = 0; i < 9; ++i)
     {
-        auto p = getEqNodeScreenPos(nodesInfo[i].freq, nodesInfo[i].gain, eqArea);
+        auto p = getEqNodeScreenPos(eqFreqs[i], eqGains[i], eqArea);
         bool isHovered = (hoveredNodeIndex == i);
         bool isDragged = (draggedNodeIndex == i);
 
@@ -524,10 +496,10 @@ void RecorderComponent::paint(juce::Graphics& g)
         g.setColour(OpenWavLookAndFeel::accentCyan);
         g.drawEllipse(p.x - r, p.y - r, r * 2.0f, r * 2.0f, 1.8f);
 
-        // Label Text (L, M, H)
+        // Label Text (1-9)
         g.setFont(juce::Font(10.0f).boldened());
         g.setColour(isDragged ? OpenWavLookAndFeel::bgDark : OpenWavLookAndFeel::textPrimary);
-        g.drawText(nodesInfo[i].label, p.x - r, p.y - r, r * 2.0f, r * 2.0f, juce::Justification::centred, false);
+        g.drawText(juce::String(i + 1), p.x - r, p.y - r, r * 2.0f, r * 2.0f, juce::Justification::centred, false);
     }
 }
 
