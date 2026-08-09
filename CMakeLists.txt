@@ -32,6 +32,11 @@ if (APPLE)
     set(CMAKE_OSX_DEPLOYMENT_TARGET "10.15" CACHE STRING "Minimum macOS version")
 endif()
 
+set(PLUGIN_FORMATS VST3 Standalone)
+if (APPLE)
+    list(APPEND PLUGIN_FORMATS AU)
+endif()
+
 # Declare Audio Plugin & Standalone application target
 juce_add_plugin(OpenWav
     COMPANY_NAME "OWMB"
@@ -44,7 +49,7 @@ juce_add_plugin(OpenWav
     IS_MIDI_EFFECT FALSE
     EDITOR_WANTS_KEYBOARD_FOCUS TRUE
     COPY_PLUGIN_AFTER_BUILD FALSE
-    FORMATS VST3 Standalone AU
+    FORMATS ${PLUGIN_FORMATS}
     PRODUCT_NAME "OWMB"
     ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/owmbico.png"
     ICON_SMALL "${CMAKE_CURRENT_SOURCE_DIR}/owmbico.png"

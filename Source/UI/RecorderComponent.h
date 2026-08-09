@@ -8,6 +8,9 @@
 
 #include "../Audio/AudioEngine.h"
 #include "../Database/TagDatabaseManager.h"
+#include <cmath>
+#include <algorithm>
+#include <cstring>
 
 namespace openwav
 {

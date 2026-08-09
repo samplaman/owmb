@@ -9,6 +9,10 @@
 #endif
 #include <atomic>
 #include <future>
+#include <vector>
+#include <cmath>
+#include <algorithm>
+#include <cstring>
 
 namespace openwav
 {
