@@ -136,6 +136,7 @@ private:
     std::atomic<bool> layoutActive { false };
     bool layoutPending { false };
     float pulsePhase { 0.0f };
+    float legendScrollOffset { 0.0f };
 
     juce::OpenGLContext openGLContext;
     std::unique_ptr<juce::OpenGLShaderProgram> shaderProgram;

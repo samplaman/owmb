@@ -1,4 +1,4 @@
-﻿#include "PluginEditor.h"
+#include "PluginEditor.h"
 #include <juce_audio_plugin_client/Standalone/juce_StandaloneFilterWindow.h>
 #if __has_include(<BinaryData.h>)
  #include <BinaryData.h>
@@ -60,6 +60,7 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(OpenWavAudioProcessor& 
     setResizable(true, true);
     setResizeLimits(800, 650, 3840, 2160);
     setSize(1920, 1080);
+    setWantsKeyboardFocus(true);
 
     triggerFilterUpdate();
 
@@ -559,6 +560,27 @@ void OpenWavAudioProcessorEditor::updateNativeTitleBarTheme()
         }
     }
 #endif
+}
+
+bool OpenWavAudioProcessorEditor::keyPressed(const juce::KeyPress& key)
+{
+    if (key.getTextCharacter() == 'l' || key.getTextCharacter() == 'L')
+    {
+        waveformTransport.toggleLoop();
+        return true;
+    }
+    if (key.getTextCharacter() == 's' || key.getTextCharacter() == 'S')
+    {
+        waveformTransport.triggerSlice();
+        return true;
+    }
+    if (key == juce::KeyPress::spaceKey)
+    {
+        waveformTransport.togglePlay();
+        return true;
+    }
+
+    return juce::AudioProcessorEditor::keyPressed(key);
 }
 
 } // namespace openwav

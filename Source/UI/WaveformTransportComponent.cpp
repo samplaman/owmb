@@ -844,4 +844,19 @@ void WaveformTransportComponent::lookAndFeelChanged()
     sampleNameLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::textPrimary);
 }
 
+void WaveformTransportComponent::togglePlay()
+{
+    playPauseButton.triggerClick();
+}
+
+void WaveformTransportComponent::toggleLoop()
+{
+    loopButton.triggerClick();
+}
+
+void WaveformTransportComponent::triggerSlice()
+{
+    autoSliceButton.triggerClick();
+}
+
 } // namespace openwav

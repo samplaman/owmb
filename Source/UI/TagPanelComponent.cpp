@@ -186,7 +186,30 @@ void TagPanelComponent::refreshFolders()
         auto* removeBtn = new juce::TextButton("X");
         removeBtn->setTooltip("Remove folder: " + folderPath);
         removeBtn->onClick = [this, folderPath] {
-            dbManager.removeScanFolder(folderPath);
+            class FolderRemovalThread : public juce::ThreadWithProgressWindow
+            {
+            public:
+                FolderRemovalThread(TagDatabaseManager& db, const juce::String& path)
+                    : juce::ThreadWithProgressWindow("Removing Folder", true, false), dbManager(db), folderPath(path)
+                {}
+
+                void run() override
+                {
+                    setProgress(-1.0);
+                    setStatusMessage("Removing " + folderPath + "...");
+                    dbManager.removeScanFolder(folderPath);
+                }
+            private:
+                TagDatabaseManager& dbManager;
+                juce::String folderPath;
+            };
+            
+            FolderRemovalThread removalThread(dbManager, folderPath);
+            removalThread.runThread();
+            
+            juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::InfoIcon,
+                                                   "Folder Removed",
+                                                   "Successfully removed folder:\n" + folderPath);
         };
         folderRemoveButtons.add(removeBtn);
         folderListContainer.addAndMakeVisible(removeBtn);

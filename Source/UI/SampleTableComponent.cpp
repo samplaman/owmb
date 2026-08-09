@@ -694,8 +694,11 @@ void SampleTableComponent::convertSample(const MediaItem& item)
         auto name = format->getFormatName();
         if (name != "MP3 file" && name != "MP3")
         {
-            formatNames.add(format->getFormatName());
-            writableFormats.push_back(format);
+            if (!formatNames.contains(name))
+            {
+                formatNames.add(name);
+                writableFormats.push_back(format);
+            }
         }
     }
 

@@ -334,30 +334,34 @@ void SampleCloudComponent::paint(juce::Graphics& g)
         }
     }
 
-    auto viewBounds = getLocalBounds().toFloat();
-    for (const auto& cluster : clusters)
+    if (!clusters.empty())
     {
-        juce::Vector3D<float> cp(cluster.centerPos.x, cluster.centerPos.y, cluster.centerPos.z);
-        float w = lastViewProjectionMatrix.mat[3] * cp.x + lastViewProjectionMatrix.mat[7] * cp.y + lastViewProjectionMatrix.mat[11] * cp.z + lastViewProjectionMatrix.mat[15];
-        if (w > 0.0f)
+        juce::Font legendFont(13.0f, juce::Font::bold);
+        g.setFont(legendFont);
+        
+        float padding = 20.0f;
+        float circleSize = 12.0f;
+        
+        float startY = getHeight() - 30.0f;
+        float x = 20.0f + legendScrollOffset;
+        
+        g.saveState();
+        g.reduceClipRegion(0, getHeight() - 40, getWidth() - 320, 40);
+        
+        for (const auto& cluster : clusters)
         {
-            float spX = lastViewProjectionMatrix.mat[0] * cp.x + lastViewProjectionMatrix.mat[4] * cp.y + lastViewProjectionMatrix.mat[8] * cp.z + lastViewProjectionMatrix.mat[12];
-            float spY = lastViewProjectionMatrix.mat[1] * cp.x + lastViewProjectionMatrix.mat[5] * cp.y + lastViewProjectionMatrix.mat[9] * cp.z + lastViewProjectionMatrix.mat[13];
-            float spZ = lastViewProjectionMatrix.mat[2] * cp.x + lastViewProjectionMatrix.mat[6] * cp.y + lastViewProjectionMatrix.mat[10] * cp.z + lastViewProjectionMatrix.mat[14];
-            float sx = getWidth() * 0.5f + (spX / w) * getWidth() * 0.5f;
-            float sy = getHeight() * 0.5f - (spY / w) * getHeight() * 0.5f;
+            float textW = legendFont.getStringWidthFloat(cluster.tag.toUpperCase());
             
-            juce::String text = cluster.tag.toUpperCase();
-            juce::Font font(14.0f, juce::Font::bold);
-            float textWidth = font.getStringWidthFloat(text) + 16.0f;
+            g.setColour(cluster.colour.withAlpha(revealAlpha));
+            g.fillEllipse(x, startY + 10.0f - circleSize * 0.5f, circleSize, circleSize);
             
-            g.setColour(juce::Colours::black.withAlpha(0.8f * revealAlpha));
-            g.setFont(font);
-            g.drawText(text, sx - textWidth * 0.5f + 1.0f, sy - 12.0f + 1.0f, textWidth, 24.0f, juce::Justification::centred);
+            g.setColour(juce::Colours::white.withAlpha(0.8f * revealAlpha));
+            g.drawText(cluster.tag.toUpperCase(), x + circleSize + 6.0f, startY, textW, 20.0f, juce::Justification::centredLeft);
             
-            g.setColour(juce::Colours::white.withAlpha(0.95f * revealAlpha));
-            g.drawText(text, sx - textWidth * 0.5f, sy - 12.0f, textWidth, 24.0f, juce::Justification::centred);
+            x += circleSize + 6.0f + textW + padding;
         }
+        
+        g.restoreState();
     }
 }
 
@@ -412,11 +416,13 @@ void SampleCloudComponent::resized()
 
 void SampleCloudComponent::mouseDown(const juce::MouseEvent& e)
 {
+    if (e.mods.isRightButtonDown() || e.mods.isPopupMenu()) return;
+
     mouseDragStartPos = e.position;
     isRotating = false;
     isPanning = false;
 
-    if (e.mods.isRightButtonDown() || e.mods.isShiftDown())
+    if (e.mods.isShiftDown())
     {
         isPanning = true;
         dragStartPan = panOffset;
@@ -431,6 +437,8 @@ void SampleCloudComponent::mouseDown(const juce::MouseEvent& e)
 
 void SampleCloudComponent::mouseDrag(const juce::MouseEvent& e)
 {
+    if (e.mods.isRightButtonDown() || e.mods.isPopupMenu()) return;
+
     if (is2DMode && isRotating) {
         isRotating = false;
         isPanning = true;
@@ -453,20 +461,15 @@ void SampleCloudComponent::mouseDrag(const juce::MouseEvent& e)
 
 void SampleCloudComponent::mouseUp(const juce::MouseEvent& e)
 {
+    if (e.mods.isRightButtonDown() || e.mods.isPopupMenu()) return;
+
     if (e.getDistanceFromDragStart() < 3.0f)
     {
-        if (e.mods.isPopupMenu())
+        if (hoveredNodeIndex >= 0)
         {
-            if (hoveredNodeIndex >= 0) showContextMenuForNode(hoveredNodeIndex);
-        }
-        else
-        {
-            if (hoveredNodeIndex >= 0)
-            {
-                selectedNodeIndex = hoveredNodeIndex;
-                listeners.call([&](SampleCloudListener& l) { l.cloudSampleSelected(nodes[selectedNodeIndex].item); });
-                repaint();
-            }
+            selectedNodeIndex = hoveredNodeIndex;
+            listeners.call([&](SampleCloudListener& l) { l.cloudSampleSelected(nodes[selectedNodeIndex].item); });
+            repaint();
         }
     }
     isRotating = false;
@@ -514,14 +517,37 @@ void SampleCloudComponent::mouseMove(const juce::MouseEvent& e)
     }
 }
 
-void SampleCloudComponent::mouseWheelMove(const juce::MouseEvent&, const juce::MouseWheelDetails& wheel)
+void SampleCloudComponent::mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel)
 {
-    zoomScale = juce::jlimit(0.3f, 4.0f, zoomScale * (1.0f + wheel.deltaY * 2.0f));
-    repaint();
+    if (e.y > getHeight() - 40 && e.x < getWidth() - 320)
+    {
+        float totalWidth = 0.0f;
+        juce::Font legendFont(13.0f, juce::Font::bold);
+        for (const auto& cluster : clusters)
+        {
+            totalWidth += 12.0f + 6.0f + legendFont.getStringWidthFloat(cluster.tag.toUpperCase()) + 20.0f;
+        }
+        
+        float viewWidth = getWidth() - 320.0f - 20.0f;
+        float maxScroll = 0.0f;
+        if (totalWidth > viewWidth)
+            maxScroll = totalWidth - viewWidth;
+            
+        legendScrollOffset += wheel.deltaX * 150.0f + wheel.deltaY * 150.0f;
+        legendScrollOffset = juce::jlimit(-maxScroll, 0.0f, legendScrollOffset);
+        repaint();
+    }
+    else
+    {
+        zoomScale = juce::jlimit(0.3f, 4.0f, zoomScale * (1.0f + wheel.deltaY * 2.0f));
+        repaint();
+    }
 }
 
 void SampleCloudComponent::mouseDoubleClick(const juce::MouseEvent& e)
 {
+    if (e.mods.isRightButtonDown() || e.mods.isPopupMenu()) return;
+
     if (hoveredNodeIndex >= 0)
     {
         listeners.call([&](SampleCloudListener& l) { l.cloudSampleDoubleClicked(nodes[hoveredNodeIndex].item); });

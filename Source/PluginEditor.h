@@ -62,6 +62,8 @@ public:
     void filesDropped(const juce::StringArray& files, int x, int y) override;
 
     void parentHierarchyChanged() override;
+    bool keyPressed(const juce::KeyPress& key) override;
+    
     void setTagPanelWidth(int newWidth);
 
 private:

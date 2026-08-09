@@ -64,6 +64,10 @@ public:
     // juce::Slider::Listener callback
     void sliderValueChanged(juce::Slider* slider) override;
 
+    void togglePlay();
+    void toggleLoop();
+    void triggerSlice();
+
 private:
     void runAutoSlice();
     void exportAndDragSlice(int sliceIndex);
