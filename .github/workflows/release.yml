@@ -73,9 +73,9 @@ jobs:
             libxcb-randr0-dev \
             libx11-xcb-dev
 
-      - name: Configure CMake (Linux - Ninja)
+      - name: Configure CMake (Linux)
         if: runner.os == 'Linux'
-        run: cmake -B build -S . -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 -Wno-format-truncation -Wno-stringop-overflow -Wno-array-bounds"
+        run: cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
 
       - name: Configure CMake (Windows)
         if: runner.os == 'Windows'
@@ -83,11 +83,11 @@ jobs:
 
       - name: Configure CMake (macOS)
         if: runner.os == 'macOS'
-        run: cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+        run: cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
 
       - name: Build OWMB (Linux)
         if: runner.os == 'Linux'
-        run: xvfb-run --auto-servernum cmake --build build --parallel 4
+        run: cmake --build build --config Release --parallel 4
 
       - name: Build OWMB (Windows)
         if: runner.os == 'Windows'
@@ -171,8 +171,8 @@ jobs:
           find build -name "OWMB.vst3" -exec cp -R {} dist/OWMB-macOS-Universal/ \; || true
           find build -name "OWMB.component" -exec cp -R {} dist/OWMB-macOS-Universal/ \; || true
           find build -name "OWMB.app" -exec cp -R {} dist/OWMB-macOS-Universal/ \; || true
-          cd dist/OWMB-macOS-Universal
-          zip -r ../../OWMB-macOS-Universal.zip . || (touch README.txt && zip -r ../../OWMB-macOS-Universal.zip .)
+          find build -name "OWMB" -type f -exec cp {} dist/OWMB-macOS-Universal/ \; || true
+          zip -r OWMB-macOS-Universal.zip dist/OWMB-macOS-Universal
 
       - name: Package Linux Distros Release (.tar.gz)
         if: runner.os == 'Linux'
@@ -180,8 +180,7 @@ jobs:
           mkdir -p dist/OWMB-Linux-Distros-x64
           find build -name "OWMB.vst3" -exec cp -r {} dist/OWMB-Linux-Distros-x64/ \; || true
           find build -name "OWMB" -type f -exec cp {} dist/OWMB-Linux-Distros-x64/ \; || true
-          cd dist/OWMB-Linux-Distros-x64
-          tar -czvf ../../OWMB-Linux-Distros-x64.tar.gz . || (touch README.txt && tar -czvf ../../OWMB-Linux-Distros-x64.tar.gz .)
+          tar -czvf OWMB-Linux-Distros-x64.tar.gz -C dist/OWMB-Linux-Distros-x64 .
 
       - name: Upload Linux Build Artifact
         if: runner.os == 'Linux'
