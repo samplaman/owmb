@@ -665,13 +665,13 @@ void SampleCloudComponent::renderOpenGL()
     // We must manually call glEnable and glBlendFunc
     // Since we don't have glew, we can use the JUCE OpenGLHelpers or just rely on the driver
     // But glBlendFunc, glEnable, glDrawArrays are standard OpenGL 1.1 available in opengl32.dll
-    ::glEnable(GL_BLEND);
-    ::glBlendFunc(GL_SRC_ALPHA, isLightMode ? GL_ONE_MINUS_SRC_ALPHA : 1); // 1 = GL_ONE Additive blending for bloom in dark mode
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, isLightMode ? GL_ONE_MINUS_SRC_ALPHA : 1); // 1 = GL_ONE Additive blending for bloom in dark mode
     
     #ifndef GL_PROGRAM_POINT_SIZE
     #define GL_PROGRAM_POINT_SIZE 0x8642
     #endif
-    ::glEnable(GL_PROGRAM_POINT_SIZE);
+    glEnable(GL_PROGRAM_POINT_SIZE);
 
     shaderProgram->use();
 
@@ -729,7 +729,7 @@ void SampleCloudComponent::renderOpenGL()
         openGLContext.extensions.glEnableVertexAttribArray(radAttr);
     }
 
-    ::glDrawArrays(GL_POINTS, 0, (GLsizei)vertexBuffer.size());
+    glDrawArrays(GL_POINTS, 0, (GLsizei)vertexBuffer.size());
 
     if (posAttr >= 0) openGLContext.extensions.glDisableVertexAttribArray(posAttr);
     if (colAttr >= 0) openGLContext.extensions.glDisableVertexAttribArray(colAttr);
