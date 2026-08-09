@@ -253,7 +253,7 @@ void RecorderComponent::paint(juce::Graphics& g)
     auto scopeArea = leftCard.reduced(14.0f);
 
     // Header Label Left
-    g.setFont(juce::Font(12.0f, juce::Font::bold));
+    g.setFont(juce::Font(12.0f).boldened());
     g.setColour(OpenWavLookAndFeel::accentCyan);
     g.drawText("LIVE OSCILLOSCOPE & METERS", scopeArea.removeFromTop(18.0f), juce::Justification::left, true);
     scopeArea.removeFromTop(4.0f);
@@ -381,7 +381,7 @@ void RecorderComponent::paint(juce::Graphics& g)
     auto eqArea = rightCard.reduced(14.0f);
 
     // Header Label Right
-    g.setFont(juce::Font(12.0f, juce::Font::bold));
+    g.setFont(juce::Font(12.0f).boldened());
     g.setColour(OpenWavLookAndFeel::accentCyan);
     g.drawText("PARAMETRIC EQ & SPECTRUM ANALYZER", eqArea.removeFromTop(18.0f), juce::Justification::left, true);
     eqArea.removeFromTop(4.0f);
@@ -525,7 +525,7 @@ void RecorderComponent::paint(juce::Graphics& g)
         g.drawEllipse(p.x - r, p.y - r, r * 2.0f, r * 2.0f, 1.8f);
 
         // Label Text (L, M, H)
-        g.setFont(juce::Font(10.0f, juce::Font::bold));
+        g.setFont(juce::Font(10.0f).boldened());
         g.setColour(isDragged ? OpenWavLookAndFeel::bgDark : OpenWavLookAndFeel::textPrimary);
         g.drawText(nodesInfo[i].label, p.x - r, p.y - r, r * 2.0f, r * 2.0f, juce::Justification::centred, false);
     }

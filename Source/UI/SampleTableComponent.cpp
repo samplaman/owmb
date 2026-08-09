@@ -97,7 +97,7 @@ SampleTableComponent::SampleTableComponent(TagDatabaseManager& db, AudioEngine& 
     table.setMultipleSelectionEnabled(false);
     table.setWantsKeyboardFocus(true);
 
-    similarityBannerLabel.setFont(juce::Font(12.0f, juce::Font::bold));
+    similarityBannerLabel.setFont(juce::Font(12.0f).boldened());
     similarityBannerLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::accentCyan);
     addChildComponent(similarityBannerLabel);
 
@@ -376,7 +376,7 @@ void SampleTableComponent::paintCell(juce::Graphics& g, int rowNumber, int colum
                         // Percentage text (e.g. "98%")
                         juce::String pctStr = juce::String(juce::roundToInt(matchPct)) + "%";
                         g.setColour(OpenWavLookAndFeel::textPrimary);
-                        g.setFont(juce::Font(10.0f, juce::Font::bold));
+                        g.setFont(juce::Font(10.0f).boldened());
                         g.drawText(pctStr, barOuter, juce::Justification::centred, true);
 
                         bounds.removeFromRight(6);
