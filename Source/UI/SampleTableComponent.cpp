@@ -36,8 +36,9 @@ SampleTableComponent::SampleTableComponent(TagDatabaseManager& db, AudioEngine& 
     similarityBannerLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::textPrimary);
     addChildComponent(similarityBannerLabel);
 
-    clearSimilarityButton.setButtonText(juce::String::fromUTF8("\xe2\x9c\x95"));
-    clearSimilarityButton.setTooltip("Clear similarity filter");
+    clearSimilarityButton.setButtonText("X");
+    clearSimilarityButton.setColour(juce::TextButton::buttonColourId, OpenWavLookAndFeel::accentCyan.withAlpha(0.25f));
+    clearSimilarityButton.setColour(juce::TextButton::textColourOffId, OpenWavLookAndFeel::accentCyan);
     clearSimilarityButton.onClick = [this] {
         similarityTargetId = "";
         similarityTargetName = "";
@@ -170,7 +171,7 @@ void SampleTableComponent::updateFilter(const juce::String& searchKeyword,
         {
             cachedSimilarityTargetItem = targetItem;
             similarityTargetName = targetItem.fileName;
-            similarityBannerLabel.setText(juce::String::fromUTF8("  \xE2\x9C\xA8  SHOWING SIMILAR SOUNDS TO: ") + similarityTargetName, juce::dontSendNotification);
+            similarityBannerLabel.setText("SHOWING SIMILAR SOUNDS TO: " + similarityTargetName, juce::dontSendNotification);
 
             std::vector<MediaItem> thresholdedItems;
             for (const auto& item : displayedItems)
