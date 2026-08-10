@@ -648,6 +648,7 @@ void SampleCloudComponent::newOpenGLContextCreated()
         "uniform mat4 viewMatrix;\n"
         "uniform float revealAlpha;\n"
         "uniform float time;\n"
+        "uniform float isLightMode;\n"
         "out vec4 destColour;\n"
         
         "float rand(vec2 co){ return fract(sin(dot(co.xy ,vec2(12.9898,78.233))) * 43758.5453); }\n"
@@ -661,8 +662,8 @@ void SampleCloudComponent::newOpenGLContextCreated()
         "    float twinkle = 0.65 + 0.35 * sin(time * (1.5 + noise) + phase) * cos(time * 0.8 + phase * 1.3);\n"
         "    float depthFade = clamp(600.0 / max(1.0, -viewPos.z), 0.15, 1.0);\n"
         "    destColour = colour;\n"
-        "    destColour.rgb *= twinkle * depthFade;\n"
-        "    destColour.a *= revealAlpha * depthFade;\n"
+        "    if (isLightMode > 0.5) { destColour.rgb *= 0.35; }\n"
+        "    destColour.a *= revealAlpha * depthFade * twinkle;\n"
         "    gl_PointSize = max(3.0, radius * 6000.0 / max(1.0, -viewPos.z));\n"
         "}\n";
 
