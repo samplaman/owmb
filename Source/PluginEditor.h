@@ -106,6 +106,7 @@ private:
     WaveformTransportComponent waveformTransport;
     ScanProgressDialog scanProgressDialog;
     AboutDialog aboutDialog;
+    juce::TooltipWindow tooltipWindow { this, 700 };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(OpenWavAudioProcessorEditor)
 };

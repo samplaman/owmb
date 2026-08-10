@@ -172,6 +172,16 @@ void SampleTableComponent::updateFilter(const juce::String& searchKeyword,
             similarityTargetName = targetItem.fileName;
             similarityBannerLabel.setText("  \xE2\x9C\xA8  SHOWING SIMILAR SOUNDS TO: " + similarityTargetName, juce::dontSendNotification);
 
+            std::vector<MediaItem> thresholdedItems;
+            for (const auto& item : displayedItems)
+            {
+                if (item.id == targetItem.id || TagDatabaseManager::calculateMatchPercentage(targetItem, item) >= 60.0f)
+                {
+                    thresholdedItems.push_back(item);
+                }
+            }
+            displayedItems = thresholdedItems;
+
             std::sort(displayedItems.begin(), displayedItems.end(), [targetItem](const MediaItem& a, const MediaItem& b) {
                 if (a.id == targetItem.id) return true;
                 if (b.id == targetItem.id) return false;
@@ -236,39 +246,9 @@ void SampleTableComponent::paintRowBackground(juce::Graphics& g, int rowNumber, 
         g.fillAll(OpenWavLookAndFeel::accentCyan.withAlpha(0.18f));
         g.setColour(OpenWavLookAndFeel::accentCyan);
         g.fillRect(0, 0, 3, height);
-    }
-    else if (rowNumber % 2 == 1)
-    {
-        g.fillAll(OpenWavLookAndFeel::bgHeader.withAlpha(0.45f));
-    }
     else
     {
-        if (rowNumber % 2 == 1)
-            g.fillAll(OpenWavLookAndFeel::bgHeader.withAlpha(0.45f));
-        else
-            g.fillAll(OpenWavLookAndFeel::bgCard);
-            
-        if (similarityTargetId.isNotEmpty() && cachedSimilarityTargetItem.id == similarityTargetId)
-        {
-            if (rowNumber >= 0 && rowNumber < static_cast<int>(displayedItems.size()))
-            {
-                const auto& item = displayedItems[static_cast<size_t>(rowNumber)];
-                if (item.id != similarityTargetId)
-                {
-                    float matchPct = TagDatabaseManager::calculateMatchPercentage(cachedSimilarityTargetItem, item);
-                    float matchRatio = juce::jlimit(0.0f, 1.0f, matchPct / 100.0f);
-                    if (matchRatio > 0.4f)
-                    {
-                        float alpha = juce::jmap(matchRatio, 0.4f, 1.0f, 0.0f, 0.18f);
-                        g.fillAll(OpenWavLookAndFeel::accentCyan.withAlpha(alpha));
-                    }
-                }
-                else
-                {
-                    g.fillAll(OpenWavLookAndFeel::accentCyan.withAlpha(0.08f));
-                }
-            }
-        }
+        g.fillAll(OpenWavLookAndFeel::bgCard);
     }
 }
 
@@ -475,6 +455,49 @@ void SampleTableComponent::paintCell(juce::Graphics& g, int rowNumber, int colum
         default:
             break;
     }
+}
+
+juce::String SampleTableComponent::getCellTooltip(int rowNumber, int columnId)
+{
+    if (rowNumber < 0 || rowNumber >= static_cast<int>(displayedItems.size()))
+        return {};
+
+    if (similarityTargetId.isNotEmpty() && cachedSimilarityTargetItem.id == similarityTargetId)
+    {
+        const auto& item = displayedItems[static_cast<size_t>(rowNumber)];
+        if (item.id == similarityTargetId)
+            return "This is the target sample.";
+
+        // We only want to show the tooltip if hovering over the Match % column (column 9) or the File Name column (column 2)
+        if (columnId == 9 || columnId == 2)
+        {
+            const auto& a = item;
+            const auto& b = cachedSimilarityTargetItem;
+            
+            double d_zcr = std::abs(a.zcr - b.zcr) * 2.2;
+            double d_hfr = std::abs(a.highFreqRatio - b.highFreqRatio) * 1.5;
+            double d_dr = std::abs(a.decayRatio - b.decayRatio) * 1.8;
+            
+            juce::String tooltip = "Acoustic Similarity Breakdown:\n";
+            if (d_zcr < 0.25) tooltip += "- Similar Zero-Crossing Rate (Pitch/Noise)\n";
+            if (d_hfr < 0.25) tooltip += "- Similar High Frequency Content\n";
+            if (d_dr < 0.25) tooltip += "- Similar Decay/Envelope Profile\n";
+            
+            int sharedTags = 0;
+            for (const auto& t : a.tags)
+                if (b.tags.find(t) != b.tags.end() && !t.endsWithIgnoreCase("BPM") && !t.startsWithIgnoreCase("#Key_"))
+                    sharedTags++;
+                    
+            if (sharedTags > 0) tooltip += "- Shares " + juce::String(sharedTags) + " common tag(s)\n";
+
+            if (tooltip == "Acoustic Similarity Breakdown:\n")
+                tooltip += "- General acoustic profile match";
+
+            return tooltip.trim();
+        }
+    }
+
+    return {};
 }
 
 juce::Component* SampleTableComponent::refreshComponentForCell(int /*rowNumber*/, int /*columnId*/, bool /*isRowSelected*/, juce::Component* existingComponentToUpdate)
