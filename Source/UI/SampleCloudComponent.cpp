@@ -358,7 +358,7 @@ void SampleCloudComponent::paint(juce::Graphics& g)
             g.setColour(cluster.colour.withAlpha(revealAlpha));
             g.fillEllipse(x, startY + 10.0f - circleSize * 0.5f, circleSize, circleSize);
             
-            g.setColour(juce::Colours::white.withAlpha(0.8f * revealAlpha));
+            g.setColour(OpenWavLookAndFeel::textPrimary.withAlpha(0.8f * revealAlpha));
             g.drawText(cluster.tag.toUpperCase(), x + circleSize + 6.0f, startY, textW, 20.0f, juce::Justification::centredLeft);
             
             x += circleSize + 6.0f + textW + padding;
