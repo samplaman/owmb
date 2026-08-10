@@ -662,7 +662,7 @@ void SampleCloudComponent::newOpenGLContextCreated()
         "    float twinkle = 0.65 + 0.35 * sin(time * (1.5 + noise) + phase) * cos(time * 0.8 + phase * 1.3);\n"
         "    float depthFade = clamp(600.0 / max(1.0, -viewPos.z), 0.15, 1.0);\n"
         "    destColour = colour;\n"
-        "    if (isLightMode > 0.5) { destColour.rgb *= 0.35; }\n"
+        "    if (isLightMode > 0.5) { destColour.rgb *= 0.85; }\n"
         "    destColour.a *= revealAlpha * depthFade * twinkle;\n"
         "    gl_PointSize = max(3.0, radius * 6000.0 / max(1.0, -viewPos.z));\n"
         "}\n";
