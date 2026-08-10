@@ -1322,7 +1322,7 @@ LibrariesComponent::SequentialDownloader::SequentialDownloader(LibrariesComponen
 
 LibrariesComponent::SequentialDownloader::~SequentialDownloader()
 {
-    stopThread(3000);
+    stopThread(100);
 }
 
 void LibrariesComponent::SequentialDownloader::run()

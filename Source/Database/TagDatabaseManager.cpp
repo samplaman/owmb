@@ -11,7 +11,6 @@ TagDatabaseManager::TagDatabaseManager()
 
 TagDatabaseManager::~TagDatabaseManager()
 {
-    saveToFile();
 }
 
 juce::File TagDatabaseManager::getDatabaseFile() const

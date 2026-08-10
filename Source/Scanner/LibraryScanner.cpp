@@ -35,7 +35,7 @@ void LibraryScanner::startScan(const std::vector<juce::String>& folderPaths)
     if (isThreadRunning())
     {
         cancelScan();
-        stopThread(3000);
+        stopThread(100);
     }
 
     targetFolders = folderPaths;
