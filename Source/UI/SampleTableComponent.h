@@ -27,6 +27,7 @@ class SampleTableComponent : public juce::Component,
                              public TagDatabaseListener
 {
 public:
+    friend class MatchCellComponent;
     SampleTableComponent(TagDatabaseManager& db, AudioEngine& engine);
     ~SampleTableComponent() override;
 

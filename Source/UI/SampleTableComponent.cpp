@@ -527,6 +527,34 @@ public:
             table.onSimilarityHover(nullptr, nullptr, {});
     }
 
+    void mouseDown(const juce::MouseEvent& e) override
+    {
+        forwardClick(e);
+    }
+
+    void mouseDoubleClick(const juce::MouseEvent& e) override
+    {
+        forwardClick(e);
+    }
+
+private:
+    void forwardClick(const juce::MouseEvent& e)
+    {
+        int rowNumber = -1;
+        for (int i = 0; i < (int)table.displayedItems.size(); ++i)
+        {
+            if (table.displayedItems[i].id == item.id)
+            {
+                rowNumber = i;
+                break;
+            }
+        }
+        if (rowNumber >= 0)
+        {
+            table.cellClicked(rowNumber, 9, e.getEventRelativeTo(&table));
+        }
+    }
+
 private:
     SampleTableComponent& table;
     MediaItem item;
@@ -574,10 +602,7 @@ void SampleTableComponent::cellClicked(int rowNumber, int columnId, const juce::
         return;
     }
 
-    if (columnId == 9) // Clicking on comment cell should edit it, not trigger audio preview
-    {
-        return;
-    }
+
 
     // If already selected, selectedRowsChanged won't trigger, so reload/play here.
     // Otherwise table.selectRow below will trigger selectedRowsChanged.
