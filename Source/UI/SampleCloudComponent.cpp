@@ -298,11 +298,14 @@ void SampleCloudComponent::paint(juce::Graphics& g)
     }
     
     // Draw vignette
+    bool isLightMode = OpenWavLookAndFeel::bgCard.getBrightness() > 0.5f;
     float w = (float)getWidth();
     float h = (float)getHeight();
-    juce::ColourGradient vignette(juce::Colours::transparentBlack, 
+    juce::Colour centerCol = isLightMode ? juce::Colours::transparentWhite : juce::Colours::transparentBlack;
+    juce::Colour edgeCol = isLightMode ? OpenWavLookAndFeel::bgDark.withAlpha(0.65f) : juce::Colours::black.withAlpha(0.65f);
+    juce::ColourGradient vignette(centerCol, 
                                   w * 0.5f, h * 0.5f,
-                                  juce::Colours::black.withAlpha(0.65f), 
+                                  edgeCol, 
                                   0.0f, 0.0f, true);
     g.setGradientFill(vignette);
     g.fillRect(getLocalBounds());
@@ -687,11 +690,10 @@ void SampleCloudComponent::newOpenGLContextCreated()
 
 void SampleCloudComponent::renderOpenGL()
 {
-    juce::OpenGLHelpers::clear(juce::Colour::fromRGB(32, 32, 32));
+    bool isLightMode = OpenWavLookAndFeel::bgCard.getBrightness() > 0.5f;
+    juce::OpenGLHelpers::clear(OpenWavLookAndFeel::bgCard);
 
     if (layoutPending || !shaderProgram || vertexBuffer.empty()) return;
-
-    bool isLightMode = OpenWavLookAndFeel::bgCard.getBrightness() > 0.5f;
 
     // We must manually call glEnable and glBlendFunc
     // Since we don't have glew, we can use the JUCE OpenGLHelpers or just rely on the driver
