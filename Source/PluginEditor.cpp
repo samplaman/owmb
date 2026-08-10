@@ -60,6 +60,14 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(OpenWavAudioProcessor& 
     setSize(1920, 1080);
     setWantsKeyboardFocus(true);
 
+    addChildComponent(similarityGraphPopup);
+    sampleTable.onSimilarityHover = [this](const MediaItem* item, const MediaItem* target, juce::Point<int> pos) {
+        if (item && target)
+            similarityGraphPopup.showComparison(target, item, pos);
+        else
+            similarityGraphPopup.hidePopup();
+    };
+
     triggerFilterUpdate();
 
     // Trigger startup scan for newly added/modified audio files in existing scan folders

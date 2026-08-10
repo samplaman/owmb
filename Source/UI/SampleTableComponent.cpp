@@ -426,30 +426,7 @@ void SampleTableComponent::paintCell(juce::Graphics& g, int rowNumber, int colum
 
         case 9: // Match %
         {
-            if (similarityTargetId.isNotEmpty() && cachedSimilarityTargetItem.id == similarityTargetId && item.id != similarityTargetId)
-            {
-                float matchPct = TagDatabaseManager::calculateMatchPercentage(cachedSimilarityTargetItem, item);
-                float matchRatio = juce::jlimit(0.0f, 1.0f, matchPct / 100.0f);
-
-                float size = std::min(width, height) - 8.0f;
-                auto ringBounds = juce::Rectangle<float>(0, 0, size, size).withCentre(bounds.getCentre().toFloat());
-                
-                g.setColour(OpenWavLookAndFeel::bgDark.withAlpha(0.6f));
-                g.drawEllipse(ringBounds, 3.0f);
-                
-                if (matchRatio > 0.01f)
-                {
-                    juce::Path arc;
-                    arc.addCentredArc(ringBounds.getCentreX(), ringBounds.getCentreY(), ringBounds.getWidth() * 0.5f, ringBounds.getHeight() * 0.5f, 0.0f, 0.0f, juce::MathConstants<float>::twoPi * matchRatio, true);
-                    g.setColour(OpenWavLookAndFeel::accentCyan);
-                    g.strokePath(arc, juce::PathStrokeType(3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-                }
-                
-                juce::String pctStr = juce::String(juce::roundToInt(matchPct));
-                g.setColour(OpenWavLookAndFeel::textPrimary);
-                g.setFont(juce::Font(9.0f).boldened());
-                g.drawText(pctStr, ringBounds.toNearestInt(), juce::Justification::centred, false);
-            }
+            // Now handled by MatchCellComponent via refreshComponentForCell
             break;
         }
 
@@ -501,8 +478,76 @@ juce::String SampleTableComponent::getCellTooltip(int rowNumber, int columnId)
     return {};
 }
 
-juce::Component* SampleTableComponent::refreshComponentForCell(int /*rowNumber*/, int /*columnId*/, bool /*isRowSelected*/, juce::Component* existingComponentToUpdate)
+class MatchCellComponent : public juce::Component
 {
+public:
+    MatchCellComponent(SampleTableComponent& owner, const MediaItem& i, const MediaItem& target)
+        : table(owner), item(i), targetItem(target)
+    {
+    }
+
+    void paint(juce::Graphics& g) override
+    {
+        if (item.id == targetItem.id) return;
+
+        auto bounds = getLocalBounds().reduced(6, 0);
+        float matchPct = TagDatabaseManager::calculateMatchPercentage(targetItem, item);
+        float matchRatio = juce::jlimit(0.0f, 1.0f, matchPct / 100.0f);
+
+        float size = std::min(getWidth(), getHeight()) - 8.0f;
+        auto ringBounds = juce::Rectangle<float>(0, 0, size, size).withCentre(bounds.getCentre().toFloat());
+        
+        g.setColour(OpenWavLookAndFeel::bgDark.withAlpha(0.6f));
+        g.drawEllipse(ringBounds, 3.0f);
+        
+        if (matchRatio > 0.01f)
+        {
+            juce::Path arc;
+            arc.addCentredArc(ringBounds.getCentreX(), ringBounds.getCentreY(), ringBounds.getWidth() * 0.5f, ringBounds.getHeight() * 0.5f, 0.0f, 0.0f, juce::MathConstants<float>::twoPi * matchRatio, true);
+            g.setColour(OpenWavLookAndFeel::accentCyan);
+            g.strokePath(arc, juce::PathStrokeType(3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        }
+        
+        juce::String pctStr = juce::String(juce::roundToInt(matchPct));
+        g.setColour(OpenWavLookAndFeel::textPrimary);
+        g.setFont(juce::Font(9.0f).boldened());
+        g.drawText(pctStr, ringBounds.toNearestInt(), juce::Justification::centred, false);
+    }
+
+    void mouseEnter(const juce::MouseEvent&) override
+    {
+        if (table.onSimilarityHover)
+            table.onSimilarityHover(&item, &targetItem, getScreenPosition().translated(getWidth(), 0));
+    }
+
+    void mouseExit(const juce::MouseEvent&) override
+    {
+        if (table.onSimilarityHover)
+            table.onSimilarityHover(nullptr, nullptr, {});
+    }
+
+private:
+    SampleTableComponent& table;
+    MediaItem item;
+    MediaItem targetItem;
+};
+
+juce::Component* SampleTableComponent::refreshComponentForCell(int rowNumber, int columnId, bool /*isRowSelected*/, juce::Component* existingComponentToUpdate)
+{
+    if (columnId == 9 && similarityTargetId.isNotEmpty())
+    {
+        if (rowNumber >= 0 && rowNumber < static_cast<int>(displayedItems.size()))
+        {
+            const auto& item = displayedItems[static_cast<size_t>(rowNumber)];
+            if (item.id != similarityTargetId)
+            {
+                auto* comp = new MatchCellComponent(*this, item, cachedSimilarityTargetItem);
+                delete existingComponentToUpdate;
+                return comp;
+            }
+        }
+    }
+
     delete existingComponentToUpdate;
     return nullptr;
 }

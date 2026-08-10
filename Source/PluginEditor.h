@@ -16,6 +16,7 @@
 #include "UI/RecorderComponent.h"
 #include "UI/ScanProgressDialog.h"
 #include "UI/AboutDialog.h"
+#include "UI/SimilarityGraphPopup.h"
 
 namespace openwav
 {
@@ -107,6 +108,7 @@ private:
     ScanProgressDialog scanProgressDialog;
     AboutDialog aboutDialog;
     juce::TooltipWindow tooltipWindow { this, 700 };
+    SimilarityGraphPopup similarityGraphPopup;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(OpenWavAudioProcessorEditor)
 };
