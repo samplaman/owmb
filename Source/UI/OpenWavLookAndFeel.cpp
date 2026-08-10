@@ -137,6 +137,9 @@ void OpenWavLookAndFeel::updateColors() {
   // Directory / FileBrowserComponent
   setColour(juce::FileBrowserComponent::currentPathBoxBackgroundColourId, bgCard);
   setColour(juce::FileBrowserComponent::filenameBoxBackgroundColourId, bgCard);
+  
+  // Scrollbars
+  setColour(juce::ScrollBar::thumbColourId, accentCyan);
 
   // Slider
   setColour(juce::Slider::thumbColourId, textPrimary);
