@@ -416,7 +416,12 @@ void SampleCloudComponent::resized()
 
 void SampleCloudComponent::mouseDown(const juce::MouseEvent& e)
 {
-    if (e.mods.isRightButtonDown() || e.mods.isPopupMenu()) return;
+    if (e.mods.isRightButtonDown() || e.mods.isPopupMenu())
+    {
+        if (hoveredNodeIndex >= 0)
+            showContextMenuForNode(hoveredNodeIndex);
+        return;
+    }
 
     mouseDragStartPos = e.position;
     isRotating = false;
@@ -463,7 +468,7 @@ void SampleCloudComponent::mouseUp(const juce::MouseEvent& e)
 {
     if (e.mods.isRightButtonDown() || e.mods.isPopupMenu()) return;
 
-    if (e.getDistanceFromDragStart() < 3.0f)
+    if (e.getDistanceFromDragStart() < 15.0f)
     {
         if (hoveredNodeIndex >= 0)
         {
