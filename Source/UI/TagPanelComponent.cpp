@@ -120,6 +120,13 @@ void TagPanelComponent::paint(juce::Graphics& g)
     g.drawRect(getLocalBounds().removeFromRight(1));
 }
 
+void TagPanelComponent::lookAndFeelChanged()
+{
+    filterHeaderLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::accentCyan);
+    tagsHeaderLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::accentCyan);
+    foldersHeaderLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::accentCyan);
+}
+
 void TagPanelComponent::refreshTags()
 {
     tagButtons.clear();

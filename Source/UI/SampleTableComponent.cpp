@@ -33,7 +33,7 @@ SampleTableComponent::SampleTableComponent(TagDatabaseManager& db, AudioEngine& 
     table.setWantsKeyboardFocus(true);
 
     similarityBannerLabel.setFont(juce::Font(12.0f).boldened());
-    similarityBannerLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::accentCyan);
+    similarityBannerLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::textPrimary);
     addChildComponent(similarityBannerLabel);
 
     clearSimilarityButton.setButtonText(juce::String::fromUTF8("\xe2\x9c\x95"));
@@ -58,6 +58,20 @@ SampleTableComponent::~SampleTableComponent()
 void SampleTableComponent::paint(juce::Graphics& g)
 {
     g.fillAll(OpenWavLookAndFeel::bgDark);
+
+    if (similarityTargetId.isNotEmpty())
+    {
+        auto bannerArea = getLocalBounds().removeFromTop(30).reduced(4, 2).toFloat();
+        
+        // Glassmorphic / glowing backdrop
+        juce::Colour baseColor = OpenWavLookAndFeel::accentCyan;
+        juce::ColourGradient grad(baseColor.withAlpha(0.25f), bannerArea.getTopLeft(), baseColor.withAlpha(0.05f), bannerArea.getBottomRight(), false);
+        g.setGradientFill(grad);
+        g.fillRoundedRectangle(bannerArea, 6.0f);
+        
+        g.setColour(baseColor.withAlpha(0.5f));
+        g.drawRoundedRectangle(bannerArea, 6.0f, 1.0f);
+    }
 }
 
 void SampleTableComponent::resized()
@@ -77,26 +91,28 @@ void SampleTableComponent::resized()
         clearSimilarityButton.setVisible(false);
     }
 
-    table.setBounds(area);
-    
-    auto& header = table.getHeader();
-    int totalWidth = area.getWidth();
-    
-    // Fixed columns: Column 1 (36 px) + Column 8 (40 px) = 76 px
-    int availableWidth = totalWidth - 76;
-    if (availableWidth > 100)
-    {
-        // Default sum of resizable column widths is 755 px.
-        double scale = static_cast<double>(availableWidth) / 755.0;
+        table.setBounds(area);
         
-        header.setColumnWidth(2, static_cast<int>(220 * scale));
-        header.setColumnWidth(3, static_cast<int>(230 * scale));
-        header.setColumnWidth(4, static_cast<int>(70 * scale));
-        header.setColumnWidth(5, static_cast<int>(65 * scale));
-        header.setColumnWidth(6, static_cast<int>(95 * scale));
-        header.setColumnWidth(7, static_cast<int>(75 * scale));
+        auto& header = table.getHeader();
+        int totalWidth = area.getWidth();
+        
+        int fixedWidths = 76; 
+        if (similarityTargetId.isNotEmpty()) fixedWidths += 80;
+        
+        int availableWidth = totalWidth - fixedWidths;
+        if (availableWidth > 100)
+        {
+            double scale = static_cast<double>(availableWidth) / 755.0;
+            
+            header.setColumnWidth(2, static_cast<int>(220 * scale));
+            header.setColumnWidth(3, static_cast<int>(230 * scale));
+            header.setColumnWidth(4, static_cast<int>(70 * scale));
+            header.setColumnWidth(5, static_cast<int>(65 * scale));
+            header.setColumnWidth(6, static_cast<int>(95 * scale));
+            header.setColumnWidth(7, static_cast<int>(75 * scale));
+            if (similarityTargetId.isNotEmpty()) header.setColumnWidth(9, 80);
+        }
     }
-}
 
 void SampleTableComponent::updateFilter(const juce::String& searchKeyword,
                                          const std::set<juce::String>& selectedTags,
@@ -154,7 +170,7 @@ void SampleTableComponent::updateFilter(const juce::String& searchKeyword,
         {
             cachedSimilarityTargetItem = targetItem;
             similarityTargetName = targetItem.fileName;
-            similarityBannerLabel.setText("SHOWING ACOUSTICALLY SIMILAR SOUNDS TO: " + similarityTargetName, juce::dontSendNotification);
+            similarityBannerLabel.setText("  \xE2\x9C\xA8  SHOWING SIMILAR SOUNDS TO: " + similarityTargetName, juce::dontSendNotification);
 
             std::sort(displayedItems.begin(), displayedItems.end(), [targetItem](const MediaItem& a, const MediaItem& b) {
                 if (a.id == targetItem.id) return true;
@@ -180,6 +196,17 @@ void SampleTableComponent::updateFilter(const juce::String& searchKeyword,
         std::sort(displayedItems.begin(), displayedItems.end(), [](const MediaItem& a, const MediaItem& b) {
             return a.fileName.compareIgnoreCase(b.fileName) < 0;
         });
+    }
+
+    if (similarityTargetId.isNotEmpty())
+    {
+        if (table.getHeader().getColumnName(9) != "Match %")
+            table.getHeader().addColumn("Match %", 9, 80, 60, 100);
+    }
+    else
+    {
+        if (table.getHeader().getColumnName(9) == "Match %")
+            table.getHeader().removeColumn(9);
     }
 
     resized();
@@ -216,7 +243,32 @@ void SampleTableComponent::paintRowBackground(juce::Graphics& g, int rowNumber, 
     }
     else
     {
-        g.fillAll(OpenWavLookAndFeel::bgCard);
+        if (rowNumber % 2 == 1)
+            g.fillAll(OpenWavLookAndFeel::bgHeader.withAlpha(0.45f));
+        else
+            g.fillAll(OpenWavLookAndFeel::bgCard);
+            
+        if (similarityTargetId.isNotEmpty() && cachedSimilarityTargetItem.id == similarityTargetId)
+        {
+            if (rowNumber >= 0 && rowNumber < static_cast<int>(displayedItems.size()))
+            {
+                const auto& item = displayedItems[static_cast<size_t>(rowNumber)];
+                if (item.id != similarityTargetId)
+                {
+                    float matchPct = TagDatabaseManager::calculateMatchPercentage(cachedSimilarityTargetItem, item);
+                    float matchRatio = juce::jlimit(0.0f, 1.0f, matchPct / 100.0f);
+                    if (matchRatio > 0.4f)
+                    {
+                        float alpha = juce::jmap(matchRatio, 0.4f, 1.0f, 0.0f, 0.18f);
+                        g.fillAll(OpenWavLookAndFeel::accentCyan.withAlpha(alpha));
+                    }
+                }
+                else
+                {
+                    g.fillAll(OpenWavLookAndFeel::accentCyan.withAlpha(0.08f));
+                }
+            }
+        }
     }
 }
 
@@ -261,58 +313,22 @@ void SampleTableComponent::paintCell(juce::Graphics& g, int rowNumber, int colum
             g.setColour(rowIsSelected ? OpenWavLookAndFeel::accentCyan : OpenWavLookAndFeel::textPrimary);
             g.setFont(rowIsSelected ? juce::Font(13.0f).boldened() : juce::Font(13.0f));
 
-            if (similarityTargetId.isNotEmpty() && cachedSimilarityTargetItem.id == similarityTargetId)
+            if (similarityTargetId.isNotEmpty() && cachedSimilarityTargetItem.id == similarityTargetId && item.id == similarityTargetId)
             {
-                if (item.id == similarityTargetId)
-                {
-                    juce::Font badgeFont(10.0f, juce::Font::bold);
-                    juce::String badgeText = "TARGET";
-                    int badgeW = badgeFont.getStringWidth(badgeText) + 10;
-                    auto targetBounds = bounds.removeFromRight(badgeW).toFloat().withHeight(16.0f);
-                    targetBounds.setY((height - 16.0f) * 0.5f);
+                juce::Font badgeFont(10.0f, juce::Font::bold);
+                juce::String badgeText = "TARGET";
+                int badgeW = badgeFont.getStringWidth(badgeText) + 10;
+                auto targetBounds = bounds.removeFromRight(badgeW).toFloat().withHeight(16.0f);
+                targetBounds.setY((height - 16.0f) * 0.5f);
 
-                    g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.25f));
-                    g.fillRoundedRectangle(targetBounds, 4.0f);
-                    g.setColour(OpenWavLookAndFeel::accentCyan);
-                    g.drawRoundedRectangle(targetBounds, 4.0f, 1.0f);
-                    g.setFont(badgeFont);
-                    g.drawText(badgeText, targetBounds, juce::Justification::centred, true);
+                g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.25f));
+                g.fillRoundedRectangle(targetBounds, 4.0f);
+                g.setColour(OpenWavLookAndFeel::accentCyan);
+                g.drawRoundedRectangle(targetBounds, 4.0f, 1.0f);
+                g.setFont(badgeFont);
+                g.drawText(badgeText, targetBounds, juce::Justification::centred, true);
 
-                    bounds.removeFromRight(6);
-                }
-                else
-                {
-                    float matchPct = TagDatabaseManager::calculateMatchPercentage(cachedSimilarityTargetItem, item);
-                    float matchRatio = juce::jlimit(0.0f, 1.0f, matchPct / 100.0f);
-
-                    int barWidth = 80;
-                    float barHeight = 14.0f;
-                    auto barOuter = bounds.removeFromRight(barWidth).toFloat().withHeight(barHeight);
-                    barOuter.setY((height - barHeight) * 0.5f);
-
-                    // Background track
-                    g.setColour(OpenWavLookAndFeel::bgDark.withAlpha(0.6f));
-                    g.fillRoundedRectangle(barOuter, 3.0f);
-                    g.setColour(OpenWavLookAndFeel::borderColour);
-                    g.drawRoundedRectangle(barOuter, 3.0f, 1.0f);
-
-                    // Filled match progress bar scaled 0 to 100%
-                    if (matchRatio > 0.01f)
-                    {
-                        auto fillWidth = std::max(4.0f, (barOuter.getWidth() - 2.0f) * matchRatio);
-                        auto fillBounds = juce::Rectangle<float>(barOuter.getX() + 1.0f, barOuter.getY() + 1.0f, fillWidth, barOuter.getHeight() - 2.0f);
-                        g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.65f));
-                        g.fillRoundedRectangle(fillBounds, 2.0f);
-                    }
-
-                    // Percentage text (e.g. "98%")
-                    juce::String pctStr = juce::String(juce::roundToInt(matchPct)) + "%";
-                    g.setColour(OpenWavLookAndFeel::textPrimary);
-                    g.setFont(juce::Font(10.0f).boldened());
-                    g.drawText(pctStr, barOuter, juce::Justification::centred, true);
-
-                    bounds.removeFromRight(6);
-                }
+                bounds.removeFromRight(6);
             }
 
             g.drawText(item.fileName, bounds, juce::Justification::centredLeft, true);
@@ -423,6 +439,35 @@ void SampleTableComponent::paintCell(juce::Graphics& g, int rowNumber, int colum
             {
                 g.setColour(OpenWavLookAndFeel::textSecondary.withAlpha(0.35f));
                 g.strokePath(heart, juce::PathStrokeType(1.2f));
+            }
+            break;
+        }
+
+        case 9: // Match %
+        {
+            if (similarityTargetId.isNotEmpty() && cachedSimilarityTargetItem.id == similarityTargetId && item.id != similarityTargetId)
+            {
+                float matchPct = TagDatabaseManager::calculateMatchPercentage(cachedSimilarityTargetItem, item);
+                float matchRatio = juce::jlimit(0.0f, 1.0f, matchPct / 100.0f);
+
+                float size = std::min(width, height) - 8.0f;
+                auto ringBounds = juce::Rectangle<float>(0, 0, size, size).withCentre(bounds.getCentre().toFloat());
+                
+                g.setColour(OpenWavLookAndFeel::bgDark.withAlpha(0.6f));
+                g.drawEllipse(ringBounds, 3.0f);
+                
+                if (matchRatio > 0.01f)
+                {
+                    juce::Path arc;
+                    arc.addCentredArc(ringBounds.getCentreX(), ringBounds.getCentreY(), ringBounds.getWidth() * 0.5f, ringBounds.getHeight() * 0.5f, 0.0f, 0.0f, juce::MathConstants<float>::twoPi * matchRatio, true);
+                    g.setColour(OpenWavLookAndFeel::accentCyan);
+                    g.strokePath(arc, juce::PathStrokeType(3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+                }
+                
+                juce::String pctStr = juce::String(juce::roundToInt(matchPct));
+                g.setColour(OpenWavLookAndFeel::textPrimary);
+                g.setFont(juce::Font(9.0f).boldened());
+                g.drawText(pctStr, ringBounds.toNearestInt(), juce::Justification::centred, false);
             }
             break;
         }
