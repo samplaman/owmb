@@ -170,7 +170,7 @@ void SampleTableComponent::updateFilter(const juce::String& searchKeyword,
         {
             cachedSimilarityTargetItem = targetItem;
             similarityTargetName = targetItem.fileName;
-            similarityBannerLabel.setText("  \xE2\x9C\xA8  SHOWING SIMILAR SOUNDS TO: " + similarityTargetName, juce::dontSendNotification);
+            similarityBannerLabel.setText(juce::String::fromUTF8("  \xE2\x9C\xA8  SHOWING SIMILAR SOUNDS TO: ") + similarityTargetName, juce::dontSendNotification);
 
             std::vector<MediaItem> thresholdedItems;
             for (const auto& item : displayedItems)
