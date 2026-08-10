@@ -246,6 +246,7 @@ void SampleTableComponent::paintRowBackground(juce::Graphics& g, int rowNumber, 
         g.fillAll(OpenWavLookAndFeel::accentCyan.withAlpha(0.18f));
         g.setColour(OpenWavLookAndFeel::accentCyan);
         g.fillRect(0, 0, 3, height);
+    }
     else
     {
         g.fillAll(OpenWavLookAndFeel::bgCard);
