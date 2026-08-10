@@ -505,9 +505,10 @@ void SampleCloudComponent::mouseMove(const juce::MouseEvent& e)
             float spZ = lastViewProjectionMatrix.mat[2] * p.x + lastViewProjectionMatrix.mat[6] * p.y + lastViewProjectionMatrix.mat[10] * p.z + lastViewProjectionMatrix.mat[14];
             float sx = halfW + (spX / w) * halfW;
             float sy = halfH - (spY / w) * halfH;
-            float dx = sx - e.x;
-            float dy = sy - e.y;
-            if (dx*dx + dy*dy < 144.0f)
+            float dx = sx - e.position.x;
+            float dy = sy - e.position.y;
+            float visualRadius = std::max(2.2f, n.radius * 2.0f) + 4.0f;
+            if (dx*dx + dy*dy < visualRadius * visualRadius)
             {
                 if (spZ < bestZ)
                 {
