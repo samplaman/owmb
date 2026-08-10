@@ -490,6 +490,7 @@ void OpenWavAudioProcessorEditor::parentHierarchyChanged()
             }
 #endif
             dw->setUsingNativeTitleBar(true);
+            dw->setTitleBarButtonsRequired(juce::DocumentWindow::allButtons, false);
             dw->setResizable(true, true);
             dw->setResizeLimits(800, 650, 3840, 2160);
 
