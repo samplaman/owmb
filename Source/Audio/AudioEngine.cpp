@@ -421,9 +421,6 @@ void AudioEngine::triggerNoteOff(int midiNoteNumber)
 
 bool AudioEngine::loadFile(const juce::File& audioFile, bool autoPlay)
 {
-    if (!audioFile.existsAsFile())
-        return false;
-
     currentFile = audioFile;
     auto loadId = ++currentLoadId;
 
