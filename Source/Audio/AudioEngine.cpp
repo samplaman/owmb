@@ -76,7 +76,13 @@ AudioEngine::AudioEngine()
 
 AudioEngine::~AudioEngine()
 {
-    backgroundThread.stopThread(1000);
+    stop();
+    stopRecording();
+    currentLoadId++;
+    thumbnail.setSource(nullptr);
+    thumbnailCache.clear();
+    backgroundThread.signalThreadShouldExit();
+    backgroundThread.stopThread(100);
 }
 
 void AudioEngine::prepareToPlay(double sampleRate, int /*samplesPerBlock*/)

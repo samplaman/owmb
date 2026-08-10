@@ -17,7 +17,7 @@ LibraryScanner::LibraryScanner(TagDatabaseManager& dbManager)
 LibraryScanner::~LibraryScanner()
 {
     cancelScan();
-    stopThread(4000);
+    stopThread(100);
 }
 
 void LibraryScanner::addListener(ScannerListener* listener)
