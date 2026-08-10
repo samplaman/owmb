@@ -60,6 +60,8 @@ public:
     void libraryIndexUpdated() override;
     void tagsUpdated() override;
 
+    std::function<void(const MediaItem*, const MediaItem*, juce::Point<int>)> onSimilarityHover;
+
     void addListener(SampleTableListener* listener);
     void removeListener(SampleTableListener* listener);
 
@@ -81,7 +83,6 @@ private:
     juce::String currentExtFilter { "All" };
     bool currentFavOnly { false };
 
-    std::function<void(const MediaItem*, const MediaItem*, juce::Point<int>)> onSimilarityHover;
 
     juce::ListenerList<SampleTableListener> listeners;
     juce::String similarityTargetId;
