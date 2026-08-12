@@ -127,7 +127,7 @@ void ScanProgressDialog::showDialog()
     actionButton.setButtonText("Cancel Scan");
     actionButton.setEnabled(true);
 
-    if (dialogWindow == nullptr)
+    if (!isSilent && dialogWindow == nullptr)
     {
         juce::DialogWindow::LaunchOptions opts;
         opts.content.setNonOwned(this);
@@ -211,6 +211,7 @@ void ScanProgressDialog::scanFinished(int totalDiscovered)
             if (safeThis != nullptr)
             {
                 safeThis->hideDialog();
+                safeThis->setSilent(false);
             }
         });
     });

@@ -72,6 +72,8 @@ private:
     void updateNativeTitleBarTheme();
     void timerCallback() override;
 
+    bool uiReady = false;
+
     OpenWavAudioProcessor& audioProcessor;
     OpenWavLookAndFeel lookAndFeel;
 

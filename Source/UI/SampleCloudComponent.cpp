@@ -30,6 +30,19 @@ __declspec(dllimport) void __stdcall glDrawArrays(unsigned int mode, int first,
 
 namespace openwav {
 
+static juce::String getFullCategoryName(const juce::String& tag) {
+    auto t = tag.toLowerCase();
+    if (t.contains("kick")) return "Kick Drum";
+    if (t.contains("snare")) return "Snare Drum";
+    if (t.contains("hat") || t.contains("hihat")) return "Hi-Hat";
+    if (t.contains("perc")) return "Percussion";
+    if (t.contains("bass")) return "Bass";
+    if (t.contains("synth") || t.contains("lead")) return "Synthesizer";
+    if (t.contains("loop")) return "Loop";
+    if (t.contains("vocal")) return "Vocal";
+    return tag;
+}
+
 SampleCloudComponent::SampleCloudComponent(TagDatabaseManager &db,
                                            AudioEngine &engine)
     : dbManager(db), audioEngine(engine) {
@@ -364,6 +377,37 @@ void SampleCloudComponent::paint(juce::Graphics &g) {
                                               : OpenWavLookAndFeel::accentCyan);
             g.drawEllipse(sx - r - 2.0f, sy - r - 2.0f, (r + 2.0f) * 2.0f,
                           (r + 2.0f) * 2.0f, 2.0f);
+            
+            if (i == hoveredNodeIndex) {
+              juce::Font tooltipFont(14.0f);
+              g.setFont(tooltipFont);
+              juce::String name = n.item.fileName;
+              juce::String details = n.item.cachedFormattedDuration + " | " + n.item.cachedFormattedSampleRate;
+              
+              float nameW = tooltipFont.getStringWidthFloat(name);
+              float detW = tooltipFont.getStringWidthFloat(details);
+              float tooltipW = std::max(nameW, detW) + 20.0f;
+              float tooltipH = 50.0f;
+              
+              float tx = sx + r + 10.0f;
+              float ty = sy - tooltipH * 0.5f;
+              
+              if (tx + tooltipW > getWidth() - 10.0f) {
+                  tx = sx - r - 10.0f - tooltipW;
+              }
+              if (ty < 10.0f) ty = 10.0f;
+              if (ty + tooltipH > getHeight() - 10.0f) ty = getHeight() - 10.0f - tooltipH;
+
+              g.setColour(OpenWavLookAndFeel::bgCard.withAlpha(0.9f));
+              g.fillRoundedRectangle(tx, ty, tooltipW, tooltipH, 6.0f);
+              g.setColour(OpenWavLookAndFeel::bgDark);
+              g.drawRoundedRectangle(tx, ty, tooltipW, tooltipH, 6.0f, 1.5f);
+
+              g.setColour(OpenWavLookAndFeel::textPrimary);
+              g.drawText(name, tx + 10.0f, ty + 5.0f, tooltipW - 20.0f, 20.0f, juce::Justification::centredLeft);
+              g.setColour(OpenWavLookAndFeel::textSecondary);
+              g.drawText(details, tx + 10.0f, ty + 25.0f, tooltipW - 20.0f, 20.0f, juce::Justification::centredLeft);
+            }
           }
         }
       }
@@ -384,7 +428,8 @@ void SampleCloudComponent::paint(juce::Graphics &g) {
     g.reduceClipRegion(0, getHeight() - 40, getWidth() - 320, 40);
 
     for (const auto &cluster : clusters) {
-      float textW = legendFont.getStringWidthFloat(cluster.tag.toUpperCase());
+      juce::String fullTag = getFullCategoryName(cluster.tag).toUpperCase();
+      float textW = legendFont.getStringWidthFloat(fullTag);
 
       g.setColour(cluster.colour.withAlpha(revealAlpha));
       g.fillEllipse(x, startY + 10.0f - circleSize * 0.5f, circleSize,
@@ -392,7 +437,7 @@ void SampleCloudComponent::paint(juce::Graphics &g) {
 
       g.setColour(
           OpenWavLookAndFeel::textPrimary.withAlpha(0.8f * revealAlpha));
-      g.drawText(cluster.tag.toUpperCase(), x + circleSize + 6.0f, startY,
+      g.drawText(fullTag, x + circleSize + 6.0f, startY,
                  textW, 20.0f, juce::Justification::centredLeft);
 
       x += circleSize + 6.0f + textW + padding;
@@ -563,8 +608,9 @@ void SampleCloudComponent::mouseWheelMove(
     float totalWidth = 0.0f;
     juce::Font legendFont(13.0f, juce::Font::bold);
     for (const auto &cluster : clusters) {
+      juce::String fullTag = getFullCategoryName(cluster.tag).toUpperCase();
       totalWidth += 12.0f + 6.0f +
-                    legendFont.getStringWidthFloat(cluster.tag.toUpperCase()) +
+                    legendFont.getStringWidthFloat(fullTag) +
                     20.0f;
     }
 

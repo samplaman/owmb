@@ -33,7 +33,10 @@ public:
     void showDialog();
     void hideDialog();
 
+    void setSilent(bool silent) { isSilent = silent; }
+
 private:
+    bool isSilent = false;
     void timerCallback() override;
     static juce::String formatTime(double seconds);
 

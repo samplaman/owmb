@@ -48,8 +48,8 @@ juce_add_plugin(OpenWav
     COPY_PLUGIN_AFTER_BUILD FALSE
     FORMATS ${PLUGIN_FORMATS}
     PRODUCT_NAME "OWMB"
-    ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/owmbico.png"
-    ICON_SMALL "${CMAKE_CURRENT_SOURCE_DIR}/owmbico.png"
+    ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/splashit.png"
+    ICON_SMALL "${CMAKE_CURRENT_SOURCE_DIR}/splashit.png"
 )
 
 juce_generate_juce_header(OpenWav)
@@ -59,6 +59,7 @@ juce_add_binary_data(OpenWavAssets
         "${CMAKE_CURRENT_SOURCE_DIR}/owmblogo.png"
         "${CMAKE_CURRENT_SOURCE_DIR}/owmbico.png"
         "${CMAKE_CURRENT_SOURCE_DIR}/mainpixeldrainlogo_cropped.png"
+        "${CMAKE_CURRENT_SOURCE_DIR}/splashit.png"
 )
 
 target_sources(OpenWav PRIVATE

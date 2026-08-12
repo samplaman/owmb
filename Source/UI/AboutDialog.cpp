@@ -26,16 +26,16 @@ AboutDialog::AboutDialog()
     // Icon Logo Setup
     juce::Image logoImage;
 #if defined(JUCE_BINARYDATA_H_INCLUDED) || __has_include(<BinaryData.h>)
-    logoImage = juce::ImageFileFormat::loadFrom(BinaryData::owmbico_png, static_cast<size_t>(BinaryData::owmbico_pngSize));
+    logoImage = juce::ImageFileFormat::loadFrom(BinaryData::splashit_png, static_cast<size_t>(BinaryData::splashit_pngSize));
     if (logoImage.isNull())
         logoImage = juce::ImageFileFormat::loadFrom(BinaryData::owmblogo_png, static_cast<size_t>(BinaryData::owmblogo_pngSize));
 #endif
 
     if (logoImage.isNull())
     {
-        juce::File logoFile = juce::File::getCurrentWorkingDirectory().getChildFile("owmbico.png");
+        juce::File logoFile = juce::File::getCurrentWorkingDirectory().getChildFile("splashit.png");
         if (!logoFile.existsAsFile())
-            logoFile = juce::File::getSpecialLocation(juce::File::currentExecutableFile).getParentDirectory().getChildFile("owmbico.png");
+            logoFile = juce::File::getSpecialLocation(juce::File::currentExecutableFile).getParentDirectory().getChildFile("splashit.png");
         if (logoFile.existsAsFile())
             logoImage = juce::ImageFileFormat::loadFrom(logoFile);
     }
