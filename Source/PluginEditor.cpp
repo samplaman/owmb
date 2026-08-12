@@ -169,6 +169,20 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
                 safeThis->findParentComponentOfClass<juce::DocumentWindow>()) {
           dw->setAlpha(1.0f);
           dw->setVisible(true);
+
+          // On Linux, the window was moved off-screen to hide it during
+          // the splash (since setAlpha(0) is unreliable on X11/Wayland).
+          // Restore it to its proper centered position now.
+#if JUCE_LINUX || JUCE_BSD
+          auto mainDisplay =
+              juce::Desktop::getInstance().getDisplays().getPrimaryDisplay();
+          auto userArea = (mainDisplay != nullptr)
+                              ? mainDisplay->userArea
+                              : juce::Rectangle<int>(0, 0, 1920, 1080);
+          int targetW = dw->getWidth();
+          int targetH = dw->getHeight();
+          dw->centreWithSize(targetW, targetH);
+#endif
           dw->toFront(true);
         }
       }
@@ -586,6 +600,12 @@ void OpenWavAudioProcessorEditor::parentHierarchyChanged() {
       if (!uiReady) {
         dw->setAlpha(0.0f);
         dw->setVisible(false);
+
+        // On Linux, setAlpha(0) is unreliable (depends on compositor support).
+        // Move the window far off-screen so it can't flash on screen.
+#if JUCE_LINUX || JUCE_BSD
+        dw->setTopLeftPosition(-10000, -10000);
+#endif
       }
     }
   }
