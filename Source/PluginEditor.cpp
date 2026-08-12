@@ -31,6 +31,7 @@ public:
         if (auto* display = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay())
             setCentrePosition(display->userArea.getCentre());
             
+        setAlpha(0.0f);
         setVisible(true);
         startTimerHz(60);
     }
@@ -60,6 +61,16 @@ public:
     
     void timerCallback() override {
         elapsed += 1000 / 60;
+        
+        float fadeDuration = 500.0f; // 500ms fade
+        float alpha = 1.0f;
+        if (elapsed < fadeDuration) {
+            alpha = elapsed / fadeDuration;
+        } else if (totalDuration - elapsed < fadeDuration) {
+            alpha = (totalDuration - elapsed) / fadeDuration;
+        }
+        setAlpha(juce::jlimit(0.0f, 1.0f, alpha));
+        
         if (elapsed >= totalDuration) {
             stopTimer();
             delete this;

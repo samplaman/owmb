@@ -720,7 +720,11 @@ juce::var SampleTableComponent::getDragSourceDescription(const juce::SparseSet<i
                     juce::DragAndDropContainer::performExternalDragDropOfFiles(files, false);
                 });
             }
+#if JUCE_LINUX
+            return {};
+#else
             return displayedItems[static_cast<size_t>(r)].filePath;
+#endif
         }
     }
     return {};
