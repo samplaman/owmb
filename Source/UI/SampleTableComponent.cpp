@@ -766,6 +766,7 @@ void SampleTableComponent::showContextMenuForRow(int rowNumber)
     menu.addItem(3, "Reveal in File Explorer / Finder");
     menu.addItem(4, "Find Similar Sounds");
     menu.addItem(5, "Convert Format / Sample Rate...");
+    menu.addItem(6, "Auto Slice to Sampler");
 
     menu.showMenuAsync(juce::PopupMenu::Options(), [this, item](int result) {
         if (result == 1)
@@ -822,6 +823,12 @@ void SampleTableComponent::showContextMenuForRow(int rowNumber)
         else if (result == 5)
         {
             convertSample(item);
+        }
+        else if (result == 6)
+        {
+            listeners.call([item](SampleTableListener& l) {
+                l.autoSliceToSamplerRequested(item);
+            });
         }
     });
 }

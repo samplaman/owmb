@@ -172,19 +172,10 @@ void SlicesGridComponent::mouseDrag(const juce::MouseEvent& e)
 {
     if (clickedSliceIndex >= 0 && e.mouseWasDraggedSinceMouseDown())
     {
-#if JUCE_WINDOWS
-        bool isLeftCtrl = (GetKeyState(VK_LCONTROL) & 0x8000) != 0;
-#else
-        bool isLeftCtrl = e.mods.isCtrlDown() || juce::ModifierKeys::getCurrentModifiersRealtime().isCtrlDown();
-#endif
-
-        if (isLeftCtrl)
-        {
-            int sliceIdx = clickedSliceIndex;
-            clickedSliceIndex = -1; // Reset to prevent multiple triggerings
-            if (onSliceDragged != nullptr)
-                onSliceDragged(sliceIdx);
-        }
+        int sliceIdx = clickedSliceIndex;
+        clickedSliceIndex = -1; // Reset to prevent multiple triggerings
+        if (onSliceDragged != nullptr)
+            onSliceDragged(sliceIdx);
     }
 }
 
@@ -364,17 +355,24 @@ void WaveformTransportComponent::paint(juce::Graphics& g)
             float lMin = 0.0f, lMax = 0.0f;
             float rMin = 0.0f, rMax = 0.0f;
 
-            if (numPeakPoints > 0)
+            if (numPeakPoints > 0 && peaks.minLeft.size() == static_cast<size_t>(numPeakPoints)
+                                  && peaks.maxLeft.size() == static_cast<size_t>(numPeakPoints)
+                                  && peaks.minRight.size() == static_cast<size_t>(numPeakPoints)
+                                  && peaks.maxRight.size() == static_cast<size_t>(numPeakPoints))
             {
                 int pStart = juce::jlimit(0, numPeakPoints - 1, static_cast<int>(startRatioCol * numPeakPoints));
                 int pEnd = juce::jlimit(pStart + 1, numPeakPoints, static_cast<int>(endRatioCol * numPeakPoints));
 
                 for (int p = pStart; p < pEnd; ++p)
                 {
-                    if (peaks.minLeft[static_cast<size_t>(p)] < lMin) lMin = peaks.minLeft[static_cast<size_t>(p)];
-                    if (peaks.maxLeft[static_cast<size_t>(p)] > lMax) lMax = peaks.maxLeft[static_cast<size_t>(p)];
-                    if (peaks.minRight[static_cast<size_t>(p)] < rMin) rMin = peaks.minRight[static_cast<size_t>(p)];
-                    if (peaks.maxRight[static_cast<size_t>(p)] > rMax) rMax = peaks.maxRight[static_cast<size_t>(p)];
+                    size_t idx = static_cast<size_t>(p);
+                    if (idx < peaks.minLeft.size() && idx < peaks.maxLeft.size() && idx < peaks.minRight.size() && idx < peaks.maxRight.size())
+                    {
+                        if (peaks.minLeft[idx] < lMin) lMin = peaks.minLeft[idx];
+                        if (peaks.maxLeft[idx] > lMax) lMax = peaks.maxLeft[idx];
+                        if (peaks.minRight[idx] < rMin) rMin = peaks.minRight[idx];
+                        if (peaks.maxRight[idx] > rMax) rMax = peaks.maxRight[idx];
+                    }
                 }
             }
             else if (numChannels > 0)

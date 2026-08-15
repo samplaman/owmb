@@ -60,31 +60,22 @@ HeaderBarComponent::HeaderBarComponent(TagDatabaseManager& db, LibraryScanner& s
 
     btnAll.setToggleState(true, juce::dontSendNotification);
 
-    // View Switcher (List vs Cloud vs Library vs Record)
+    // View Switcher (List vs Cloud vs Library vs Record vs Analysis vs Edit vs Sample Map)
     btnListView.onClick = [this] { setViewMode(ViewMode::List); };
     btnCloudView.onClick = [this] { setViewMode(ViewMode::Cloud); };
     btnLibrariesView.onClick = [this] { setViewMode(ViewMode::Libraries); };
     btnRecordView.onClick = [this] { setViewMode(ViewMode::Record); };
+    btnAnalysisView.onClick = [this] { setViewMode(ViewMode::Analysis); };
+    btnEditView.onClick = [this] { setViewMode(ViewMode::Edit); };
+    btnSampleMapView.onClick = [this] { setViewMode(ViewMode::SampleMap); };
     addAndMakeVisible(btnListView);
     addAndMakeVisible(btnCloudView);
     addAndMakeVisible(btnLibrariesView);
     addAndMakeVisible(btnRecordView);
+    addAndMakeVisible(btnAnalysisView);
+    addAndMakeVisible(btnEditView);
+    addAndMakeVisible(btnSampleMapView);
     btnListView.setToggleState(true, juce::dontSendNotification);
-
-    // Status Label
-    statusLabel.setFont(juce::Font(12.0f));
-    statusLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::textSecondary);
-    statusLabel.setJustificationType(juce::Justification::centredRight);
-    addAndMakeVisible(statusLabel);
-
-    // Progress Bar
-    progressBar.setVisible(false);
-    progressBar.setColour(juce::ProgressBar::backgroundColourId, OpenWavLookAndFeel::bgDark);
-    progressBar.setColour(juce::ProgressBar::foregroundColourId, OpenWavLookAndFeel::accentCyan);
-    progressBar.setTextToDisplay("");
-    addAndMakeVisible(progressBar);
-
-    updateLibraryCount(static_cast<int>(dbManager.getAllItems().size()));
 }
 
 HeaderBarComponent::~HeaderBarComponent()
@@ -135,14 +126,20 @@ void HeaderBarComponent::resized()
 
     area.removeFromLeft(16);
 
-    // View Mode Toggle (List / Cloud / Library / Record)
-    btnListView.setBounds(area.removeFromLeft(60).withHeight(btnHeight));
+    // View Mode Toggle (List / Cloud / Library / Record / Analysis / Edit / Sample Map)
+    btnListView.setBounds(area.removeFromLeft(70).withHeight(btnHeight));
     area.removeFromLeft(gap);
-    btnCloudView.setBounds(area.removeFromLeft(68).withHeight(btnHeight));
+    btnCloudView.setBounds(area.removeFromLeft(80).withHeight(btnHeight));
     area.removeFromLeft(gap);
-    btnLibrariesView.setBounds(area.removeFromLeft(78).withHeight(btnHeight));
+    btnLibrariesView.setBounds(area.removeFromLeft(85).withHeight(btnHeight));
     area.removeFromLeft(gap);
-    btnRecordView.setBounds(area.removeFromLeft(82).withHeight(btnHeight));
+    btnRecordView.setBounds(area.removeFromLeft(85).withHeight(btnHeight));
+    area.removeFromLeft(gap);
+    btnAnalysisView.setBounds(area.removeFromLeft(95).withHeight(btnHeight));
+    area.removeFromLeft(gap);
+    btnEditView.setBounds(area.removeFromLeft(70).withHeight(btnHeight));
+    area.removeFromLeft(gap);
+    btnSampleMapView.setBounds(area.removeFromLeft(105).withHeight(btnHeight));
 
     area.removeFromLeft(16);
 
@@ -151,9 +148,6 @@ void HeaderBarComponent::resized()
     rescanButton.setBounds(area.removeFromLeft(90).withHeight(btnHeight));
     area.removeFromLeft(gap);
     settingsButton.setBounds(area.removeFromLeft(95).withHeight(btnHeight));
-
-    statusLabel.setBounds(area.removeFromRight(150));
-    progressBar.setBounds(statusLabel.getBounds().reduced(0, 4));
 }
 
 void HeaderBarComponent::textEditorTextChanged(juce::TextEditor& editor)
@@ -183,35 +177,14 @@ void HeaderBarComponent::setFormatFilter(const juce::String& ext, juce::TextButt
 
 void HeaderBarComponent::scanStarted()
 {
-    juce::MessageManager::callAsync([this] {
-        scanProgressValue = 0.0;
-        statusLabel.setVisible(false);
-        progressBar.setVisible(true);
-    });
 }
 
-void HeaderBarComponent::scanProgress(int filesProcessed, int totalFiles, const juce::String& /*currentFile*/)
+void HeaderBarComponent::scanProgress(int /*filesProcessed*/, int /*totalFiles*/, const juce::String& /*currentFile*/)
 {
-    juce::MessageManager::callAsync([this, filesProcessed, totalFiles] {
-        if (totalFiles > 0)
-        {
-            scanProgressValue = static_cast<double>(filesProcessed) / totalFiles;
-        }
-    });
 }
 
 void HeaderBarComponent::scanFinished(int /*totalFilesDiscovered*/)
 {
-    juce::MessageManager::callAsync([this] {
-        progressBar.setVisible(false);
-        statusLabel.setVisible(true);
-        updateLibraryCount(static_cast<int>(dbManager.getAllItems().size()));
-    });
-}
-
-void HeaderBarComponent::updateLibraryCount(int count)
-{
-    statusLabel.setText("Library: " + juce::String(count) + " files", juce::dontSendNotification);
 }
 
 void HeaderBarComponent::setViewMode(ViewMode mode)
@@ -221,6 +194,9 @@ void HeaderBarComponent::setViewMode(ViewMode mode)
     btnCloudView.setToggleState(mode == ViewMode::Cloud, juce::dontSendNotification);
     btnLibrariesView.setToggleState(mode == ViewMode::Libraries, juce::dontSendNotification);
     btnRecordView.setToggleState(mode == ViewMode::Record, juce::dontSendNotification);
+    btnAnalysisView.setToggleState(mode == ViewMode::Analysis, juce::dontSendNotification);
+    btnEditView.setToggleState(mode == ViewMode::Edit, juce::dontSendNotification);
+    btnSampleMapView.setToggleState(mode == ViewMode::SampleMap, juce::dontSendNotification);
 
     listeners.call([mode](HeaderBarListener& l) {
         l.viewModeChanged(mode);
@@ -287,11 +263,8 @@ void HeaderBarComponent::lookAndFeelChanged()
         titleLabel.setVisible(true);
     }
 
-    // Update labels, text fields, and progress bar colors
+    // Update labels and text fields
     titleLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::accentCyan);
-    statusLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::textSecondary);
-    progressBar.setColour(juce::ProgressBar::backgroundColourId, OpenWavLookAndFeel::bgDark);
-    progressBar.setColour(juce::ProgressBar::foregroundColourId, OpenWavLookAndFeel::accentCyan);
     searchEditor.setTextToShowWhenEmpty("Search by name, tag, or path...", OpenWavLookAndFeel::textSecondary);
 }
 

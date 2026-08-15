@@ -17,6 +17,9 @@
 #include "UI/ScanProgressDialog.h"
 #include "UI/AboutDialog.h"
 #include "UI/SimilarityGraphPopup.h"
+#include "UI/AnalysisComponent.h"
+#include "UI/EditComponent.h"
+#include "UI/SampleMapComponent.h"
 
 namespace openwav
 {
@@ -53,6 +56,8 @@ public:
     void sampleSelected(const MediaItem& item) override;
     void sampleDoubleClicked(const MediaItem& item) override;
     void displayedItemsChanged(const std::vector<MediaItem>& items) override;
+    void addToSampleMapRequested(const MediaItem& item) override;
+    void autoSliceToSamplerRequested(const MediaItem& item) override;
 
     // SampleCloudListener Callbacks
     void cloudSampleSelected(const MediaItem& item) override;
@@ -110,6 +115,9 @@ private:
     ScanProgressDialog scanProgressDialog;
     AboutDialog aboutDialog;
     SimilarityGraphPopup similarityGraphPopup;
+    AnalysisComponent analysisComponent;
+    EditComponent editComponent;
+    SampleMapComponent sampleMapComponent;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(OpenWavAudioProcessorEditor)
 };

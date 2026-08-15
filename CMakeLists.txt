@@ -94,6 +94,12 @@ target_sources(OpenWav PRIVATE
     Source/UI/ConvertDialog.cpp
     Source/UI/SimilarityGraphPopup.h
     Source/UI/SimilarityGraphPopup.cpp
+    Source/UI/AnalysisComponent.h
+    Source/UI/AnalysisComponent.cpp
+    Source/UI/EditComponent.h
+    Source/UI/EditComponent.cpp
+    Source/UI/SampleMapComponent.h
+    Source/UI/SampleMapComponent.cpp
     Source/PluginProcessor.h
     Source/PluginProcessor.cpp
     Source/PluginEditor.h

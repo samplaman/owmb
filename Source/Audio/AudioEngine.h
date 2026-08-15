@@ -21,9 +21,9 @@ class AudioEngineListener
 {
 public:
     virtual ~AudioEngineListener() = default;
-    virtual void playbackStateChanged(bool isPlaying) = 0;
-    virtual void playbackPositionChanged(double currentSeconds, double totalSeconds) = 0;
-    virtual void sampleLoaded(const juce::String& filePath) = 0;
+    virtual void playbackStateChanged(bool /*isPlaying*/) {}
+    virtual void playbackPositionChanged(double /*currentSeconds*/, double /*totalSeconds*/) {}
+    virtual void sampleLoaded(const juce::String& /*filePath*/) {}
 };
 
 struct WaveformPeaks
@@ -43,10 +43,18 @@ struct AudioVoice
     double ratio { 1.0 };
     bool isLooping { false };
     bool finished { false };
+    juce::ADSR adsr;
     double startRatio { 0.0 };
     double endRatio { 1.0 };
     int rootNote { 60 };
     int triggerMidiNote { -1 };
+    float gain { 1.0f };
+};
+
+struct CachedSample
+{
+    juce::AudioBuffer<float> buffer;
+    double sampleRate { 44100.0 };
 };
 
 class AudioEngine : public juce::ChangeListener
@@ -61,6 +69,15 @@ public:
 
     // Audio Playback Controls
     bool loadFile(const juce::File& audioFile, bool autoPlay = false);
+    void preloadSampleFiles(const std::vector<juce::File>& files);
+    void putSampleInCache(const juce::String& filePath, double sampleRate, const juce::AudioBuffer<float>& buf);
+    void playZoneVoice(const juce::File& file, int triggerMidiNote, int rootNote, float fineTuneCents, float gainDb, float velocity = 1.0f,
+                       float attackSec = 0.005f, float decaySec = 0.1f, float sustainLevel = 1.0f, float releaseSec = 0.2f);
+    void setSamplerReverbAmount(float amount) { samplerReverbAmount.store(juce::jlimit(0.0f, 1.0f, amount)); }
+    float getSamplerReverbAmount() const { return samplerReverbAmount.load(); }
+    void setPitchTrackingEnabled(bool enabled) { pitchTrackingEnabled.store(enabled); }
+    bool isPitchTrackingEnabled() const { return pitchTrackingEnabled.load(); }
+    void stopZoneVoice(int triggerMidiNote);
     void play();
     void pause();
     void stop();
@@ -82,14 +99,20 @@ public:
     double getSampleStartRatio() const { return sampleStartRatio; }
     double getSampleEndRatio() const { return sampleEndRatio; }
     bool getAudioBufferCopy(juce::AudioBuffer<float>& destBuffer, double& sampleRate) const;
+    bool cropLoadedSample(double startRatio, double endRatio);
     bool normalizeLoadedSample();
+    bool silenceSelection(double startRatio, double endRatio);
+    bool reverseSelection(double startRatio, double endRatio);
+    bool deverbSelection(double startRatio, double endRatio, float amount = 0.6f);
+    bool applyFadesToBuffer(double fadeInMs, int fadeInType, double fadeOutMs, int fadeOutType);
+    void rebuildWaveformPeaks();
 
     bool getAutoPlay() const { return autoPlayOnSelect; }
     void setAutoPlay(bool enabled) { autoPlayOnSelect = enabled; }
 
     void setSampleBpm(double bpm);
     double getSampleBpm() const { return sampleBpm.load(); }
-    
+
     void setHostBpm(double bpm);
     double getHostBpm() const { return hostBpm.load(); }
     
@@ -98,6 +121,9 @@ public:
     juce::AudioThumbnail& getThumbnail() { return thumbnail; }
     juce::AudioFormatManager& getFormatManager() { return formatManager; }
     const juce::File& getCurrentFile() const { return currentFile; }
+    juce::MidiKeyboardState& getKeyboardState() { return keyboardState; }
+    void setMainTransportMidiEnabled(bool enabled) { mainTransportMidiEnabled.store(enabled); }
+    bool isMainTransportMidiEnabled() const { return mainTransportMidiEnabled.load(); }
 
     enum class RecordingChannelMode
     {
@@ -125,6 +151,7 @@ public:
     void removeListener(AudioEngineListener* listener);
 
 private:
+    void replaceEditedSampleInMemoryAndDisk();
     void triggerNoteOn(int midiNoteNumber, float velocity);
     void triggerNoteOff(int midiNoteNumber);
     void changeListenerCallback(juce::ChangeBroadcaster* source) override;
@@ -160,6 +187,11 @@ private:
     int recordingWritePosition { 0 };
     std::atomic<float> liveInputLeft { 0.0f };
     std::atomic<float> liveInputRight { 0.0f };
+
+    juce::Reverb reverbDSP;
+    juce::Reverb::Parameters reverbParams;
+    std::atomic<float> samplerReverbAmount { 0.0f };
+    std::atomic<bool> pitchTrackingEnabled { true };
     struct BiquadState
     {
         float x1 { 0.0f }, x2 { 0.0f }, y1 { 0.0f }, y2 { 0.0f };
@@ -174,6 +206,9 @@ private:
     double sampleStartRatio { 0.0 };
     double sampleEndRatio { 1.0 };
 
+    std::atomic<bool> mainTransportMidiEnabled { true };
+    juce::MidiKeyboardState keyboardState;
+    std::map<juce::String, CachedSample> sampleCache;
     juce::ListenerList<AudioEngineListener> listeners;
 };
 

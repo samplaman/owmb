@@ -16,7 +16,10 @@ enum class ViewMode
     List,
     Cloud,
     Libraries,
-    Record
+    Record,
+    Analysis,
+    Edit,
+    SampleMap
 };
 
 class HeaderBarListener
@@ -58,14 +61,12 @@ public:
     void scanStarted() override;
     void scanProgress(int filesProcessed, int totalFiles, const juce::String& currentFile) override;
     void scanFinished(int totalFilesDiscovered) override;
-
-    void updateLibraryCount(int count);
+    void setViewMode(ViewMode mode);
 
 private:
     bool keyPressed(const juce::KeyPress& key, juce::Component* originatingComponent) override;
     void textEditorTextChanged(juce::TextEditor& editor) override;
     void setFormatFilter(const juce::String& ext, juce::TextButton* targetBtn);
-    void setViewMode(ViewMode mode);
 
     TagDatabaseManager& dbManager;
     LibraryScanner& libraryScanner;
@@ -88,10 +89,9 @@ private:
     juce::TextButton btnCloudView { "Cloud" };
     juce::TextButton btnLibrariesView { "Library" };
     juce::TextButton btnRecordView { "Record" };
-
-    juce::Label statusLabel;
-    double scanProgressValue { 0.0 };
-    juce::ProgressBar progressBar { scanProgressValue };
+    juce::TextButton btnAnalysisView { "Analysis" };
+    juce::TextButton btnEditView { "Edit" };
+    juce::TextButton btnSampleMapView { "Sample Map" };
 
     juce::String activeFormat { "All" };
     ViewMode currentViewMode { ViewMode::List };

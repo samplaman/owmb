@@ -99,7 +99,9 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
                          p.getAudioEngine()),
       recorderComponent(p.getAudioEngine(), p.getDatabaseManager()),
       waveformTransport(p.getAudioEngine()),
-      scanProgressDialog(p.getLibraryScanner()) {
+      scanProgressDialog(p.getLibraryScanner()),
+      editComponent(p.getAudioEngine()),
+      sampleMapComponent(p.getAudioEngine()) {
   bool isDark = audioProcessor.getDatabaseManager().isDarkMode();
   juce::String savedColourHex =
       audioProcessor.getDatabaseManager().getPrimaryColourHex();
@@ -126,6 +128,9 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
   addChildComponent(sampleCloud);
   addChildComponent(librariesComponent);
   addChildComponent(recorderComponent);
+  addChildComponent(analysisComponent);
+  addChildComponent(editComponent);
+  addChildComponent(sampleMapComponent);
   addAndMakeVisible(waveformTransport);
 
   setResizable(true, true);
@@ -258,6 +263,9 @@ void OpenWavAudioProcessorEditor::resized() {
     sampleCloud.setVisible(false);
     librariesComponent.setVisible(false);
     recorderComponent.setVisible(false);
+    analysisComponent.setVisible(false);
+    editComponent.setVisible(false);
+    sampleMapComponent.setVisible(false);
     waveformTransport.setVisible(false);
     return;
   }
@@ -275,29 +283,34 @@ void OpenWavAudioProcessorEditor::resized() {
 
   auto mode = headerBar.getCurrentViewMode();
 
+  sampleTable.setVisible(false);
+  sampleCloud.setVisible(false);
+  librariesComponent.setVisible(false);
+  recorderComponent.setVisible(false);
+  analysisComponent.setVisible(false);
+  editComponent.setVisible(false);
+  sampleMapComponent.setVisible(false);
+
   if (mode == ViewMode::Cloud) {
-    sampleTable.setVisible(false);
-    librariesComponent.setVisible(false);
-    recorderComponent.setVisible(false);
     sampleCloud.setVisible(true);
     sampleCloud.setBounds(area);
   } else if (mode == ViewMode::Libraries) {
-    sampleTable.setVisible(false);
-    sampleCloud.setVisible(false);
-    recorderComponent.setVisible(false);
     librariesComponent.setVisible(true);
     librariesComponent.setBounds(area);
   } else if (mode == ViewMode::Record) {
-    sampleTable.setVisible(false);
-    sampleCloud.setVisible(false);
-    librariesComponent.setVisible(false);
     recorderComponent.setVisible(true);
     recorderComponent.setBounds(area);
+  } else if (mode == ViewMode::Analysis) {
+    analysisComponent.setVisible(true);
+    analysisComponent.setBounds(area);
+  } else if (mode == ViewMode::Edit) {
+    editComponent.setVisible(true);
+    editComponent.setBounds(area);
+  } else if (mode == ViewMode::SampleMap) {
+    sampleMapComponent.setVisible(true);
+    sampleMapComponent.setBounds(area);
   } else // ViewMode::List
   {
-    sampleCloud.setVisible(false);
-    librariesComponent.setVisible(false);
-    recorderComponent.setVisible(false);
     sampleTable.setVisible(true);
     sampleTable.setBounds(area);
   }
@@ -512,6 +525,7 @@ void OpenWavAudioProcessorEditor::tagFilterSelectionChanged(
 
 void OpenWavAudioProcessorEditor::sampleSelected(const MediaItem &item) {
   sampleCloud.selectItemById(item.id);
+  analysisComponent.setItem(item);
 }
 
 void OpenWavAudioProcessorEditor::sampleDoubleClicked(
@@ -522,6 +536,18 @@ void OpenWavAudioProcessorEditor::displayedItemsChanged(
   if (headerBar.getCurrentViewMode() == ViewMode::Cloud) {
     sampleCloud.setItems(items);
   }
+}
+
+void OpenWavAudioProcessorEditor::addToSampleMapRequested(const MediaItem &item) {
+  audioProcessor.getAudioEngine().stop();
+  sampleMapComponent.addSample(item);
+  headerBar.setViewMode(ViewMode::SampleMap);
+}
+
+void OpenWavAudioProcessorEditor::autoSliceToSamplerRequested(const MediaItem &item) {
+  audioProcessor.getAudioEngine().stop();
+  sampleMapComponent.autoSliceToSampler(item);
+  headerBar.setViewMode(ViewMode::SampleMap);
 }
 
 bool OpenWavAudioProcessorEditor::isInterestedInFileDrag(
@@ -558,6 +584,7 @@ void OpenWavAudioProcessorEditor::filesDropped(const juce::StringArray &files,
 }
 
 void OpenWavAudioProcessorEditor::viewModeChanged(ViewMode mode) {
+  audioProcessor.getAudioEngine().stop();
   resized();
   if (mode == ViewMode::Cloud || mode == ViewMode::List) {
     triggerFilterUpdate();
@@ -613,6 +640,7 @@ void OpenWavAudioProcessorEditor::parentHierarchyChanged() {
 
 void OpenWavAudioProcessorEditor::cloudSampleSelected(const MediaItem &item) {
   sampleTable.selectItemById(item.id);
+  analysisComponent.setItem(item);
 }
 
 void OpenWavAudioProcessorEditor::cloudSampleDoubleClicked(

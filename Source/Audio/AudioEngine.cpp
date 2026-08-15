@@ -97,25 +97,7 @@ void AudioEngine::releaseResources()
 
 void AudioEngine::processNextAudioBlock(juce::AudioBuffer<float>& outputBuffer, juce::MidiBuffer& midiMessages)
 {
-    {
-        const juce::ScopedLock sl(voiceLock);
-        for (const auto metadata : midiMessages)
-        {
-            auto msg = metadata.getMessage();
-            if (msg.isNoteOn())
-            {
-                triggerNoteOn(msg.getNoteNumber(), msg.getFloatVelocity());
-            }
-            else if (msg.isNoteOff())
-            {
-                triggerNoteOff(msg.getNoteNumber());
-            }
-            else if (msg.isAllNotesOff())
-            {
-                activeVoices.clear();
-            }
-        }
-    }
+    keyboardState.processNextMidiBuffer(midiMessages, 0, outputBuffer.getNumSamples(), true);
 
     // Capture live incoming audio levels and recording data before clearing buffer
     int inChannels = outputBuffer.getNumChannels();
@@ -332,10 +314,13 @@ void AudioEngine::processNextAudioBlock(juce::AudioBuffer<float>& outputBuffer, 
 
         for (int i = 0; i < numSamples; ++i)
         {
+            float envVal = voice->adsr.getNextSample();
+            float voiceVol = gainLevel * voice->gain * envVal;
+
             int idx = static_cast<int>(pos);
-            if (idx >= endSample || idx >= voiceLength)
+            if (idx >= endSample || idx >= voiceLength || !voice->adsr.isActive())
             {
-                if (voice->isLooping && endSample > startSample)
+                if (voice->isLooping && endSample > startSample && voice->adsr.isActive())
                 {
                     pos = startSample;
                     idx = startSample;
@@ -355,7 +340,7 @@ void AudioEngine::processNextAudioBlock(juce::AudioBuffer<float>& outputBuffer, 
                 int srcCh = std::min(ch, voiceChannels - 1);
                 float s1 = voice->buffer.getSample(srcCh, idx);
                 float s2 = voice->buffer.getSample(srcCh, nextIdx);
-                float sample = (s1 + frac * (s2 - s1)) * gainLevel;
+                float sample = (s1 + frac * (s2 - s1)) * voiceVol;
 
                 outputBuffer.addSample(ch, i, sample);
             }
@@ -372,6 +357,160 @@ void AudioEngine::processNextAudioBlock(juce::AudioBuffer<float>& outputBuffer, 
         else
         {
             ++it;
+        }
+    }
+
+    // Process Reverb DSP on Sampler output if global samplerReverbAmount > 0.0f
+    float revAmount = samplerReverbAmount.load();
+    if (revAmount > 0.001f && outputBuffer.getNumChannels() >= 2 && !activeVoices.empty())
+    {
+        reverbParams.roomSize = 0.4f + revAmount * 0.5f;
+        reverbParams.damping = 0.5f;
+        reverbParams.wetLevel = revAmount * 0.5f;
+        reverbParams.dryLevel = 1.0f - (revAmount * 0.2f);
+        reverbParams.width = 1.0f;
+        reverbDSP.setParameters(reverbParams);
+        reverbDSP.processStereo(outputBuffer.getWritePointer(0), outputBuffer.getWritePointer(1), outputBuffer.getNumSamples());
+    }
+}
+
+void AudioEngine::preloadSampleFiles(const std::vector<juce::File>& files)
+{
+    std::thread([this, files]() {
+        for (const auto& file : files)
+        {
+            if (!file.existsAsFile()) continue;
+
+            juce::String filePath = file.getFullPathName();
+
+            {
+                const juce::ScopedLock sl(voiceLock);
+                if (sampleCache.find(filePath) != sampleCache.end())
+                    continue;
+            }
+
+            std::unique_ptr<juce::AudioFormatReader> reader(formatManager.createReaderFor(file));
+            if (reader != nullptr && reader->lengthInSamples > 0 && reader->numChannels > 0)
+            {
+                CachedSample cached;
+                cached.sampleRate = (reader->sampleRate > 0.0) ? reader->sampleRate : 44100.0;
+                cached.buffer.setSize(static_cast<int>(reader->numChannels), static_cast<int>(reader->lengthInSamples));
+                reader->read(&cached.buffer, 0, static_cast<int>(reader->lengthInSamples), 0, true, true);
+
+                const juce::ScopedLock sl(voiceLock);
+                if (sampleCache.size() > 200) sampleCache.clear();
+                sampleCache[filePath] = cached;
+            }
+        }
+    }).detach();
+}
+
+void AudioEngine::putSampleInCache(const juce::String& filePath, double sampleRate, const juce::AudioBuffer<float>& buf)
+{
+    const juce::ScopedLock sl(voiceLock);
+    if (sampleCache.size() > 200) sampleCache.clear();
+    CachedSample cached;
+    cached.sampleRate = sampleRate;
+    cached.buffer.makeCopyOf(buf);
+    sampleCache[filePath] = cached;
+}
+
+void AudioEngine::playZoneVoice(const juce::File& file, int triggerMidiNote, int rootNote, float fineTuneCents, float gainDb, float velocity,
+                               float attackSec, float decaySec, float sustainLevel, float releaseSec)
+{
+    if (!file.existsAsFile()) return;
+
+    juce::String filePath = file.getFullPathName();
+    CachedSample cached;
+
+    {
+        const juce::ScopedLock sl(voiceLock);
+        auto it = sampleCache.find(filePath);
+        if (it != sampleCache.end())
+        {
+            cached = it->second;
+        }
+    }
+
+    if (cached.buffer.getNumSamples() == 0)
+    {
+        std::unique_ptr<juce::AudioFormatReader> reader(formatManager.createReaderFor(file));
+        if (reader == nullptr || reader->lengthInSamples <= 0 || reader->numChannels <= 0) return;
+
+        cached.sampleRate = (reader->sampleRate > 0.0) ? reader->sampleRate : 44100.0;
+        cached.buffer.setSize(static_cast<int>(reader->numChannels), static_cast<int>(reader->lengthInSamples));
+        reader->read(&cached.buffer, 0, static_cast<int>(reader->lengthInSamples), 0, true, true);
+
+        const juce::ScopedLock sl(voiceLock);
+        if (sampleCache.size() > 200) sampleCache.clear();
+        sampleCache[filePath] = cached;
+    }
+
+    if (cached.buffer.getNumSamples() == 0) return;
+
+    {
+        const juce::ScopedLock sl(voiceLock);
+        if (currentFile != file || loadedVoice == nullptr)
+        {
+            currentFile = file;
+            currentFileSampleRate = cached.sampleRate;
+            auto lVoice = std::make_shared<AudioVoice>();
+            lVoice->buffer.makeCopyOf(cached.buffer);
+            lVoice->ratio = (engineSampleRate > 0.0) ? (cached.sampleRate / engineSampleRate) : 1.0;
+            lVoice->isLooping = isLoopingEnabled;
+            lVoice->startRatio = 0.0;
+            lVoice->endRatio = 1.0;
+            lVoice->rootNote = rootNote;
+            loadedVoice = lVoice;
+            rebuildWaveformPeaks();
+            listeners.call([filePath = file.getFullPathName()](AudioEngineListener& l) {
+                l.sampleLoaded(filePath);
+            });
+        }
+    }
+
+    auto voice = std::make_shared<AudioVoice>();
+    voice->buffer.makeCopyOf(cached.buffer);
+
+    double semitoneDiff = pitchTrackingEnabled.load() ? ((triggerMidiNote - rootNote) + (fineTuneCents / 100.0)) : (fineTuneCents / 100.0);
+    double srRatio = (cached.sampleRate > 0.0 && engineSampleRate > 0.0) ? (cached.sampleRate / engineSampleRate) : 1.0;
+    voice->ratio = srRatio * std::pow(2.0, semitoneDiff / 12.0);
+
+    voice->readPosition = 0.0;
+    voice->startRatio = 0.0;
+    voice->endRatio = 1.0;
+    voice->isLooping = false;
+    voice->finished = false;
+    voice->rootNote = rootNote;
+    voice->triggerMidiNote = triggerMidiNote;
+    voice->gain = velocity * std::pow(10.0f, gainDb / 20.0f);
+
+    juce::ADSR::Parameters adsrParams;
+    adsrParams.attack = attackSec;
+    adsrParams.decay = decaySec;
+    adsrParams.sustain = sustainLevel;
+    adsrParams.release = releaseSec;
+
+    voice->adsr.setSampleRate(engineSampleRate > 0.0 ? engineSampleRate : 44100.0);
+    voice->adsr.setParameters(adsrParams);
+    voice->adsr.noteOn();
+
+    const juce::ScopedLock sl(voiceLock);
+    if (activeVoices.size() >= 32)
+    {
+        activeVoices.erase(activeVoices.begin());
+    }
+    activeVoices.push_back(voice);
+}
+
+void AudioEngine::stopZoneVoice(int triggerMidiNote)
+{
+    const juce::ScopedLock sl(voiceLock);
+    for (auto& v : activeVoices)
+    {
+        if (v->triggerMidiNote == triggerMidiNote)
+        {
+            v->adsr.noteOff();
         }
     }
 }
@@ -394,8 +533,8 @@ void AudioEngine::triggerNoteOn(int midiNoteNumber, float /*velocity*/)
     auto voice = std::make_shared<AudioVoice>();
     voice->buffer = juce::AudioBuffer<float>(loadedVoice->buffer.getArrayOfWritePointers(), loadedVoice->buffer.getNumChannels(), loadedVoice->buffer.getNumSamples());
 
-    // Pitch shift based on triggered midi note relative to root note
-    double semitoneDiff = midiNoteNumber - loadedVoice->rootNote;
+    // Pitch shift based on triggered midi note relative to root note (if pitch tracking is enabled)
+    double semitoneDiff = pitchTrackingEnabled.load() ? (midiNoteNumber - loadedVoice->rootNote) : 0.0;
     voice->ratio = loadedVoice->ratio * std::pow(2.0, semitoneDiff / 12.0);
 
     voice->readPosition = sampleStartRatio * voice->buffer.getNumSamples();
@@ -525,12 +664,12 @@ bool AudioEngine::loadFile(const juce::File& audioFile, bool autoPlay)
                 loadedVoice = voice;
                 cachedWaveformPeaks = std::move(peaks);
                 stoppedPositionSecs = 0.0;
-                activeVoices.clear(); // Kill previous voices so only the last selected voice plays
                 
                 updateVoiceRatios();
                 
                 if (autoPlay)
                 {
+                    activeVoices.clear(); // Kill previous voices so only the last selected voice plays
                     auto playVoice = std::make_shared<AudioVoice>();
                     playVoice->buffer = juce::AudioBuffer<float>(loadedVoice->buffer.getArrayOfWritePointers(), loadedVoice->buffer.getNumChannels(), loadedVoice->buffer.getNumSamples());
                     playVoice->ratio = loadedVoice->ratio;
@@ -540,6 +679,16 @@ bool AudioEngine::loadFile(const juce::File& audioFile, bool autoPlay)
                     playVoice->startRatio = sampleStartRatio;
                     playVoice->endRatio = sampleEndRatio;
                     playVoice->rootNote = loadedVoice->rootNote;
+
+                    juce::ADSR::Parameters defaultAdsr;
+                    defaultAdsr.attack = 0.005f;
+                    defaultAdsr.decay = 0.1f;
+                    defaultAdsr.sustain = 1.0f;
+                    defaultAdsr.release = 0.05f;
+                    playVoice->adsr.setSampleRate(engineSampleRate > 0.0 ? engineSampleRate : 44100.0);
+                    playVoice->adsr.setParameters(defaultAdsr);
+                    playVoice->adsr.noteOn();
+
                     activeVoices.push_back(playVoice);
                 }
             }
@@ -583,6 +732,15 @@ void AudioEngine::play()
         voice->endRatio = sampleEndRatio;
         voice->rootNote = loadedVoice->rootNote;
         
+        juce::ADSR::Parameters defaultAdsr;
+        defaultAdsr.attack = 0.005f;
+        defaultAdsr.decay = 0.1f;
+        defaultAdsr.sustain = 1.0f;
+        defaultAdsr.release = 0.05f;
+        voice->adsr.setSampleRate(engineSampleRate > 0.0 ? engineSampleRate : 44100.0);
+        voice->adsr.setParameters(defaultAdsr);
+        voice->adsr.noteOn();
+
         activeVoices.clear();
         activeVoices.push_back(voice);
         
@@ -834,6 +992,48 @@ bool AudioEngine::getAudioBufferCopy(juce::AudioBuffer<float>& destBuffer, doubl
     return true;
 }
 
+bool AudioEngine::cropLoadedSample(double startRatio, double endRatio)
+{
+    const juce::ScopedLock sl(voiceLock);
+    if (loadedVoice == nullptr || loadedVoice->buffer.getNumSamples() == 0)
+        return false;
+
+    startRatio = juce::jlimit(0.0, 1.0, startRatio);
+    endRatio = juce::jlimit(0.0, 1.0, endRatio);
+    if (endRatio <= startRatio + 0.0001)
+        return false;
+
+    int totalSamples = loadedVoice->buffer.getNumSamples();
+    int startSample = static_cast<int>(startRatio * totalSamples);
+    int endSample = static_cast<int>(endRatio * totalSamples);
+    int newNumSamples = endSample - startSample;
+    if (newNumSamples <= 0)
+        return false;
+
+    juce::AudioBuffer<float> croppedBuffer(loadedVoice->buffer.getNumChannels(), newNumSamples);
+    for (int ch = 0; ch < loadedVoice->buffer.getNumChannels(); ++ch)
+    {
+        croppedBuffer.copyFrom(ch, 0, loadedVoice->buffer, ch, startSample, newNumSamples);
+    }
+
+    loadedVoice->buffer = std::move(croppedBuffer);
+    sampleStartRatio = 0.0;
+    sampleEndRatio = 1.0;
+    stoppedPositionSecs = 0.0;
+
+    for (auto& v : activeVoices)
+    {
+        v->buffer = juce::AudioBuffer<float>(loadedVoice->buffer.getArrayOfWritePointers(), loadedVoice->buffer.getNumChannels(), loadedVoice->buffer.getNumSamples());
+        v->startRatio = 0.0;
+        v->endRatio = 1.0;
+        v->readPosition = 0;
+    }
+
+    rebuildWaveformPeaks();
+    replaceEditedSampleInMemoryAndDisk();
+    return true;
+}
+
 bool AudioEngine::normalizeLoadedSample()
 {
     const juce::ScopedLock sl(voiceLock);
@@ -859,13 +1059,297 @@ bool AudioEngine::normalizeLoadedSample()
 
     float scaleFactor = 1.0f / maxPeak;
     loadedVoice->buffer.applyGain(scaleFactor);
+    rebuildWaveformPeaks();
+    replaceEditedSampleInMemoryAndDisk();
+    return true;
+}
 
-    for (auto& voice : activeVoices)
+void AudioEngine::rebuildWaveformPeaks()
+{
+    if (loadedVoice == nullptr || loadedVoice->buffer.getNumSamples() == 0)
+        return;
+
+    const int targetNumPoints = 2000;
+    int totalSamples = loadedVoice->buffer.getNumSamples();
+    int numChannels = loadedVoice->buffer.getNumChannels();
+
+    WaveformPeaks peaks;
+    peaks.numChannels = numChannels;
+    peaks.numPoints = targetNumPoints;
+    peaks.minLeft.resize(targetNumPoints, 0.0f);
+    peaks.maxLeft.resize(targetNumPoints, 0.0f);
+    peaks.minRight.resize(targetNumPoints, 0.0f);
+    peaks.maxRight.resize(targetNumPoints, 0.0f);
+
+    double samplesPerPoint = static_cast<double>(totalSamples) / targetNumPoints;
+
+    for (int p = 0; p < targetNumPoints; ++p)
     {
-        voice->buffer.applyGain(scaleFactor);
+        int sStart = static_cast<int>(p * samplesPerPoint);
+        int sEnd = std::min(totalSamples, static_cast<int>((p + 1) * samplesPerPoint));
+        int numRead = std::max(1, sEnd - sStart);
+
+        auto rL = loadedVoice->buffer.findMinMax(0, sStart, numRead);
+        peaks.minLeft[p] = rL.getStart();
+        peaks.maxLeft[p] = rL.getEnd();
+
+        if (numChannels >= 2)
+        {
+            auto rR = loadedVoice->buffer.findMinMax(1, sStart, numRead);
+            peaks.minRight[p] = rR.getStart();
+            peaks.maxRight[p] = rR.getEnd();
+        }
+        else
+        {
+            peaks.minRight[p] = peaks.minLeft[p];
+            peaks.maxRight[p] = peaks.maxLeft[p];
+        }
     }
 
+    cachedWaveformPeaks = std::move(peaks);
+}
+
+bool AudioEngine::silenceSelection(double startRatio, double endRatio)
+{
+    const juce::ScopedLock sl(voiceLock);
+    if (loadedVoice == nullptr || loadedVoice->buffer.getNumSamples() == 0)
+        return false;
+
+    int numSamples = loadedVoice->buffer.getNumSamples();
+    int startIdx = juce::jlimit(0, numSamples - 1, static_cast<int>(startRatio * numSamples));
+    int endIdx = juce::jlimit(startIdx + 1, numSamples, static_cast<int>(endRatio * numSamples));
+
+    for (int ch = 0; ch < loadedVoice->buffer.getNumChannels(); ++ch)
+    {
+        loadedVoice->buffer.clear(ch, startIdx, endIdx - startIdx);
+    }
+    rebuildWaveformPeaks();
+    replaceEditedSampleInMemoryAndDisk();
     return true;
+}
+
+bool AudioEngine::reverseSelection(double startRatio, double endRatio)
+{
+    const juce::ScopedLock sl(voiceLock);
+    if (loadedVoice == nullptr || loadedVoice->buffer.getNumSamples() == 0)
+        return false;
+
+    int numSamples = loadedVoice->buffer.getNumSamples();
+    int startIdx = juce::jlimit(0, numSamples - 1, static_cast<int>(startRatio * numSamples));
+    int endIdx = juce::jlimit(startIdx + 1, numSamples, static_cast<int>(endRatio * numSamples));
+    int count = endIdx - startIdx;
+    if (count <= 1) return false;
+
+    for (int ch = 0; ch < loadedVoice->buffer.getNumChannels(); ++ch)
+    {
+        float* data = loadedVoice->buffer.getWritePointer(ch, startIdx);
+        std::reverse(data, data + count);
+    }
+    rebuildWaveformPeaks();
+    replaceEditedSampleInMemoryAndDisk();
+    return true;
+}
+
+bool AudioEngine::deverbSelection(double startRatio, double endRatio, float amount)
+{
+    const juce::ScopedLock sl(voiceLock);
+    if (loadedVoice == nullptr || loadedVoice->buffer.getNumSamples() == 0)
+        return false;
+
+    int numSamples = loadedVoice->buffer.getNumSamples();
+    int startIdx = juce::jlimit(0, numSamples - 1, static_cast<int>(startRatio * numSamples));
+    int endIdx = juce::jlimit(startIdx + 1, numSamples, static_cast<int>(endRatio * numSamples));
+    int count = endIdx - startIdx;
+    if (count <= 1) return false;
+
+    double sr = (currentFileSampleRate > 0.0) ? currentFileSampleRate : 44100.0;
+    float amountClamped = juce::jlimit(0.1f, 1.0f, amount);
+
+    // ── 3-Band Envelope Follower Coefficients ───────────
+    // Band 0 (Low: <300Hz), Band 1 (Mid: 300Hz-3.5kHz), Band 2 (High: >3.5kHz)
+    float attCoeffs[3] = {
+        std::exp(-1.0f / static_cast<float>(sr * 0.004f)), // Low attack 4ms
+        std::exp(-1.0f / static_cast<float>(sr * 0.0015f)),// Mid attack 1.5ms
+        std::exp(-1.0f / static_cast<float>(sr * 0.0010f)) // High attack 1ms
+    };
+    float relCoeffs[3] = {
+        std::exp(-1.0f / static_cast<float>(sr * 0.080f)), // Low release 80ms
+        std::exp(-1.0f / static_cast<float>(sr * 0.040f)), // Mid release 40ms (aggressive)
+        std::exp(-1.0f / static_cast<float>(sr * 0.030f))  // High release 30ms
+    };
+    float tailCoeffs[3] = {
+        std::exp(-1.0f / static_cast<float>(sr * 0.400f)),
+        std::exp(-1.0f / static_cast<float>(sr * 0.250f)),
+        std::exp(-1.0f / static_cast<float>(sr * 0.200f))
+    };
+
+    // Minimum gain floors per band
+    float floors[3] = {
+        juce::jlimit(0.01f, 0.5f, std::pow(1.0f - amountClamped * 0.7f, 2.0f)),
+        juce::jlimit(0.0005f, 0.3f, std::pow(1.0f - amountClamped, 3.0f)), // Deep mid squelch
+        juce::jlimit(0.001f, 0.35f, std::pow(1.0f - amountClamped * 0.9f, 2.5f))
+    };
+
+    // Expansion exponents per band
+    float powers[3] = {
+        1.5f + amountClamped * 1.0f,
+        2.0f + amountClamped * 2.0f, // 2.0 to 4.0 expansion power for mid room tail
+        1.8f + amountClamped * 1.5f
+    };
+
+    int numChannels = loadedVoice->buffer.getNumChannels();
+
+    for (int ch = 0; ch < numChannels; ++ch)
+    {
+        float* samples = loadedVoice->buffer.getWritePointer(ch, startIdx);
+
+        // 3-Band IIR Crossover Filters (300 Hz & 3500 Hz)
+        juce::IIRFilter lp300, hp300, lp3500, hp3500;
+        lp300.setCoefficients(juce::IIRCoefficients::makeLowPass(sr, 300.0));
+        hp300.setCoefficients(juce::IIRCoefficients::makeHighPass(sr, 300.0));
+        lp3500.setCoefficients(juce::IIRCoefficients::makeLowPass(sr, 3500.0));
+        hp3500.setCoefficients(juce::IIRCoefficients::makeHighPass(sr, 3500.0));
+
+        float fastEnv[3] = { 0.0f, 0.0f, 0.0f };
+        float tailEnv[3] = { 0.0f, 0.0f, 0.0f };
+
+        for (int i = 0; i < count; ++i)
+        {
+            float inputSample = samples[i];
+
+            // Split into 3 sub-bands
+            float xLow = lp300.processSingleSampleRaw(inputSample);
+            float hpSample = hp300.processSingleSampleRaw(inputSample);
+            float xMid = lp3500.processSingleSampleRaw(hpSample);
+            float xHigh = hp3500.processSingleSampleRaw(hpSample);
+
+            float subBands[3] = { xLow, xMid, xHigh };
+            float outBands[3] = { 0.0f, 0.0f, 0.0f };
+
+            // Process each band independently
+            for (int b = 0; b < 3; ++b)
+            {
+                float mag = std::abs(subBands[b]);
+
+                // Track transient envelope vs background diffuse tail
+                if (mag > fastEnv[b])
+                    fastEnv[b] = attCoeffs[b] * fastEnv[b] + (1.0f - attCoeffs[b]) * mag;
+                else
+                    fastEnv[b] = relCoeffs[b] * fastEnv[b] + (1.0f - relCoeffs[b]) * mag;
+
+                tailEnv[b] = tailCoeffs[b] * tailEnv[b] + (1.0f - tailCoeffs[b]) * mag;
+
+                float ratio = (tailEnv[b] > 0.000001f) ? (fastEnv[b] / (tailEnv[b] + 0.000001f)) : 1.0f;
+                float normRatio = juce::jlimit(0.0f, 1.0f, ratio);
+
+                float bandGain = std::pow(normRatio, powers[b]);
+                bandGain = juce::jlimit(floors[b], 1.0f, bandGain);
+
+                outBands[b] = subBands[b] * bandGain;
+            }
+
+            // Re-combine sub-band signals
+            samples[i] = outBands[0] + outBands[1] + outBands[2];
+        }
+    }
+
+    for (auto& v : activeVoices)
+    {
+        v->buffer = juce::AudioBuffer<float>(loadedVoice->buffer.getArrayOfWritePointers(), loadedVoice->buffer.getNumChannels(), loadedVoice->buffer.getNumSamples());
+    }
+
+    rebuildWaveformPeaks();
+    replaceEditedSampleInMemoryAndDisk();
+    return true;
+}
+
+bool AudioEngine::applyFadesToBuffer(double fadeInMs, int fadeInType, double fadeOutMs, int fadeOutType)
+{
+    const juce::ScopedLock sl(voiceLock);
+    if (loadedVoice == nullptr || loadedVoice->buffer.getNumSamples() == 0)
+        return false;
+
+    int numSamples = loadedVoice->buffer.getNumSamples();
+    int startIdx = juce::jlimit(0, numSamples - 1, static_cast<int>(sampleStartRatio * numSamples));
+    int endIdx = juce::jlimit(startIdx + 1, numSamples, static_cast<int>(sampleEndRatio * numSamples));
+    int selSamples = endIdx - startIdx;
+    if (selSamples <= 0) return false;
+
+    double sr = (currentFileSampleRate > 0.0) ? currentFileSampleRate : 44100.0;
+    int fadeInSamples = std::min(selSamples, static_cast<int>((fadeInMs / 1000.0) * sr));
+    int fadeOutSamples = std::min(selSamples, static_cast<int>((fadeOutMs / 1000.0) * sr));
+
+    auto evalCurve = [](float t, int type) -> float {
+        t = juce::jlimit(0.0f, 1.0f, t);
+        if (type == 1) return std::sin(t * juce::MathConstants<float>::halfPi);
+        if (type == 2) return t * t;
+        return t;
+    };
+
+    int numChannels = loadedVoice->buffer.getNumChannels();
+
+    if (fadeInSamples > 0)
+    {
+        for (int ch = 0; ch < numChannels; ++ch)
+        {
+            float* data = loadedVoice->buffer.getWritePointer(ch, startIdx);
+            for (int i = 0; i < fadeInSamples; ++i)
+            {
+                float gain = evalCurve(static_cast<float>(i) / fadeInSamples, fadeInType);
+                data[i] *= gain;
+            }
+        }
+    }
+
+    if (fadeOutSamples > 0)
+    {
+        for (int ch = 0; ch < numChannels; ++ch)
+        {
+            float* data = loadedVoice->buffer.getWritePointer(ch, endIdx - fadeOutSamples);
+            for (int i = 0; i < fadeOutSamples; ++i)
+            {
+                float t = static_cast<float>(i) / fadeOutSamples;
+                float gain = 1.0f - evalCurve(t, fadeOutType);
+                data[i] *= gain;
+            }
+        }
+    }
+
+    rebuildWaveformPeaks();
+    replaceEditedSampleInMemoryAndDisk();
+    return true;
+}
+
+void AudioEngine::replaceEditedSampleInMemoryAndDisk()
+{
+    if (loadedVoice == nullptr || !currentFile.existsAsFile())
+        return;
+
+    juce::String filePath = currentFile.getFullPathName();
+    putSampleInCache(filePath, currentFileSampleRate, loadedVoice->buffer);
+
+    if (currentFile.existsAsFile())
+    {
+        juce::WavAudioFormat wavFormat;
+        auto rawStream = currentFile.createOutputStream().release();
+        if (rawStream != nullptr)
+        {
+            std::unique_ptr<juce::AudioFormatWriter> writer(
+                wavFormat.createWriterFor(rawStream,
+                                          currentFileSampleRate > 0.0 ? currentFileSampleRate : 44100.0,
+                                          static_cast<unsigned int>(loadedVoice->buffer.getNumChannels()),
+                                          16, {}, 0));
+            if (writer != nullptr)
+            {
+                writer->writeFromAudioSampleBuffer(loadedVoice->buffer, 0, loadedVoice->buffer.getNumSamples());
+            }
+        }
+    }
+
+    rebuildWaveformPeaks();
+    listeners.call([filePath](AudioEngineListener& l) {
+        l.sampleLoaded(filePath);
+    });
 }
 
 void AudioEngine::setSampleBpm(double bpm)

@@ -1,0 +1,178 @@
+#pragma once
+
+#if __has_include(<JuceHeader.h>)
+ #include <JuceHeader.h>
+#else
+ #include <juce_gui_basics/juce_gui_basics.h>
+ #include <juce_audio_formats/juce_audio_formats.h>
+#endif
+#include "../Audio/AudioEngine.h"
+
+namespace openwav
+{
+
+class EditComponent : public juce::Component,
+                      public AudioEngineListener,
+                      public juce::Timer,
+                      public juce::ScrollBar::Listener
+{
+public:
+    explicit EditComponent(AudioEngine& engine);
+    ~EditComponent() override;
+
+    void paint(juce::Graphics& g) override;
+    void resized() override;
+
+    void mouseMove(const juce::MouseEvent& e) override;
+    void mouseDown(const juce::MouseEvent& e) override;
+    void mouseDrag(const juce::MouseEvent& e) override;
+    void mouseUp(const juce::MouseEvent& e) override;
+    void mouseDoubleClick(const juce::MouseEvent& e) override;
+    void mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel) override;
+    bool keyPressed(const juce::KeyPress& key) override;
+    void lookAndFeelChanged() override;
+
+    // AudioEngineListener
+    void playbackStateChanged(bool isPlaying) override;
+    void playbackPositionChanged(double currentSeconds, double totalSeconds) override {}
+    void sampleLoaded(const juce::String& filePath) override;
+
+    // Timer
+    void timerCallback() override;
+
+    // ScrollBar::Listener
+    void scrollBarMoved(juce::ScrollBar* scrollBarThatHasMoved, double newRangeStart) override;
+
+private:
+    // Layout helpers
+    juce::Rectangle<float> getWaveformBounds() const;
+    juce::Rectangle<int> getControlPanelBounds() const;
+
+    // Painting sub-routines
+    void paintTimeRuler(juce::Graphics& g, juce::Rectangle<float> bounds) const;
+    void paintWaveform(juce::Graphics& g, juce::Rectangle<float> bounds) const;
+    void paintMarkers(juce::Graphics& g, juce::Rectangle<float> bounds) const;
+    void paintFadeEnvelopes(juce::Graphics& g, juce::Rectangle<float> bounds) const;
+    void paintFadeHandles(juce::Graphics& g, juce::Rectangle<float> bounds) const;
+    void paintPlayhead(juce::Graphics& g, juce::Rectangle<float> bounds) const;
+    void paintSelectionInfoOverlay(juce::Graphics& g, juce::Rectangle<float> bounds) const;
+
+    // Zero-crossing search helper
+    double findNearestZeroCrossing(double ratio) const;
+
+    // Coordinate conversions
+    float ratioToX(double ratio, juce::Rectangle<float> bounds) const;
+    double xToRatio(float x, juce::Rectangle<float> bounds) const;
+
+    // Export & Editing Actions
+    void exportEdited();
+    void cropToSelection();
+    void resetSelection();
+    void silenceSelectedRegion();
+    void reverseSelectedRegion();
+    void normalizeAudioPeak();
+    void deverbSelectedRegion();
+    void bakeFadesIntoBuffer();
+    void playSelectionOnly();
+    void applyFadeToBuffer(juce::AudioBuffer<float>& buffer, double sampleRate) const;
+
+    // Fade curve evaluation
+    float evaluateFadeCurve(float t, int curveType) const;
+
+    AudioEngine& audioEngine;
+
+    // Transport & editing buttons
+    juce::TextButton playPauseButton { "Play" };
+    juce::TextButton stopButton { "Stop" };
+    juce::TextButton playSelButton { "Play Sel" };
+    juce::TextButton loopToggleButton { "Loop" };
+    juce::TextButton cropButton { "Crop" };
+    juce::TextButton resetSelectionButton { "Reset" };
+    juce::TextButton snapZeroCrossingButton { "Snap 0-X" };
+
+    // DSP Actions bar buttons
+    juce::TextButton silenceButton { "Silence" };
+    juce::TextButton reverseButton { "Reverse" };
+    juce::TextButton normalizeButton { "Normalize" };
+    juce::TextButton deverbButton { "Deverb" };
+    juce::TextButton bakeFadesButton { "Bake Fades" };
+    juce::TextButton exportButton { "Export" };
+
+    // Fine loop nudge controls
+    juce::TextButton loopInNudgeLeft { "<" };
+    juce::TextButton loopInNudgeRight { ">" };
+    juce::TextButton loopOutNudgeLeft { "<" };
+    juce::TextButton loopOutNudgeRight { ">" };
+
+    // Time display labels
+    juce::Label startLabel { {}, "Start:" };
+    juce::Label endLabel { {}, "End:" };
+    juce::Label loopInLabel { {}, "Loop In:" };
+    juce::Label loopOutLabel { {}, "Loop Out:" };
+    juce::Label startTimeLabel;
+    juce::Label endTimeLabel;
+    juce::Label loopInTimeLabel;
+    juce::Label loopOutTimeLabel;
+    juce::Label sampleNameLabel;
+
+    // Fade controls
+    juce::Slider fadeInSlider;
+    juce::Slider fadeOutSlider;
+    juce::ComboBox fadeInCurveBox;
+    juce::ComboBox fadeOutCurveBox;
+    juce::Label fadeInLabel { {}, "Fade In" };
+    juce::Label fadeOutLabel { {}, "Fade Out" };
+    juce::Label fadeInMsLabel;
+    juce::Label fadeOutMsLabel;
+
+    // Loop crossfade
+    juce::Slider crossfadeSlider;
+    juce::Label crossfadeLabel { {}, "X-Fade" };
+    juce::Label crossfadeMsLabel;
+
+    // Zoom
+    juce::Slider zoomSlider;
+    juce::TextButton zoomInButton { "+" };
+    juce::TextButton zoomOutButton { "-" };
+    juce::Label zoomLabel { {}, "Zoom" };
+
+    // Scroll
+    juce::ScrollBar hScrollBar { false };
+
+    // State
+    double zoomLevel { 1.0 };      // 1.0 = full view, higher = zoomed in
+    double scrollOffset { 0.0 };   // 0.0–1.0 visible start ratio when zoomed
+    double totalDurationSecs { 0.0 };
+    double currentPositionSecs { 0.0 };
+    bool snapToZeroCrossing { false };
+
+    // Loop markers (ratios 0–1)
+    double loopInRatio { 0.0 };
+    double loopOutRatio { 1.0 };
+    bool loopMarkersSet { false };
+
+    // Fade durations in milliseconds
+    double fadeInMs { 0.0 };
+    double fadeOutMs { 0.0 };
+    int fadeInCurveType { 0 };   // 0=Linear, 1=EqualPower, 2=Exponential
+    int fadeOutCurveType { 0 };
+    double crossfadeMs { 0.0 };
+
+    // Drag state
+    enum class DragTarget
+    {
+        None,
+        StartMarker,
+        EndMarker,
+        LoopInMarker,
+        LoopOutMarker,
+        FadeInHandle,
+        FadeOutHandle,
+        SelectingRange,
+        ScrubbingPlayhead
+    };
+    DragTarget dragTarget { DragTarget::None };
+    double dragStartRatio { 0.0 };
+};
+
+} // namespace openwav

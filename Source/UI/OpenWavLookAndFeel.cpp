@@ -212,6 +212,8 @@ void OpenWavLookAndFeel::drawButtonText(juce::Graphics &g,
       text = "Library";
   } else if (text == "Record" || text == "RECORD") {
       svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z\"/><path d=\"M19 10v2a7 7 0 0 1-14 0v-2\"/><line x1=\"12\" y1=\"19\" x2=\"12\" y2=\"22\"/></svg>";
+  } else if (text == "Sample Map" || text == "SampleMap") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"2\" y=\"4\" width=\"20\" height=\"16\" rx=\"2\"/><line x1=\"6\" y1=\"4\" x2=\"6\" y2=\"13\"/><line x1=\"10\" y1=\"4\" x2=\"10\" y2=\"13\"/><line x1=\"14\" y1=\"4\" x2=\"14\" y2=\"13\"/><line x1=\"18\" y1=\"4\" x2=\"18\" y2=\"13\"/><line x1=\"2\" y1=\"13\" x2=\"22\" y2=\"13\"/></svg>";
   } else if (text == "All") {
       svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M4 6h16M4 12h16M4 18h7\"/></svg>";
   } else if (text == ".wav") {
@@ -234,6 +236,30 @@ void OpenWavLookAndFeel::drawButtonText(juce::Graphics &g,
       svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M17 2.1l4 4-4 4\"/><path d=\"M3 12a9 9 0 0 1 15-6.7L21 8\"/><path d=\"M7 21.9l-4-4 4-4\"/><path d=\"M21 12a9 9 0 0 1-15 6.7l-3-2.7\"/></svg>";
   } else if (text == "Slice") {
       svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"6\" cy=\"6\" r=\"3\"/><circle cx=\"6\" cy=\"18\" r=\"3\"/><line x1=\"9.8\" y1=\"8.2\" x2=\"21\" y2=\"19.4\"/><line x1=\"9.8\" y1=\"15.8\" x2=\"21\" y2=\"4.6\"/></svg>";
+  } else if (text == "Analysis" || text == "Analyse") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><line x1=\"18\" y1=\"20\" x2=\"18\" y2=\"10\"/><line x1=\"12\" y1=\"20\" x2=\"12\" y2=\"4\"/><line x1=\"6\" y1=\"20\" x2=\"6\" y2=\"14\"/></svg>";
+  } else if (text == "Edit") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"6\" cy=\"6\" r=\"3\"/><circle cx=\"6\" cy=\"18\" r=\"3\"/><line x1=\"20\" y1=\"4\" x2=\"8.12\" y2=\"15.88\"/><line x1=\"14.47\" y1=\"14.48\" x2=\"20\" y2=\"20\"/><line x1=\"8.12\" y1=\"8.12\" x2=\"12\" y2=\"12\"/></svg>";
+  } else if (text == "Play Sel") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><polygon points=\"5 3 15 12 5 21 5 3\"/><line x1=\"19\" y1=\"4\" x2=\"19\" y2=\"20\"/></svg>";
+  } else if (text == "Crop") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M6 2v14a2 2 0 0 0 2 2h14\"/><path d=\"M18 22V8a2 2 0 0 0-2-2H2\"/></svg>";
+  } else if (text == "Reset") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><polyline points=\"1 4 1 10 7 10\"/><path d=\"M3.51 15a9 9 0 1 0 2.13-9.36L1 10\"/></svg>";
+  } else if (text.containsIgnoreCase("Snap")) {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M13 2L3 14h9l-1 8 10-12h-9l1-8z\"/></svg>";
+  } else if (text == "Silence") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><line x1=\"1\" y1=\"1\" x2=\"23\" y2=\"23\"/><path d=\"M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6\"/></svg>";
+  } else if (text == "Reverse") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><polyline points=\"17 1 21 5 17 9\"/><path d=\"M3 11V9a4 4 0 0 1 4-4h14\"/><polyline points=\"7 23 3 19 7 15\"/><path d=\"M21 13v2a4 4 0 0 1-4 4H3\"/></svg>";
+  } else if (text == "Normalize") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><polyline points=\"22 12 18 12 15 21 9 3 6 12 2 12\"/></svg>";
+  } else if (text.containsIgnoreCase("Deverb")) {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><line x1=\"12\" y1=\"2\" x2=\"12\" y2=\"22\"/><line x1=\"17\" y1=\"5\" x2=\"17\" y2=\"19\"/><line x1=\"22\" y1=\"8\" x2=\"22\" y2=\"16\"/><line x1=\"7\" y1=\"8\" x2=\"7\" y2=\"16\"/><line x1=\"2\" y1=\"10\" x2=\"2\" y2=\"14\"/></svg>";
+  } else if (text == "Bake Fades" || text == "Bake") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><polyline points=\"22 6 12 13 2 6\"/><polyline points=\"22 18 12 13 2 18\"/></svg>";
+  } else if (text.containsIgnoreCase("Export")) {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"/><polyline points=\"7 10 12 15 17 10\"/><line x1=\"12\" y1=\"15\" x2=\"12\" y2=\"3\"/></svg>";
   } else if (text.containsIgnoreCase("mute")) {
       svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M11 5L6 9H2v6h4l5 4V5z\"/><line x1=\"23\" y1=\"9\" x2=\"17\" y2=\"15\"/><line x1=\"17\" y1=\"9\" x2=\"23\" y2=\"15\"/></svg>";
   }

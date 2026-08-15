@@ -20,6 +20,8 @@ public:
     virtual void sampleSelected(const MediaItem& item) = 0;
     virtual void sampleDoubleClicked(const MediaItem& item) = 0;
     virtual void displayedItemsChanged(const std::vector<MediaItem>& /*items*/) {}
+    virtual void addToSampleMapRequested(const MediaItem& /*item*/) {}
+    virtual void autoSliceToSamplerRequested(const MediaItem& /*item*/) {}
 };
 
 class SampleTableComponent : public juce::Component,
