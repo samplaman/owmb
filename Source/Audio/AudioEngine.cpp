@@ -483,6 +483,8 @@ void AudioEngine::playZoneVoice(const juce::File& file, int triggerMidiNote, int
     voice->finished = false;
     voice->rootNote = rootNote;
     voice->triggerMidiNote = triggerMidiNote;
+    voice->fineTuneCents = fineTuneCents;
+    voice->bufferSampleRate = cached.sampleRate;
     voice->gain = velocity * std::pow(10.0f, gainDb / 20.0f);
 
     juce::ADSR::Parameters adsrParams;
@@ -544,6 +546,8 @@ void AudioEngine::triggerNoteOn(int midiNoteNumber, float /*velocity*/)
     voice->endRatio = sampleEndRatio;
     voice->rootNote = loadedVoice->rootNote;
     voice->triggerMidiNote = midiNoteNumber;
+    voice->fineTuneCents = 0.0f;
+    voice->bufferSampleRate = currentFileSampleRate;
 
     activeVoices.push_back(voice);
 
@@ -731,6 +735,9 @@ void AudioEngine::play()
         voice->startRatio = sampleStartRatio;
         voice->endRatio = sampleEndRatio;
         voice->rootNote = loadedVoice->rootNote;
+        voice->triggerMidiNote = -1;
+        voice->fineTuneCents = 0.0f;
+        voice->bufferSampleRate = currentFileSampleRate;
         
         juce::ADSR::Parameters defaultAdsr;
         defaultAdsr.attack = 0.005f;
@@ -1347,8 +1354,12 @@ void AudioEngine::replaceEditedSampleInMemoryAndDisk()
     }
 
     rebuildWaveformPeaks();
-    listeners.call([filePath](AudioEngineListener& l) {
-        l.sampleLoaded(filePath);
+    thumbnail.setSource(new juce::FileInputSource(currentFile));
+
+    juce::MessageManager::callAsync([this, filePath] {
+        listeners.call([filePath](AudioEngineListener& l) {
+            l.sampleLoaded(filePath);
+        });
     });
 }
 
@@ -1368,23 +1379,28 @@ void AudioEngine::updateVoiceRatios()
 {
     const juce::ScopedLock sl(voiceLock);
     
-    double baseRatio = (engineSampleRate > 0.0) ? (currentFileSampleRate / engineSampleRate) : 1.0;
-    double newBaseRatio = baseRatio;
+    double defaultBaseRatio = (engineSampleRate > 0.0) ? (currentFileSampleRate / engineSampleRate) : 1.0;
     
     if (loadedVoice != nullptr)
     {
-        loadedVoice->ratio = newBaseRatio;
+        loadedVoice->ratio = defaultBaseRatio;
     }
+    
+    bool pitchTrack = pitchTrackingEnabled.load();
     
     for (auto& voice : activeVoices)
     {
-        double midiFactor = 1.0;
-        if (voice->triggerMidiNote != -1 && loadedVoice != nullptr)
+        double sr = (voice->bufferSampleRate > 0.0) ? voice->bufferSampleRate : currentFileSampleRate;
+        double baseRatio = (engineSampleRate > 0.0 && sr > 0.0) ? (sr / engineSampleRate) : 1.0;
+        
+        double pitchOffsetSemis = 0.0;
+        if (pitchTrack && voice->triggerMidiNote != -1)
         {
-            double semitoneDiff = voice->triggerMidiNote - loadedVoice->rootNote;
-            midiFactor = std::pow(2.0, semitoneDiff / 12.0);
+            pitchOffsetSemis = static_cast<double>(voice->triggerMidiNote - voice->rootNote);
         }
-        voice->ratio = newBaseRatio * midiFactor;
+        pitchOffsetSemis += (voice->fineTuneCents / 100.0);
+        
+        voice->ratio = baseRatio * std::pow(2.0, pitchOffsetSemis / 12.0);
     }
 }
 

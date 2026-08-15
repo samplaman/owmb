@@ -49,6 +49,8 @@ struct AudioVoice
     int rootNote { 60 };
     int triggerMidiNote { -1 };
     float gain { 1.0f };
+    float fineTuneCents { 0.0f };
+    double bufferSampleRate { 0.0 };
 };
 
 struct CachedSample
@@ -75,7 +77,7 @@ public:
                        float attackSec = 0.005f, float decaySec = 0.1f, float sustainLevel = 1.0f, float releaseSec = 0.2f);
     void setSamplerReverbAmount(float amount) { samplerReverbAmount.store(juce::jlimit(0.0f, 1.0f, amount)); }
     float getSamplerReverbAmount() const { return samplerReverbAmount.load(); }
-    void setPitchTrackingEnabled(bool enabled) { pitchTrackingEnabled.store(enabled); }
+    void setPitchTrackingEnabled(bool enabled) { pitchTrackingEnabled.store(enabled); updateVoiceRatios(); }
     bool isPitchTrackingEnabled() const { return pitchTrackingEnabled.load(); }
     void stopZoneVoice(int triggerMidiNote);
     void play();
