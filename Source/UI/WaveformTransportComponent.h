@@ -80,6 +80,7 @@ private:
     juce::TextButton autoPlayButton { "Auto" };
     juce::TextButton autoSliceButton { "Slice" };
     juce::TextButton normalizeButton { "Normalize" };
+    juce::TextButton oneShotButton { "1-Shot: OFF" };
 
     std::vector<double> sliceRatios;
 

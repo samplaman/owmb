@@ -416,7 +416,7 @@ void AudioEngine::putSampleInCache(const juce::String& filePath, double sampleRa
 }
 
 void AudioEngine::playZoneVoice(const juce::File& file, int triggerMidiNote, int rootNote, float fineTuneCents, float gainDb, float velocity,
-                               float attackSec, float decaySec, float sustainLevel, float releaseSec)
+                               float attackSec, float decaySec, float sustainLevel, float releaseSec, bool isOneShot, bool isLooping)
 {
     if (!file.existsAsFile()) return;
 
@@ -457,12 +457,15 @@ void AudioEngine::playZoneVoice(const juce::File& file, int triggerMidiNote, int
             auto lVoice = std::make_shared<AudioVoice>();
             lVoice->buffer.makeCopyOf(cached.buffer);
             lVoice->ratio = (engineSampleRate > 0.0) ? (cached.sampleRate / engineSampleRate) : 1.0;
-            lVoice->isLooping = isLoopingEnabled;
+            lVoice->isLooping = isLooping || isLoopingEnabled;
             lVoice->startRatio = 0.0;
             lVoice->endRatio = 1.0;
             lVoice->rootNote = rootNote;
             loadedVoice = lVoice;
             rebuildWaveformPeaks();
+            juce::MessageManager::callAsync([this, file] {
+                thumbnail.setSource(new juce::FileInputSource(file));
+            });
             listeners.call([filePath = file.getFullPathName()](AudioEngineListener& l) {
                 l.sampleLoaded(filePath);
             });
@@ -479,12 +482,14 @@ void AudioEngine::playZoneVoice(const juce::File& file, int triggerMidiNote, int
     voice->readPosition = 0.0;
     voice->startRatio = 0.0;
     voice->endRatio = 1.0;
-    voice->isLooping = false;
+    voice->isLooping = isLooping || isLoopingEnabled;
     voice->finished = false;
     voice->rootNote = rootNote;
     voice->triggerMidiNote = triggerMidiNote;
     voice->fineTuneCents = fineTuneCents;
     voice->bufferSampleRate = cached.sampleRate;
+    voice->isZoneVoice = true;
+    voice->isOneShot = isOneShot || oneShotEnabled.load();
     voice->gain = velocity * std::pow(10.0f, gainDb / 20.0f);
 
     juce::ADSR::Parameters adsrParams;
@@ -512,7 +517,11 @@ void AudioEngine::stopZoneVoice(int triggerMidiNote)
     {
         if (v->triggerMidiNote == triggerMidiNote)
         {
-            v->adsr.noteOff();
+            if (!v->isOneShot)
+            {
+                v->adsr.noteOff();
+                v->isLooping = false;
+            }
         }
     }
 }
@@ -535,9 +544,8 @@ void AudioEngine::triggerNoteOn(int midiNoteNumber, float /*velocity*/)
     auto voice = std::make_shared<AudioVoice>();
     voice->buffer = juce::AudioBuffer<float>(loadedVoice->buffer.getArrayOfWritePointers(), loadedVoice->buffer.getNumChannels(), loadedVoice->buffer.getNumSamples());
 
-    // Pitch shift based on triggered midi note relative to root note (if pitch tracking is enabled)
-    double semitoneDiff = pitchTrackingEnabled.load() ? (midiNoteNumber - loadedVoice->rootNote) : 0.0;
-    voice->ratio = loadedVoice->ratio * std::pow(2.0, semitoneDiff / 12.0);
+    // Single sample playback outside of sample map does not apply keytracking
+    voice->ratio = loadedVoice->ratio;
 
     voice->readPosition = sampleStartRatio * voice->buffer.getNumSamples();
     voice->isLooping = isLoopingEnabled;
@@ -548,6 +556,8 @@ void AudioEngine::triggerNoteOn(int midiNoteNumber, float /*velocity*/)
     voice->triggerMidiNote = midiNoteNumber;
     voice->fineTuneCents = 0.0f;
     voice->bufferSampleRate = currentFileSampleRate;
+    voice->isZoneVoice = false;
+    voice->isOneShot = oneShotEnabled.load();
 
     activeVoices.push_back(voice);
 
@@ -563,7 +573,10 @@ void AudioEngine::triggerNoteOff(int midiNoteNumber)
     {
         if (v->triggerMidiNote == midiNoteNumber)
         {
-            v->finished = true;
+            if (!v->isOneShot)
+            {
+                v->finished = true;
+            }
         }
     }
 }
@@ -1329,37 +1342,50 @@ bool AudioEngine::applyFadesToBuffer(double fadeInMs, int fadeInType, double fad
 
 void AudioEngine::replaceEditedSampleInMemoryAndDisk()
 {
-    if (loadedVoice == nullptr || !currentFile.existsAsFile())
+    if (loadedVoice == nullptr)
         return;
 
     juce::String filePath = currentFile.getFullPathName();
-    putSampleInCache(filePath, currentFileSampleRate, loadedVoice->buffer);
-
-    if (currentFile.existsAsFile())
+    if (filePath.isNotEmpty() && currentFile.existsAsFile())
     {
-        juce::WavAudioFormat wavFormat;
-        auto rawStream = currentFile.createOutputStream().release();
-        if (rawStream != nullptr)
+        thumbnail.setSource(nullptr);
+
+        juce::TemporaryFile tempFile(currentFile);
         {
-            std::unique_ptr<juce::AudioFormatWriter> writer(
-                wavFormat.createWriterFor(rawStream,
-                                          currentFileSampleRate > 0.0 ? currentFileSampleRate : 44100.0,
-                                          static_cast<unsigned int>(loadedVoice->buffer.getNumChannels()),
-                                          16, {}, 0));
+            juce::WavAudioFormat wavFormat;
+            std::unique_ptr<juce::AudioFormatWriter> writer(wavFormat.createWriterFor(
+                tempFile.getFile().createOutputStream().release(),
+                currentFileSampleRate > 0.0 ? currentFileSampleRate : 44100.0,
+                loadedVoice->buffer.getNumChannels(),
+                16,
+                {},
+                0
+            ));
             if (writer != nullptr)
             {
                 writer->writeFromAudioSampleBuffer(loadedVoice->buffer, 0, loadedVoice->buffer.getNumSamples());
             }
         }
+        tempFile.overwriteTargetFileWithTemporary();
+
+        putSampleInCache(filePath, currentFileSampleRate, loadedVoice->buffer);
+
+        thumbnail.setSource(new juce::FileInputSource(currentFile));
+    }
+    else if (filePath.isNotEmpty())
+    {
+        putSampleInCache(filePath, currentFileSampleRate, loadedVoice->buffer);
     }
 
     rebuildWaveformPeaks();
-    thumbnail.setSource(new juce::FileInputSource(currentFile));
 
-    juce::MessageManager::callAsync([this, filePath] {
-        listeners.call([filePath](AudioEngineListener& l) {
-            l.sampleLoaded(filePath);
-        });
+    for (auto& v : activeVoices)
+    {
+        v->buffer = juce::AudioBuffer<float>(loadedVoice->buffer.getArrayOfWritePointers(), loadedVoice->buffer.getNumChannels(), loadedVoice->buffer.getNumSamples());
+    }
+
+    listeners.call([filePath](AudioEngineListener& l) {
+        l.sampleLoaded(filePath);
     });
 }
 
@@ -1394,7 +1420,7 @@ void AudioEngine::updateVoiceRatios()
         double baseRatio = (engineSampleRate > 0.0 && sr > 0.0) ? (sr / engineSampleRate) : 1.0;
         
         double pitchOffsetSemis = 0.0;
-        if (pitchTrack && voice->triggerMidiNote != -1)
+        if (voice->isZoneVoice && pitchTrack && voice->triggerMidiNote != -1)
         {
             pitchOffsetSemis = static_cast<double>(voice->triggerMidiNote - voice->rootNote);
         }

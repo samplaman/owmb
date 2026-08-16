@@ -40,6 +40,28 @@ SampleMapComponent::SampleMapComponent(AudioEngine& engine)
     };
     addAndMakeVisible(pitchTrackButton);
 
+    oneShotButton.setClickingTogglesState(true);
+    bool osEnabled = audioEngine.isOneShotEnabled();
+    oneShotButton.setToggleState(osEnabled, juce::dontSendNotification);
+    oneShotButton.setButtonText(osEnabled ? "One Shot: ON" : "One Shot: OFF");
+    oneShotButton.onClick = [this] {
+        bool enabled = oneShotButton.getToggleState();
+        audioEngine.setOneShotEnabled(enabled);
+        oneShotButton.setButtonText(enabled ? "One Shot: ON" : "One Shot: OFF");
+    };
+    addAndMakeVisible(oneShotButton);
+
+    loopButton.setClickingTogglesState(true);
+    bool loopEnabled = audioEngine.isLooping();
+    loopButton.setToggleState(loopEnabled, juce::dontSendNotification);
+    loopButton.setButtonText(loopEnabled ? "Loop: ON" : "Loop: OFF");
+    loopButton.onClick = [this] {
+        bool enabled = loopButton.getToggleState();
+        audioEngine.setLooping(enabled);
+        loopButton.setButtonText(enabled ? "Loop: ON" : "Loop: OFF");
+    };
+    addAndMakeVisible(loopButton);
+
     // ── Inspector Labels & Sliders ─────────────────────
     inspectorTitle.setFont(juce::Font(14.0f).boldened());
     inspectorTitle.setColour(juce::Label::textColourId, OpenWavLookAndFeel::accentCyan);
@@ -138,7 +160,8 @@ void SampleMapComponent::handleNoteOn(juce::MidiKeyboardState*, int /*midiChanne
                 {
                     audioEngine.loadFile(fileToLoad, false);
                     audioEngine.playZoneVoice(fileToLoad, midiNoteNumber, z.rootNote, z.fineTuneCents, z.gainDb, velocity,
-                                              z.attackMs / 1000.0f, z.decayMs / 1000.0f, z.sustainLevel, z.releaseMs / 1000.0f);
+                                              z.attackMs / 1000.0f, z.decayMs / 1000.0f, z.sustainLevel, z.releaseMs / 1000.0f,
+                                              audioEngine.isOneShotEnabled(), audioEngine.isLooping());
                 }
                 break;
             }
@@ -1052,6 +1075,10 @@ void SampleMapComponent::resized()
     clearMapButton.setBounds(topRow.removeFromLeft(80));
     topRow.removeFromLeft(gap);
     pitchTrackButton.setBounds(topRow.removeFromLeft(110));
+    topRow.removeFromLeft(gap);
+    oneShotButton.setBounds(topRow.removeFromLeft(105));
+    topRow.removeFromLeft(gap);
+    loopButton.setBounds(topRow.removeFromLeft(85));
     attackKnob.setVisible(false);
     attackLabel.setVisible(false);
     decayKnob.setVisible(false);

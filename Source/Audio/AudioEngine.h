@@ -51,6 +51,8 @@ struct AudioVoice
     float gain { 1.0f };
     float fineTuneCents { 0.0f };
     double bufferSampleRate { 0.0 };
+    bool isZoneVoice { false };
+    bool isOneShot { false };
 };
 
 struct CachedSample
@@ -74,11 +76,13 @@ public:
     void preloadSampleFiles(const std::vector<juce::File>& files);
     void putSampleInCache(const juce::String& filePath, double sampleRate, const juce::AudioBuffer<float>& buf);
     void playZoneVoice(const juce::File& file, int triggerMidiNote, int rootNote, float fineTuneCents, float gainDb, float velocity = 1.0f,
-                       float attackSec = 0.005f, float decaySec = 0.1f, float sustainLevel = 1.0f, float releaseSec = 0.2f);
+                       float attackSec = 0.005f, float decaySec = 0.1f, float sustainLevel = 1.0f, float releaseSec = 0.2f, bool isOneShot = false, bool isLooping = false);
     void setSamplerReverbAmount(float amount) { samplerReverbAmount.store(juce::jlimit(0.0f, 1.0f, amount)); }
     float getSamplerReverbAmount() const { return samplerReverbAmount.load(); }
     void setPitchTrackingEnabled(bool enabled) { pitchTrackingEnabled.store(enabled); updateVoiceRatios(); }
     bool isPitchTrackingEnabled() const { return pitchTrackingEnabled.load(); }
+    void setOneShotEnabled(bool enabled) { oneShotEnabled.store(enabled); }
+    bool isOneShotEnabled() const { return oneShotEnabled.load(); }
     void stopZoneVoice(int triggerMidiNote);
     void play();
     void pause();
@@ -194,6 +198,7 @@ private:
     juce::Reverb::Parameters reverbParams;
     std::atomic<float> samplerReverbAmount { 0.0f };
     std::atomic<bool> pitchTrackingEnabled { true };
+    std::atomic<bool> oneShotEnabled { false };
     struct BiquadState
     {
         float x1 { 0.0f }, x2 { 0.0f }, y1 { 0.0f }, y2 { 0.0f };

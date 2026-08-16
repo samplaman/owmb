@@ -132,6 +132,9 @@ EditComponent::EditComponent(AudioEngine& engine)
         fadeInMsLabel.setText(juce::String(static_cast<int>(fadeInMs)) + " ms", juce::dontSendNotification);
         repaint();
     };
+    fadeInSlider.onDragEnd = [this] {
+        bakeFadesIntoBuffer();
+    };
     addAndMakeVisible(fadeInSlider);
 
     fadeInLabel.setFont(juce::Font(11.0f));
@@ -160,6 +163,9 @@ EditComponent::EditComponent(AudioEngine& engine)
         fadeOutMs = fadeOutSlider.getValue();
         fadeOutMsLabel.setText(juce::String(static_cast<int>(fadeOutMs)) + " ms", juce::dontSendNotification);
         repaint();
+    };
+    fadeOutSlider.onDragEnd = [this] {
+        bakeFadesIntoBuffer();
     };
     addAndMakeVisible(fadeOutSlider);
 
@@ -597,8 +603,8 @@ void EditComponent::paintWaveform(juce::Graphics& g, juce::Rectangle<float> boun
             float lAbs = std::max(std::abs(lMin), std::abs(lMax));
             float rAbs = std::max(std::abs(rMin), std::abs(rMax));
 
-            float lH = std::max(1.0f, lAbs * halfChanH);
-            float rH = std::max(1.0f, rAbs * halfChanH);
+            float lH = (lAbs > 0.001f) ? std::max(1.0f, lAbs * halfChanH) : 0.0f;
+            float rH = (rAbs > 0.001f) ? std::max(1.0f, rAbs * halfChanH) : 0.0f;
 
             bool inSelection = (pixelX >= selStartX && pixelX <= selEndX);
 
@@ -607,8 +613,10 @@ void EditComponent::paintWaveform(juce::Graphics& g, juce::Rectangle<float> boun
             else
                 g.setColour(OpenWavLookAndFeel::textSecondary.withAlpha(0.22f));
 
-            g.fillRect(juce::Rectangle<float>(pixelX, lCenterY - lH, 1.0f, std::max(1.0f, lH * 2.0f)));
-            g.fillRect(juce::Rectangle<float>(pixelX, rCenterY - rH, 1.0f, std::max(1.0f, rH * 2.0f)));
+            if (lH > 0.0f)
+                g.fillRect(juce::Rectangle<float>(pixelX, lCenterY - lH, 1.0f, lH * 2.0f));
+            if (rH > 0.0f)
+                g.fillRect(juce::Rectangle<float>(pixelX, rCenterY - rH, 1.0f, rH * 2.0f));
         }
     }
     else
@@ -1366,6 +1374,10 @@ void EditComponent::mouseUp(const juce::MouseEvent& /*e*/)
     else if (dragTarget == DragTarget::StartMarker)
     {
         audioEngine.setPositionRatio(audioEngine.getSampleStartRatio());
+    }
+    else if (dragTarget == DragTarget::FadeInHandle || dragTarget == DragTarget::FadeOutHandle)
+    {
+        bakeFadesIntoBuffer();
     }
 
     dragTarget = DragTarget::None;

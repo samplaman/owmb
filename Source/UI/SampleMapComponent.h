@@ -104,6 +104,8 @@ private:
     juce::TextButton autoMapVelButton { "Auto Velocity" };
     juce::TextButton clearMapButton { "Clear Map" };
     juce::TextButton pitchTrackButton { "Pitch Track: ON" };
+    juce::TextButton oneShotButton { "One Shot: OFF" };
+    juce::TextButton loopButton { "Loop: OFF" };
 
     // ADSR Envelope Rotary Knobs (Top Bar beside Clear Map)
     juce::Label attackLabel { {}, "Attack" };
