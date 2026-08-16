@@ -528,6 +528,9 @@ void AudioEngine::stopZoneVoice(int triggerMidiNote)
 
 void AudioEngine::triggerNoteOn(int midiNoteNumber, float /*velocity*/)
 {
+    if (!midiInputEnabled.load())
+        return;
+
     const juce::ScopedLock sl(voiceLock);
     if (loadedVoice == nullptr)
         return;
@@ -816,14 +819,30 @@ void AudioEngine::setPositionRatio(double ratio)
     }
 }
 
+void AudioEngine::setPitchTrackingEnabled(bool enabled)
+{
+    pitchTrackingEnabled.store(enabled);
+    updateVoiceRatios();
+    listeners.call([enabled](AudioEngineListener& l) { l.pitchTrackingStateChanged(enabled); });
+}
+
+void AudioEngine::setOneShotEnabled(bool enabled)
+{
+    oneShotEnabled.store(enabled);
+    listeners.call([enabled](AudioEngineListener& l) { l.oneShotStateChanged(enabled); });
+}
+
 void AudioEngine::setLooping(bool shouldLoop)
 {
     isLoopingEnabled = shouldLoop;
-    const juce::ScopedLock sl(voiceLock);
-    for (auto& v : activeVoices)
     {
-        v->isLooping = isLoopingEnabled;
+        const juce::ScopedLock sl(voiceLock);
+        for (auto& v : activeVoices)
+        {
+            v->isLooping = isLoopingEnabled;
+        }
     }
+    listeners.call([shouldLoop](AudioEngineListener& l) { l.loopingStateChanged(shouldLoop); });
 }
 
 void AudioEngine::setGain(float newGain)

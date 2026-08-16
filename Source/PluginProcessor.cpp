@@ -43,6 +43,11 @@ void OpenWavAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
 {
     juce::ScopedNoDenormals noDenormals;
 
+    if (!audioEngine.isMidiInputEnabled())
+    {
+        midiMessages.clear();
+    }
+
     double hostBpm = 120.0;
     if (auto* playHead = getPlayHead())
     {

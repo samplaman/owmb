@@ -24,6 +24,9 @@ public:
     virtual void playbackStateChanged(bool /*isPlaying*/) {}
     virtual void playbackPositionChanged(double /*currentSeconds*/, double /*totalSeconds*/) {}
     virtual void sampleLoaded(const juce::String& /*filePath*/) {}
+    virtual void pitchTrackingStateChanged(bool /*enabled*/) {}
+    virtual void oneShotStateChanged(bool /*enabled*/) {}
+    virtual void loopingStateChanged(bool /*enabled*/) {}
 };
 
 struct WaveformPeaks
@@ -81,9 +84,9 @@ public:
                        float attackSec = 0.005f, float decaySec = 0.1f, float sustainLevel = 1.0f, float releaseSec = 0.2f, bool isOneShot = false, bool isLooping = false);
     void setSamplerReverbAmount(float amount) { samplerReverbAmount.store(juce::jlimit(0.0f, 1.0f, amount)); }
     float getSamplerReverbAmount() const { return samplerReverbAmount.load(); }
-    void setPitchTrackingEnabled(bool enabled) { pitchTrackingEnabled.store(enabled); updateVoiceRatios(); }
+    void setPitchTrackingEnabled(bool enabled);
     bool isPitchTrackingEnabled() const { return pitchTrackingEnabled.load(); }
-    void setOneShotEnabled(bool enabled) { oneShotEnabled.store(enabled); }
+    void setOneShotEnabled(bool enabled);
     bool isOneShotEnabled() const { return oneShotEnabled.load(); }
     void stopZoneVoice(int triggerMidiNote);
     void play();
@@ -132,6 +135,8 @@ public:
     juce::MidiKeyboardState& getKeyboardState() { return keyboardState; }
     void setMainTransportMidiEnabled(bool enabled) { mainTransportMidiEnabled.store(enabled); }
     bool isMainTransportMidiEnabled() const { return mainTransportMidiEnabled.load(); }
+    void setMidiInputEnabled(bool enabled) { midiInputEnabled.store(enabled); }
+    bool isMidiInputEnabled() const { return midiInputEnabled.load(); }
 
     enum class RecordingChannelMode
     {
@@ -217,6 +222,7 @@ private:
     double sampleEndRatio { 1.0 };
 
     std::atomic<bool> mainTransportMidiEnabled { true };
+    std::atomic<bool> midiInputEnabled { true };
     juce::MidiKeyboardState keyboardState;
     std::map<juce::String, CachedSample> sampleCache;
     juce::ListenerList<AudioEngineListener> listeners;

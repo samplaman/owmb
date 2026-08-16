@@ -101,7 +101,8 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
       waveformTransport(p.getAudioEngine()),
       scanProgressDialog(p.getLibraryScanner()),
       editComponent(p.getAudioEngine()),
-      sampleMapComponent(p.getAudioEngine()) {
+      sampleMapComponent(p.getAudioEngine()),
+      performanceComponent(p.getDatabaseManager(), p.getAudioEngine()) {
   bool isDark = audioProcessor.getDatabaseManager().isDarkMode();
   juce::String savedColourHex =
       audioProcessor.getDatabaseManager().getPrimaryColourHex();
@@ -131,6 +132,7 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
   addChildComponent(analysisComponent);
   addChildComponent(editComponent);
   addChildComponent(sampleMapComponent);
+  addChildComponent(performanceComponent);
   addAndMakeVisible(waveformTransport);
 
   setResizable(true, true);
@@ -146,6 +148,15 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
       similarityGraphPopup.showComparison(target, item, pos);
     else
       similarityGraphPopup.hidePopup();
+  };
+
+  sampleMapComponent.onLoadToPerformance = [this](const std::vector<SampleMapZone>& zones) {
+    performanceComponent.loadSlices(zones);
+    headerBar.setViewMode(ViewMode::Performance);
+  };
+
+  sampleMapComponent.onSliceToSamplerStarted = [this] {
+    performanceComponent.clearAllPads();
   };
 
   triggerFilterUpdate();
@@ -266,6 +277,7 @@ void OpenWavAudioProcessorEditor::resized() {
     analysisComponent.setVisible(false);
     editComponent.setVisible(false);
     sampleMapComponent.setVisible(false);
+    performanceComponent.setVisible(false);
     waveformTransport.setVisible(false);
     return;
   }
@@ -282,6 +294,8 @@ void OpenWavAudioProcessorEditor::resized() {
   leftPanelResizer.setBounds(area.removeFromLeft(6));
 
   auto mode = headerBar.getCurrentViewMode();
+  bool midiAllowed = (mode == ViewMode::Edit || mode == ViewMode::SampleMap || mode == ViewMode::Performance);
+  audioProcessor.getAudioEngine().setMidiInputEnabled(midiAllowed);
 
   sampleTable.setVisible(false);
   sampleCloud.setVisible(false);
@@ -290,6 +304,7 @@ void OpenWavAudioProcessorEditor::resized() {
   analysisComponent.setVisible(false);
   editComponent.setVisible(false);
   sampleMapComponent.setVisible(false);
+  performanceComponent.setVisible(false);
 
   if (mode == ViewMode::Cloud) {
     sampleCloud.setVisible(true);
@@ -309,6 +324,9 @@ void OpenWavAudioProcessorEditor::resized() {
   } else if (mode == ViewMode::SampleMap) {
     sampleMapComponent.setVisible(true);
     sampleMapComponent.setBounds(area);
+  } else if (mode == ViewMode::Performance) {
+    performanceComponent.setVisible(true);
+    performanceComponent.setBounds(area);
   } else // ViewMode::List
   {
     sampleTable.setVisible(true);
@@ -585,6 +603,8 @@ void OpenWavAudioProcessorEditor::filesDropped(const juce::StringArray &files,
 
 void OpenWavAudioProcessorEditor::viewModeChanged(ViewMode mode) {
   audioProcessor.getAudioEngine().stop();
+  bool midiAllowed = (mode == ViewMode::Edit || mode == ViewMode::SampleMap || mode == ViewMode::Performance);
+  audioProcessor.getAudioEngine().setMidiInputEnabled(midiAllowed);
   resized();
   if (mode == ViewMode::Cloud || mode == ViewMode::List) {
     triggerFilterUpdate();

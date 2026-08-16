@@ -193,7 +193,8 @@ void OpenWavLookAndFeel::drawButtonText(juce::Graphics &g,
                                         bool /*shouldDrawButtonAsHighlighted*/,
                                         bool /*shouldDrawButtonAsDown*/) {
   auto text = button.getButtonText();
-  auto bounds = button.getLocalBounds().toFloat();
+  // Small padding inside the button
+  auto bounds = button.getLocalBounds().toFloat().reduced(4.0f, 2.0f);
   juce::String svgString;
 
   if (text == "+ Add Folder" || text == "Add Folder") {
@@ -214,6 +215,8 @@ void OpenWavLookAndFeel::drawButtonText(juce::Graphics &g,
       svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z\"/><path d=\"M19 10v2a7 7 0 0 1-14 0v-2\"/><line x1=\"12\" y1=\"19\" x2=\"12\" y2=\"22\"/></svg>";
   } else if (text == "Sample Map" || text == "SampleMap") {
       svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"2\" y=\"4\" width=\"20\" height=\"16\" rx=\"2\"/><line x1=\"6\" y1=\"4\" x2=\"6\" y2=\"13\"/><line x1=\"10\" y1=\"4\" x2=\"10\" y2=\"13\"/><line x1=\"14\" y1=\"4\" x2=\"14\" y2=\"13\"/><line x1=\"18\" y1=\"4\" x2=\"18\" y2=\"13\"/><line x1=\"2\" y1=\"13\" x2=\"22\" y2=\"13\"/></svg>";
+  } else if (text == "Performance" || text == "Pad Grid") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"3\" y=\"3\" width=\"7\" height=\"7\" rx=\"1.5\"/><rect x=\"14\" y=\"3\" width=\"7\" height=\"7\" rx=\"1.5\"/><rect x=\"14\" y=\"14\" width=\"7\" height=\"7\" rx=\"1.5\"/><rect x=\"3\" y=\"14\" width=\"7\" height=\"7\" rx=\"1.5\"/></svg>";
   } else if (text == "All") {
       svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M4 6h16M4 12h16M4 18h7\"/></svg>";
   } else if (text == ".wav") {
@@ -264,7 +267,8 @@ void OpenWavLookAndFeel::drawButtonText(juce::Graphics &g,
       svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M11 5L6 9H2v6h4l5 4V5z\"/><line x1=\"23\" y1=\"9\" x2=\"17\" y2=\"15\"/><line x1=\"17\" y1=\"9\" x2=\"23\" y2=\"15\"/></svg>";
   }
 
-  g.setFont(juce::Font(11.5f).boldened());
+  auto font = juce::Font(11.5f).boldened();
+  g.setFont(font);
   juce::Colour textColour = button.getButtonText().toLowerCase().contains("mute") ? (button.getToggleState() ? favoriteRed : textPrimary) : (button.getToggleState() ? accentCyan : textPrimary);
   g.setColour(textColour);
 
@@ -277,13 +281,25 @@ void OpenWavLookAndFeel::drawButtonText(juce::Graphics &g,
       if (xml != nullptr) {
           auto drawable = juce::Drawable::createFromSVG(*xml);
           if (drawable != nullptr) {
-              // Draw the icon on the left, text on the right
-              auto iconArea = bounds.removeFromLeft(28.0f).reduced(6.0f);
+              float iconSize = 14.0f;
+              float gap = 4.0f;
+              float textWidth = font.getStringWidthFloat(text);
+              float totalContentWidth = iconSize + gap + textWidth;
+
+              // Calculate start position to center the icon + text block together horizontally
+              float startX = bounds.getX() + std::max(0.0f, (bounds.getWidth() - totalContentWidth) * 0.5f);
+              float iconY = bounds.getY() + (bounds.getHeight() - iconSize) * 0.5f;
+
+              auto iconArea = juce::Rectangle<float>(startX, iconY, iconSize, iconSize);
               drawable->drawWithin(g, iconArea, juce::RectanglePlacement::centred, 1.0f);
+
+              // Position text area to right of icon
+              bounds = juce::Rectangle<float>(startX + iconSize + gap, bounds.getY(), textWidth + 4.0f, bounds.getHeight());
           }
       }
   }
 
+  // Draw text perfectly centered both vertically and horizontally
   g.drawText(text, bounds, juce::Justification::centred, true);
 }
 

@@ -43,6 +43,9 @@ public:
     ~SampleMapComponent() override;
 
     void sampleLoaded(const juce::String& filePath) override;
+    void pitchTrackingStateChanged(bool enabled) override;
+    void oneShotStateChanged(bool enabled) override;
+    void loopingStateChanged(bool enabled) override;
 
     void handleNoteOn(juce::MidiKeyboardState* state, int midiChannel, int midiNoteNumber, float velocity) override;
     void handleNoteOff(juce::MidiKeyboardState* state, int midiChannel, int midiNoteNumber, float velocity) override;
@@ -63,6 +66,7 @@ public:
     void mouseDrag(const juce::MouseEvent& e) override;
     void mouseUp(const juce::MouseEvent& e) override;
     void mouseMove(const juce::MouseEvent& e) override;
+    bool keyPressed(const juce::KeyPress& key) override;
 
     void sliderValueChanged(juce::Slider* slider) override;
     void buttonClicked(juce::Button* button) override;
@@ -76,6 +80,9 @@ public:
     void autoMapVelocityLayers();
 
     const std::vector<SampleMapZone>& getZones() const { return zones; }
+
+    std::function<void(const std::vector<SampleMapZone>&)> onLoadToPerformance;
+    std::function<void()> onSliceToSamplerStarted;
 
 private:
     juce::Rectangle<float> getGridBounds() const;
@@ -103,6 +110,7 @@ private:
     juce::TextButton autoMapChromaticButton { "Auto Chromatic" };
     juce::TextButton autoMapVelButton { "Auto Velocity" };
     juce::TextButton clearMapButton { "Clear Map" };
+    juce::TextButton loadToPerformanceButton { "Load to Performance" };
     juce::TextButton pitchTrackButton { "Pitch Track: ON" };
     juce::TextButton oneShotButton { "One Shot: OFF" };
     juce::TextButton loopButton { "Loop: OFF" };

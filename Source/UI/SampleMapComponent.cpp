@@ -10,6 +10,7 @@ SampleMapComponent::SampleMapComponent(AudioEngine& engine)
     : audioEngine(engine)
 {
     setOpaque(true);
+    setWantsKeyboardFocus(true);
     audioEngine.getKeyboardState().addListener(this);
     audioEngine.addListener(this);
 
@@ -28,6 +29,9 @@ SampleMapComponent::SampleMapComponent(AudioEngine& engine)
 
     addAndMakeVisible(clearMapButton);
     clearMapButton.addListener(this);
+
+    addAndMakeVisible(loadToPerformanceButton);
+    loadToPerformanceButton.addListener(this);
 
     pitchTrackButton.setClickingTogglesState(true);
     bool ptEnabled = audioEngine.isPitchTrackingEnabled();
@@ -141,8 +145,35 @@ void SampleMapComponent::sampleLoaded(const juce::String& /*filePath*/)
     });
 }
 
+void SampleMapComponent::pitchTrackingStateChanged(bool enabled)
+{
+    juce::MessageManager::callAsync([this, enabled] {
+        pitchTrackButton.setToggleState(enabled, juce::dontSendNotification);
+        pitchTrackButton.setButtonText(enabled ? "Pitch Track: ON" : "Pitch Track: OFF");
+    });
+}
+
+void SampleMapComponent::oneShotStateChanged(bool enabled)
+{
+    juce::MessageManager::callAsync([this, enabled] {
+        oneShotButton.setToggleState(enabled, juce::dontSendNotification);
+        oneShotButton.setButtonText(enabled ? "One Shot: ON" : "One Shot: OFF");
+    });
+}
+
+void SampleMapComponent::loopingStateChanged(bool enabled)
+{
+    juce::MessageManager::callAsync([this, enabled] {
+        loopButton.setToggleState(enabled, juce::dontSendNotification);
+        loopButton.setButtonText(enabled ? "Loop: ON" : "Loop: OFF");
+    });
+}
+
 void SampleMapComponent::handleNoteOn(juce::MidiKeyboardState*, int /*midiChannel*/, int midiNoteNumber, float velocity)
 {
+    if (!audioEngine.isMidiInputEnabled())
+        return;
+
     if (midiNoteNumber >= 0 && midiNoteNumber < 128)
     {
         activeMidiNotes[static_cast<size_t>(midiNoteNumber)] = true;
@@ -365,6 +396,9 @@ void SampleMapComponent::autoSliceToSampler(const MediaItem& item)
 {
     try
     {
+        if (onSliceToSamplerStarted)
+            onSliceToSamplerStarted();
+
         juce::File audioFile(item.filePath);
         if (!audioFile.existsAsFile()) return;
 
@@ -493,7 +527,7 @@ void SampleMapComponent::autoSliceToSampler(const MediaItem& item)
                 z.filePath = sliceFile.getFullPathName();
                 z.sampleName = sliceFile.getFileName();
 
-                int mappedKey = juce::jmin(127, 60 + i);
+                int mappedKey = juce::jmin(127, 36 + i);
                 z.rootNote = mappedKey;
                 z.keyLow = mappedKey;
                 z.keyHigh = mappedKey;
@@ -849,13 +883,24 @@ void SampleMapComponent::mouseDown(const juce::MouseEvent& e)
                     audioEngine.loadFile(fileToLoad, false);
                 }
 
+                float zoneW = zRect.getWidth();
+                float effectiveEdgeThreshold = (zoneW < 24.0f) ? std::min(3.0f, zoneW * 0.25f) : edgeThreshold;
+
                 float dLeft = std::abs(e.x - zRect.getX());
                 float dRight = std::abs(e.x - zRect.getRight());
                 float dTop = std::abs(e.y - zRect.getY());
                 float dBottom = std::abs(e.y - zRect.getBottom());
 
-                if (dLeft <= edgeThreshold) activeDragTarget = DragTarget::ResizeKeyLow;
-                else if (dRight <= edgeThreshold) activeDragTarget = DragTarget::ResizeKeyHigh;
+                if (e.mods.isAltDown())
+                {
+                    activeDragTarget = DragTarget::MoveZone;
+                }
+                else if (zoneW < 24.0f && e.x > zRect.getX() + effectiveEdgeThreshold && e.x < zRect.getRight() - effectiveEdgeThreshold)
+                {
+                    activeDragTarget = DragTarget::MoveZone;
+                }
+                else if (dLeft <= effectiveEdgeThreshold) activeDragTarget = DragTarget::ResizeKeyLow;
+                else if (dRight <= effectiveEdgeThreshold) activeDragTarget = DragTarget::ResizeKeyHigh;
                 else if (dTop <= edgeThreshold) activeDragTarget = DragTarget::ResizeVelHigh;
                 else if (dBottom <= edgeThreshold) activeDragTarget = DragTarget::ResizeVelLow;
                 else activeDragTarget = DragTarget::MoveZone;
@@ -898,12 +943,15 @@ void SampleMapComponent::mouseMove(const juce::MouseEvent& e)
 
         if (zRect.expanded(edgeThreshold).contains(e.position))
         {
+            float zoneW = zRect.getWidth();
+            float effectiveEdgeThreshold = (zoneW < 24.0f) ? std::min(3.0f, zoneW * 0.25f) : edgeThreshold;
+
             float dLeft = std::abs(e.x - zRect.getX());
             float dRight = std::abs(e.x - zRect.getRight());
             float dTop = std::abs(e.y - zRect.getY());
             float dBottom = std::abs(e.y - zRect.getBottom());
 
-            if (dLeft <= edgeThreshold || dRight <= edgeThreshold)
+            if (dLeft <= effectiveEdgeThreshold || dRight <= effectiveEdgeThreshold)
             {
                 setMouseCursor(juce::MouseCursor::LeftRightResizeCursor);
                 return;
@@ -1081,6 +1129,8 @@ void SampleMapComponent::resized()
     topRow.removeFromLeft(gap);
     clearMapButton.setBounds(topRow.removeFromLeft(80));
     topRow.removeFromLeft(gap);
+    loadToPerformanceButton.setBounds(topRow.removeFromLeft(145));
+    topRow.removeFromLeft(gap);
     pitchTrackButton.setBounds(topRow.removeFromLeft(110));
     topRow.removeFromLeft(gap);
     oneShotButton.setBounds(topRow.removeFromLeft(105));
@@ -1247,6 +1297,55 @@ void SampleMapComponent::buttonClicked(juce::Button* button)
     else if (button == &autoMapChromaticButton) autoMapChromatic();
     else if (button == &autoMapVelButton) autoMapVelocityLayers();
     else if (button == &clearMapButton) clearAllZones();
+    else if (button == &loadToPerformanceButton)
+    {
+        if (onLoadToPerformance)
+            onLoadToPerformance(zones);
+    }
+}
+
+bool SampleMapComponent::keyPressed(const juce::KeyPress& key)
+{
+    if (selectedZoneIndices.empty())
+        return false;
+
+    int deltaNote = 0;
+    int deltaVel = 0;
+
+    if (key == juce::KeyPress::leftKey) deltaNote = -1;
+    else if (key == juce::KeyPress::rightKey) deltaNote = 1;
+    else if (key == juce::KeyPress::upKey) deltaVel = 4;
+    else if (key == juce::KeyPress::downKey) deltaVel = -4;
+
+    if (deltaNote != 0 || deltaVel != 0)
+    {
+        for (int idx : selectedZoneIndices)
+        {
+            if (idx >= 0 && idx < static_cast<int>(zones.size()))
+            {
+                if (deltaNote != 0)
+                {
+                    int span = zones[idx].keyHigh - zones[idx].keyLow;
+                    int newLow = juce::jlimit(0, 127 - span, zones[idx].keyLow + deltaNote);
+                    zones[idx].keyLow = newLow;
+                    zones[idx].keyHigh = newLow + span;
+                    zones[idx].rootNote = juce::jlimit(zones[idx].keyLow, zones[idx].keyHigh, zones[idx].rootNote + deltaNote);
+                }
+                if (deltaVel != 0)
+                {
+                    int span = zones[idx].velHigh - zones[idx].velLow;
+                    int newLow = juce::jlimit(0, 127 - span, zones[idx].velLow + deltaVel);
+                    zones[idx].velLow = newLow;
+                    zones[idx].velHigh = newLow + span;
+                }
+            }
+        }
+        resized();
+        repaint();
+        return true;
+    }
+
+    return false;
 }
 
 } // namespace openwav

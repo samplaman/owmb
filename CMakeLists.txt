@@ -100,6 +100,8 @@ target_sources(OpenWav PRIVATE
     Source/UI/EditComponent.cpp
     Source/UI/SampleMapComponent.h
     Source/UI/SampleMapComponent.cpp
+    Source/UI/PerformanceComponent.h
+    Source/UI/PerformanceComponent.cpp
     Source/PluginProcessor.h
     Source/PluginProcessor.cpp
     Source/PluginEditor.h
