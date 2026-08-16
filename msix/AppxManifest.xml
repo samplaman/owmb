@@ -8,7 +8,7 @@
   <Identity
     Name="eoinodowd.owmb"
     Publisher="CN=2AD133D7-BD45-4E2F-B530-93A406A2D383"
-    Version="1.6.0.0"
+    Version="1.7.0.0"
     ProcessorArchitecture="x64" />
 
   <Properties>
