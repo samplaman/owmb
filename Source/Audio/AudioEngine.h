@@ -72,7 +72,9 @@ public:
     void processNextAudioBlock(juce::AudioBuffer<float>& outputBuffer, juce::MidiBuffer& midiMessages);
 
     // Audio Playback Controls
-    bool loadFile(const juce::File& audioFile, bool autoPlay = false);
+    bool loadFile(const juce::File& audioFile, bool autoPlay = false, bool isSamplerSample = false);
+    bool isCurrentSampleInSampler() const { return isLoadedInSampler.load(); }
+    void setLoadedInSampler(bool inSampler) { isLoadedInSampler.store(inSampler); }
     void preloadSampleFiles(const std::vector<juce::File>& files);
     void putSampleInCache(const juce::String& filePath, double sampleRate, const juce::AudioBuffer<float>& buf);
     void playZoneVoice(const juce::File& file, int triggerMidiNote, int rootNote, float fineTuneCents, float gainDb, float velocity = 1.0f,
@@ -199,6 +201,7 @@ private:
     std::atomic<float> samplerReverbAmount { 0.0f };
     std::atomic<bool> pitchTrackingEnabled { true };
     std::atomic<bool> oneShotEnabled { false };
+    std::atomic<bool> isLoadedInSampler { false };
     struct BiquadState
     {
         float x1 { 0.0f }, x2 { 0.0f }, y1 { 0.0f }, y2 { 0.0f };

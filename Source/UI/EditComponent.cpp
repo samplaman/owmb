@@ -294,6 +294,54 @@ juce::Rectangle<int> EditComponent::getControlPanelBounds() const
     return area.removeFromBottom(130);
 }
 
+void EditComponent::updateControlVisibility()
+{
+    bool hasSamplerSample = (totalDurationSecs > 0.0 && audioEngine.isCurrentSampleInSampler());
+
+    playPauseButton.setVisible(hasSamplerSample);
+    stopButton.setVisible(hasSamplerSample);
+    playSelButton.setVisible(hasSamplerSample);
+    loopToggleButton.setVisible(hasSamplerSample);
+    cropButton.setVisible(hasSamplerSample);
+    resetSelectionButton.setVisible(hasSamplerSample);
+    snapZeroCrossingButton.setVisible(hasSamplerSample);
+    silenceButton.setVisible(hasSamplerSample);
+    reverseButton.setVisible(hasSamplerSample);
+    normalizeButton.setVisible(hasSamplerSample);
+    deverbButton.setVisible(hasSamplerSample);
+    bakeFadesButton.setVisible(hasSamplerSample);
+    exportButton.setVisible(hasSamplerSample);
+    loopInNudgeLeft.setVisible(hasSamplerSample);
+    loopInNudgeRight.setVisible(hasSamplerSample);
+    loopOutNudgeLeft.setVisible(hasSamplerSample);
+    loopOutNudgeRight.setVisible(hasSamplerSample);
+    startLabel.setVisible(hasSamplerSample);
+    endLabel.setVisible(hasSamplerSample);
+    loopInLabel.setVisible(hasSamplerSample);
+    loopOutLabel.setVisible(hasSamplerSample);
+    startTimeLabel.setVisible(hasSamplerSample);
+    endTimeLabel.setVisible(hasSamplerSample);
+    loopInTimeLabel.setVisible(hasSamplerSample);
+    loopOutTimeLabel.setVisible(hasSamplerSample);
+    sampleNameLabel.setVisible(hasSamplerSample);
+    fadeInSlider.setVisible(hasSamplerSample);
+    fadeOutSlider.setVisible(hasSamplerSample);
+    fadeInCurveBox.setVisible(hasSamplerSample);
+    fadeOutCurveBox.setVisible(hasSamplerSample);
+    fadeInLabel.setVisible(hasSamplerSample);
+    fadeOutLabel.setVisible(hasSamplerSample);
+    fadeInMsLabel.setVisible(hasSamplerSample);
+    fadeOutMsLabel.setVisible(hasSamplerSample);
+    crossfadeSlider.setVisible(hasSamplerSample);
+    crossfadeLabel.setVisible(hasSamplerSample);
+    crossfadeMsLabel.setVisible(hasSamplerSample);
+    zoomSlider.setVisible(hasSamplerSample);
+    zoomInButton.setVisible(hasSamplerSample);
+    zoomOutButton.setVisible(hasSamplerSample);
+    zoomLabel.setVisible(hasSamplerSample);
+    hScrollBar.setVisible(hasSamplerSample && zoomLevel > 1.0);
+}
+
 void EditComponent::resized()
 {
     auto area = getLocalBounds().reduced(20, 16);
@@ -444,6 +492,8 @@ void EditComponent::resized()
 
     double visibleFraction = 1.0 / zoomLevel;
     hScrollBar.setCurrentRange(scrollOffset, visibleFraction, juce::dontSendNotification);
+
+    updateControlVisibility();
 }
 
 // ─────────────────────────────────────────────────────────
@@ -501,11 +551,11 @@ void EditComponent::paint(juce::Graphics& g)
 {
     g.fillAll(OpenWavLookAndFeel::bgDark);
 
-    if (totalDurationSecs <= 0.0)
+    if (totalDurationSecs <= 0.0 || !audioEngine.isCurrentSampleInSampler())
     {
         g.setColour(OpenWavLookAndFeel::textSecondary.withAlpha(0.5f));
         g.setFont(juce::Font(20.0f));
-        g.drawText("No sample loaded", getLocalBounds(), juce::Justification::centred);
+        g.drawText("No sample loaded into sampler", getLocalBounds(), juce::Justification::centred);
         return;
     }
 
@@ -1044,6 +1094,8 @@ void EditComponent::paintSelectionInfoOverlay(juce::Graphics& g, juce::Rectangle
 // ─────────────────────────────────────────────────────────
 void EditComponent::cropToSelection()
 {
+    if (totalDurationSecs <= 0.0 || !audioEngine.isCurrentSampleInSampler()) return;
+
     double startR = audioEngine.getSampleStartRatio();
     double endR = audioEngine.getSampleEndRatio();
     if (endR <= startR + 0.0001) return;
@@ -1063,6 +1115,8 @@ void EditComponent::cropToSelection()
 
 void EditComponent::resetSelection()
 {
+    if (totalDurationSecs <= 0.0 || !audioEngine.isCurrentSampleInSampler()) return;
+
     audioEngine.setSampleRange(0.0, 1.0);
     loopInRatio = 0.0;
     loopOutRatio = 1.0;
@@ -1072,6 +1126,8 @@ void EditComponent::resetSelection()
 
 void EditComponent::silenceSelectedRegion()
 {
+    if (totalDurationSecs <= 0.0 || !audioEngine.isCurrentSampleInSampler()) return;
+
     double startR = audioEngine.getSampleStartRatio();
     double endR = audioEngine.getSampleEndRatio();
     audioEngine.silenceSelection(startR, endR);
@@ -1080,6 +1136,8 @@ void EditComponent::silenceSelectedRegion()
 
 void EditComponent::reverseSelectedRegion()
 {
+    if (totalDurationSecs <= 0.0 || !audioEngine.isCurrentSampleInSampler()) return;
+
     double startR = audioEngine.getSampleStartRatio();
     double endR = audioEngine.getSampleEndRatio();
     audioEngine.reverseSelection(startR, endR);
@@ -1088,12 +1146,16 @@ void EditComponent::reverseSelectedRegion()
 
 void EditComponent::normalizeAudioPeak()
 {
+    if (totalDurationSecs <= 0.0 || !audioEngine.isCurrentSampleInSampler()) return;
+
     audioEngine.normalizeLoadedSample();
     repaint();
 }
 
 void EditComponent::deverbSelectedRegion()
 {
+    if (totalDurationSecs <= 0.0 || !audioEngine.isCurrentSampleInSampler()) return;
+
     double startR = audioEngine.getSampleStartRatio();
     double endR = audioEngine.getSampleEndRatio();
     if (audioEngine.deverbSelection(startR, endR, 0.88f))
@@ -1106,6 +1168,8 @@ void EditComponent::deverbSelectedRegion()
 
 void EditComponent::bakeFadesIntoBuffer()
 {
+    if (totalDurationSecs <= 0.0 || !audioEngine.isCurrentSampleInSampler()) return;
+
     audioEngine.applyFadesToBuffer(fadeInMs, fadeInCurveType, fadeOutMs, fadeOutCurveType);
     fadeInSlider.setValue(0.0);
     fadeOutSlider.setValue(0.0);
@@ -1114,6 +1178,8 @@ void EditComponent::bakeFadesIntoBuffer()
 
 void EditComponent::playSelectionOnly()
 {
+    if (totalDurationSecs <= 0.0 || !audioEngine.isCurrentSampleInSampler()) return;
+
     double startR = audioEngine.getSampleStartRatio();
     audioEngine.setPositionRatio(startR);
     audioEngine.play();
@@ -1160,7 +1226,7 @@ bool EditComponent::keyPressed(const juce::KeyPress& key)
 // ─────────────────────────────────────────────────────────
 void EditComponent::mouseMove(const juce::MouseEvent& e)
 {
-    if (totalDurationSecs <= 0.0)
+    if (totalDurationSecs <= 0.0 || !audioEngine.isCurrentSampleInSampler())
     {
         setMouseCursor(juce::MouseCursor::NormalCursor);
         return;
@@ -1207,7 +1273,7 @@ void EditComponent::mouseMove(const juce::MouseEvent& e)
 // ─────────────────────────────────────────────────────────
 void EditComponent::mouseDown(const juce::MouseEvent& e)
 {
-    if (totalDurationSecs <= 0.0) return;
+    if (totalDurationSecs <= 0.0 || !audioEngine.isCurrentSampleInSampler()) return;
 
     auto wfBounds = getWaveformBounds().reduced(6.0f, 6.0f);
     if (!wfBounds.contains(e.position))
@@ -1437,13 +1503,37 @@ void EditComponent::mouseWheelMove(const juce::MouseEvent& e, const juce::MouseW
 void EditComponent::playbackStateChanged(bool isPlaying)
 {
     playPauseButton.setButtonText(isPlaying ? "Pause" : "Play");
-    currentPositionSecs = audioEngine.getCurrentPositionSeconds();
-    totalDurationSecs = audioEngine.getTotalLengthSeconds();
+    if (audioEngine.isCurrentSampleInSampler())
+    {
+        currentPositionSecs = audioEngine.getCurrentPositionSeconds();
+        totalDurationSecs = audioEngine.getTotalLengthSeconds();
+    }
+    else
+    {
+        totalDurationSecs = 0.0;
+    }
+    updateControlVisibility();
     repaint();
 }
 
 void EditComponent::sampleLoaded(const juce::String& filePath)
 {
+    if (!audioEngine.isCurrentSampleInSampler())
+    {
+        sampleNameLabel.setText("", juce::dontSendNotification);
+        totalDurationSecs = 0.0;
+        currentPositionSecs = 0.0;
+        loopInRatio = 0.0;
+        loopOutRatio = 1.0;
+        loopMarkersSet = false;
+        zoomLevel = 1.0;
+        scrollOffset = 0.0;
+        zoomSlider.setValue(1.0, juce::dontSendNotification);
+        updateControlVisibility();
+        repaint();
+        return;
+    }
+
     juce::File f(filePath);
     sampleNameLabel.setText(f.getFileName(), juce::dontSendNotification);
     totalDurationSecs = audioEngine.getTotalLengthSeconds();
@@ -1454,12 +1544,13 @@ void EditComponent::sampleLoaded(const juce::String& filePath)
     zoomLevel = 1.0;
     scrollOffset = 0.0;
     zoomSlider.setValue(1.0, juce::dontSendNotification);
+    updateControlVisibility();
     repaint();
 }
 
 void EditComponent::timerCallback()
 {
-    if (audioEngine.isPlaying())
+    if (audioEngine.isPlaying() && audioEngine.isCurrentSampleInSampler())
     {
         currentPositionSecs = audioEngine.getCurrentPositionSeconds();
         totalDurationSecs = audioEngine.getTotalLengthSeconds();
@@ -1501,6 +1592,8 @@ void EditComponent::applyFadeToBuffer(juce::AudioBuffer<float>& buffer, double s
 
 void EditComponent::exportEdited()
 {
+    if (totalDurationSecs <= 0.0 || !audioEngine.isCurrentSampleInSampler()) return;
+
     juce::AudioBuffer<float> fullBuffer;
     double sampleRate = 44100.0;
     if (!audioEngine.getAudioBufferCopy(fullBuffer, sampleRate))

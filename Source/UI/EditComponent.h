@@ -47,6 +47,7 @@ private:
     // Layout helpers
     juce::Rectangle<float> getWaveformBounds() const;
     juce::Rectangle<int> getControlPanelBounds() const;
+    void updateControlVisibility();
 
     // Painting sub-routines
     void paintTimeRuler(juce::Graphics& g, juce::Rectangle<float> bounds) const;

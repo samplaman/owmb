@@ -158,7 +158,7 @@ void SampleMapComponent::handleNoteOn(juce::MidiKeyboardState*, int /*midiChanne
                 juce::File fileToLoad(z.filePath);
                 if (fileToLoad.existsAsFile())
                 {
-                    audioEngine.loadFile(fileToLoad, false);
+                    audioEngine.loadFile(fileToLoad, false, true);
                     audioEngine.playZoneVoice(fileToLoad, midiNoteNumber, z.rootNote, z.fineTuneCents, z.gainDb, velocity,
                                               z.attackMs / 1000.0f, z.decayMs / 1000.0f, z.sustainLevel, z.releaseMs / 1000.0f,
                                               audioEngine.isOneShotEnabled(), audioEngine.isLooping());
@@ -356,6 +356,7 @@ void SampleMapComponent::addSampleFile(const juce::File& file)
 
     zones.push_back(z);
     selectedZoneIndex = static_cast<int>(zones.size()) - 1;
+    audioEngine.loadFile(file, false, true);
     resized();
     repaint();
 }
@@ -512,7 +513,7 @@ void SampleMapComponent::autoSliceToSampler(const MediaItem& item)
             juce::File firstSlice(zones[0].filePath);
             if (firstSlice.existsAsFile())
             {
-                audioEngine.loadFile(firstSlice, false);
+                audioEngine.loadFile(firstSlice, false, true);
             }
         }
 
@@ -536,6 +537,12 @@ void SampleMapComponent::selectZone(int index, bool addToSelection)
         selectedZoneIndex = index;
 
         const auto& z = zones[index];
+        juce::File f(z.filePath);
+        if (f.existsAsFile())
+        {
+            audioEngine.loadFile(f, false, true);
+        }
+
         attackKnob.setValue(z.attackMs, juce::dontSendNotification);
         decayKnob.setValue(z.decayMs, juce::dontSendNotification);
         sustainKnob.setValue(z.sustainLevel, juce::dontSendNotification);
