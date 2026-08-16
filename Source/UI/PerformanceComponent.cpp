@@ -220,6 +220,80 @@ void PerformanceComponent::connectApcHardware()
     updateApcHardwareLeds();
 }
 
+void PerformanceComponent::sampleLoaded(const juce::String& filePath)
+{
+    juce::MessageManager::callAsync([this, filePath] {
+        bool updated = false;
+        for (auto& pad : pads)
+        {
+            if (pad.file.getFullPathName() == filePath && pad.file.existsAsFile())
+            {
+                pad.miniWaveform.clear();
+                std::unique_ptr<juce::AudioFormatReader> reader(audioEngine.getFormatManager().createReaderFor(pad.file));
+                if (reader != nullptr && reader->lengthInSamples > 0)
+                {
+                    int points = 32;
+                    pad.miniWaveform.resize(points, 0.0f);
+                    int totalSamples = static_cast<int>(std::min<int64_t>(reader->lengthInSamples, 44100 * 10));
+                    juce::AudioBuffer<float> tempBuf(reader->numChannels, totalSamples);
+                    reader->read(&tempBuf, 0, totalSamples, 0, true, true);
+                    int samplesPerPoint = totalSamples / points;
+                    if (samplesPerPoint > 0)
+                    {
+                        for (int p = 0; p < points; ++p)
+                        {
+                            auto range = tempBuf.findMinMax(0, p * samplesPerPoint, samplesPerPoint);
+                            pad.miniWaveform[p] = std::max(std::abs(range.getStart()), std::abs(range.getEnd()));
+                        }
+                    }
+                }
+                updated = true;
+            }
+        }
+        if (updated)
+        {
+            repaint();
+        }
+    });
+}
+
+void PerformanceComponent::visibilityChanged()
+{
+    if (isVisible())
+    {
+        refreshAllPadWaveforms();
+        repaint();
+    }
+}
+
+void PerformanceComponent::refreshAllPadWaveforms()
+{
+    for (auto& pad : pads)
+    {
+        if (pad.file.existsAsFile() && pad.miniWaveform.empty())
+        {
+            std::unique_ptr<juce::AudioFormatReader> reader(audioEngine.getFormatManager().createReaderFor(pad.file));
+            if (reader != nullptr && reader->lengthInSamples > 0)
+            {
+                int points = 32;
+                pad.miniWaveform.resize(points, 0.0f);
+                int totalSamples = static_cast<int>(std::min<int64_t>(reader->lengthInSamples, 44100 * 10));
+                juce::AudioBuffer<float> tempBuf(reader->numChannels, totalSamples);
+                reader->read(&tempBuf, 0, totalSamples, 0, true, true);
+                int samplesPerPoint = totalSamples / points;
+                if (samplesPerPoint > 0)
+                {
+                    for (int p = 0; p < points; ++p)
+                    {
+                        auto range = tempBuf.findMinMax(0, p * samplesPerPoint, samplesPerPoint);
+                        pad.miniWaveform[p] = std::max(std::abs(range.getStart()), std::abs(range.getEnd()));
+                    }
+                }
+            }
+        }
+    }
+}
+
 void PerformanceComponent::updateApcHardwareLeds()
 {
     if (apcMidiOutput == nullptr)
@@ -484,20 +558,45 @@ void PerformanceComponent::paint(juce::Graphics& g)
                 g.drawText(pitchStr, padRect.reduced(6, 4), juce::Justification::topRight, false);
             }
 
-            // Mini Waveform peaks inside pad
-            if (pad.file.existsAsFile() && !pad.miniWaveform.empty())
+            // Mini Waveform peaks inside pad automatically rendered
+            if (pad.file.existsAsFile())
             {
-                auto waveArea = padRect.reduced(8, 16);
-                g.setColour(pad.color.withAlpha(0.35f));
-                float waveWidth = waveArea.getWidth();
-                float centerY = waveArea.getCentreY();
-                float step = waveWidth / static_cast<float>(pad.miniWaveform.size());
-
-                for (size_t i = 0; i < pad.miniWaveform.size(); ++i)
+                if (pad.miniWaveform.empty())
                 {
-                    float x = waveArea.getX() + i * step;
-                    float h = pad.miniWaveform[i] * (waveArea.getHeight() * 0.45f);
-                    g.drawVerticalLine(juce::roundToInt(x), centerY - h, centerY + h);
+                    std::unique_ptr<juce::AudioFormatReader> reader(audioEngine.getFormatManager().createReaderFor(pad.file));
+                    if (reader != nullptr && reader->lengthInSamples > 0)
+                    {
+                        int points = 32;
+                        pad.miniWaveform.resize(points, 0.0f);
+                        int totalSamples = static_cast<int>(std::min<int64_t>(reader->lengthInSamples, 44100 * 10));
+                        juce::AudioBuffer<float> tempBuf(reader->numChannels, totalSamples);
+                        reader->read(&tempBuf, 0, totalSamples, 0, true, true);
+                        int samplesPerPoint = totalSamples / points;
+                        if (samplesPerPoint > 0)
+                        {
+                            for (int p = 0; p < points; ++p)
+                            {
+                                auto range = tempBuf.findMinMax(0, p * samplesPerPoint, samplesPerPoint);
+                                pad.miniWaveform[p] = std::max(std::abs(range.getStart()), std::abs(range.getEnd()));
+                            }
+                        }
+                    }
+                }
+
+                if (!pad.miniWaveform.empty())
+                {
+                    auto waveArea = padRect.reduced(8, 14);
+                    g.setColour(pad.color.withAlpha(0.55f));
+                    float waveWidth = waveArea.getWidth();
+                    float centerY = waveArea.getCentreY();
+                    float step = waveWidth / static_cast<float>(pad.miniWaveform.size());
+
+                    for (size_t i = 0; i < pad.miniWaveform.size(); ++i)
+                    {
+                        float x = waveArea.getX() + i * step;
+                        float h = pad.miniWaveform[i] * (waveArea.getHeight() * 0.45f);
+                        g.drawVerticalLine(juce::roundToInt(x), centerY - h, centerY + h);
+                    }
                 }
             }
 

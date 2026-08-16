@@ -32,6 +32,8 @@ public:
     bool keyPressed(const juce::KeyPress& key) override;
     void lookAndFeelChanged() override;
 
+    void visibilityChanged() override;
+
     // AudioEngineListener
     void playbackStateChanged(bool isPlaying) override;
     void playbackPositionChanged(double currentSeconds, double totalSeconds) override {}
@@ -67,6 +69,8 @@ private:
 
     // Export & Editing Actions
     void exportEdited();
+    void selectAllRegion();
+    void deselectAllRegion();
     void cropToSelection();
     void resetSelection();
     void silenceSelectedRegion();
@@ -87,6 +91,8 @@ private:
     juce::TextButton stopButton { "Stop" };
     juce::TextButton playSelButton { "Play Sel" };
     juce::TextButton loopToggleButton { "Loop" };
+    juce::TextButton selectAllButton { "Select All" };
+    juce::TextButton deselectAllButton { "Deselect All" };
     juce::TextButton cropButton { "Crop" };
     juce::TextButton resetSelectionButton { "Reset" };
     juce::TextButton snapZeroCrossingButton { "Snap 0-X" };
@@ -95,6 +101,13 @@ private:
     juce::TextButton silenceButton { "Silence" };
     juce::TextButton reverseButton { "Reverse" };
     juce::TextButton normalizeButton { "Normalize" };
+    juce::TextButton gainBoostButton { "+3dB" };
+    juce::TextButton gainCutButton { "-3dB" };
+    juce::TextButton autoTrimButton { "Auto-Trim" };
+    juce::TextButton hpFilterButton { "Low Cut" };
+    juce::TextButton invertPhaseButton { "Invert Phase" };
+    juce::TextButton speed2xButton { "2x Speed" };
+    juce::TextButton speedHalfButton { "0.5x Speed" };
     juce::TextButton deverbButton { "Deverb" };
     juce::TextButton bakeFadesButton { "Bake Fades" };
     juce::TextButton exportButton { "Export" };
@@ -170,10 +183,37 @@ private:
         FadeInHandle,
         FadeOutHandle,
         SelectingRange,
+        SelectingSpectralBox,
         ScrubbingPlayhead
     };
     DragTarget dragTarget { DragTarget::None };
     double dragStartRatio { 0.0 };
+
+    // Spectrogram State & Controls
+    juce::TextButton spectralToggleButton { "Spectral: OFF" };
+    juce::TextButton removeSpectralElementButton { "Remove Spectral" };
+    juce::TextButton boostSpectralButton { "+6dB Spectral" };
+    juce::TextButton attenuateSpectralButton { "-6dB Spectral" };
+    juce::TextButton isolateSpectralButton { "Isolate Spectral" };
+
+    bool isSpectralView { false };
+    juce::Image spectrogramImage;
+    bool spectrogramGenerated { false };
+
+    double spectralTimeStart { 0.0 };
+    double spectralTimeEnd { 1.0 };
+    float spectralFreqLow { 20.0f };
+    float spectralFreqHigh { 20000.0f };
+    bool hasSpectralBoxSelection { false };
+    juce::Point<float> spectralDragStartPos;
+    juce::Rectangle<float> spectralDragRect;
+
+    void generateSpectrogram();
+    void paintSpectrogram(juce::Graphics& g, juce::Rectangle<float> bounds);
+    void removeSpectralSelection();
+    void boostSpectralSelection();
+    void attenuateSpectralSelection();
+    void isolateSpectralSelection();
 };
 
 } // namespace openwav

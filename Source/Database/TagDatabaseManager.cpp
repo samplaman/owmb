@@ -338,11 +338,21 @@ void TagDatabaseManager::reTagAllItems()
         for (auto& kv : itemsMap)
         {
             auto& item = kv.second;
-            auto inferred = inferTagsFromPath(item.filePath, item.durationSeconds, item.numChannels);
-            for (const auto& t : inferred)
+
+            // Preserve user-added custom tags (tags that don't start with '#')
+            std::set<juce::String> customUserTags;
+            for (const auto& t : item.tags)
             {
-                item.tags.insert(t);
+                if (!t.startsWith("#"))
+                    customUserTags.insert(t);
             }
+
+            item.tags = inferTagsFromPath(item.filePath, item.durationSeconds, item.numChannels);
+            for (const auto& ct : customUserTags)
+            {
+                item.tags.insert(ct);
+            }
+
             if (item.bpm >= 50.0 && item.bpm <= 200.0)
             {
                 item.tags.insert("#" + juce::String(juce::roundToInt(item.bpm)) + "BPM");
@@ -399,10 +409,58 @@ static juce::String extractKeyFromFilename(const juce::String& text)
     return {};
 }
 
+static bool isKeywordMatch(const juce::String& textLower, const char* keywordStr)
+{
+    juce::String kw = juce::String(keywordStr).toLowerCase();
+    int kwLen = kw.length();
+    if (kwLen == 0) return false;
+
+    // Short keywords (<=4 chars or specific ambiguous words) require strict token/word boundary separation
+    bool isShortAbbrev = (kwLen <= 4 || kw == "fill" || kw == "reese" || kw == "chant" || kw == "synth" || kw == "house" || kw == "drill" || kw == "lofi" || kw == "stem");
+
+    int pos = 0;
+    while ((pos = textLower.indexOf(pos, kw)) != -1)
+    {
+        bool startOk = false;
+        if (pos == 0) {
+            startOk = true;
+        } else {
+            juce::juce_wchar prev = textLower[pos - 1];
+            if (isShortAbbrev) {
+                startOk = !juce::CharacterFunctions::isLetter(prev);
+            } else {
+                startOk = !juce::CharacterFunctions::isLetterOrDigit(prev) || prev == '/' || prev == '\\' || prev == '_' || prev == '-';
+            }
+        }
+
+        bool endOk = false;
+        int endPos = pos + kwLen;
+        if (endPos >= textLower.length()) {
+            endOk = true;
+        } else {
+            juce::juce_wchar next = textLower[endPos];
+            if (isShortAbbrev) {
+                endOk = !juce::CharacterFunctions::isLetter(next);
+            } else {
+                endOk = !juce::CharacterFunctions::isLetterOrDigit(next) || next == '/' || next == '\\' || next == '_' || next == '.' || next == '-';
+            }
+        }
+
+        if (startOk && endOk)
+            return true;
+
+        pos += kwLen;
+    }
+
+    return false;
+}
+
 std::set<juce::String> TagDatabaseManager::inferTagsFromPath(const juce::String& filePath, double durationSeconds, int numChannels)
 {
     std::set<juce::String> tags;
     juce::File file(filePath);
+    juce::String fileNameLower = file.getFileNameWithoutExtension().toLowerCase();
+    juce::String parentPathLower = file.getParentDirectory().getFullPathName().toLowerCase();
     juce::String fullPathLower = filePath.toLowerCase();
     juce::String extLower = file.getFileExtension().toLowerCase();
 
@@ -431,11 +489,12 @@ std::set<juce::String> TagDatabaseManager::inferTagsFromPath(const juce::String&
     }
 
     // 4. BPM Tag Extraction from Filename (e.g. 128BPM, 120_bpm, 95bpm)
-    juce::String nameLower = file.getFileNameWithoutExtension().toLowerCase();
     for (int bpmVal = 60; bpmVal <= 180; ++bpmVal)
     {
         juce::String bpmStr = juce::String(bpmVal);
-        if (nameLower.contains(bpmStr + "bpm") || nameLower.contains(bpmStr + "_bpm") || nameLower.contains(bpmStr + " bpm"))
+        if (isKeywordMatch(fileNameLower, (bpmStr + "bpm").toRawUTF8()) ||
+            isKeywordMatch(fileNameLower, (bpmStr + "_bpm").toRawUTF8()) ||
+            isKeywordMatch(fileNameLower, (bpmStr + " bpm").toRawUTF8()))
         {
             tags.insert("#" + bpmStr + "BPM");
             break;
@@ -443,81 +502,152 @@ std::set<juce::String> TagDatabaseManager::inferTagsFromPath(const juce::String&
     }
 
     // 5. Comprehensive Keyword Rules Dictionary
-    struct KeywordRule { const char* keyword; const char* tag; };
+    struct KeywordRule { const char* keyword; const char* tag; bool isCategory; };
     const KeywordRule rules[] = {
         // Drums & Percussion
-        { "subkick", "#SubKick" }, { "kick", "#Kick" }, { "bd", "#Kick" }, { "bassdrum", "#Kick" },
-        { "rimshot", "#Rimshot" }, { "rim", "#Rimshot" }, { "snare", "#Snare" }, { "sd", "#Snare" },
-        { "clap", "#Clap" }, { "snap", "#Snap" },
-        { "openhat", "#OpenHat" }, { "open_hat", "#OpenHat" }, { "open-hat", "#OpenHat" },
-        { "closedhat", "#ClosedHat" }, { "closed_hat", "#ClosedHat" }, { "closed-hat", "#ClosedHat" },
-        { "hihat", "#HiHat" }, { "hat", "#HiHat" }, { "hh", "#HiHat" },
-        { "tom", "#Tom" }, { "crash", "#Crash" }, { "ride", "#Ride" }, { "cymbal", "#Cymbal" },
-        { "shaker", "#Shaker" }, { "tambourine", "#Tambourine" }, { "tamb", "#Tambourine" },
-        { "cowbell", "#Cowbell" }, { "conga", "#Conga" }, { "bongo", "#Bongo" },
-        { "percussion", "#Percussion" }, { "perc", "#Percussion" },
-        { "808", "#808" }, { "909", "#909" },
+        { "subkick", "#SubKick", true }, { "kick", "#Kick", true }, { "bd", "#Kick", true }, { "bassdrum", "#Kick", true },
+        { "rimshot", "#Rimshot", true }, { "rim", "#Rimshot", true }, { "snare", "#Snare", true }, { "sd", "#Snare", true },
+        { "clap", "#Clap", true }, { "snap", "#Snap", true },
+        { "openhat", "#OpenHat", true }, { "open_hat", "#OpenHat", true }, { "open-hat", "#OpenHat", true },
+        { "closedhat", "#ClosedHat", true }, { "closed_hat", "#ClosedHat", true }, { "closed-hat", "#ClosedHat", true },
+        { "hihat", "#HiHat", true }, { "hat", "#HiHat", true }, { "hh", "#HiHat", true },
+        { "tom", "#Tom", true }, { "crash", "#Crash", true }, { "ride", "#Ride", true }, { "cymbal", "#Cymbal", true },
+        { "shaker", "#Shaker", true }, { "tambourine", "#Tambourine", true }, { "tamb", "#Tambourine", true },
+        { "cowbell", "#Cowbell", true }, { "conga", "#Conga", true }, { "bongo", "#Bongo", true },
+        { "percussion", "#Percussion", true }, { "perc", "#Percussion", true },
+        { "808", "#808", false }, { "909", "#909", false },
 
         // Bass
-        { "subbass", "#SubBass" }, { "sub_bass", "#SubBass" }, { "sub-bass", "#SubBass" },
-        { "synthbass", "#SynthBass" }, { "synth_bass", "#SynthBass" },
-        { "reesebass", "#ReeseBass" }, { "reese", "#ReeseBass" },
-        { "slapbass", "#SlapBass" }, { "808bass", "#808Bass" },
-        { "sub", "#SubBass" }, { "bass", "#Bass" },
+        { "subbass", "#SubBass", true }, { "sub_bass", "#SubBass", true }, { "sub-bass", "#SubBass", true },
+        { "synthbass", "#SynthBass", true }, { "synth_bass", "#SynthBass", true },
+        { "reesebass", "#ReeseBass", true }, { "reese", "#ReeseBass", true },
+        { "slapbass", "#SlapBass", true }, { "808bass", "#808Bass", true },
+        { "sub", "#SubBass", true }, { "bass", "#Bass", true },
 
         // Melodic & Harmonic Instruments
-        { "grandpiano", "#Piano" }, { "piano", "#Piano" },
-        { "rhodes", "#Rhodes" }, { "epiano", "#Rhodes" },
-        { "organ", "#Organ" }, { "keys", "#Keys" },
-        { "acguitar", "#AcousticGuitar" }, { "acousticguitar", "#AcousticGuitar" }, { "nylon", "#AcousticGuitar" },
-        { "elguitar", "#ElectricGuitar" }, { "electricguitar", "#ElectricGuitar" },
-        { "guitar", "#Guitar" }, { "gtr", "#Guitar" },
-        { "violin", "#Strings" }, { "cello", "#Strings" }, { "viola", "#Strings" }, { "strings", "#Strings" }, { "orchestral", "#Strings" },
-        { "trumpet", "#Brass" }, { "trombone", "#Brass" }, { "horn", "#Brass" }, { "brass", "#Brass" },
-        { "saxophone", "#Sax" }, { "sax", "#Sax" },
-        { "flute", "#Flute" }, { "clarinet", "#Flute" }, { "woodwind", "#Flute" },
-        { "glockenspiel", "#Bell" }, { "chime", "#Bell" }, { "bell", "#Bell" }, { "bells", "#Bell" },
-        { "marimba", "#Marimba" }, { "kalimba", "#Marimba" }, { "vibes", "#Marimba" },
-        { "lead", "#Lead" }, { "pad", "#Pad" }, { "pluck", "#Pluck" }, { "arp", "#Arp" }, { "arpeggio", "#Arp" },
-        { "synth", "#Synth" },
+        { "grandpiano", "#Piano", true }, { "piano", "#Piano", true },
+        { "rhodes", "#Rhodes", true }, { "epiano", "#Rhodes", true },
+        { "organ", "#Organ", true }, { "keys", "#Keys", true },
+        { "acguitar", "#AcousticGuitar", true }, { "acousticguitar", "#AcousticGuitar", true }, { "nylon", "#AcousticGuitar", true },
+        { "elguitar", "#ElectricGuitar", true }, { "electricguitar", "#ElectricGuitar", true },
+        { "guitar", "#Guitar", true }, { "gtr", "#Guitar", true },
+
+        // Orchestral & Classical
+        { "orchestra", "#Orchestral", true }, { "orchestral", "#Orchestral", true }, { "symphonic", "#Orchestral", true }, { "symphony", "#Orchestral", true },
+        { "ensemble", "#Ensemble", true }, { "tutti", "#Orchestral", true },
+
+        // Orchestral Strings & Articulations
+        { "violin", "#Violin", true }, { "violins", "#Violin", true }, { "vln", "#Violin", true },
+        { "viola", "#Viola", true }, { "violas", "#Viola", true }, { "vla", "#Viola", true },
+        { "cello", "#Cello", true }, { "cellos", "#Cello", true }, { "vc", "#Cello", true }, { "violoncello", "#Cello", true },
+        { "doublebass", "#Contrabass", true }, { "contrabass", "#Contrabass", true }, { "upright", "#Contrabass", true }, { "cb", "#Contrabass", true },
+        { "pizzicato", "#Pizzicato", false }, { "pizz", "#Pizzicato", false },
+        { "staccato", "#Staccato", false }, { "stacc", "#Staccato", false },
+        { "spiccato", "#Spiccato", false }, { "spicc", "#Spiccato", false },
+        { "legato", "#Legato", false }, { "tremolo", "#Tremolo", false },
+        { "strings", "#Strings", true }, { "string", "#Strings", true }, { "str", "#Strings", true },
+
+        // Orchestral Brass & Woodwinds
+        { "frenchhorn", "#FrenchHorn", true }, { "french_horn", "#FrenchHorn", true }, { "horn", "#FrenchHorn", true }, { "horns", "#FrenchHorn", true },
+        { "trumpet", "#Trumpet", true }, { "trumpets", "#Trumpet", true }, { "tpt", "#Trumpet", true },
+        { "trombone", "#Trombone", true }, { "trombones", "#Trombone", true }, { "tbn", "#Trombone", true },
+        { "tuba", "#Tuba", true }, { "brass", "#Brass", true },
+        { "piccolo", "#Piccolo", true }, { "flute", "#Flute", true }, { "flutes", "#Flute", true }, { "fl", "#Flute", true },
+        { "oboe", "#Oboe", true }, { "englishhorn", "#EnglishHorn", true }, { "english_horn", "#EnglishHorn", true },
+        { "clarinet", "#Clarinet", true }, { "clarinets", "#Clarinet", true }, { "cl", "#Clarinet", true },
+        { "bassoon", "#Bassoon", true }, { "contrabassoon", "#Bassoon", true }, { "woodwind", "#Woodwinds", true }, { "woodwinds", "#Woodwinds", true },
+
+        // Orchestral Percussion & Harp & Choir
+        { "timpani", "#Timpani", true }, { "timp", "#Timpani", true }, { "timpanis", "#Timpani", true },
+        { "tubularbells", "#TubularBells", true }, { "tubular_bells", "#TubularBells", true }, { "chimes", "#TubularBells", true },
+        { "glockenspiel", "#Glockenspiel", true }, { "glock", "#Glockenspiel", true }, { "xylophone", "#Xylophone", true }, { "xylo", "#Xylophone", true },
+        { "gong", "#Gong", true }, { "tamtam", "#Gong", true }, { "tam_tam", "#Gong", true },
+        { "harp", "#Harp", true }, { "harps", "#Harp", true },
+        { "choir", "#Choir", true }, { "chorus", "#Choir", true }, { "vocals_ensemble", "#Choir", true },
+
+        { "saxophone", "#Sax", true }, { "sax", "#Sax", true },
+        { "glockenspiel", "#Bell", true }, { "chime", "#Bell", true }, { "bell", "#Bell", true }, { "bells", "#Bell", true },
+        { "marimba", "#Marimba", true }, { "kalimba", "#Marimba", true }, { "vibes", "#Marimba", true },
+        { "lead", "#Lead", true }, { "pad", "#Pad", true }, { "pluck", "#Pluck", true }, { "arp", "#Arp", true }, { "arpeggio", "#Arp", true },
+        { "synth", "#Synth", true },
 
         // Vocals
-        { "acapella", "#Acapella" }, { "vocalchop", "#VocalChop" }, { "voxchop", "#VocalChop" },
-        { "chant", "#Chant" }, { "speech", "#Speech" }, { "spoken", "#Speech" },
-        { "vocal", "#Vocal" }, { "vox", "#Vocal" }, { "vocals", "#Vocal" },
+        { "acapella", "#Acapella", true }, { "vocalchop", "#VocalChop", true }, { "voxchop", "#VocalChop", true },
+        { "chant", "#Chant", true }, { "speech", "#Speech", true }, { "spoken", "#Speech", true },
+        { "vocal", "#Vocal", true }, { "vox", "#Vocal", true }, { "vocals", "#Vocal", true },
 
         // Sound Effects & Textures
-        { "uplifter", "#Riser" }, { "riser", "#Riser" },
-        { "downlifter", "#Downlifter" }, { "faller", "#Downlifter" },
-        { "subdrop", "#SubDrop" }, { "impact", "#Impact" }, { "sweep", "#Sweep" }, { "whoosh", "#Sweep" },
-        { "foley", "#Foley" }, { "vinyl", "#Vinyl" }, { "crackle", "#Vinyl" },
-        { "atmos", "#Atmosphere" }, { "atmosphere", "#Atmosphere" }, { "texture", "#Texture" },
-        { "glitch", "#Glitch" }, { "sfx", "#FX" }, { "fx", "#FX" },
+        { "uplifter", "#Riser", true }, { "riser", "#Riser", true },
+        { "downlifter", "#Downlifter", true }, { "faller", "#Downlifter", true },
+        { "subdrop", "#SubDrop", true }, { "impact", "#Impact", true }, { "sweep", "#Sweep", true }, { "whoosh", "#Sweep", true },
+        { "foley", "#Foley", true }, { "vinyl", "#Vinyl", true }, { "crackle", "#Vinyl", true },
+        { "atmos", "#Atmosphere", true }, { "atmosphere", "#Atmosphere", true }, { "texture", "#Texture", true },
+        { "glitch", "#Glitch", true }, { "sfx", "#FX", true }, { "fx", "#FX", true },
 
         // Genres
-        { "boombap", "#BoomBap" }, { "boom_bap", "#BoomBap" }, { "trap", "#Trap" }, { "hiphop", "#HipHop" }, { "hip_hop", "#HipHop" },
-        { "techhouse", "#TechHouse" }, { "tech_house", "#TechHouse" }, { "deephouse", "#DeepHouse" }, { "deep_house", "#DeepHouse" },
-        { "house", "#House" }, { "techno", "#Techno" }, { "trance", "#Trance" },
-        { "dnb", "#DnB" }, { "drumandbass", "#DnB" }, { "drum_n_bass", "#DnB" }, { "dubstep", "#Dubstep" },
-        { "futurebass", "#FutureBass" }, { "lofi", "#LoFi" }, { "lo-fi", "#LoFi" },
-        { "ambient", "#Ambient" }, { "cinematic", "#Cinematic" }, { "drill", "#Drill" }, { "synthwave", "#Synthwave" },
-        { "pop", "#Pop" }, { "rock", "#Rock" }, { "funk", "#Funk" }, { "soul", "#Soul" },
+        { "boombap", "#BoomBap", false }, { "boom_bap", "#BoomBap", false }, { "trap", "#Trap", false }, { "hiphop", "#HipHop", false }, { "hip_hop", "#HipHop", false },
+        { "techhouse", "#TechHouse", false }, { "tech_house", "#TechHouse", false }, { "deephouse", "#DeepHouse", false }, { "deep_house", "#DeepHouse", false },
+        { "house", "#House", false }, { "techno", "#Techno", false }, { "trance", "#Trance", false },
+        { "dnb", "#DnB", false }, { "drumandbass", "#DnB", false }, { "drum_n_bass", "#DnB", false }, { "dubstep", "#Dubstep", false },
+        { "futurebass", "#FutureBass", false }, { "lofi", "#LoFi", false }, { "lo-fi", "#LoFi", false },
+        { "ambient", "#Ambient", false }, { "cinematic", "#Cinematic", false }, { "drill", "#Drill", false }, { "synthwave", "#Synthwave", false },
+        { "pop", "#Pop", false }, { "rock", "#Rock", false }, { "funk", "#Funk", false }, { "soul", "#Soul", false },
 
         // Types & Structs
-        { "drumloop", "#DrumLoop" }, { "drum_loop", "#DrumLoop" }, { "toploop", "#TopLoop" }, { "top_loop", "#TopLoop" },
-        { "melodicloop", "#MelodicLoop" }, { "vocalloop", "#VocalLoop" }, { "percloop", "#PercLoop" }, { "bassloop", "#BassLoop" },
-        { "fill", "#Fill" }, { "stem", "#Stem" }, { "dry", "#Dry" }, { "wet", "#Wet" },
-        { "loop", "#Loop" }, { "groove", "#Loop" }, { "break", "#Loop" }, { "beat", "#Loop" },
-        { "oneshot", "#OneShot" }, { "one_shot", "#OneShot" }, { "hit", "#OneShot" }, { "stab", "#OneShot" },
-        { "acoustic", "#Acoustic" }, { "digital", "#Digital" }
+        { "drumloop", "#DrumLoop", false }, { "drum_loop", "#DrumLoop", false }, { "toploop", "#TopLoop", false }, { "top_loop", "#TopLoop", false },
+        { "melodicloop", "#MelodicLoop", false }, { "vocalloop", "#VocalLoop", false }, { "percloop", "#PercLoop", false }, { "bassloop", "#BassLoop", false },
+        { "fill", "#Fill", false }, { "stem", "#Stem", false }, { "dry", "#Dry", false }, { "wet", "#Wet", false },
+        { "loop", "#Loop", false }, { "groove", "#Loop", false }, { "break", "#Loop", false }, { "beat", "#Loop", false },
+        { "oneshot", "#OneShot", false }, { "one_shot", "#OneShot", false }, { "hit", "#OneShot", false }, { "stab", "#OneShot", false },
+        { "acoustic", "#Acoustic", false }, { "digital", "#Digital", false }
     };
 
+    bool hasFilenameCategory = false;
+
+    // Check filename first for high priority matching
     for (const auto& r : rules)
     {
-        if (fullPathLower.contains(r.keyword))
+        if (isKeywordMatch(fileNameLower, r.keyword))
         {
             tags.insert(r.tag);
+            if (r.isCategory)
+                hasFilenameCategory = true;
         }
+    }
+
+    // Only check parent folder path if no category tag matched in filename or for non-category metadata tags
+    for (const auto& r : rules)
+    {
+        if (!r.isCategory || !hasFilenameCategory)
+        {
+            if (isKeywordMatch(parentPathLower, r.keyword))
+            {
+                tags.insert(r.tag);
+            }
+        }
+    }
+
+    // Conflict Disambiguation:
+    if (tags.find("#Kick") != tags.end() || tags.find("#SubKick") != tags.end())
+    {
+        tags.erase("#Snare");
+        tags.erase("#Percussion");
+        tags.erase("#FX");
+    }
+    else if (tags.find("#Snare") != tags.end())
+    {
+        tags.erase("#Percussion");
+        tags.erase("#FX");
+    }
+    else if (tags.find("#HiHat") != tags.end() || tags.find("#OpenHat") != tags.end() || tags.find("#ClosedHat") != tags.end())
+    {
+        tags.erase("#Percussion");
+        tags.erase("#FX");
+    }
+    else if (tags.find("#Bass") != tags.end() || tags.find("#SubBass") != tags.end() || tags.find("#SynthBass") != tags.end())
+    {
+        tags.erase("#Percussion");
+        tags.erase("#FX");
     }
 
     return tags;

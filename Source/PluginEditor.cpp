@@ -9,82 +9,26 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
-#endif
 
 namespace {
-class CustomSplashScreen : public juce::TopLevelWindow, private juce::Timer {
-public:
-    CustomSplashScreen(const juce::Image& img, int durationMs) 
-        : TopLevelWindow("OWMB Splash", true), totalDuration(durationMs), elapsed(0) {
-        
-        imageComp.setImage(img, juce::RectanglePlacement::centred);
-        addAndMakeVisible(imageComp);
-        
-        setAlwaysOnTop(true);
-        setOpaque(false);
-        setDropShadowEnabled(false);
-        setSize(img.getWidth(), img.getHeight());
-        
-        addToDesktop(juce::ComponentPeer::windowIsTemporary |
-                     juce::ComponentPeer::windowIgnoresKeyPresses);
-                     
-        if (auto* display = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay())
-            setCentrePosition(display->userArea.getCentre());
-            
-        setAlpha(0.0f);
-        setVisible(true);
-        startTimerHz(60);
-    }
-    
-    ~CustomSplashScreen() override {
-        removeFromDesktop();
-    }
-    
-    void resized() override {
-        imageComp.setBounds(getLocalBounds());
-    }
-    
-    void paintOverChildren(juce::Graphics& g) override {
-        float thickness = 8.0f;
-        
-        float progress = static_cast<float>(elapsed) / totalDuration;
-        float cx = getWidth() * 0.5f;
-        float cy = getHeight() * 0.5f;
-        float radius = (std::min(getWidth(), getHeight()) * 0.5f) - (thickness * 0.5f);
-        
-        juce::Path p;
-        p.addCentredArc(cx, cy, radius, radius, 0.0f, 0.0f, juce::MathConstants<float>::twoPi * progress, true);
-        
-        g.setColour(openwav::OpenWavLookAndFeel::accentCyan);
-        g.strokePath(p, juce::PathStrokeType(thickness, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-    }
-    
-    void timerCallback() override {
-        elapsed += 1000 / 60;
-        
-        float fadeDuration = 500.0f; // 500ms fade
-        float alpha = 1.0f;
-        if (elapsed < fadeDuration) {
-            alpha = elapsed / fadeDuration;
-        } else if (totalDuration - elapsed < fadeDuration) {
-            alpha = (totalDuration - elapsed) / fadeDuration;
+    WNDPROC originalWndProc = nullptr;
+    openwav::OpenWavAudioProcessorEditor* activeEditorPtr = nullptr;
+
+    LRESULT CALLBACK NativeCloseSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+        if (msg == WM_CLOSE) {
+            if (activeEditorPtr != nullptr) {
+                activeEditorPtr->triggerExitSequence();
+                return 0;
+            }
         }
-        setAlpha(juce::jlimit(0.0f, 1.0f, alpha));
-        
-        if (elapsed >= totalDuration) {
-            stopTimer();
-            delete this;
-        } else {
-            repaint();
-        }
+        if (originalWndProc != nullptr)
+            return CallWindowProc(originalWndProc, hwnd, msg, wParam, lParam);
+        return DefWindowProc(hwnd, msg, wParam, lParam);
     }
-    
-private:
-    juce::ImageComponent imageComp;
-    int totalDuration;
-    int elapsed;
-};
-} // namespace
+}
+#endif
+
+
 
 namespace openwav {
 
@@ -169,52 +113,31 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
     audioProcessor.getLibraryScanner().startScan(foldersToScan);
   }
 
-  auto splashImage = juce::ImageCache::getFromMemory(
-      BinaryData::splashit_png, BinaryData::splashit_pngSize);
-  if (splashImage.isValid()) {
-    new CustomSplashScreen(splashImage, 4000);
+  uiReady = true;
+
+  if (juce::JUCEApplicationBase::isStandaloneApp()) {
+    if (auto *dw = findParentComponentOfClass<juce::DocumentWindow>()) {
+      dw->setAlpha(1.0f);
+      dw->setVisible(true);
+      dw->toFront(true);
+    }
   }
 
-  juce::Component::SafePointer<OpenWavAudioProcessorEditor> safeThis(this);
-  juce::Timer::callAfterDelay(4000, [safeThis] {
-    if (safeThis != nullptr) {
-      safeThis->uiReady = true;
+  headerBar.setVisible(true);
+  tagPanel.setVisible(true);
+  leftPanelResizer.setVisible(true);
+  waveformTransport.setVisible(true);
 
-      if (juce::JUCEApplicationBase::isStandaloneApp()) {
-        if (auto *dw =
-                safeThis->findParentComponentOfClass<juce::DocumentWindow>()) {
-          dw->setAlpha(1.0f);
-          dw->setVisible(true);
-
-          // On Linux, the window was moved off-screen to hide it during
-          // the splash (since setAlpha(0) is unreliable on X11/Wayland).
-          // Restore it to its proper centered position now.
-#if JUCE_LINUX || JUCE_BSD
-          auto mainDisplay =
-              juce::Desktop::getInstance().getDisplays().getPrimaryDisplay();
-          auto userArea = (mainDisplay != nullptr)
-                              ? mainDisplay->userArea
-                              : juce::Rectangle<int>(0, 0, 1920, 1080);
-          int targetW = dw->getWidth();
-          int targetH = dw->getHeight();
-          dw->centreWithSize(targetW, targetH);
-#endif
-          dw->toFront(true);
-        }
-      }
-
-      safeThis->headerBar.setVisible(true);
-      safeThis->tagPanel.setVisible(true);
-      safeThis->leftPanelResizer.setVisible(true);
-      safeThis->waveformTransport.setVisible(true);
-
-      safeThis->resized();
-      safeThis->repaint();
-    }
-  });
+  resized();
+  repaint();
 }
 
 OpenWavAudioProcessorEditor::~OpenWavAudioProcessorEditor() {
+#if JUCE_WINDOWS
+  activeEditorPtr = nullptr;
+#endif
+  audioProcessor.getLibraryScanner().cancelScan();
+  audioProcessor.getAudioEngine().stop();
   headerBar.removeListener(this);
   tagPanel.removeListener(this);
   sampleTable.removeListener(this);
@@ -261,8 +184,32 @@ void OpenWavAudioProcessorEditor::setTagPanelWidth(int newWidth) {
   }
 }
 
+void OpenWavAudioProcessorEditor::triggerExitSequence() {
+  if (isExiting)
+    return;
+  isExiting = true;
+  audioProcessor.getAudioEngine().stop();
+  audioProcessor.getLibraryScanner().cancelScan();
+  repaint();
+
+  juce::MessageManager::callAsync([] {
+    if (auto *app = juce::JUCEApplicationBase::getInstance())
+      app->systemRequestedQuit();
+  });
+}
+
 void OpenWavAudioProcessorEditor::paint(juce::Graphics &g) {
   g.fillAll(OpenWavLookAndFeel::bgDark);
+}
+
+void OpenWavAudioProcessorEditor::paintOverChildren(juce::Graphics &g) {
+  if (isExiting) {
+    g.fillAll(juce::Colours::darkgrey.withAlpha(0.85f));
+    g.setColour(OpenWavLookAndFeel::textPrimary);
+    g.setFont(juce::Font(22.0f, juce::Font::bold));
+    g.drawText("Closing OpenWav Media Browser...", getLocalBounds(),
+               juce::Justification::centred, true);
+  }
 }
 
 void OpenWavAudioProcessorEditor::resized() {
@@ -642,18 +589,19 @@ void OpenWavAudioProcessorEditor::parentHierarchyChanged() {
 
       dw->setContentComponentSize(targetW, targetH);
       dw->centreWithSize(targetW, targetH);
-      updateNativeTitleBarTheme();
-
-      if (!uiReady) {
-        dw->setAlpha(0.0f);
-        dw->setVisible(false);
-
-        // On Linux, setAlpha(0) is unreliable (depends on compositor support).
-        // Move the window far off-screen so it can't flash on screen.
-#if JUCE_LINUX || JUCE_BSD
-        dw->setTopLeftPosition(-10000, -10000);
-#endif
+      dw->setAlpha(1.0f);
+      dw->setVisible(true);
+#if JUCE_WINDOWS
+      if (auto *peer = dw->getPeer()) {
+        if (auto hwnd = (HWND)peer->getNativeHandle()) {
+          activeEditorPtr = this;
+          if (originalWndProc == nullptr) {
+            originalWndProc = (WNDPROC)SetWindowLongPtr(hwnd, GWLP_WNDPROC, (LONG_PTR)NativeCloseSubclassProc);
+          }
+        }
       }
+#endif
+      updateNativeTitleBarTheme();
     }
   }
 }

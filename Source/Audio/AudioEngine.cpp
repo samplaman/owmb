@@ -1,4 +1,5 @@
 #include "AudioEngine.h"
+#include <juce_dsp/juce_dsp.h>
 #include <algorithm>
 
 namespace openwav
@@ -1168,6 +1169,227 @@ bool AudioEngine::silenceSelection(double startRatio, double endRatio)
     return true;
 }
 
+bool AudioEngine::silenceSpectralRegion(double startRatio, double endRatio, float minFreqHz, float maxFreqHz)
+{
+    const juce::ScopedLock sl(voiceLock);
+    if (loadedVoice == nullptr || loadedVoice->buffer.getNumSamples() == 0)
+        return false;
+
+    int totalSamples = loadedVoice->buffer.getNumSamples();
+    int startIdx = juce::jlimit(0, totalSamples - 1, static_cast<int>(startRatio * totalSamples));
+    int endIdx = juce::jlimit(startIdx + 1, totalSamples, static_cast<int>(endRatio * totalSamples));
+    int count = endIdx - startIdx;
+    if (count <= 64) return false;
+
+    double sr = (currentFileSampleRate > 0.0) ? currentFileSampleRate : 44100.0;
+    int numChannels = loadedVoice->buffer.getNumChannels();
+
+    constexpr int fftOrder = 10; // 1024 points
+    constexpr int fftSize = 1 << fftOrder;
+    constexpr int hopSize = 256;
+
+    juce::dsp::FFT fft(fftOrder);
+    juce::dsp::WindowingFunction<float> window(fftSize, juce::dsp::WindowingFunction<float>::hann);
+
+    int binMin = juce::jlimit(0, fftSize / 2, static_cast<int>((minFreqHz / (sr * 0.5f)) * (fftSize / 2)));
+    int binMax = juce::jlimit(binMin, fftSize / 2, static_cast<int>((maxFreqHz / (sr * 0.5f)) * (fftSize / 2)));
+
+    for (int ch = 0; ch < numChannels; ++ch)
+    {
+        float* samples = loadedVoice->buffer.getWritePointer(ch, startIdx);
+        std::vector<float> outputBuffer(count, 0.0f);
+        std::vector<float> windowSum(count, 0.0f);
+
+        std::vector<float> fftBuffer(fftSize * 2, 0.0f);
+
+        for (int pos = 0; pos + fftSize <= count; pos += hopSize)
+        {
+            std::fill(fftBuffer.begin(), fftBuffer.end(), 0.0f);
+            std::copy(samples + pos, samples + pos + fftSize, fftBuffer.begin());
+            window.multiplyWithWindowingTable(fftBuffer.data(), fftSize);
+
+            fft.performRealOnlyForwardTransform(fftBuffer.data());
+
+            // Zero out frequency bins within [binMin, binMax]
+            for (int b = binMin; b <= binMax; ++b)
+            {
+                fftBuffer[2 * b] = 0.0f;     // Real part
+                fftBuffer[2 * b + 1] = 0.0f; // Imaginary part
+            }
+
+            fft.performRealOnlyInverseTransform(fftBuffer.data());
+            window.multiplyWithWindowingTable(fftBuffer.data(), fftSize);
+
+            for (int i = 0; i < fftSize; ++i)
+            {
+                outputBuffer[pos + i] += fftBuffer[i];
+                float w = 0.5f * (1.0f - std::cos(2.0f * juce::MathConstants<float>::pi * i / (fftSize - 1)));
+                windowSum[pos + i] += w * w;
+            }
+        }
+
+        for (int i = 0; i < count; ++i)
+        {
+            if (windowSum[i] > 0.0001f)
+                samples[i] = outputBuffer[i] / (windowSum[i] * (fftSize / (2.0f * hopSize)));
+        }
+    }
+
+    rebuildWaveformPeaks();
+    replaceEditedSampleInMemoryAndDisk();
+    return true;
+}
+
+bool AudioEngine::adjustSpectralRegionGain(double startRatio, double endRatio, float minFreqHz, float maxFreqHz, float gaindB)
+{
+    const juce::ScopedLock sl(voiceLock);
+    if (loadedVoice == nullptr || loadedVoice->buffer.getNumSamples() == 0)
+        return false;
+
+    int totalSamples = loadedVoice->buffer.getNumSamples();
+    int startIdx = juce::jlimit(0, totalSamples - 1, static_cast<int>(startRatio * totalSamples));
+    int endIdx = juce::jlimit(startIdx + 1, totalSamples, static_cast<int>(endRatio * totalSamples));
+    int count = endIdx - startIdx;
+    if (count <= 64) return false;
+
+    double sr = (currentFileSampleRate > 0.0) ? currentFileSampleRate : 44100.0;
+    int numChannels = loadedVoice->buffer.getNumChannels();
+
+    constexpr int fftOrder = 10; // 1024 points
+    constexpr int fftSize = 1 << fftOrder;
+    constexpr int hopSize = 256;
+
+    juce::dsp::FFT fft(fftOrder);
+    juce::dsp::WindowingFunction<float> window(fftSize, juce::dsp::WindowingFunction<float>::hann);
+
+    int binMin = juce::jlimit(0, fftSize / 2, static_cast<int>((minFreqHz / (sr * 0.5f)) * (fftSize / 2)));
+    int binMax = juce::jlimit(binMin, fftSize / 2, static_cast<int>((maxFreqHz / (sr * 0.5f)) * (fftSize / 2)));
+
+    float gainScale = juce::Decibels::decibelsToGain(gaindB);
+
+    for (int ch = 0; ch < numChannels; ++ch)
+    {
+        float* samples = loadedVoice->buffer.getWritePointer(ch, startIdx);
+        std::vector<float> outputBuffer(count, 0.0f);
+        std::vector<float> windowSum(count, 0.0f);
+        std::vector<float> fftBuffer(fftSize * 2, 0.0f);
+
+        for (int pos = 0; pos + fftSize <= count; pos += hopSize)
+        {
+            std::fill(fftBuffer.begin(), fftBuffer.end(), 0.0f);
+            std::copy(samples + pos, samples + pos + fftSize, fftBuffer.begin());
+            window.multiplyWithWindowingTable(fftBuffer.data(), fftSize);
+
+            fft.performRealOnlyForwardTransform(fftBuffer.data());
+
+            for (int b = binMin; b <= binMax; ++b)
+            {
+                fftBuffer[2 * b] *= gainScale;
+                fftBuffer[2 * b + 1] *= gainScale;
+            }
+
+            fft.performRealOnlyInverseTransform(fftBuffer.data());
+            window.multiplyWithWindowingTable(fftBuffer.data(), fftSize);
+
+            for (int i = 0; i < fftSize; ++i)
+            {
+                outputBuffer[pos + i] += fftBuffer[i];
+                float w = 0.5f * (1.0f - std::cos(2.0f * juce::MathConstants<float>::pi * i / (fftSize - 1)));
+                windowSum[pos + i] += w * w;
+            }
+        }
+
+        for (int i = 0; i < count; ++i)
+        {
+            if (windowSum[i] > 0.0001f)
+                samples[i] = outputBuffer[i] / (windowSum[i] * (fftSize / (2.0f * hopSize)));
+        }
+    }
+
+    rebuildWaveformPeaks();
+    replaceEditedSampleInMemoryAndDisk();
+    return true;
+}
+
+bool AudioEngine::isolateSpectralRegion(double startRatio, double endRatio, float minFreqHz, float maxFreqHz)
+{
+    const juce::ScopedLock sl(voiceLock);
+    if (loadedVoice == nullptr || loadedVoice->buffer.getNumSamples() == 0)
+        return false;
+
+    int totalSamples = loadedVoice->buffer.getNumSamples();
+    int startIdx = juce::jlimit(0, totalSamples - 1, static_cast<int>(startRatio * totalSamples));
+    int endIdx = juce::jlimit(startIdx + 1, totalSamples, static_cast<int>(endRatio * totalSamples));
+    int count = endIdx - startIdx;
+    if (count <= 64) return false;
+
+    double sr = (currentFileSampleRate > 0.0) ? currentFileSampleRate : 44100.0;
+    int numChannels = loadedVoice->buffer.getNumChannels();
+
+    constexpr int fftOrder = 10;
+    constexpr int fftSize = 1 << fftOrder;
+    constexpr int hopSize = 256;
+
+    juce::dsp::FFT fft(fftOrder);
+    juce::dsp::WindowingFunction<float> window(fftSize, juce::dsp::WindowingFunction<float>::hann);
+
+    int binMin = juce::jlimit(0, fftSize / 2, static_cast<int>((minFreqHz / (sr * 0.5f)) * (fftSize / 2)));
+    int binMax = juce::jlimit(binMin, fftSize / 2, static_cast<int>((maxFreqHz / (sr * 0.5f)) * (fftSize / 2)));
+
+    for (int ch = 0; ch < numChannels; ++ch)
+    {
+        // Silence before selection start and after selection end
+        if (startIdx > 0)
+            loadedVoice->buffer.clear(ch, 0, startIdx);
+        if (endIdx < totalSamples)
+            loadedVoice->buffer.clear(ch, endIdx, totalSamples - endIdx);
+
+        float* samples = loadedVoice->buffer.getWritePointer(ch, startIdx);
+        std::vector<float> outputBuffer(count, 0.0f);
+        std::vector<float> windowSum(count, 0.0f);
+        std::vector<float> fftBuffer(fftSize * 2, 0.0f);
+
+        for (int pos = 0; pos + fftSize <= count; pos += hopSize)
+        {
+            std::fill(fftBuffer.begin(), fftBuffer.end(), 0.0f);
+            std::copy(samples + pos, samples + pos + fftSize, fftBuffer.begin());
+            window.multiplyWithWindowingTable(fftBuffer.data(), fftSize);
+
+            fft.performRealOnlyForwardTransform(fftBuffer.data());
+
+            // Zero out all bins EXCEPT binMin ... binMax
+            for (int b = 0; b < fftSize / 2; ++b)
+            {
+                if (b < binMin || b > binMax)
+                {
+                    fftBuffer[2 * b] = 0.0f;
+                    fftBuffer[2 * b + 1] = 0.0f;
+                }
+            }
+
+            fft.performRealOnlyInverseTransform(fftBuffer.data());
+            window.multiplyWithWindowingTable(fftBuffer.data(), fftSize);
+
+            for (int i = 0; i < fftSize; ++i)
+            {
+                outputBuffer[pos + i] += fftBuffer[i];
+                float w = 0.5f * (1.0f - std::cos(2.0f * juce::MathConstants<float>::pi * i / (fftSize - 1)));
+                windowSum[pos + i] += w * w;
+            }
+        }
+
+        for (int i = 0; i < count; ++i)
+        {
+            if (windowSum[i] > 0.0001f)
+                samples[i] = outputBuffer[i] / (windowSum[i] * (fftSize / (2.0f * hopSize)));
+        }
+    }
+
+    rebuildWaveformPeaks();
+    replaceEditedSampleInMemoryAndDisk();
+    return true;
+}
+
 bool AudioEngine::reverseSelection(double startRatio, double endRatio)
 {
     const juce::ScopedLock sl(voiceLock);
@@ -1298,6 +1520,164 @@ bool AudioEngine::deverbSelection(double startRatio, double endRatio, float amou
         v->buffer = juce::AudioBuffer<float>(loadedVoice->buffer.getArrayOfWritePointers(), loadedVoice->buffer.getNumChannels(), loadedVoice->buffer.getNumSamples());
     }
 
+    rebuildWaveformPeaks();
+    replaceEditedSampleInMemoryAndDisk();
+    return true;
+}
+
+bool AudioEngine::adjustGainSelection(double startRatio, double endRatio, float gaindB)
+{
+    const juce::ScopedLock sl(voiceLock);
+    if (loadedVoice == nullptr || loadedVoice->buffer.getNumSamples() == 0)
+        return false;
+
+    int numSamples = loadedVoice->buffer.getNumSamples();
+    int startIdx = juce::jlimit(0, numSamples - 1, static_cast<int>(startRatio * numSamples));
+    int endIdx = juce::jlimit(startIdx + 1, numSamples, static_cast<int>(endRatio * numSamples));
+    int count = endIdx - startIdx;
+    if (count <= 0) return false;
+
+    float gainFactor = juce::Decibels::decibelsToGain(gaindB);
+    for (int ch = 0; ch < loadedVoice->buffer.getNumChannels(); ++ch)
+    {
+        loadedVoice->buffer.applyGain(ch, startIdx, count, gainFactor);
+    }
+    rebuildWaveformPeaks();
+    replaceEditedSampleInMemoryAndDisk();
+    return true;
+}
+
+bool AudioEngine::applyHighPassFilter(double startRatio, double endRatio, float cutoffHz)
+{
+    const juce::ScopedLock sl(voiceLock);
+    if (loadedVoice == nullptr || loadedVoice->buffer.getNumSamples() == 0)
+        return false;
+
+    int numSamples = loadedVoice->buffer.getNumSamples();
+    int startIdx = juce::jlimit(0, numSamples - 1, static_cast<int>(startRatio * numSamples));
+    int endIdx = juce::jlimit(startIdx + 1, numSamples, static_cast<int>(endRatio * numSamples));
+    int count = endIdx - startIdx;
+    if (count <= 0) return false;
+
+    double sr = (currentFileSampleRate > 0.0) ? currentFileSampleRate : 44100.0;
+    juce::IIRFilter hpFilter;
+    hpFilter.setCoefficients(juce::IIRCoefficients::makeHighPass(sr, cutoffHz));
+
+    for (int ch = 0; ch < loadedVoice->buffer.getNumChannels(); ++ch)
+    {
+        hpFilter.reset();
+        hpFilter.processSamples(loadedVoice->buffer.getWritePointer(ch, startIdx), count);
+    }
+    rebuildWaveformPeaks();
+    replaceEditedSampleInMemoryAndDisk();
+    return true;
+}
+
+bool AudioEngine::autoTrimSilence()
+{
+    const juce::ScopedLock sl(voiceLock);
+    if (loadedVoice == nullptr || loadedVoice->buffer.getNumSamples() == 0)
+        return false;
+
+    int numSamples = loadedVoice->buffer.getNumSamples();
+    int numChannels = loadedVoice->buffer.getNumChannels();
+    const float silenceThreshold = 0.003f; // ~ -50dB
+
+    int startSample = 0;
+    for (int i = 0; i < numSamples; ++i)
+    {
+        bool loud = false;
+        for (int ch = 0; ch < numChannels; ++ch)
+        {
+            if (std::abs(loadedVoice->buffer.getSample(ch, i)) > silenceThreshold)
+            {
+                loud = true;
+                break;
+            }
+        }
+        if (loud) { startSample = i; break; }
+    }
+
+    int endSample = numSamples - 1;
+    for (int i = numSamples - 1; i >= startSample; --i)
+    {
+        bool loud = false;
+        for (int ch = 0; ch < numChannels; ++ch)
+        {
+            if (std::abs(loadedVoice->buffer.getSample(ch, i)) > silenceThreshold)
+            {
+                loud = true;
+                break;
+            }
+        }
+        if (loud) { endSample = i; break; }
+    }
+
+    if (startSample >= endSample)
+        return false;
+
+    double newStartRatio = static_cast<double>(startSample) / numSamples;
+    double newEndRatio = static_cast<double>(endSample + 1) / numSamples;
+    return cropLoadedSample(newStartRatio, newEndRatio);
+}
+
+bool AudioEngine::invertPhaseSelection(double startRatio, double endRatio)
+{
+    const juce::ScopedLock sl(voiceLock);
+    if (loadedVoice == nullptr || loadedVoice->buffer.getNumSamples() == 0)
+        return false;
+
+    int numSamples = loadedVoice->buffer.getNumSamples();
+    int startIdx = juce::jlimit(0, numSamples - 1, static_cast<int>(startRatio * numSamples));
+    int endIdx = juce::jlimit(startIdx + 1, numSamples, static_cast<int>(endRatio * numSamples));
+    int count = endIdx - startIdx;
+    if (count <= 0) return false;
+
+    for (int ch = 0; ch < loadedVoice->buffer.getNumChannels(); ++ch)
+    {
+        loadedVoice->buffer.applyGain(ch, startIdx, count, -1.0f);
+    }
+    rebuildWaveformPeaks();
+    replaceEditedSampleInMemoryAndDisk();
+    return true;
+}
+
+bool AudioEngine::changeSampleSpeed(double speedMultiplier)
+{
+    const juce::ScopedLock sl(voiceLock);
+    if (loadedVoice == nullptr || loadedVoice->buffer.getNumSamples() == 0 || speedMultiplier <= 0.05)
+        return false;
+
+    int origSamples = loadedVoice->buffer.getNumSamples();
+    int newNumSamples = static_cast<int>(origSamples / speedMultiplier);
+    if (newNumSamples <= 10) return false;
+
+    int numChannels = loadedVoice->buffer.getNumChannels();
+    juce::AudioBuffer<float> resampledBuffer(numChannels, newNumSamples);
+
+    for (int ch = 0; ch < numChannels; ++ch)
+    {
+        const float* src = loadedVoice->buffer.getReadPointer(ch);
+        float* dst = resampledBuffer.getWritePointer(ch);
+        for (int i = 0; i < newNumSamples; ++i)
+        {
+            double srcPos = i * speedMultiplier;
+            int srcIdx = static_cast<int>(srcPos);
+            double frac = srcPos - srcIdx;
+            if (srcIdx >= origSamples - 1)
+            {
+                dst[i] = src[origSamples - 1];
+            }
+            else
+            {
+                dst[i] = static_cast<float>((1.0 - frac) * src[srcIdx] + frac * src[srcIdx + 1]);
+            }
+        }
+    }
+
+    loadedVoice->buffer = std::move(resampledBuffer);
+    sampleStartRatio = 0.0;
+    sampleEndRatio = 1.0;
     rebuildWaveformPeaks();
     replaceEditedSampleInMemoryAndDisk();
     return true;

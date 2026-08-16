@@ -113,8 +113,16 @@ public:
     bool cropLoadedSample(double startRatio, double endRatio);
     bool normalizeLoadedSample();
     bool silenceSelection(double startRatio, double endRatio);
+    bool silenceSpectralRegion(double startRatio, double endRatio, float minFreqHz, float maxFreqHz);
+    bool adjustSpectralRegionGain(double startRatio, double endRatio, float minFreqHz, float maxFreqHz, float gaindB);
+    bool isolateSpectralRegion(double startRatio, double endRatio, float minFreqHz, float maxFreqHz);
     bool reverseSelection(double startRatio, double endRatio);
     bool deverbSelection(double startRatio, double endRatio, float amount = 0.6f);
+    bool adjustGainSelection(double startRatio, double endRatio, float gaindB);
+    bool applyHighPassFilter(double startRatio, double endRatio, float cutoffHz = 80.0f);
+    bool autoTrimSilence();
+    bool invertPhaseSelection(double startRatio, double endRatio);
+    bool changeSampleSpeed(double speedMultiplier);
     bool applyFadesToBuffer(double fadeInMs, int fadeInType, double fadeOutMs, int fadeOutType);
     void rebuildWaveformPeaks();
 

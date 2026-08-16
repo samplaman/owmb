@@ -36,6 +36,12 @@ EditComponent::EditComponent(AudioEngine& engine)
     addAndMakeVisible(playSelButton);
 
     // ── Editing buttons ────────────────────────────────
+    selectAllButton.onClick = [this] { selectAllRegion(); };
+    addAndMakeVisible(selectAllButton);
+
+    deselectAllButton.onClick = [this] { deselectAllRegion(); };
+    addAndMakeVisible(deselectAllButton);
+
     cropButton.onClick = [this] { cropToSelection(); };
     addAndMakeVisible(cropButton);
 
@@ -49,6 +55,32 @@ EditComponent::EditComponent(AudioEngine& engine)
     };
     addAndMakeVisible(snapZeroCrossingButton);
 
+    // ── Spectral View & Removal Buttons ───────────────
+    spectralToggleButton.setClickingTogglesState(true);
+    spectralToggleButton.onClick = [this] {
+        isSpectralView = spectralToggleButton.getToggleState();
+        spectralToggleButton.setButtonText(isSpectralView ? "Spectral: ON" : "Spectral: OFF");
+        if (isSpectralView && !spectrogramGenerated)
+            generateSpectrogram();
+        updateControlVisibility();
+        repaint();
+    };
+    addAndMakeVisible(spectralToggleButton);
+
+    removeSpectralElementButton.onClick = [this] {
+        removeSpectralSelection();
+    };
+    addAndMakeVisible(removeSpectralElementButton);
+
+    boostSpectralButton.onClick = [this] { boostSpectralSelection(); };
+    addAndMakeVisible(boostSpectralButton);
+
+    attenuateSpectralButton.onClick = [this] { attenuateSpectralSelection(); };
+    addAndMakeVisible(attenuateSpectralButton);
+
+    isolateSpectralButton.onClick = [this] { isolateSpectralSelection(); };
+    addAndMakeVisible(isolateSpectralButton);
+
     // ── DSP Tools ──────────────────────────────────────
     silenceButton.onClick = [this] { silenceSelectedRegion(); };
     addAndMakeVisible(silenceButton);
@@ -58,6 +90,27 @@ EditComponent::EditComponent(AudioEngine& engine)
 
     normalizeButton.onClick = [this] { normalizeAudioPeak(); };
     addAndMakeVisible(normalizeButton);
+
+    gainBoostButton.onClick = [this] { audioEngine.adjustGainSelection(audioEngine.getSampleStartRatio(), audioEngine.getSampleEndRatio(), 3.0f); };
+    addAndMakeVisible(gainBoostButton);
+
+    gainCutButton.onClick = [this] { audioEngine.adjustGainSelection(audioEngine.getSampleStartRatio(), audioEngine.getSampleEndRatio(), -3.0f); };
+    addAndMakeVisible(gainCutButton);
+
+    autoTrimButton.onClick = [this] { audioEngine.autoTrimSilence(); };
+    addAndMakeVisible(autoTrimButton);
+
+    hpFilterButton.onClick = [this] { audioEngine.applyHighPassFilter(audioEngine.getSampleStartRatio(), audioEngine.getSampleEndRatio(), 80.0f); };
+    addAndMakeVisible(hpFilterButton);
+
+    invertPhaseButton.onClick = [this] { audioEngine.invertPhaseSelection(audioEngine.getSampleStartRatio(), audioEngine.getSampleEndRatio()); };
+    addAndMakeVisible(invertPhaseButton);
+
+    speed2xButton.onClick = [this] { audioEngine.changeSampleSpeed(2.0); };
+    addAndMakeVisible(speed2xButton);
+
+    speedHalfButton.onClick = [this] { audioEngine.changeSampleSpeed(0.5); };
+    addAndMakeVisible(speedHalfButton);
 
     deverbButton.onClick = [this] { deverbSelectedRegion(); };
     addAndMakeVisible(deverbButton);
@@ -304,13 +357,28 @@ void EditComponent::updateControlVisibility()
     loopToggleButton.setVisible(hasSamplerSample);
     cropButton.setVisible(hasSamplerSample);
     resetSelectionButton.setVisible(hasSamplerSample);
+    selectAllButton.setVisible(hasSamplerSample);
+    deselectAllButton.setVisible(hasSamplerSample);
     snapZeroCrossingButton.setVisible(hasSamplerSample);
     silenceButton.setVisible(hasSamplerSample);
     reverseButton.setVisible(hasSamplerSample);
     normalizeButton.setVisible(hasSamplerSample);
+    gainBoostButton.setVisible(hasSamplerSample);
+    gainCutButton.setVisible(hasSamplerSample);
+    autoTrimButton.setVisible(hasSamplerSample);
+    hpFilterButton.setVisible(hasSamplerSample);
+    invertPhaseButton.setVisible(hasSamplerSample);
+    speed2xButton.setVisible(hasSamplerSample);
+    speedHalfButton.setVisible(hasSamplerSample);
     deverbButton.setVisible(hasSamplerSample);
     bakeFadesButton.setVisible(hasSamplerSample);
     exportButton.setVisible(hasSamplerSample);
+    spectralToggleButton.setVisible(hasSamplerSample);
+    bool showSpectralTools = (hasSamplerSample && isSpectralView && hasSpectralBoxSelection);
+    removeSpectralElementButton.setVisible(showSpectralTools);
+    boostSpectralButton.setVisible(showSpectralTools);
+    attenuateSpectralButton.setVisible(showSpectralTools);
+    isolateSpectralButton.setVisible(showSpectralTools);
     loopInNudgeLeft.setVisible(hasSamplerSample);
     loopInNudgeRight.setVisible(hasSamplerSample);
     loopOutNudgeLeft.setVisible(hasSamplerSample);
@@ -362,6 +430,16 @@ void EditComponent::resized()
     playSelButton.setBounds(row1.removeFromLeft(80));
     row1.removeFromLeft(gap);
     loopToggleButton.setBounds(row1.removeFromLeft(65));
+    row1.removeFromLeft(gap);
+    spectralToggleButton.setBounds(row1.removeFromLeft(95));
+    row1.removeFromLeft(gap);
+    removeSpectralElementButton.setBounds(row1.removeFromLeft(125));
+    row1.removeFromLeft(gap);
+    boostSpectralButton.setBounds(row1.removeFromLeft(105));
+    row1.removeFromLeft(gap);
+    attenuateSpectralButton.setBounds(row1.removeFromLeft(105));
+    row1.removeFromLeft(gap);
+    isolateSpectralButton.setBounds(row1.removeFromLeft(110));
     row1.removeFromLeft(12);
     sampleNameLabel.setBounds(row1.removeFromLeft(180));
 
@@ -377,22 +455,40 @@ void EditComponent::resized()
     zoomLabel.setBounds(row1.removeFromRight(40));
 
     // Row 2: Range & DSP Action Tools
+    selectAllButton.setBounds(row2.removeFromLeft(88));
+    row2.removeFromLeft(gap);
+    deselectAllButton.setBounds(row2.removeFromLeft(98));
+    row2.removeFromLeft(gap);
     cropButton.setBounds(row2.removeFromLeft(60));
     row2.removeFromLeft(gap);
-    resetSelectionButton.setBounds(row2.removeFromLeft(65));
+    resetSelectionButton.setBounds(row2.removeFromLeft(64));
     row2.removeFromLeft(gap);
-    snapZeroCrossingButton.setBounds(row2.removeFromLeft(88));
-    row2.removeFromLeft(14); // Gap to DSP tools
+    snapZeroCrossingButton.setBounds(row2.removeFromLeft(84));
+    row2.removeFromLeft(10); // Gap to DSP tools
 
-    silenceButton.setBounds(row2.removeFromLeft(72));
+    silenceButton.setBounds(row2.removeFromLeft(70));
     row2.removeFromLeft(gap);
-    reverseButton.setBounds(row2.removeFromLeft(75));
+    reverseButton.setBounds(row2.removeFromLeft(74));
     row2.removeFromLeft(gap);
-    normalizeButton.setBounds(row2.removeFromLeft(88));
+    normalizeButton.setBounds(row2.removeFromLeft(86));
     row2.removeFromLeft(gap);
-    deverbButton.setBounds(row2.removeFromLeft(75));
+    gainBoostButton.setBounds(row2.removeFromLeft(54));
     row2.removeFromLeft(gap);
-    bakeFadesButton.setBounds(row2.removeFromLeft(92));
+    gainCutButton.setBounds(row2.removeFromLeft(54));
+    row2.removeFromLeft(gap);
+    autoTrimButton.setBounds(row2.removeFromLeft(84));
+    row2.removeFromLeft(gap);
+    hpFilterButton.setBounds(row2.removeFromLeft(72));
+    row2.removeFromLeft(gap);
+    invertPhaseButton.setBounds(row2.removeFromLeft(96));
+    row2.removeFromLeft(gap);
+    speed2xButton.setBounds(row2.removeFromLeft(76));
+    row2.removeFromLeft(gap);
+    speedHalfButton.setBounds(row2.removeFromLeft(86));
+    row2.removeFromLeft(gap);
+    deverbButton.setBounds(row2.removeFromLeft(72));
+    row2.removeFromLeft(gap);
+    bakeFadesButton.setBounds(row2.removeFromLeft(88));
 
     area.removeFromTop(8); // Gap
 
@@ -570,7 +666,10 @@ void EditComponent::paint(juce::Graphics& g)
     auto innerWf = wfBounds.reduced(6.0f, 6.0f);
 
     paintTimeRuler(g, innerWf);
-    paintWaveform(g, innerWf);
+    if (isSpectralView)
+        paintSpectrogram(g, innerWf);
+    else
+        paintWaveform(g, innerWf);
     paintFadeEnvelopes(g, innerWf);
     paintFadeHandles(g, innerWf);
     paintMarkers(g, innerWf);
@@ -1054,6 +1153,231 @@ void EditComponent::paintFadeHandles(juce::Graphics& g, juce::Rectangle<float> b
     }
 }
 
+void EditComponent::generateSpectrogram()
+{
+    juce::AudioBuffer<float> buf;
+    double sr = 44100.0;
+    if (!audioEngine.getAudioBufferCopy(buf, sr) || buf.getNumSamples() < 128)
+    {
+        spectrogramGenerated = false;
+        return;
+    }
+
+    constexpr int fftOrder = 10; // 1024 points for high spectral resolution
+    constexpr int fftSize = 1 << fftOrder;
+    constexpr int numBins = fftSize / 2;
+    int totalSamples = buf.getNumSamples();
+
+    int imgWidth = 600;
+    int imgHeight = 280;
+    spectrogramImage = juce::Image(juce::Image::RGB, imgWidth, imgHeight, true);
+
+    juce::dsp::FFT fft(fftOrder);
+    juce::dsp::WindowingFunction<float> window(fftSize, juce::dsp::WindowingFunction<float>::hann);
+
+    std::vector<std::vector<float>> binMagnitudes(imgWidth, std::vector<float>(imgHeight, 0.0f));
+    float maxMag = 0.0001f;
+
+    std::vector<float> fftBuffer(fftSize * 2, 0.0f);
+    const float* readPtr = buf.getReadPointer(0);
+
+    double nyquist = sr * 0.5;
+    double minFreq = 20.0;
+    double maxFreq = std::min(20000.0, nyquist);
+
+    for (int x = 0; x < imgWidth; ++x)
+    {
+        int sampleIdx = static_cast<int>((static_cast<double>(x) / imgWidth) * std::max(0, totalSamples - fftSize));
+        if (sampleIdx + fftSize > totalSamples)
+            sampleIdx = std::max(0, totalSamples - fftSize);
+
+        std::fill(fftBuffer.begin(), fftBuffer.end(), 0.0f);
+        std::copy(readPtr + sampleIdx, readPtr + sampleIdx + fftSize, fftBuffer.begin());
+        window.multiplyWithWindowingTable(fftBuffer.data(), fftSize);
+
+        fft.performRealOnlyForwardTransform(fftBuffer.data());
+
+        for (int y = 0; y < imgHeight; ++y)
+        {
+            double normY = 1.0 - (static_cast<double>(y) / imgHeight);
+            double freq = minFreq * std::pow(maxFreq / minFreq, normY);
+            int bin = juce::jlimit(0, numBins - 1, static_cast<int>((freq / nyquist) * numBins));
+
+            float real = fftBuffer[2 * bin];
+            float imag = fftBuffer[2 * bin + 1];
+            float mag = std::sqrt(real * real + imag * imag);
+
+            binMagnitudes[x][y] = mag;
+            if (mag > maxMag) maxMag = mag;
+        }
+    }
+
+    for (int x = 0; x < imgWidth; ++x)
+    {
+        for (int y = 0; y < imgHeight; ++y)
+        {
+            float mag = binMagnitudes[x][y];
+            float normMag = mag / maxMag;
+
+            float db = juce::Decibels::gainToDecibels(normMag, -60.0f);
+            float intensity = juce::jlimit(0.0f, 1.0f, (db + 60.0f) / 60.0f);
+
+            juce::Colour pixelCol;
+            if (intensity < 0.12f)
+            {
+                pixelCol = juce::Colour(0x0a, 0x0e, 0x1a);
+            }
+            else if (intensity < 0.35f)
+            {
+                float t = (intensity - 0.12f) / 0.23f;
+                pixelCol = juce::Colour(0x0a, 0x0e, 0x1a).interpolatedWith(juce::Colour(0x00, 0x99, 0xff), t);
+            }
+            else if (intensity < 0.65f)
+            {
+                float t = (intensity - 0.35f) / 0.30f;
+                pixelCol = juce::Colour(0x00, 0x99, 0xff).interpolatedWith(juce::Colour(0x00, 0xff, 0x88), t);
+            }
+            else if (intensity < 0.88f)
+            {
+                float t = (intensity - 0.65f) / 0.23f;
+                pixelCol = juce::Colour(0x00, 0xff, 0x88).interpolatedWith(juce::Colour(0xff, 0xd7, 0x00), t);
+            }
+            else
+            {
+                float t = (intensity - 0.88f) / 0.12f;
+                pixelCol = juce::Colour(0xff, 0xd7, 0x00).interpolatedWith(juce::Colour(0xff, 0x00, 0x7f), t);
+            }
+
+            spectrogramImage.setPixelAt(x, y, pixelCol);
+        }
+    }
+
+    spectrogramGenerated = true;
+}
+
+void EditComponent::paintSpectrogram(juce::Graphics& g, juce::Rectangle<float> bounds)
+{
+    if (!spectrogramGenerated || spectrogramImage.isNull())
+    {
+        generateSpectrogram();
+    }
+
+    if (spectrogramGenerated && !spectrogramImage.isNull())
+    {
+        g.drawImage(spectrogramImage, bounds, juce::RectanglePlacement::stretchToFit);
+    }
+
+    g.setFont(juce::Font(9.0f).boldened());
+    g.setColour(OpenWavLookAndFeel::textSecondary.withAlpha(0.85f));
+    g.drawText("20kHz", bounds.getX() + 4, bounds.getY() + 2, 45, 12, juce::Justification::left);
+    g.drawText("5kHz", bounds.getX() + 4, bounds.getY() + bounds.getHeight() * 0.25f, 45, 12, juce::Justification::left);
+    g.drawText("1kHz", bounds.getX() + 4, bounds.getY() + bounds.getHeight() * 0.50f, 45, 12, juce::Justification::left);
+    g.drawText("100Hz", bounds.getX() + 4, bounds.getY() + bounds.getHeight() * 0.75f, 45, 12, juce::Justification::left);
+    g.drawText("20Hz", bounds.getX() + 4, bounds.getBottom() - 14, 45, 12, juce::Justification::left);
+
+    if (hasSpectralBoxSelection || dragTarget == DragTarget::SelectingSpectralBox)
+    {
+        juce::Graphics::ScopedSaveState saveState(g);
+        g.reduceClipRegion(bounds.toNearestInt());
+
+        float startX = ratioToX(spectralTimeStart, bounds);
+        float endX = ratioToX(spectralTimeEnd, bounds);
+        float boxW = std::max(4.0f, endX - startX);
+
+        double minF = 20.0;
+        double maxF = 20000.0;
+        double normLow = juce::jlimit(0.0, 1.0, std::log(std::max(minF, static_cast<double>(spectralFreqLow)) / minF) / std::log(maxF / minF));
+        double normHigh = juce::jlimit(0.0, 1.0, std::log(std::max(minF, static_cast<double>(spectralFreqHigh)) / minF) / std::log(maxF / minF));
+
+        float topY = bounds.getBottom() - static_cast<float>(normHigh) * bounds.getHeight();
+        float bottomY = bounds.getBottom() - static_cast<float>(normLow) * bounds.getHeight();
+        float boxH = std::max(4.0f, bottomY - topY);
+
+        juce::Rectangle<float> boxRect(startX, topY, boxW, boxH);
+        boxRect = boxRect.getIntersection(bounds);
+
+        if (!boxRect.isEmpty())
+        {
+            g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.25f));
+            g.fillRect(boxRect);
+            g.setColour(OpenWavLookAndFeel::accentCyan);
+            g.drawRect(boxRect, 1.5f);
+        }
+
+        juce::String specStr = juce::String::formatted("Spectral: %.2fs - %.2fs | %.0fHz - %.0fHz",
+                                                       spectralTimeStart * totalDurationSecs,
+                                                       spectralTimeEnd * totalDurationSecs,
+                                                       spectralFreqLow, spectralFreqHigh);
+
+        g.setFont(juce::Font(10.0f).boldened());
+        int w = g.getCurrentFont().getStringWidth(specStr) + 16;
+        auto pillRect = juce::Rectangle<float>(bounds.getX() + 10.0f, bounds.getY() + 8.0f, w, 18.0f);
+        g.setColour(OpenWavLookAndFeel::bgDark.withAlpha(0.85f));
+        g.fillRoundedRectangle(pillRect, 4.0f);
+        g.setColour(OpenWavLookAndFeel::accentCyan);
+        g.drawRoundedRectangle(pillRect, 4.0f, 1.0f);
+        g.drawText(specStr, pillRect, juce::Justification::centred);
+    }
+}
+
+void EditComponent::removeSpectralSelection()
+{
+    if (totalDurationSecs <= 0.0 || !hasSpectralBoxSelection) return;
+
+    if (audioEngine.silenceSpectralRegion(spectralTimeStart, spectralTimeEnd, spectralFreqLow, spectralFreqHigh))
+    {
+        hasSpectralBoxSelection = false;
+        spectrogramGenerated = false;
+        if (isSpectralView)
+            generateSpectrogram();
+        updateControlVisibility();
+        repaint();
+    }
+}
+
+void EditComponent::boostSpectralSelection()
+{
+    if (totalDurationSecs <= 0.0 || !hasSpectralBoxSelection) return;
+
+    if (audioEngine.adjustSpectralRegionGain(spectralTimeStart, spectralTimeEnd, spectralFreqLow, spectralFreqHigh, 6.0f))
+    {
+        spectrogramGenerated = false;
+        if (isSpectralView)
+            generateSpectrogram();
+        updateControlVisibility();
+        repaint();
+    }
+}
+
+void EditComponent::attenuateSpectralSelection()
+{
+    if (totalDurationSecs <= 0.0 || !hasSpectralBoxSelection) return;
+
+    if (audioEngine.adjustSpectralRegionGain(spectralTimeStart, spectralTimeEnd, spectralFreqLow, spectralFreqHigh, -6.0f))
+    {
+        spectrogramGenerated = false;
+        if (isSpectralView)
+            generateSpectrogram();
+        updateControlVisibility();
+        repaint();
+    }
+}
+
+void EditComponent::isolateSpectralSelection()
+{
+    if (totalDurationSecs <= 0.0 || !hasSpectralBoxSelection) return;
+
+    if (audioEngine.isolateSpectralRegion(spectralTimeStart, spectralTimeEnd, spectralFreqLow, spectralFreqHigh))
+    {
+        hasSpectralBoxSelection = false;
+        spectrogramGenerated = false;
+        if (isSpectralView)
+            generateSpectrogram();
+        updateControlVisibility();
+        repaint();
+    }
+}
+
 // ─────────────────────────────────────────────────────────
 //  Selection Info Pill Overlay
 // ─────────────────────────────────────────────────────────
@@ -1092,6 +1416,26 @@ void EditComponent::paintSelectionInfoOverlay(juce::Graphics& g, juce::Rectangle
 // ─────────────────────────────────────────────────────────
 //  Crop & Reset Actions
 // ─────────────────────────────────────────────────────────
+void EditComponent::selectAllRegion()
+{
+    if (totalDurationSecs <= 0.0) return;
+    audioEngine.setSampleRange(0.0, 1.0);
+    loopInRatio = 0.0;
+    loopOutRatio = 1.0;
+    loopMarkersSet = true;
+    repaint();
+}
+
+void EditComponent::deselectAllRegion()
+{
+    if (totalDurationSecs <= 0.0) return;
+    audioEngine.setSampleRange(0.0, 1.0);
+    loopInRatio = 0.0;
+    loopOutRatio = 1.0;
+    loopMarkersSet = false;
+    repaint();
+}
+
 void EditComponent::cropToSelection()
 {
     if (totalDurationSecs <= 0.0 || !audioEngine.isCurrentSampleInSampler()) return;
@@ -1190,6 +1534,19 @@ void EditComponent::playSelectionOnly()
 // ─────────────────────────────────────────────────────────
 bool EditComponent::keyPressed(const juce::KeyPress& key)
 {
+    if (key.getModifiers().isCtrlDown() || key.getModifiers().isCommandDown())
+    {
+        if (key.getKeyCode() == 'A' || key.getKeyCode() == 'a')
+        {
+            selectAllRegion();
+            return true;
+        }
+        if (key.getKeyCode() == 'D' || key.getKeyCode() == 'd')
+        {
+            deselectAllRegion();
+            return true;
+        }
+    }
     if (key == juce::KeyPress::spaceKey)
     {
         playPauseButton.triggerClick();
@@ -1197,8 +1554,21 @@ bool EditComponent::keyPressed(const juce::KeyPress& key)
     }
     if (key == juce::KeyPress::escapeKey)
     {
-        resetSelection();
+        deselectAllRegion();
         return true;
+    }
+    if (key.isKeyCode(juce::KeyPress::deleteKey) || key.isKeyCode(juce::KeyPress::backspaceKey))
+    {
+        if (isSpectralView && hasSpectralBoxSelection)
+        {
+            removeSpectralSelection();
+            return true;
+        }
+        else if (audioEngine.isCurrentSampleInSampler())
+        {
+            silenceSelectedRegion();
+            return true;
+        }
     }
     if (key.getKeyCode() == 'S' || key.getKeyCode() == 's')
     {
@@ -1218,7 +1588,7 @@ bool EditComponent::keyPressed(const juce::KeyPress& key)
         repaint();
         return true;
     }
-    return false;
+    return Component::keyPressed(key);
 }
 
 // ─────────────────────────────────────────────────────────
@@ -1281,6 +1651,22 @@ void EditComponent::mouseDown(const juce::MouseEvent& e)
 
     double clickRatio = xToRatio(e.position.x, wfBounds);
     const float threshold = 12.0f;
+
+    if (isSpectralView)
+    {
+        dragTarget = DragTarget::SelectingSpectralBox;
+        spectralDragStartPos = e.position;
+        spectralTimeStart = clickRatio;
+        spectralTimeEnd = clickRatio;
+
+        float normY = juce::jlimit(0.0f, 1.0f, (wfBounds.getBottom() - e.position.y) / wfBounds.getHeight());
+        spectralFreqLow = static_cast<float>(20.0 * std::pow(20000.0 / 20.0, normY));
+        spectralFreqHigh = spectralFreqLow;
+        hasSpectralBoxSelection = true;
+        updateControlVisibility();
+        repaint();
+        return;
+    }
 
     // Check if clicking in time ruler area at top of waveform
     if (e.position.y <= wfBounds.getY() + 18.0f)
@@ -1361,6 +1747,27 @@ void EditComponent::mouseDrag(const juce::MouseEvent& e)
 
     auto wfBounds = getWaveformBounds().reduced(6.0f, 6.0f);
     double currentRatio = juce::jlimit(0.0, 1.0, xToRatio(e.position.x, wfBounds));
+
+    if (dragTarget == DragTarget::SelectingSpectralBox)
+    {
+        double startR = xToRatio(spectralDragStartPos.x, wfBounds);
+        spectralTimeStart = std::min(startR, currentRatio);
+        spectralTimeEnd = std::max(startR, currentRatio);
+
+        float normY1 = juce::jlimit(0.0f, 1.0f, (wfBounds.getBottom() - spectralDragStartPos.y) / wfBounds.getHeight());
+        float normY2 = juce::jlimit(0.0f, 1.0f, (wfBounds.getBottom() - e.position.y) / wfBounds.getHeight());
+
+        float f1 = static_cast<float>(20.0 * std::pow(20000.0 / 20.0, normY1));
+        float f2 = static_cast<float>(20.0 * std::pow(20000.0 / 20.0, normY2));
+
+        spectralFreqLow = std::min(f1, f2);
+        spectralFreqHigh = std::max(f1, f2);
+
+        hasSpectralBoxSelection = true;
+        updateControlVisibility();
+        repaint();
+        return;
+    }
 
     double startR = audioEngine.getSampleStartRatio();
     double endR = audioEngine.getSampleEndRatio();
@@ -1445,6 +1852,11 @@ void EditComponent::mouseUp(const juce::MouseEvent& /*e*/)
     {
         bakeFadesIntoBuffer();
     }
+    else if (dragTarget == DragTarget::SelectingSpectralBox)
+    {
+        hasSpectralBoxSelection = (spectralTimeEnd - spectralTimeStart > 0.002);
+        updateControlVisibility();
+    }
 
     dragTarget = DragTarget::None;
     repaint();
@@ -1462,6 +1874,8 @@ void EditComponent::mouseDoubleClick(const juce::MouseEvent& /*e*/)
     loopMarkersSet = false;
     repaint();
 }
+
+
 
 void EditComponent::mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel)
 {
@@ -1500,6 +1914,20 @@ void EditComponent::mouseWheelMove(const juce::MouseEvent& e, const juce::MouseW
 // ─────────────────────────────────────────────────────────
 //  AudioEngine Callbacks
 // ─────────────────────────────────────────────────────────
+void EditComponent::visibilityChanged()
+{
+    if (isVisible() && audioEngine.isCurrentSampleInSampler())
+    {
+        totalDurationSecs = audioEngine.getTotalLengthSeconds();
+        spectrogramGenerated = false;
+        hasSpectralBoxSelection = false;
+        if (isSpectralView)
+            generateSpectrogram();
+        updateControlVisibility();
+        repaint();
+    }
+}
+
 void EditComponent::playbackStateChanged(bool isPlaying)
 {
     playPauseButton.setButtonText(isPlaying ? "Pause" : "Play");
@@ -1535,15 +1963,28 @@ void EditComponent::sampleLoaded(const juce::String& filePath)
     }
 
     juce::File f(filePath);
+    bool isSameFile = (f == audioEngine.getCurrentFile());
+
     sampleNameLabel.setText(f.getFileName(), juce::dontSendNotification);
     totalDurationSecs = audioEngine.getTotalLengthSeconds();
-    currentPositionSecs = 0.0;
-    loopInRatio = 0.0;
-    loopOutRatio = 1.0;
-    loopMarkersSet = false;
-    zoomLevel = 1.0;
-    scrollOffset = 0.0;
-    zoomSlider.setValue(1.0, juce::dontSendNotification);
+
+    if (!isSameFile)
+    {
+        currentPositionSecs = 0.0;
+        loopInRatio = 0.0;
+        loopOutRatio = 1.0;
+        loopMarkersSet = false;
+        zoomLevel = 1.0;
+        scrollOffset = 0.0;
+        zoomSlider.setValue(1.0, juce::dontSendNotification);
+    }
+
+    hasSpectralBoxSelection = false;
+    spectrogramGenerated = false;
+    if (isSpectralView)
+    {
+        generateSpectrogram();
+    }
     updateControlVisibility();
     repaint();
 }

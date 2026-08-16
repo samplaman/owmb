@@ -251,18 +251,6 @@ WaveformTransportComponent::WaveformTransportComponent(AudioEngine& engine)
     };
     addAndMakeVisible(normalizeButton);
 
-    // One Shot Button
-    oneShotButton.setClickingTogglesState(true);
-    bool osEnabled = audioEngine.isOneShotEnabled();
-    oneShotButton.setToggleState(osEnabled, juce::dontSendNotification);
-    oneShotButton.setButtonText(osEnabled ? "1-Shot: ON" : "1-Shot: OFF");
-    oneShotButton.onClick = [this] {
-        bool enabled = oneShotButton.getToggleState();
-        audioEngine.setOneShotEnabled(enabled);
-        oneShotButton.setButtonText(enabled ? "1-Shot: ON" : "1-Shot: OFF");
-    };
-    addAndMakeVisible(oneShotButton);
-
     // Volume Slider
     volumeSlider.setSliderStyle(juce::Slider::LinearHorizontal);
     volumeSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
@@ -504,9 +492,6 @@ void WaveformTransportComponent::resized()
     topRow.removeFromLeft(6);
 
     normalizeButton.setBounds(topRow.removeFromLeft(95).withHeight(28));
-    topRow.removeFromLeft(6);
-
-    oneShotButton.setBounds(topRow.removeFromLeft(82).withHeight(28));
     topRow.removeFromLeft(12);
 
     volumeSlider.setBounds(topRow.removeFromRight(100).withHeight(28));

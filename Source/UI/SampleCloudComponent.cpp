@@ -47,12 +47,10 @@ SampleCloudComponent::SampleCloudComponent(TagDatabaseManager &db,
                                            AudioEngine &engine)
     : dbManager(db), audioEngine(engine) {
   zoomInButton.onClick = [this] {
-    zoomScale = juce::jlimit(0.3f, 4.0f, zoomScale * 1.25f);
-    repaint();
+    targetZoomScale = juce::jlimit(0.05f, 10.0f, targetZoomScale * 1.25f);
   };
   zoomOutButton.onClick = [this] {
-    zoomScale = juce::jlimit(0.3f, 4.0f, zoomScale * 0.8f);
-    repaint();
+    targetZoomScale = juce::jlimit(0.05f, 10.0f, targetZoomScale * 0.8f);
   };
   resetZoomButton.onClick = [this] { resetZoomAndPan(); };
 
@@ -209,30 +207,30 @@ SampleCloudComponent::calculateClusterLayoutInternal(
 
   size_t tagCount = outClusters.size();
   if (tagCount > 0) {
-    float baseRadius = 450.0f;
+    float baseRadius = 750.0f;
     float goldenAngle = 2.39996323f;
 
     for (size_t i = 0; i < tagCount; ++i) {
       auto tagLower = outClusters[i].tag.toLowerCase();
 
       if (tagLower.contains("kick"))
-        outClusters[i].centerPos = {-320.0f, -40.0f, -120.0f};
+        outClusters[i].centerPos = {-520.0f, -80.0f, -220.0f};
       else if (tagLower.contains("snare"))
-        outClusters[i].centerPos = {320.0f, -40.0f, 120.0f};
+        outClusters[i].centerPos = {520.0f, -80.0f, 220.0f};
       else if (tagLower.contains("bass"))
-        outClusters[i].centerPos = {0.0f, 320.0f, 180.0f};
+        outClusters[i].centerPos = {0.0f, 520.0f, 320.0f};
       else if (tagLower.contains("hat") || tagLower.contains("hihat"))
-        outClusters[i].centerPos = {0.0f, -320.0f, -180.0f};
+        outClusters[i].centerPos = {0.0f, -520.0f, -320.0f};
       else if (tagLower.contains("perc"))
-        outClusters[i].centerPos = {450.0f, 160.0f, -220.0f};
+        outClusters[i].centerPos = {680.0f, 240.0f, -350.0f};
       else if (tagLower.contains("synth") || tagLower.contains("lead"))
-        outClusters[i].centerPos = {-450.0f, -160.0f, 220.0f};
+        outClusters[i].centerPos = {-680.0f, -240.0f, 350.0f};
       else {
         float theta = static_cast<float>(i) * goldenAngle;
-        float r = baseRadius + (i * 65.0f);
+        float r = baseRadius + (i * 95.0f);
         float x = r * std::cos(theta);
         float z = r * std::sin(theta);
-        float y = (i % 2 == 0 ? 1.0f : -1.0f) * (60.0f + (i * 25.0f));
+        float y = (i % 2 == 0 ? 1.0f : -1.0f) * (90.0f + (i * 35.0f));
 
         outClusters[i].centerPos = {x, y, z};
       }
@@ -245,13 +243,13 @@ SampleCloudComponent::calculateClusterLayoutInternal(
           auto delta = outClusters[j].centerPos - outClusters[i].centerPos;
           float dist = std::sqrt(delta.x * delta.x + delta.y * delta.y +
                                  delta.z * delta.z);
-          float r1 = std::max(45.0f, 30.0f + std::sqrt(static_cast<float>(
+          float r1 = std::max(65.0f, 40.0f + std::sqrt(static_cast<float>(
                                                  outClusters[i].count)) *
-                                                 14.0f);
-          float r2 = std::max(45.0f, 30.0f + std::sqrt(static_cast<float>(
+                                                 18.0f);
+          float r2 = std::max(65.0f, 40.0f + std::sqrt(static_cast<float>(
                                                  outClusters[j].count)) *
-                                                 14.0f);
-          float minDist = r1 + r2 + 60.0f;
+                                                 18.0f);
+          float minDist = r1 + r2 + 90.0f;
 
           if (dist < minDist && dist > 0.01f) {
             float overlap = (minDist - dist) * 0.5f;
@@ -279,7 +277,7 @@ SampleCloudComponent::calculateClusterLayoutInternal(
     int totalInTag = tagTotalCounts[node.primaryTag];
 
     uint32_t nodeHash = static_cast<uint32_t>(node.item.filePath.hashCode() ^
-                                              (countIdx * 2654435761u));
+                                               (countIdx * 2654435761u));
 
     float phi = 2.39996323f;
     float uNorm = static_cast<float>(countIdx + 0.5f) /
@@ -288,17 +286,22 @@ SampleCloudComponent::calculateClusterLayoutInternal(
     float radiusAtY = std::sqrt(std::max(0.05f, 1.0f - yDir * yDir));
 
     float maxCloudRadius = std::max(
-        55.0f, 30.0f + std::sqrt(static_cast<float>(totalInTag)) * 16.0f);
+        120.0f, 60.0f + std::sqrt(static_cast<float>(totalInTag)) * 30.0f);
     float scatterFactor =
-        std::pow(static_cast<float>(nodeHash % 1000) / 1000.0f, 0.65f);
-    float rDist = maxCloudRadius * (0.12f + 0.88f * scatterFactor);
+        std::pow(static_cast<float>(nodeHash % 1000) / 1000.0f, 0.45f);
+    float rDist = maxCloudRadius * (0.25f + 0.75f * scatterFactor);
 
-    float theta = countIdx * phi + (nodeHash % 100) * 0.01f;
+    float theta = countIdx * phi + (nodeHash % 100) * 0.05f;
+    float jitterX = (static_cast<float>((nodeHash ^ 0xa5a5a5a5) % 100) - 50.0f) * 0.8f;
+    float jitterY = (static_cast<float>((nodeHash ^ 0x5a5a5a5a) % 100) - 50.0f) * 0.8f;
+    float jitterZ = (static_cast<float>((nodeHash ^ 0x3c3c3c3c) % 100) - 50.0f) * 0.8f;
+
     float xDir = radiusAtY * std::cos(theta);
     float zDir = radiusAtY * std::sin(theta);
 
-    node.targetPos = {cPos.x + rDist * xDir, cPos.y + rDist * yDir,
-                      cPos.z + rDist * zDir};
+    node.targetPos = {cPos.x + rDist * xDir + jitterX,
+                      cPos.y + rDist * yDir + jitterY,
+                      cPos.z + rDist * zDir + jitterZ};
     node.currentPos = node.targetPos;
   }
 
@@ -314,6 +317,7 @@ void SampleCloudComponent::selectItemById(const juce::String &itemId) {
   for (size_t i = 0; i < nodes.size(); ++i) {
     if (nodes[i].item.id == itemId) {
       selectedNodeIndex = static_cast<int>(i);
+      targetCameraCenterPos = nodes[i].targetPos;
       repaint();
       break;
     }
@@ -329,7 +333,7 @@ void SampleCloudComponent::paint(juce::Graphics &g) {
     return;
   }
 
-  // Draw vignette
+  // Draw clean high-contrast vignette
   bool isLightMode = OpenWavLookAndFeel::bgCard.getBrightness() > 0.5f;
   float w = (float)getWidth();
   float h = (float)getHeight();
@@ -342,6 +346,8 @@ void SampleCloudComponent::paint(juce::Graphics &g) {
                                 0.0f, true);
   g.setGradientFill(vignette);
   g.fillRect(getLocalBounds());
+
+
 
   // Draw 2D ring highlight over OpenGL surface
   if (hoveredNodeIndex >= 0 || selectedNodeIndex >= 0) {
@@ -462,6 +468,24 @@ void SampleCloudComponent::timerCallback() {
     needsRepaint = true;
   }
 
+  if (std::abs(targetZoomScale - zoomScale) > 0.0005f) {
+    zoomScale += (targetZoomScale - zoomScale) * 0.18f;
+    needsRepaint = true;
+  }
+
+  if (selectedNodeIndex >= 0 && selectedNodeIndex < (int)nodes.size()) {
+    targetCameraCenterPos = nodes[selectedNodeIndex].targetPos;
+  }
+
+  if (std::abs(targetCameraCenterPos.x - cameraCenterPos.x) > 0.1f ||
+      std::abs(targetCameraCenterPos.y - cameraCenterPos.y) > 0.1f ||
+      std::abs(targetCameraCenterPos.z - cameraCenterPos.z) > 0.1f) {
+    cameraCenterPos.x += (targetCameraCenterPos.x - cameraCenterPos.x) * 0.15f;
+    cameraCenterPos.y += (targetCameraCenterPos.y - cameraCenterPos.y) * 0.15f;
+    cameraCenterPos.z += (targetCameraCenterPos.z - cameraCenterPos.z) * 0.15f;
+    needsRepaint = true;
+  }
+
   if (!isPanning && !isRotating && !is2DMode && autoRotate) {
     targetRotY -= 0.0005f;
     needsRepaint = true;
@@ -474,8 +498,11 @@ void SampleCloudComponent::timerCallback() {
 }
 
 void SampleCloudComponent::resetZoomAndPan() {
+  selectedNodeIndex = -1;
+  targetZoomScale = 1.0f;
   zoomScale = 1.0f;
-  panOffset = {0.0f, 0.0f};
+  targetCameraCenterPos = {0.0f, 0.0f, 0.0f};
+  cameraCenterPos = {0.0f, 0.0f, 0.0f};
   targetRotX = 0.35f;
   targetRotY = 0.45f;
   is2DMode = false;
@@ -505,7 +532,7 @@ void SampleCloudComponent::mouseDown(const juce::MouseEvent &e) {
 
   if (e.mods.isShiftDown()) {
     isPanning = true;
-    dragStartPan = panOffset;
+    dragStartCenter = cameraCenterPos;
   } else {
     isRotating = true;
     dragStartRotX = targetRotX;
@@ -520,13 +547,20 @@ void SampleCloudComponent::mouseDrag(const juce::MouseEvent &e) {
   if (is2DMode && isRotating) {
     isRotating = false;
     isPanning = true;
-    dragStartPan = panOffset;
+    dragStartCenter = cameraCenterPos;
   }
 
   auto delta = e.position - mouseDragStartPos;
   if (isPanning) {
-    panOffset.x = dragStartPan.x - (delta.x * 2.0f / zoomScale);
-    panOffset.y = dragStartPan.y - (delta.y * 2.0f / zoomScale);
+    selectedNodeIndex = -1;
+    float crx = std::cos(targetRotX), srx = std::sin(targetRotX);
+    float cry = std::cos(targetRotY), sry = std::sin(targetRotY);
+    float dx = (delta.x * 2.0f / zoomScale);
+    float dy = (delta.y * 2.0f / zoomScale);
+
+    targetCameraCenterPos.x = dragStartCenter.x - (cry * dx + srx * sry * dy);
+    targetCameraCenterPos.y = dragStartCenter.y - (crx * dy);
+    targetCameraCenterPos.z = dragStartCenter.z - (sry * dx - srx * cry * dy);
   } else if (isRotating) {
     targetRotY = dragStartRotY - (delta.x * 0.01f);
     targetRotX = juce::jlimit(-juce::MathConstants<float>::halfPi,
@@ -543,6 +577,7 @@ void SampleCloudComponent::mouseUp(const juce::MouseEvent &e) {
   if (e.getDistanceFromDragStart() < 15.0f) {
     if (hoveredNodeIndex >= 0) {
       selectedNodeIndex = hoveredNodeIndex;
+      targetCameraCenterPos = nodes[selectedNodeIndex].targetPos;
       listeners.call([&](SampleCloudListener &l) {
         l.cloudSampleSelected(nodes[selectedNodeIndex].item);
       });
@@ -623,8 +658,8 @@ void SampleCloudComponent::mouseWheelMove(
     legendScrollOffset = juce::jlimit(-maxScroll, 0.0f, legendScrollOffset);
     repaint();
   } else {
-    zoomScale =
-        juce::jlimit(0.3f, 4.0f, zoomScale * (1.0f + wheel.deltaY * 2.0f));
+    targetZoomScale = juce::jlimit(
+        0.05f, 10.0f, targetZoomScale * std::pow(1.15f, wheel.deltaY * 3.0f));
     repaint();
   }
 }
@@ -651,6 +686,38 @@ juce::String SampleCloudComponent::getPrimaryCategoryTag(
     const std::set<juce::String> &tags) const {
   if (tags.empty())
     return "Untagged";
+
+  static const std::vector<juce::String> priorityList = {
+      "#Kick", "#SubKick", "#Snare", "#Rimshot", "#Clap", "#Snap",
+      "#OpenHat", "#ClosedHat", "#HiHat", "#Tom", "#Crash", "#Ride", "#Cymbal",
+      "#Shaker", "#Tambourine", "#Percussion",
+      "#SubBass", "#SynthBass", "#ReeseBass", "#808Bass", "#808", "#Bass",
+      "#Piano", "#Rhodes", "#Organ", "#Keys", "#AcousticGuitar", "#ElectricGuitar", "#Guitar",
+      "#Orchestral", "#Ensemble", "#Strings", "#Violin", "#Cello", "#Viola", "#Contrabass",
+      "#Brass", "#FrenchHorn", "#Trumpet", "#Trombone", "#Tuba",
+      "#Woodwinds", "#Flute", "#Piccolo", "#Oboe", "#Clarinet", "#Bassoon",
+      "#Timpani", "#TubularBells", "#Glockenspiel", "#Xylophone", "#Gong", "#Harp", "#Choir",
+      "#Sax", "#Marimba", "#Bell",
+      "#Acapella", "#VocalChop", "#Chant", "#Speech", "#Vocal",
+      "#SubDrop", "#Impact", "#Sweep", "#Downlifter", "#Riser", "#FX", "#Glitch", "#Atmosphere", "#Texture", "#Foley",
+      "#Synth", "#Lead", "#Pad", "#Pluck", "#Arp",
+      "#DrumLoop", "#MelodicLoop", "#VocalLoop", "#BassLoop", "#PercLoop", "#TopLoop", "#Loop",
+      "#OneShot"
+  };
+
+  for (const auto& prio : priorityList) {
+    if (tags.find(prio) != tags.end())
+      return prio;
+  }
+
+  for (const auto& t : tags) {
+    if (!t.endsWithIgnoreCase("BPM") && !t.startsWithIgnoreCase("#Key_") &&
+        t != "#Wav" && t != "#MP3" && t != "#FLAC" && t != "#Stereo" && t != "#Mono" &&
+        t != "#Short" && t != "#Long" && t != "#Punchy" && t != "#Bright" && t != "#Warm") {
+      return t;
+    }
+  }
+
   return *tags.begin();
 }
 
@@ -667,6 +734,16 @@ SampleCloudComponent::getColourForTag(const juce::String &tag) const {
     return juce::Colour(0xff2e7d32);
   if (t.contains("bass"))
     return juce::Colour(0xff673ab7);
+  if (t.contains("string") || t.contains("violin") || t.contains("cello") || t.contains("viola"))
+    return juce::Colour(0xffab47bc); // Purple
+  if (t.contains("brass") || t.contains("horn") || t.contains("trumpet") || t.contains("trombone"))
+    return juce::Colour(0xffff7043); // Bronze Orange
+  if (t.contains("woodwind") || t.contains("flute") || t.contains("oboe") || t.contains("clarinet"))
+    return juce::Colour(0xff26a69a); // Teal
+  if (t.contains("orchestral") || t.contains("symphon") || t.contains("ensemble"))
+    return juce::Colour(0xff8d6e63); // Mahogany
+  if (t.contains("timpani") || t.contains("choir") || t.contains("harp"))
+    return juce::Colour(0xffec407a); // Magenta
   if (t.contains("synth") || t.contains("lead"))
     return juce::Colour(0xffffb300);
   if (t.contains("loop"))
@@ -743,6 +820,7 @@ void SampleCloudComponent::newOpenGLContextCreated() {
       "uniform float time;\n"
       "uniform float isLightMode;\n"
       "out vec4 destColour;\n"
+      "out float viewDepth;\n"
 
       "float rand(vec2 co){ return fract(sin(dot(co.xy ,vec2(12.9898,78.233))) "
       "* 43758.5453); }\n"
@@ -751,29 +829,58 @@ void SampleCloudComponent::newOpenGLContextCreated() {
       "{\n"
       "    vec4 viewPos = viewMatrix * vec4(position, 1.0);\n"
       "    gl_Position = projectionMatrix * viewPos;\n"
-      "    float phase = position.x * 0.1 + position.y * 0.15 + position.z * "
-      "0.05;\n"
+      "    float phase = position.x * 0.1 + position.y * 0.15 + position.z * 0.05;\n"
       "    float noise = rand(position.xy * 0.01) * 0.5;\n"
-      "    float twinkle = 0.65 + 0.35 * sin(time * (1.5 + noise) + phase) * "
-      "cos(time * 0.8 + phase * 1.3);\n"
+      "    float twinkle = 0.65 + 0.35 * sin(time * (1.5 + noise) + phase) * cos(time * 0.8 + phase * 1.3);\n"
       "    float depthFade = clamp(600.0 / max(1.0, -viewPos.z), 0.15, 1.0);\n"
       "    destColour = colour;\n"
       "    if (isLightMode > 0.5) { destColour.rgb *= 0.85; }\n"
       "    destColour.a *= revealAlpha * depthFade * twinkle;\n"
+      "    viewDepth = max(0.0, -viewPos.z);\n"
       "    gl_PointSize = max(3.0, radius * 7500.0 / max(1.0, -viewPos.z));\n"
       "}\n";
 
   juce::String fragmentShader =
       "#version 150\n"
       "in vec4 destColour;\n"
+      "in float viewDepth;\n"
       "out vec4 finalColour;\n"
+      "uniform vec3 fogColor;\n"
+
+      "vec3 filmicToneMap(vec3 x) {\n"
+      "    float a = 2.51;\n"
+      "    float b = 0.03;\n"
+      "    float c = 2.43;\n"
+      "    float d = 0.59;\n"
+      "    float e = 0.14;\n"
+      "    return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);\n"
+      "}\n"
+
       "void main()\n"
       "{\n"
       "    vec2 p = gl_PointCoord * 2.0 - vec2(1.0);\n"
       "    float r = dot(p, p);\n"
       "    if (r > 1.0) discard;\n"
-      "    float alpha = 1.0 - smoothstep(0.8, 1.0, r);\n"
-      "    finalColour = vec4(destColour.rgb, destColour.a * alpha);\n"
+
+      "    // Soft Gaussian core + radial halo falloff for seamless overlapping node blending\n"
+      "    float core = smoothstep(0.45, 0.0, r);\n"
+      "    float halo = exp(-r * 3.2) * 0.65;\n"
+      "    float alpha = clamp(core + halo, 0.0, 1.0);\n"
+
+      "    // Vibrant Filter: Saturation & Contrast Boost\n"
+      "    vec3 col = destColour.rgb;\n"
+      "    float lum = dot(col, vec3(0.2126, 0.7152, 0.0722));\n"
+      "    vec3 vibrantCol = mix(vec3(lum), col, 1.42);\n"
+      "    vibrantCol = mix(vec3(0.5), vibrantCol, 1.15);\n"
+
+      "    // Atmospheric Flight Fog (Distance fog into background color)\n"
+      "    float fogDensity = 0.00035;\n"
+      "    float fogFactor = clamp(exp(-viewDepth * fogDensity), 0.0, 1.0);\n"
+      "    vec3 foggedRGB = mix(fogColor, vibrantCol, fogFactor);\n"
+
+      "    // ACES Tone Mapping for smooth vibrant highlights\n"
+      "    vec3 filmicRGB = filmicToneMap(foggedRGB * 1.25);\n"
+      "    finalColour = vec4(filmicRGB, destColour.a * alpha);\n"
       "}\n";
 
   shaderProgram.reset(new juce::OpenGLShaderProgram(openGLContext));
@@ -817,12 +924,12 @@ void SampleCloudComponent::renderOpenGL() {
 
   float aspect = getWidth() / (float)getHeight();
   auto projectionMatrix = juce::Matrix3D<float>::fromFrustum(
-      -aspect * 0.1f, aspect * 0.1f, -0.1f, 0.1f, 0.2f, 10000.0f);
+      -aspect * 0.1f, aspect * 0.1f, -0.1f, 0.1f, 0.2f, 1000000.0f);
 
   juce::Matrix3D<float> viewMatrix;
   viewMatrix = viewMatrix *
                juce::Matrix3D<float>::fromTranslation(
-                   {-panOffset.x, panOffset.y, -cameraDistance / zoomScale});
+                   {0.0f, 0.0f, -cameraDistance / zoomScale});
 
   // Matrix3D rotation requires manual building or usage of rotation(Vector3D)
   float crx = std::cos(rotX), srx = std::sin(rotX);
@@ -831,6 +938,10 @@ void SampleCloudComponent::renderOpenGL() {
                                   -srx * cry, 0.0f, -crx * sry, srx, crx * cry,
                                   0.0f, 0.0f, 0.0f, 0.0f, 1.0f);
   viewMatrix = viewMatrix * rotMatrix;
+
+  viewMatrix = viewMatrix *
+               juce::Matrix3D<float>::fromTranslation(
+                   {-cameraCenterPos.x, -cameraCenterPos.y, -cameraCenterPos.z});
 
   lastViewProjectionMatrix = projectionMatrix * viewMatrix;
 
@@ -850,6 +961,10 @@ void SampleCloudComponent::renderOpenGL() {
   openGLContext.extensions.glUniform1f(
       openGLContext.extensions.glGetUniformLocation(progID, "isLightMode"),
       isLightMode ? 1.0f : 0.0f);
+  auto bgCard = OpenWavLookAndFeel::bgCard;
+  openGLContext.extensions.glUniform3f(
+      openGLContext.extensions.glGetUniformLocation(progID, "fogColor"),
+      bgCard.getFloatRed(), bgCard.getFloatGreen(), bgCard.getFloatBlue());
 
   openGLContext.extensions.glBindBuffer(GL_ARRAY_BUFFER, vbo);
 

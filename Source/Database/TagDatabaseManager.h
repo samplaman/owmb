@@ -81,7 +81,7 @@ public:
     juce::String getDownloadFolder() const;
     void setDownloadFolder(const juce::String& folderPath);
 
-    // Theme Settings Persistence
+    // Theme & Rendering Settings Persistence
     bool isDarkMode() const;
     void setDarkMode(bool useDark);
     juce::String getPrimaryColourHex() const;

@@ -109,9 +109,10 @@ private:
     float targetRotY { 0.45f };
     float cameraDistance { 850.0f };
     float zoomScale { 1.0f };
-    juce::Point<float> panOffset { 0.0f, 0.0f };
-    
-    juce::Point<float> dragStartPan { 0.0f, 0.0f };
+    float targetZoomScale { 1.0f };
+    Vector3D cameraCenterPos { 0.0f, 0.0f, 0.0f };
+    Vector3D targetCameraCenterPos { 0.0f, 0.0f, 0.0f };
+    Vector3D dragStartCenter { 0.0f, 0.0f, 0.0f };
     juce::Point<float> mouseDragStartPos { 0.0f, 0.0f };
     float dragStartRotX { 0.0f };
     float dragStartRotY { 0.0f };

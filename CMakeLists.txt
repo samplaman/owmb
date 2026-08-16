@@ -135,6 +135,7 @@ target_link_libraries(OpenWav PRIVATE
     juce::juce_audio_utils
     juce::juce_core
     juce::juce_data_structures
+    juce::juce_dsp
     juce::juce_events
     juce::juce_graphics
     juce::juce_gui_basics

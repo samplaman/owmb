@@ -52,6 +52,7 @@ public:
     void handleNoteOff(juce::MidiKeyboardState* state, int midiChannel, int midiNoteNumber, float velocity) override;
     void handleIncomingMidiMessage(juce::MidiInput* source, const juce::MidiMessage& message) override;
 
+    void sampleLoaded(const juce::String& filePath) override;
     void pitchTrackingStateChanged(bool enabled) override;
     void oneShotStateChanged(bool enabled) override;
     void loopingStateChanged(bool enabled) override;
@@ -63,6 +64,8 @@ public:
     void timerCallback() override;
     void paint(juce::Graphics& g) override;
     void resized() override;
+    void visibilityChanged() override;
+    void refreshAllPadWaveforms();
 
     void mouseDown(const juce::MouseEvent& e) override;
     void mouseUp(const juce::MouseEvent& e) override;

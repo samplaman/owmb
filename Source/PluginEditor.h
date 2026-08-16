@@ -38,7 +38,9 @@ public:
     ~OpenWavAudioProcessorEditor() override;
 
     void paint(juce::Graphics& g) override;
+    void paintOverChildren(juce::Graphics& g) override;
     void resized() override;
+    void triggerExitSequence();
 
     // HeaderBarListener Callbacks
     void searchTextChanged(const juce::String& newText) override;
@@ -79,6 +81,7 @@ private:
     void timerCallback() override;
 
     bool uiReady = false;
+    bool isExiting = false;
 
     OpenWavAudioProcessor& audioProcessor;
     OpenWavLookAndFeel lookAndFeel;
