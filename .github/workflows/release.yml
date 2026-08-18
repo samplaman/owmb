@@ -204,7 +204,7 @@ jobs:
           # Package Zip file
           Compress-Archive -Path "dist\OWMB-Windows-11-x64\*" -DestinationPath "OWMB-Windows-11-x64.zip" -Force
 
-      - name: Package macOS Release (.zip and .dmg)
+      - name: Package macOS Release (.pkg and .dmg Installers)
         if: runner.os == 'macOS'
         run: |
           mkdir -p dist/OWMB-${{ matrix.os_name }}
@@ -212,31 +212,45 @@ jobs:
           find build/OpenWav_artefacts -name "OWMB.component" -exec cp -R {} dist/OWMB-${{ matrix.os_name }}/ \; 2>/dev/null || true
           find build/OpenWav_artefacts -name "OWMB.app" -exec cp -R {} dist/OWMB-${{ matrix.os_name }}/ \; 2>/dev/null || true
           
-          # Create ZIP archive
-          cd dist/OWMB-${{ matrix.os_name }}
-          zip -r -y ../../OWMB-${{ matrix.os_name }}.zip .
-          cd ../..
+          # 1. Create Native macOS PKG Installer
+          PKG_STAGING="build/pkg_root_${{ matrix.os_name }}"
+          rm -rf "$PKG_STAGING"
+          mkdir -p "$PKG_STAGING/Applications" \
+                   "$PKG_STAGING/Library/Audio/Plug-Ins/VST3" \
+                   "$PKG_STAGING/Library/Audio/Plug-Ins/Components"
 
-          # Create DMG image
-          hdiutil create -volname "OWMB" -srcfolder "dist/OWMB-${{ matrix.os_name }}" -ov -format UDZO "OWMB-${{ matrix.os_name }}.dmg"
+          cp -R dist/OWMB-${{ matrix.os_name }}/OWMB.app "$PKG_STAGING/Applications/"
+          cp -R dist/OWMB-${{ matrix.os_name }}/OWMB.vst3 "$PKG_STAGING/Library/Audio/Plug-Ins/VST3/"
+          cp -R dist/OWMB-${{ matrix.os_name }}/OWMB.component "$PKG_STAGING/Library/Audio/Plug-Ins/Components/"
+
+          pkgbuild --root "$PKG_STAGING" \
+            --identifier "com.samplaman.owmb.pkg" \
+            --version "${{ inputs.tag_name || (startsWith(github.ref, 'refs/tags/') && github.ref_name || '1.0.1') }}" \
+            --install-location "/" \
+            "OWMB-${{ matrix.os_name }}-Installer.pkg"
+
+          # Copy PKG Installer into distribution folder
+          cp "OWMB-${{ matrix.os_name }}-Installer.pkg" dist/OWMB-${{ matrix.os_name }}/
+
+          # 2. Create DMG Disk Image Installer with shortcuts
+          ln -sf /Applications "dist/OWMB-${{ matrix.os_name }}/Applications (Shortcut)"
+          ln -sf "/Library/Audio/Plug-Ins/VST3" "dist/OWMB-${{ matrix.os_name }}/VST3 Plugins (Shortcut)"
+          ln -sf "/Library/Audio/Plug-Ins/Components" "dist/OWMB-${{ matrix.os_name }}/AU Plugins (Shortcut)"
+
+          hdiutil create -volname "OWMB Installer" -srcfolder "dist/OWMB-${{ matrix.os_name }}" -ov -format UDZO "OWMB-${{ matrix.os_name }}-Installer.dmg"
+          cp "OWMB-${{ matrix.os_name }}-Installer.dmg" "OWMB-${{ matrix.os_name }}.dmg"
+
           if [ -n "$MACOS_CERTIFICATE_NAME" ]; then
-            echo "Signing DMG with $MACOS_CERTIFICATE_NAME..."
-            codesign --force --sign "$MACOS_CERTIFICATE_NAME" --timestamp "OWMB-${{ matrix.os_name }}.dmg"
-            codesign --verify --verbose=2 "OWMB-${{ matrix.os_name }}.dmg"
+            echo "Signing DMG Installer with $MACOS_CERTIFICATE_NAME..."
+            codesign --force --sign "$MACOS_CERTIFICATE_NAME" --timestamp "OWMB-${{ matrix.os_name }}-Installer.dmg"
+            codesign --verify --verbose=2 "OWMB-${{ matrix.os_name }}-Installer.dmg"
           fi
 
       - name: Notarize and Staple macOS Release
         if: runner.os == 'macOS' && env.APPLE_ID != '' && env.APPLE_APP_SPECIFIC_PASSWORD != '' && env.APPLE_TEAM_ID != ''
         run: |
-          echo "Submitting OWMB-${{ matrix.os_name }}.zip to Apple Notary Service..."
-          xcrun notarytool submit "OWMB-${{ matrix.os_name }}.zip" \
-            --apple-id "$APPLE_ID" \
-            --password "$APPLE_APP_SPECIFIC_PASSWORD" \
-            --team-id "$APPLE_TEAM_ID" \
-            --wait
-
-          echo "Submitting OWMB-${{ matrix.os_name }}.dmg to Apple Notary Service..."
-          xcrun notarytool submit "OWMB-${{ matrix.os_name }}.dmg" \
+          echo "Submitting OWMB-${{ matrix.os_name }}-Installer.dmg to Apple Notary Service..."
+          xcrun notarytool submit "OWMB-${{ matrix.os_name }}-Installer.dmg" \
             --apple-id "$APPLE_ID" \
             --password "$APPLE_APP_SPECIFIC_PASSWORD" \
             --team-id "$APPLE_TEAM_ID" \
@@ -247,12 +261,9 @@ jobs:
             xcrun stapler staple "$app"
           done
 
-          echo "Stapling notarization ticket to DMG..."
-          xcrun stapler staple "OWMB-${{ matrix.os_name }}.dmg"
-
-          # Re-package zip with stapled ticket
-          cd dist/OWMB-${{ matrix.os_name }}
-          zip -r -y ../../OWMB-${{ matrix.os_name }}.zip .
+          echo "Stapling notarization ticket to DMG Installer..."
+          xcrun stapler staple "OWMB-${{ matrix.os_name }}-Installer.dmg"
+          cp "OWMB-${{ matrix.os_name }}-Installer.dmg" "OWMB-${{ matrix.os_name }}.dmg"
 
       - name: Package Linux Distros Release (.tar.gz)
         if: runner.os == 'Linux'
@@ -289,7 +300,8 @@ jobs:
         with:
           name: OWMB-${{ matrix.os_name }}
           path: |
-            OWMB-${{ matrix.os_name }}.zip
+            OWMB-${{ matrix.os_name }}-Installer.pkg
+            OWMB-${{ matrix.os_name }}-Installer.dmg
             OWMB-${{ matrix.os_name }}.dmg
 
   release:
@@ -336,9 +348,11 @@ jobs:
             OWMB-MicrosoftStore-Installer.exe
             OWMB.msix
             OWMB-Windows-11-x64.zip
-            OWMB-macOS-Universal.zip
+            OWMB-macOS-Universal-Installer.pkg
+            OWMB-macOS-Universal-Installer.dmg
             OWMB-macOS-Universal.dmg
-            OWMB-macOS-Monterey-Intel-x64.zip
+            OWMB-macOS-Monterey-Intel-x64-Installer.pkg
+            OWMB-macOS-Monterey-Intel-x64-Installer.dmg
             OWMB-macOS-Monterey-Intel-x64.dmg
             OWMB-Linux-Distros-x64.tar.gz
 

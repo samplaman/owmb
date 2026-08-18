@@ -27,8 +27,8 @@ Pre-built binaries and installers for **Windows 11**, **macOS** (Universal and I
 - **Microsoft Store / Standalone (.exe)**: `OWMB-MicrosoftStore-Standalone.exe` (Unzipped Direct Executable)
 - **Windows Installer (.exe)**: `OWMB-MicrosoftStore-Installer.exe` / `OWMB-Installer.exe` (Unzipped Setup Installer)
 - **Windows 11 Bundle (.zip)**: `OWMB-Windows-11-x64.zip` (VST3 Plugin & Standalone `.exe`)
-- **macOS Monterey Intel (.zip)**: `OWMB-macOS-Monterey-Intel-x64.zip` (VST3 Plugin, AU & Standalone App for Intel macOS 12+)
-- **macOS Universal (.zip)**: `OWMB-macOS-Universal.zip` (VST3 Plugin, AU & Standalone App for Apple Silicon & Intel)
+- **macOS Universal Installer (.pkg / .dmg)**: `OWMB-macOS-Universal-Installer.pkg` / `OWMB-macOS-Universal-Installer.dmg` (VST3, AU & App for Apple Silicon & Intel)
+- **macOS Monterey Intel Installer (.pkg / .dmg)**: `OWMB-macOS-Monterey-Intel-x64-Installer.pkg` / `OWMB-macOS-Monterey-Intel-x64-Installer.dmg` (VST3, AU & App for Intel macOS 12+)
 - **Linux Distros (.tar.gz)**: `OWMB-Linux-Distros-x64.tar.gz` (VST3 Plugin & Standalone Executable)
 
 ---

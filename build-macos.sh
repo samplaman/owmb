@@ -123,26 +123,55 @@ fi
 
 # 4. Packaging
 echo "==> Packaging release into dist/$DIST_NAME..."
-rm -rf "dist/$DIST_NAME" "$DIST_NAME.zip" "$DIST_NAME.dmg"
+rm -rf "dist/$DIST_NAME" "$DIST_NAME.zip" "$DIST_NAME.dmg" "$DIST_NAME-Installer.dmg" "$DIST_NAME-Installer.pkg"
 mkdir -p "dist/$DIST_NAME"
 
 find "$BUILD_DIR/OpenWav_artefacts" -name "OWMB.vst3" -exec cp -R {} "dist/$DIST_NAME/" \; 2>/dev/null || true
 find "$BUILD_DIR/OpenWav_artefacts" -name "OWMB.component" -exec cp -R {} "dist/$DIST_NAME/" \; 2>/dev/null || true
 find "$BUILD_DIR/OpenWav_artefacts" -name "OWMB.app" -exec cp -R {} "dist/$DIST_NAME/" \; 2>/dev/null || true
 
-# 4a. Create ZIP Archive
-cd "dist/$DIST_NAME"
-zip -r -y "../../$DIST_NAME.zip" .
-cd ../..
+# 4a. Create Native macOS PKG Installer
+echo "==> Creating Native macOS PKG Installer: $DIST_NAME-Installer.pkg..."
+PKG_STAGING="build/pkg_root_$DIST_NAME"
+rm -rf "$PKG_STAGING"
+mkdir -p "$PKG_STAGING/Applications" \
+         "$PKG_STAGING/Library/Audio/Plug-Ins/VST3" \
+         "$PKG_STAGING/Library/Audio/Plug-Ins/Components"
 
-# 4b. Create DMG Disk Image
-echo "==> Creating Disk Image: $DIST_NAME.dmg..."
-hdiutil create -volname "OWMB" -srcfolder "dist/$DIST_NAME" -ov -format UDZO "$DIST_NAME.dmg"
+cp -R "dist/$DIST_NAME/OWMB.app" "$PKG_STAGING/Applications/"
+cp -R "dist/$DIST_NAME/OWMB.vst3" "$PKG_STAGING/Library/Audio/Plug-Ins/VST3/"
+cp -R "dist/$DIST_NAME/OWMB.component" "$PKG_STAGING/Library/Audio/Plug-Ins/Components/"
+
+INSTALLER_SIGN_ID=$(security find-identity -v 2>/dev/null | grep "Developer ID Installer:" | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/' || true)
+PKG_SIGN_ARG=()
+if [ -n "$INSTALLER_SIGN_ID" ]; then
+    echo "==> Auto-detected Developer ID Installer certificate: $INSTALLER_SIGN_ID"
+    PKG_SIGN_ARG=("--sign" "$INSTALLER_SIGN_ID")
+fi
+
+pkgbuild --root "$PKG_STAGING" \
+    --identifier "com.samplaman.owmb.pkg" \
+    --version "1.0.1" \
+    --install-location "/" \
+    "${PKG_SIGN_ARG[@]}" \
+    "$DIST_NAME-Installer.pkg"
+
+# Place the PKG installer inside the distribution staging folder for the DMG
+cp "$DIST_NAME-Installer.pkg" "dist/$DIST_NAME/"
+
+# 4b. Create DMG Disk Image Installer with shortcuts
+echo "==> Creating DMG Disk Image Installer: $DIST_NAME-Installer.dmg..."
+ln -sf /Applications "dist/$DIST_NAME/Applications (Shortcut)"
+ln -sf "/Library/Audio/Plug-Ins/VST3" "dist/$DIST_NAME/VST3 Plugins (Shortcut)"
+ln -sf "/Library/Audio/Plug-Ins/Components" "dist/$DIST_NAME/AU Plugins (Shortcut)"
+
+hdiutil create -volname "OWMB Installer" -srcfolder "dist/$DIST_NAME" -ov -format UDZO "$DIST_NAME-Installer.dmg"
+cp "$DIST_NAME-Installer.dmg" "$DIST_NAME.dmg" 2>/dev/null || true
 
 if [ -n "$SIGN_IDENTITY" ]; then
-    echo "==> Signing Disk Image: $DIST_NAME.dmg"
-    codesign --force --sign "$SIGN_IDENTITY" --timestamp "$DIST_NAME.dmg"
-    codesign --verify --verbose=2 "$DIST_NAME.dmg"
+    echo "==> Signing DMG Installer: $DIST_NAME-Installer.dmg"
+    codesign --force --sign "$SIGN_IDENTITY" --timestamp "$DIST_NAME-Installer.dmg"
+    codesign --verify --verbose=2 "$DIST_NAME-Installer.dmg"
 fi
 
 # 5. Notarization & Stapling (if enabled)
@@ -152,37 +181,35 @@ if [ "$DO_NOTARIZE" = true ]; then
         exit 1
     fi
 
-    echo "==> Submitting $DIST_NAME.zip to Apple Notary Service..."
-    xcrun notarytool submit "$DIST_NAME.zip" \
+    echo "==> Submitting $DIST_NAME-Installer.dmg to Apple Notary Service..."
+    xcrun notarytool submit "$DIST_NAME-Installer.dmg" \
         --apple-id "$APPLE_ID" \
         --password "$APPLE_APP_SPECIFIC_PASSWORD" \
         --team-id "$APPLE_TEAM_ID" \
         --wait
 
-    echo "==> Submitting $DIST_NAME.dmg to Apple Notary Service..."
-    xcrun notarytool submit "$DIST_NAME.dmg" \
-        --apple-id "$APPLE_ID" \
-        --password "$APPLE_APP_SPECIFIC_PASSWORD" \
-        --team-id "$APPLE_TEAM_ID" \
-        --wait
+    if [ -n "$INSTALLER_SIGN_ID" ]; then
+        echo "==> Submitting $DIST_NAME-Installer.pkg to Apple Notary Service..."
+        xcrun notarytool submit "$DIST_NAME-Installer.pkg" \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait
+        echo "==> Stapling notarization ticket to PKG Installer..."
+        xcrun stapler staple "$DIST_NAME-Installer.pkg"
+    fi
 
     echo "==> Stapling notarization ticket to Standalone .app..."
     for app in $(find "dist/$DIST_NAME" -name "OWMB.app"); do
         xcrun stapler staple "$app"
     done
 
-    echo "==> Stapling notarization ticket to DMG..."
-    xcrun stapler staple "$DIST_NAME.dmg"
-
-    # Re-package zip to include stapled ticket
-    echo "==> Updating $DIST_NAME.zip with stapled ticket..."
-    cd "dist/$DIST_NAME"
-    zip -r -y "../../$DIST_NAME.zip" .
-    cd ../..
+    echo "==> Stapling notarization ticket to DMG Installer..."
+    xcrun stapler staple "$DIST_NAME-Installer.dmg"
     echo "==> Notarization & Stapling Complete!"
 fi
 
 echo "==> Build and Packaging Complete!"
-echo "    Zip Archive: $DIST_NAME.zip"
-echo "    Disk Image:  $DIST_NAME.dmg"
-echo "    Contents in: dist/$DIST_NAME"
+echo "    PKG Installer: $DIST_NAME-Installer.pkg"
+echo "    DMG Installer: $DIST_NAME-Installer.dmg"
+echo "    Contents in:   dist/$DIST_NAME"
