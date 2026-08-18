@@ -156,9 +156,6 @@ pkgbuild --root "$PKG_STAGING" \
     "${PKG_SIGN_ARG[@]}" \
     "$DIST_NAME-Installer.pkg"
 
-# Place the PKG installer inside the distribution staging folder for the DMG
-cp "$DIST_NAME-Installer.pkg" "dist/$DIST_NAME/"
-
 # 4b. Create DMG Disk Image Installer with shortcuts
 echo "==> Creating DMG Disk Image Installer: $DIST_NAME-Installer.dmg..."
 ln -sf /Applications "dist/$DIST_NAME/Applications (Shortcut)"
