@@ -181,12 +181,35 @@ if [ "$DO_NOTARIZE" = true ]; then
         exit 1
     fi
 
+    staple_with_retry() {
+        local target="$1"
+        local max_attempts=8
+        local delay=15
+        echo "==> Stapling notarization ticket to $target..."
+        for ((i=1; i<=max_attempts; i++)); do
+            if xcrun stapler staple "$target"; then
+                echo "==> Successfully stapled ticket to $target on attempt $i"
+                return 0
+            fi
+            echo "Stapler attempt $i/$max_attempts failed (ticket still propagating in Apple CloudKit). Waiting ${delay}s before retry..."
+            sleep $delay
+        done
+        echo "Warning: Could not staple ticket to $target after $max_attempts attempts."
+        return 0
+    }
+
     echo "==> Submitting $DIST_NAME-Installer.dmg to Apple Notary Service..."
     xcrun notarytool submit "$DIST_NAME-Installer.dmg" \
         --apple-id "$APPLE_ID" \
         --password "$APPLE_APP_SPECIFIC_PASSWORD" \
         --team-id "$APPLE_TEAM_ID" \
         --wait
+
+    echo "Waiting 10s for Apple CloudKit ticket replication..."
+    sleep 10
+
+    echo "==> Stapling notarization ticket to DMG Installer..."
+    staple_with_retry "$DIST_NAME-Installer.dmg"
 
     if [ -n "$INSTALLER_SIGN_ID" ]; then
         echo "==> Submitting $DIST_NAME-Installer.pkg to Apple Notary Service..."
@@ -196,16 +219,9 @@ if [ "$DO_NOTARIZE" = true ]; then
             --team-id "$APPLE_TEAM_ID" \
             --wait
         echo "==> Stapling notarization ticket to PKG Installer..."
-        xcrun stapler staple "$DIST_NAME-Installer.pkg"
+        staple_with_retry "$DIST_NAME-Installer.pkg"
     fi
 
-    echo "==> Stapling notarization ticket to Standalone .app..."
-    for app in $(find "dist/$DIST_NAME" -name "OWMB.app"); do
-        xcrun stapler staple "$app"
-    done
-
-    echo "==> Stapling notarization ticket to DMG Installer..."
-    xcrun stapler staple "$DIST_NAME-Installer.dmg"
     echo "==> Notarization & Stapling Complete!"
 fi
 
