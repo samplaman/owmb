@@ -22,12 +22,13 @@
 
 ## Download & Releases
 
-Pre-built binaries and installers for **Windows 11**, **macOS**, and **Linux Distros** are available under [GitHub Releases](https://github.com/samplaman/owmb/releases).
+Pre-built binaries and installers for **Windows 11**, **macOS** (Universal and Intel Monterey), and **Linux Distros** are available under [GitHub Releases](https://github.com/samplaman/owmb/releases).
 
 - **Microsoft Store / Standalone (.exe)**: `OWMB-MicrosoftStore-Standalone.exe` (Unzipped Direct Executable)
 - **Windows Installer (.exe)**: `OWMB-MicrosoftStore-Installer.exe` / `OWMB-Installer.exe` (Unzipped Setup Installer)
 - **Windows 11 Bundle (.zip)**: `OWMB-Windows-11-x64.zip` (VST3 Plugin & Standalone `.exe`)
-- **macOS Universal (.zip)**: `OWMB-macOS-Universal.zip` (VST3 Plugin, AU & Standalone App)
+- **macOS Monterey Intel (.zip)**: `OWMB-macOS-Monterey-Intel-x64.zip` (VST3 Plugin, AU & Standalone App for Intel macOS 12+)
+- **macOS Universal (.zip)**: `OWMB-macOS-Universal.zip` (VST3 Plugin, AU & Standalone App for Apple Silicon & Intel)
 - **Linux Distros (.tar.gz)**: `OWMB-Linux-Distros-x64.tar.gz` (VST3 Plugin & Standalone Executable)
 
 ---
@@ -41,21 +42,40 @@ Pre-built binaries and installers for **Windows 11**, **macOS**, and **Linux Dis
 
 ### Build Steps
 
+#### macOS (Monterey Intel x86_64 or Universal)
 ```bash
-# 1. Clone the repository
+# Clone the repository
 git clone https://github.com/samplaman/owmb.git
 cd owmb
 
-# 2. Configure build directory with CMake
+# Option A: Use the macOS build helper script
+./build-macos.sh --monterey-intel   # For macOS Monterey (Intel x86_64)
+# or
+./build-macos.sh --universal        # For Universal binary (arm64 + x86_64)
+
+# Option B: Manual CMake configuration
+cmake -B build -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_OSX_ARCHITECTURES="x86_64" \
+  -DCMAKE_OSX_DEPLOYMENT_TARGET="12.0"
+cmake --build build --config Release -j 4
+```
+
+#### Windows & Linux
+```bash
+# Configure build directory with CMake
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 
-# 3. Compile VST3 & Standalone targets
+# Compile VST3 & Standalone targets
 cmake --build build --config Release -j 4
 ```
 
 The compiled binaries will be output in:
 - **VST3 Plugin**: `build/OpenWav_artefacts/Release/VST3/OWMB.vst3`
-- **Standalone App**: `build/OpenWav_artefacts/Release/Standalone/OWMB.exe`
+- **AU Plugin (macOS)**: `build/OpenWav_artefacts/Release/AU/OWMB.component`
+- **Standalone App**: `build/OpenWav_artefacts/Release/Standalone/OWMB.app` (macOS) or `OWMB.exe` (Windows)
+
+### macOS Code Signing & Notarization
+See [docs/MACOS_CODESIGNING_GUIDE.md](docs/MACOS_CODESIGNING_GUIDE.md) for full instructions on signing and notarizing with your Apple Developer Account (Developer ID Application).
 
 ---
 

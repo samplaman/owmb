@@ -8,8 +8,11 @@
 *.obj
 *.pdb
 *.ilk
+*.zip
+*.dmg
 
-# IDE & Config
+# OS & Editor
+.DS_Store
 .vs/
 .vscode/
 *.user
@@ -18,3 +21,4 @@
 
 # Agent/Brain metadata
 .gemini/
+

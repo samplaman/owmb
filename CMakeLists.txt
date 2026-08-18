@@ -37,6 +37,14 @@ endif()
 # Declare Audio Plugin & Standalone application target
 juce_add_plugin(OpenWav
     COMPANY_NAME "OWMB"
+    BUNDLE_ID "com.samplaman.owmb"
+    MICROPHONE_PERMISSION_TEXT "OWMB requires microphone access for audio sample recording."
+    HARDENED_RUNTIME_ENABLED TRUE
+    HARDENED_RUNTIME_OPTIONS
+        "com.apple.security.cs.allow-jit"
+        "com.apple.security.cs.allow-unsigned-executable-memory"
+        "com.apple.security.cs.disable-library-validation"
+        "com.apple.security.device.audio-input"
     PLUGIN_MANUFACTURER_NAME "OWMB"
     PLUGIN_MANUFACTURER_CODE Owmb
     PLUGIN_CODE Owmb
