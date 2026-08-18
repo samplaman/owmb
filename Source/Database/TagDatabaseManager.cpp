@@ -62,8 +62,17 @@ std::vector<MediaItem> TagDatabaseManager::getFilteredItems(const juce::String& 
         // 2. Extension check
         if (extensionFilter.isNotEmpty() && !extensionFilter.equalsIgnoreCase("all"))
         {
-            if (!item.fileExtension.endsWithIgnoreCase(extensionFilter))
+            if (extensionFilter.equalsIgnoreCase(".aiff") || extensionFilter.equalsIgnoreCase(".aif") || extensionFilter.equalsIgnoreCase(".aifc"))
+            {
+                if (!item.fileExtension.equalsIgnoreCase(".aiff") &&
+                    !item.fileExtension.equalsIgnoreCase(".aif") &&
+                    !item.fileExtension.equalsIgnoreCase(".aifc"))
+                    continue;
+            }
+            else if (!item.fileExtension.endsWithIgnoreCase(extensionFilter))
+            {
                 continue;
+            }
         }
 
         // 3. Keyword check (matches filename, path, or tags)
@@ -469,7 +478,7 @@ std::set<juce::String> TagDatabaseManager::inferTagsFromPath(const juce::String&
     else if (extLower == ".mp3") tags.insert("#MP3");
     else if (extLower == ".flac") tags.insert("#FLAC");
     else if (extLower == ".ogg") tags.insert("#OGG");
-    else if (extLower == ".aif" || extLower == ".aiff") tags.insert("#AIFF");
+    else if (extLower == ".aif" || extLower == ".aiff" || extLower == ".aifc") tags.insert("#AIFF");
 
     // 2. Channel & Duration Tags
     if (numChannels >= 2) tags.insert("#Stereo");

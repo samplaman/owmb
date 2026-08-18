@@ -51,12 +51,12 @@ private:
 static bool isSupportedAudioFile(const juce::String& name, const juce::String& mime)
 {
     juce::String ext = juce::File(name).getFileExtension().toLowerCase();
-    if (ext == ".wav" || ext == ".mp3" || ext == ".flac" || ext == ".ogg" || ext == ".aiff" || ext == ".aif")
+    if (ext == ".wav" || ext == ".mp3" || ext == ".flac" || ext == ".ogg" || ext == ".aiff" || ext == ".aif" || ext == ".aifc")
         return true;
 
     juce::String mimeLower = mime.toLowerCase();
     if (mimeLower.contains("wav") || mimeLower.contains("mpeg") || mimeLower.contains("mp3") ||
-        mimeLower.contains("flac") || mimeLower.contains("ogg") || mimeLower.contains("aiff"))
+        mimeLower.contains("flac") || mimeLower.contains("ogg") || mimeLower.contains("aiff") || mimeLower.contains("aif"))
         return true;
 
     return false;
@@ -110,15 +110,22 @@ LibrariesComponent::LibrariesComponent(TagDatabaseManager& db, LibraryScanner& s
         auto chooser = std::make_shared<juce::FileChooser>(
             "Select Download Directory...",
             juce::File(dbManager.getDownloadFolder()),
-            "*"
+            "*",
+            true
         );
-        chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories,
+        chooser->launchAsync(juce::FileBrowserComponent::openMode |
+                             juce::FileBrowserComponent::canSelectDirectories |
+                             juce::FileBrowserComponent::canSelectFiles,
             [this, chooser](const juce::FileChooser& fc) {
                 auto result = fc.getResult();
-                if (result.isDirectory())
+                if (result == juce::File() && !fc.getResults().isEmpty())
+                    result = fc.getResults().getFirst();
+
+                juce::File dir = result.isDirectory() ? result : result.getParentDirectory();
+                if (dir.exists() && dir.isDirectory())
                 {
-                    dbManager.setDownloadFolder(result.getFullPathName());
-                    saveDirLabel.setText("Save to: " + result.getFullPathName(), juce::dontSendNotification);
+                    dbManager.setDownloadFolder(dir.getFullPathName());
+                    saveDirLabel.setText("Save to: " + dir.getFullPathName(), juce::dontSendNotification);
                     updateDownloadStatuses();
                 }
             });
@@ -948,6 +955,17 @@ void LibrariesComponent::downloadFile(int displayedIndex)
 
     targetItem.isDownloading = true;
     targetItem.downloadProgress = 0.0;
+
+    for (auto& f : allRemoteFiles)
+    {
+        if (f.id == targetItem.id)
+        {
+            f.isDownloading = true;
+            f.downloadProgress = 0.0;
+        }
+    }
+
+    activeDownloadCount++;
     tableBox.updateContent();
 
     juce::String fileId = targetItem.id;
@@ -1016,6 +1034,7 @@ void LibrariesComponent::downloadAllWavs()
         for (const auto& job : newJobs)
         {
             downloadQueue.push_back(job);
+            activeDownloadCount++;
         }
     }
 
@@ -1185,6 +1204,10 @@ bool LibrariesComponent::downloadFileSync(const juce::String& fileId,
 
 void LibrariesComponent::handleDownloadFinished(const juce::String& fileId, const juce::File& destFile, bool success)
 {
+    activeDownloadCount--;
+    if (activeDownloadCount.load() < 0)
+        activeDownloadCount.store(0);
+
     for (auto& f : allRemoteFiles)
     {
         if (f.id == fileId)
@@ -1194,14 +1217,46 @@ void LibrariesComponent::handleDownloadFinished(const juce::String& fileId, cons
             {
                 f.isDownloaded = true;
                 f.localPath = destFile.getFullPathName();
-
-                // Index downloaded file into OWMB library
-                dbManager.addScanFolder(destFile.getParentDirectory().getFullPathName());
-                libraryScanner.startScan({ destFile.getParentDirectory().getFullPathName() });
             }
         }
     }
     filterRemoteFiles();
+
+    checkAndTriggerBatchScan();
+}
+
+void LibrariesComponent::checkAndTriggerBatchScan()
+{
+    bool anyDownloading = false;
+    for (const auto& f : allRemoteFiles)
+    {
+        if (f.isDownloading)
+        {
+            anyDownloading = true;
+            break;
+        }
+    }
+
+    bool queueEmpty = true;
+    {
+        const juce::ScopedLock sl(downloadQueueLock);
+        queueEmpty = downloadQueue.empty();
+    }
+
+    if (!anyDownloading && queueEmpty && activeDownloadCount.load() <= 0)
+    {
+        juce::File downloadFolder(dbManager.getDownloadFolder());
+        if (downloadFolder.exists())
+        {
+            dbManager.addScanFolder(downloadFolder.getFullPathName());
+            libraryScanner.startScan({ downloadFolder.getFullPathName() });
+            statusLabel.setText("All downloads finished. Library rescan started.", juce::dontSendNotification);
+        }
+        else
+        {
+            statusLabel.setText("All downloads finished.", juce::dontSendNotification);
+        }
+    }
 }
 
 void LibrariesComponent::previewFile(int displayedIndex)
@@ -1341,7 +1396,9 @@ void LibrariesComponent::SequentialDownloader::run()
             {
                 juce::MessageManager::callAsync([safeOwner] {
                     if (safeOwner != nullptr)
-                        safeOwner->statusLabel.setText("All downloads finished.", juce::dontSendNotification);
+                    {
+                        safeOwner->checkAndTriggerBatchScan();
+                    }
                 });
                 break;
             }

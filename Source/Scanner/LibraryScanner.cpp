@@ -4,8 +4,30 @@
 #include <vector>
 #include <algorithm>
 
+#if JUCE_MAC
+#include <unistd.h>
+#endif
+
 namespace openwav
 {
+
+#if JUCE_MAC
+static bool ensureFolderPermissions(const juce::File& folder)
+{
+    if (!folder.exists() || !folder.isDirectory())
+        return false;
+
+    juce::String path = folder.getFullPathName();
+    if (access(path.toRawUTF8(), R_OK | X_OK) != 0)
+    {
+        juce::String escapedPath = path.replace("'", "'\\''");
+        juce::String script = "osascript -e 'do shell script \"chmod -R a+rX \\\"" + escapedPath + "\\\"\" with administrator privileges'";
+        int res = std::system(script.toRawUTF8());
+        return (res == 0);
+    }
+    return true;
+}
+#endif
 
 LibraryScanner::LibraryScanner(TagDatabaseManager& dbManager)
     : juce::Thread("OpenWavLibraryScannerThread"),
@@ -86,7 +108,11 @@ void LibraryScanner::run()
         if (!rootDir.exists() || !rootDir.isDirectory())
             continue;
 
-        juce::DirectoryIterator iter(rootDir, true, "*.wav;*.mp3;*.flac;*.ogg;*.aif;*.aiff", juce::File::findFiles);
+#if JUCE_MAC
+        ensureFolderPermissions(rootDir);
+#endif
+
+        juce::DirectoryIterator iter(rootDir, true, "*.wav;*.mp3;*.flac;*.ogg;*.aif;*.aiff;*.aifc;*.WAV;*.MP3;*.FLAC;*.OGG;*.AIF;*.AIFF;*.AIFC", juce::File::findFiles);
 
         while (iter.next())
         {
@@ -271,6 +297,107 @@ static bool parseWavHeaderFast(const juce::File& file, double& sampleRate, int& 
         return false;
 
     return true;
+}
+
+static double decodeIEEEExtended(const unsigned char* bytes)
+{
+    uint16_t expon = (static_cast<uint16_t>(bytes[0]) << 8) | bytes[1];
+    uint64_t hiMant = (static_cast<uint64_t>(bytes[2]) << 24) |
+                      (static_cast<uint64_t>(bytes[3]) << 16) |
+                      (static_cast<uint64_t>(bytes[4]) << 8)  |
+                      bytes[5];
+    uint64_t loMant = (static_cast<uint64_t>(bytes[6]) << 24) |
+                      (static_cast<uint64_t>(bytes[7]) << 16) |
+                      (static_cast<uint64_t>(bytes[8]) << 8)  |
+                      bytes[9];
+    uint64_t mantissa = (hiMant << 32) | loMant;
+
+    bool sign = (expon & 0x8000) != 0;
+    expon &= 0x7FFF;
+
+    if (expon == 0 && mantissa == 0)
+        return 0.0;
+
+    if (expon == 0x7FFF)
+        return 0.0;
+
+    double val = std::ldexp(static_cast<double>(mantissa), static_cast<int>(expon) - 16383 - 63);
+    return sign ? -val : val;
+}
+
+static bool parseAiffHeaderFast(const juce::File& file, double& sampleRate, int& numChannels, int& bitDepth, double& durationSeconds)
+{
+    juce::FileInputStream stream(file);
+    if (!stream.openedOk() || stream.getTotalLength() < 44)
+        return false;
+
+    char formHeader[12];
+    if (stream.read(formHeader, 12) < 12)
+        return false;
+
+    if (std::memcmp(formHeader, "FORM", 4) != 0)
+        return false;
+
+    if (std::memcmp(formHeader + 8, "AIFF", 4) != 0 && std::memcmp(formHeader + 8, "AIFC", 4) != 0)
+        return false;
+
+    int64_t streamLength = stream.getTotalLength();
+    int64_t chunkPos = 12;
+    int iterations = 0;
+    bool foundComm = false;
+
+    while (chunkPos >= 12 && chunkPos < streamLength - 8 && iterations++ < 60)
+    {
+        if (!stream.setPosition(chunkPos))
+            break;
+
+        char chunkId[4];
+        if (stream.read(chunkId, 4) < 4)
+            break;
+
+        uint8_t sizeBytes[4];
+        if (stream.read(sizeBytes, 4) < 4)
+            break;
+
+        uint32_t chunkSize = (static_cast<uint32_t>(sizeBytes[0]) << 24) |
+                             (static_cast<uint32_t>(sizeBytes[1]) << 16) |
+                             (static_cast<uint32_t>(sizeBytes[2]) << 8)  |
+                             static_cast<uint32_t>(sizeBytes[3]);
+
+        if (std::memcmp(chunkId, "COMM", 4) == 0 && chunkSize >= 18)
+        {
+            uint8_t commData[18];
+            if (stream.read(commData, 18) < 18)
+                break;
+
+            uint16_t ch = (static_cast<uint16_t>(commData[0]) << 8) | commData[1];
+            uint32_t frames = (static_cast<uint32_t>(commData[2]) << 24) |
+                              (static_cast<uint32_t>(commData[3]) << 16) |
+                              (static_cast<uint32_t>(commData[4]) << 8)  |
+                              static_cast<uint32_t>(commData[5]);
+            uint16_t bits = (static_cast<uint16_t>(commData[6]) << 8) | commData[7];
+            double rate = decodeIEEEExtended(commData + 8);
+
+            if (ch > 0 && bits > 0 && rate > 100.0 && rate <= 384000.0 && frames > 0)
+            {
+                numChannels = static_cast<int>(ch);
+                bitDepth = static_cast<int>(bits);
+                sampleRate = rate;
+                durationSeconds = static_cast<double>(frames) / rate;
+                foundComm = true;
+                break;
+            }
+        }
+
+        int64_t paddedSize = static_cast<int64_t>(chunkSize) + (chunkSize & 1);
+        int64_t nextPos = chunkPos + 8 + paddedSize;
+        if (nextPos <= chunkPos || nextPos > streamLength)
+            break;
+
+        chunkPos = nextPos;
+    }
+
+    return foundComm && durationSeconds > 0.0 && durationSeconds <= 86400.0;
 }
 
 static void analyzeAudioData(juce::AudioFormatReader* reader, MediaItem& item)
@@ -522,10 +649,16 @@ MediaItem LibraryScanner::processAudioFile(const juce::File& file, juce::AudioFo
     }
 
     bool headerParsed = false;
-    // Try ultra-fast binary header parsing first for WAV files
-    if (item.fileExtension == ".wav" && parseWavHeaderFast(file, item.sampleRate, item.numChannels, item.bitDepth, item.durationSeconds))
+    // Try ultra-fast binary header parsing first for WAV & AIFF/AIFC files
+    if (item.fileExtension == ".wav")
     {
-        headerParsed = true;
+        if (parseWavHeaderFast(file, item.sampleRate, item.numChannels, item.bitDepth, item.durationSeconds))
+            headerParsed = true;
+    }
+    else if (item.fileExtension == ".aif" || item.fileExtension == ".aiff" || item.fileExtension == ".aifc")
+    {
+        if (parseAiffHeaderFast(file, item.sampleRate, item.numChannels, item.bitDepth, item.durationSeconds))
+            headerParsed = true;
     }
 
     // Read audio header metadata using JUCE format reader as fallback

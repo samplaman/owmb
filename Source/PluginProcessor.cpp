@@ -6,7 +6,7 @@ namespace openwav
 
 OpenWavAudioProcessor::OpenWavAudioProcessor()
     : AudioProcessor(BusesProperties()
-                     .withInput("Input", juce::AudioChannelSet::stereo(), true)
+                     .withInput("Input", juce::AudioChannelSet::stereo(), false)
                      .withOutput("Output", juce::AudioChannelSet::stereo(), true))
 {
 }
@@ -48,18 +48,25 @@ void OpenWavAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
         midiMessages.clear();
     }
 
+    bool hostPlaying = false;
     double hostBpm = 120.0;
+    double hostPosSec = 0.0;
+    double hostPpq = 0.0;
+
     if (auto* playHead = getPlayHead())
     {
         if (auto posInfo = playHead->getPosition())
         {
+            hostPlaying = posInfo->getIsPlaying();
             if (auto bpmOpt = posInfo->getBpm())
-            {
                 hostBpm = *bpmOpt;
-            }
+            if (auto timeOpt = posInfo->getTimeInSeconds())
+                hostPosSec = *timeOpt;
+            if (auto ppqOpt = posInfo->getPpqPosition())
+                hostPpq = *ppqOpt;
         }
     }
-    audioEngine.setHostBpm(hostBpm);
+    audioEngine.setHostTransportState(hostPlaying, hostBpm, hostPosSec, hostPpq);
 
     audioEngine.processNextAudioBlock(buffer, midiMessages);
 }

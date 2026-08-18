@@ -137,7 +137,9 @@ private:
                                  bool isPreview = false);
 
     void handleDownloadFinished(const juce::String& fileId, const juce::File& destFile, bool success);
+    void checkAndTriggerBatchScan();
 
+    std::atomic<int> activeDownloadCount { 0 };
     std::atomic<bool> isFetching { false };
     juce::String statusText { "Ready. Enter your Pixeldrain API key to fetch account files." };
 

@@ -27,6 +27,8 @@ public:
     virtual void pitchTrackingStateChanged(bool /*enabled*/) {}
     virtual void oneShotStateChanged(bool /*enabled*/) {}
     virtual void loopingStateChanged(bool /*enabled*/) {}
+    virtual void transportSyncChanged(bool /*isSynced*/) {}
+    virtual void bpmChanged(double /*newBpm*/) {}
 };
 
 struct WaveformPeaks
@@ -134,6 +136,23 @@ public:
 
     void setHostBpm(double bpm);
     double getHostBpm() const { return hostBpm.load(); }
+
+    // Independent Transport & Host Sync
+    void setHostSyncEnabled(bool enabled);
+    bool isHostSyncEnabled() const { return hostSyncEnabled.load(); }
+    void toggleHostSync();
+
+    void setInternalBpm(double bpm);
+    double getInternalBpm() const { return internalBpm.load(); }
+    double getEffectiveBpm() const { return hostSyncEnabled.load() ? hostBpm.load() : internalBpm.load(); }
+
+    void setHostTransportState(bool isPlaying, double bpm, double positionSec, double ppqPosition);
+    bool getIsHostPlaying() const { return isHostPlaying.load(); }
+    double getHostPositionSeconds() const { return hostPositionSeconds.load(); }
+    double getHostPpqPosition() const { return hostPpqPosition.load(); }
+
+    void togglePlay();
+    void toggleLoop();
     
     void updateVoiceRatios();
 
@@ -198,6 +217,12 @@ private:
 
     std::atomic<double> sampleBpm { 0.0 };
     std::atomic<double> hostBpm { 120.0 };
+    std::atomic<double> internalBpm { 120.0 };
+    std::atomic<bool> hostSyncEnabled { false };
+    std::atomic<bool> isHostPlaying { false };
+    std::atomic<double> hostPositionSeconds { 0.0 };
+    std::atomic<double> hostPpqPosition { 0.0 };
+    bool wasHostPlaying { false };
 
     // Live Recording State
     std::atomic<bool> recordingActive { false };

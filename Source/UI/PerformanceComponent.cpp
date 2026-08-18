@@ -739,7 +739,7 @@ void PerformanceComponent::mouseRightClick(const juce::MouseEvent& e, int padInd
                 auto chooser = std::make_shared<juce::FileChooser>(
                     "Select Audio File for Pad...",
                     juce::File::getSpecialLocation(juce::File::userHomeDirectory),
-                    "*.wav;*.mp3;*.flac;*.ogg;*.aiff");
+                    "*.wav;*.mp3;*.flac;*.ogg;*.aif;*.aiff;*.aifc");
 
                 chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
                     [this, padIndex, chooser](const juce::FileChooser& fc) {

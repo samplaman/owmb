@@ -200,8 +200,132 @@ void SlicesGridComponent::updateSlices(const std::vector<double>& ratios, double
     repaint();
 }
 
+//==============================================================================
+BpmControlComponent::BpmControlComponent(AudioEngine& engine)
+    : audioEngine(engine)
+{
+    minusBtn.setButtonText("-");
+    minusBtn.setTooltip("Decrease Tempo (0.5 BPM)");
+    minusBtn.onClick = [this] {
+        if (!isSynced)
+            setBpm(currentBpm - 0.5, true);
+    };
+    addAndMakeVisible(minusBtn);
+
+    plusBtn.setButtonText("+");
+    plusBtn.setTooltip("Increase Tempo (0.5 BPM)");
+    plusBtn.onClick = [this] {
+        if (!isSynced)
+            setBpm(currentBpm + 0.5, true);
+    };
+    addAndMakeVisible(plusBtn);
+
+    tempoLabel.setFont(juce::Font(12.5f).boldened());
+    tempoLabel.setJustificationType(juce::Justification::centred);
+    tempoLabel.setEditable(false, true, false);
+    tempoLabel.addListener(this);
+    tempoLabel.setTooltip("Double-click to type tempo or drag up/down / scroll");
+    addAndMakeVisible(tempoLabel);
+
+    setBpm(audioEngine.getEffectiveBpm(), false);
+}
+
+void BpmControlComponent::setBpm(double bpm, bool sendNotification)
+{
+    double clamped = juce::jlimit(20.0, 300.0, bpm);
+    currentBpm = clamped;
+    tempoLabel.setText(juce::String(clamped, 1) + " BPM", juce::dontSendNotification);
+    if (sendNotification && onBpmChanged)
+        onBpmChanged(clamped);
+}
+
+void BpmControlComponent::setHostSynced(bool synced)
+{
+    isSynced = synced;
+    minusBtn.setEnabled(!synced);
+    plusBtn.setEnabled(!synced);
+    tempoLabel.setColour(juce::Label::textColourId, synced ? OpenWavLookAndFeel::accentCyan : OpenWavLookAndFeel::textPrimary);
+    repaint();
+}
+
+void BpmControlComponent::labelTextChanged(juce::Label* label)
+{
+    if (label == &tempoLabel && !isSynced)
+    {
+        double val = tempoLabel.getText().upToFirstOccurrenceOf(" ", false, false).getDoubleValue();
+        if (val >= 20.0 && val <= 300.0)
+        {
+            setBpm(val, true);
+        }
+        else
+        {
+            setBpm(currentBpm, false);
+        }
+    }
+}
+
+void BpmControlComponent::editorShown(juce::Label* label, juce::TextEditor& editor)
+{
+    editor.setText(juce::String(currentBpm, 1));
+    editor.selectAll();
+}
+
+void BpmControlComponent::paint(juce::Graphics& g)
+{
+    auto b = getLocalBounds().toFloat();
+    g.setColour(OpenWavLookAndFeel::bgCard.darker(0.15f));
+    g.fillRoundedRectangle(b, 5.0f);
+
+    if (isSynced)
+    {
+        g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.65f));
+        g.drawRoundedRectangle(b.reduced(0.5f), 5.0f, 1.2f);
+    }
+    else
+    {
+        g.setColour(OpenWavLookAndFeel::borderColour);
+        g.drawRoundedRectangle(b.reduced(0.5f), 5.0f, 1.0f);
+    }
+}
+
+void BpmControlComponent::resized()
+{
+    auto area = getLocalBounds();
+    minusBtn.setBounds(area.removeFromLeft(22).reduced(1, 2));
+    plusBtn.setBounds(area.removeFromRight(22).reduced(1, 2));
+    tempoLabel.setBounds(area);
+}
+
+void BpmControlComponent::mouseDown(const juce::MouseEvent& e)
+{
+    if (isSynced) return;
+    dragStartBpm = currentBpm;
+    dragStartPos = e.getPosition();
+}
+
+void BpmControlComponent::mouseDrag(const juce::MouseEvent& e)
+{
+    if (isSynced) return;
+    int dy = dragStartPos.y - e.y;
+    double delta = (e.mods.isShiftDown() ? 0.1 : 0.5) * dy;
+    setBpm(dragStartBpm + delta, true);
+}
+
+void BpmControlComponent::mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel)
+{
+    if (isSynced) return;
+    if (wheel.deltaY != 0)
+    {
+        double step = (e.mods.isShiftDown() ? 0.1 : 0.5);
+        double delta = (wheel.deltaY > 0 ? step : -step);
+        setBpm(currentBpm + delta, true);
+    }
+}
+
+//==============================================================================
 WaveformTransportComponent::WaveformTransportComponent(AudioEngine& engine)
     : audioEngine(engine),
+      bpmControl(engine),
       slicesGrid(engine, [this](int idx) { exportAndDragSlice(idx); })
 {
     audioEngine.getThumbnail().addChangeListener(this);
@@ -250,6 +374,23 @@ WaveformTransportComponent::WaveformTransportComponent(AudioEngine& engine)
         }
     };
     addAndMakeVisible(normalizeButton);
+
+    // Host Sync Button (placed after Normalize along with BPM)
+    syncButton.setClickingTogglesState(true);
+    syncButton.setToggleState(audioEngine.isHostSyncEnabled(), juce::dontSendNotification);
+    syncButton.setTooltip("Toggle Host DAW Sync vs Independent Transport");
+    syncButton.onClick = [this] {
+        audioEngine.setHostSyncEnabled(syncButton.getToggleState());
+    };
+    addAndMakeVisible(syncButton);
+
+    // BPM Control Component (placed after Normalize along with SYNC)
+    bpmControl.setHostSynced(audioEngine.isHostSyncEnabled());
+    bpmControl.setBpm(audioEngine.getEffectiveBpm(), false);
+    bpmControl.onBpmChanged = [this](double bpm) {
+        audioEngine.setInternalBpm(bpm);
+    };
+    addAndMakeVisible(bpmControl);
 
     // Volume Slider
     volumeSlider.setSliderStyle(juce::Slider::LinearHorizontal);
@@ -476,29 +617,36 @@ void WaveformTransportComponent::resized()
     auto area = getLocalBounds().reduced(12, 8);
     auto topRow = area.removeFromTop(32);
 
-    playPauseButton.setBounds(topRow.removeFromLeft(88).withHeight(28));
-    topRow.removeFromLeft(6);
+    playPauseButton.setBounds(topRow.removeFromLeft(76).withHeight(28));
+    topRow.removeFromLeft(5);
 
-    stopButton.setBounds(topRow.removeFromLeft(82).withHeight(28));
-    topRow.removeFromLeft(6);
+    stopButton.setBounds(topRow.removeFromLeft(70).withHeight(28));
+    topRow.removeFromLeft(5);
 
-    loopButton.setBounds(topRow.removeFromLeft(82).withHeight(28));
-    topRow.removeFromLeft(6);
+    loopButton.setBounds(topRow.removeFromLeft(70).withHeight(28));
+    topRow.removeFromLeft(5);
 
-    autoPlayButton.setBounds(topRow.removeFromLeft(82).withHeight(28));
-    topRow.removeFromLeft(6);
+    autoPlayButton.setBounds(topRow.removeFromLeft(70).withHeight(28));
+    topRow.removeFromLeft(5);
 
-    autoSliceButton.setBounds(topRow.removeFromLeft(88).withHeight(28));
-    topRow.removeFromLeft(6);
+    autoSliceButton.setBounds(topRow.removeFromLeft(74).withHeight(28));
+    topRow.removeFromLeft(5);
 
-    normalizeButton.setBounds(topRow.removeFromLeft(95).withHeight(28));
+    normalizeButton.setBounds(topRow.removeFromLeft(84).withHeight(28));
+    topRow.removeFromLeft(8);
+
+    // Sync button and BPM control placed directly after Normalize button
+    syncButton.setBounds(topRow.removeFromLeft(68).withHeight(28));
+    topRow.removeFromLeft(5);
+
+    bpmControl.setBounds(topRow.removeFromLeft(118).withHeight(28));
     topRow.removeFromLeft(12);
 
     volumeSlider.setBounds(topRow.removeFromRight(100).withHeight(28));
     topRow.removeFromRight(10);
 
     timeLabel.setBounds(topRow.removeFromRight(110).withHeight(28));
-    topRow.removeFromRight(12);
+    topRow.removeFromRight(10);
 
     sampleNameLabel.setBounds(topRow.withHeight(28));
 
@@ -653,6 +801,15 @@ void WaveformTransportComponent::playbackStateChanged(bool isPlaying)
 
 void WaveformTransportComponent::timerCallback()
 {
+    if (audioEngine.isHostSyncEnabled())
+    {
+        double currentBpm = audioEngine.getEffectiveBpm();
+        if (std::abs(bpmControl.getBpm() - currentBpm) > 0.05)
+        {
+            bpmControl.setBpm(currentBpm, false);
+        }
+    }
+
     if (audioEngine.isPlaying())
     {
         currentPositionSecs = audioEngine.getCurrentPositionSeconds();
@@ -763,7 +920,6 @@ void WaveformTransportComponent::runAutoSlice()
         }
     }
 
-    // Sort and clean duplicates
     std::sort(sliceRatios.begin(), sliceRatios.end());
     sliceRatios.erase(std::unique(sliceRatios.begin(), sliceRatios.end()), sliceRatios.end());
 
@@ -774,60 +930,56 @@ void WaveformTransportComponent::runAutoSlice()
 
 void WaveformTransportComponent::exportAndDragSlice(int sliceIndex)
 {
-    if (sliceIndex < 0 || sliceIndex >= static_cast<int>(sliceRatios.size()))
+    if (totalDurationSecs <= 0.0 || sliceRatios.empty())
         return;
 
-    juce::AudioBuffer<float> buffer;
+    int numSlices = static_cast<int>(sliceRatios.size());
+    if (sliceIndex < 0 || sliceIndex >= numSlices)
+        return;
+
+    double startRatio = sliceRatios[sliceIndex];
+    double endRatio = (sliceIndex + 1 < numSlices) ? sliceRatios[sliceIndex + 1] : 1.0;
+
+    juce::AudioBuffer<float> fullBuffer;
     double sampleRate = 44100.0;
-    if (!audioEngine.getAudioBufferCopy(buffer, sampleRate))
+    if (!audioEngine.getAudioBufferCopy(fullBuffer, sampleRate))
         return;
 
-    int numSamples = buffer.getNumSamples();
-    double startR = sliceRatios[sliceIndex];
-    double endR = (sliceIndex + 1 < static_cast<int>(sliceRatios.size())) ? sliceRatios[sliceIndex + 1] : 1.0;
+    int totalSamples = fullBuffer.getNumSamples();
+    int startSample = static_cast<int>(startRatio * totalSamples);
+    int endSample = static_cast<int>(endRatio * totalSamples);
+    int sliceLength = endSample - startSample;
 
-    int startSample = static_cast<int>(startR * numSamples);
-    int endSample = static_cast<int>(endR * numSamples);
-    int numSliceSamples = endSample - startSample;
-
-    if (numSliceSamples <= 0)
+    if (sliceLength <= 0)
         return;
 
-    juce::File originalFile = audioEngine.getCurrentFile();
-    juce::String sampleName = originalFile.existsAsFile() ? originalFile.getFileNameWithoutExtension() : "sample";
+    juce::AudioBuffer<float> sliceBuffer(fullBuffer.getNumChannels(), sliceLength);
+    for (int ch = 0; ch < fullBuffer.getNumChannels(); ++ch)
+    {
+        sliceBuffer.copyFrom(ch, 0, fullBuffer, ch, startSample, sliceLength);
+    }
 
-    static int dragCounter = 0;
-    juce::File tempDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile("OWMB_Temp");
+    auto tempDir = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("OpenWavSlices");
     tempDir.createDirectory();
-    juce::File sliceFile = tempDir.getChildFile(sampleName + "_Slice_" + juce::String(sliceIndex + 1) + "_" + juce::String(++dragCounter) + ".wav");
 
-    bool success = false;
+    juce::String baseName = audioEngine.getCurrentFile().getFileNameWithoutExtension();
+    if (baseName.isEmpty()) baseName = "Sample";
+    auto sliceFile = tempDir.getChildFile(baseName + "_Slice_" + juce::String(sliceIndex + 1) + ".wav");
+    sliceFile.deleteFile();
+
+    if (auto outStream = sliceFile.createOutputStream())
     {
-        sliceFile.deleteFile();
-        std::unique_ptr<juce::FileOutputStream> outStream(sliceFile.createOutputStream());
-        if (outStream != nullptr)
+        juce::WavAudioFormat wavFormat;
+        std::unique_ptr<juce::AudioFormatWriter> writer(wavFormat.createWriterFor(
+            outStream.get(), sampleRate, sliceBuffer.getNumChannels(), 16, {}, 0));
+
+        if (writer != nullptr)
         {
-            juce::WavAudioFormat wavFormat;
-            std::unique_ptr<juce::AudioFormatWriter> writer(wavFormat.createWriterFor(
-                outStream.get(),
-                sampleRate,
-                buffer.getNumChannels(),
-                16,
-                {},
-                0
-            ));
-
-            if (writer != nullptr)
-            {
-                outStream.release(); // Writer took ownership
-                writer->writeFromAudioSampleBuffer(buffer, startSample, numSliceSamples);
-                success = true;
-            }
+            outStream.release();
+            writer->writeFromAudioSampleBuffer(sliceBuffer, 0, sliceLength);
+            writer.reset();
         }
-    } // File is written, flushed, closed, and unlocked here!
 
-    if (success)
-    {
         juce::StringArray filesToDrag;
         filesToDrag.add(sliceFile.getFullPathName());
         juce::MessageManager::callAsync([filesToDrag] {
@@ -842,6 +994,21 @@ void WaveformTransportComponent::lookAndFeelChanged()
     sampleNameLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::textPrimary);
 }
 
+void WaveformTransportComponent::transportSyncChanged(bool isSynced)
+{
+    syncButton.setToggleState(isSynced, juce::dontSendNotification);
+    bpmControl.setHostSynced(isSynced);
+    bpmControl.setBpm(audioEngine.getEffectiveBpm(), false);
+}
+
+void WaveformTransportComponent::bpmChanged(double newBpm)
+{
+    if (std::abs(bpmControl.getBpm() - newBpm) > 0.05)
+    {
+        bpmControl.setBpm(newBpm, false);
+    }
+}
+
 void WaveformTransportComponent::togglePlay()
 {
     playPauseButton.triggerClick();
@@ -850,6 +1017,11 @@ void WaveformTransportComponent::togglePlay()
 void WaveformTransportComponent::toggleLoop()
 {
     loopButton.triggerClick();
+}
+
+void WaveformTransportComponent::toggleSync()
+{
+    syncButton.triggerClick();
 }
 
 void WaveformTransportComponent::triggerSlice()

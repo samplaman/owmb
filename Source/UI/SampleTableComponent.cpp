@@ -606,23 +606,18 @@ void SampleTableComponent::cellClicked(int rowNumber, int columnId, const juce::
 
     // If already selected, selectedRowsChanged won't trigger, so reload/play here.
     // Otherwise table.selectRow below will trigger selectedRowsChanged.
-    if (table.getSelectedRow() == rowNumber)
+    juce::File fileToLoad(item.filePath);
+    if (fileToLoad.existsAsFile())
     {
-        juce::File fileToLoad(item.filePath);
-        if (fileToLoad.existsAsFile())
-        {
-            audioEngine.setSampleBpm(item.bpm);
-            audioEngine.loadFile(fileToLoad, true);
-        }
+        audioEngine.setSampleBpm(item.bpm);
+        audioEngine.loadFile(fileToLoad, true);
+    }
 
-        listeners.call([item](SampleTableListener& l) {
-            l.sampleSelected(item);
-        });
-    }
-    else
-    {
-        table.selectRow(rowNumber);
-    }
+    table.selectRow(rowNumber);
+
+    listeners.call([item](SampleTableListener& l) {
+        l.sampleSelected(item);
+    });
 }
 
 void SampleTableComponent::selectedRowsChanged(int lastRowSelected)
@@ -632,7 +627,7 @@ void SampleTableComponent::selectedRowsChanged(int lastRowSelected)
         const auto& item = displayedItems[static_cast<size_t>(lastRowSelected)];
         juce::File fileToLoad(item.filePath);
         
-        if (fileToLoad.existsAsFile() && audioEngine.getCurrentFile() != fileToLoad)
+        if (fileToLoad.existsAsFile())
         {
             audioEngine.setSampleBpm(item.bpm);
             audioEngine.loadFile(fileToLoad, true);
@@ -668,8 +663,15 @@ void SampleTableComponent::selectItemById(const juce::String& itemId)
     {
         if (displayedItems[i].id == itemId)
         {
-            table.selectRow(static_cast<int>(i), false, false);
+            table.selectRow(static_cast<int>(i));
             table.scrollToEnsureRowIsOnscreen(static_cast<int>(i));
+
+            juce::File fileToLoad(displayedItems[i].filePath);
+            if (fileToLoad.existsAsFile())
+            {
+                audioEngine.setSampleBpm(displayedItems[i].bpm);
+                audioEngine.loadFile(fileToLoad, true);
+            }
             break;
         }
     }

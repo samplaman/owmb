@@ -31,6 +31,40 @@ private:
     double totalDurationSecs { 0.0 };
 };
 
+class BpmControlComponent : public juce::Component,
+                            private juce::Label::Listener
+{
+public:
+    BpmControlComponent(AudioEngine& engine);
+    ~BpmControlComponent() override = default;
+
+    void setBpm(double bpm, bool sendNotification = false);
+    double getBpm() const { return currentBpm; }
+    void setHostSynced(bool synced);
+
+    std::function<void(double)> onBpmChanged;
+
+    void paint(juce::Graphics& g) override;
+    void resized() override;
+    void mouseDrag(const juce::MouseEvent& e) override;
+    void mouseDown(const juce::MouseEvent& e) override;
+    void mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel) override;
+
+private:
+    void labelTextChanged(juce::Label* label) override;
+    void editorShown(juce::Label* label, juce::TextEditor& editor) override;
+
+    AudioEngine& audioEngine;
+    double currentBpm { 120.0 };
+    bool isSynced { false };
+    double dragStartBpm { 120.0 };
+    juce::Point<int> dragStartPos;
+
+    juce::Label tempoLabel;
+    juce::TextButton minusBtn { "-" };
+    juce::TextButton plusBtn { "+" };
+};
+
 class WaveformTransportComponent : public juce::Component,
                                     public juce::ChangeListener,
                                     public AudioEngineListener,
@@ -60,12 +94,15 @@ public:
     void playbackStateChanged(bool isPlaying) override;
     void playbackPositionChanged(double currentSeconds, double totalSeconds) override {}
     void sampleLoaded(const juce::String& filePath) override;
+    void transportSyncChanged(bool isSynced) override;
+    void bpmChanged(double newBpm) override;
 
     // juce::Slider::Listener callback
     void sliderValueChanged(juce::Slider* slider) override;
 
     void togglePlay();
     void toggleLoop();
+    void toggleSync();
     void triggerSlice();
 
 private:
@@ -80,6 +117,8 @@ private:
     juce::TextButton autoPlayButton { "Auto" };
     juce::TextButton autoSliceButton { "Slice" };
     juce::TextButton normalizeButton { "Normalize" };
+    juce::TextButton syncButton { "SYNC" };
+    BpmControlComponent bpmControl;
 
     std::vector<double> sliceRatios;
 

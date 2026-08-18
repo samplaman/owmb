@@ -59,11 +59,13 @@ static int getRootNoteFromWavSmplHeader(const juce::File& file)
 
 AudioEngine::AudioEngine()
 {
-    formatManager.registerFormat(new juce::WavAudioFormat(), true);
-    formatManager.registerFormat(new juce::AiffAudioFormat(), false);
-    formatManager.registerFormat(new juce::FlacAudioFormat(), false);
-    formatManager.registerFormat(new juce::OggVorbisAudioFormat(), false);
     formatManager.registerBasicFormats();
+#if JUCE_USE_FLAC
+    formatManager.registerFormat(new juce::FlacAudioFormat(), false);
+#endif
+#if JUCE_USE_OGGVORBIS
+    formatManager.registerFormat(new juce::OggVorbisAudioFormat(), false);
+#endif
 
     float baseFreqs[9] = { 60.0f, 120.0f, 250.0f, 500.0f, 1000.0f, 2000.0f, 4000.0f, 8000.0f, 16000.0f };
     for (int i = 0; i < 9; ++i)
@@ -1799,6 +1801,63 @@ void AudioEngine::setHostBpm(double bpm)
 {
     hostBpm.store(bpm);
     updateVoiceRatios();
+}
+
+void AudioEngine::setHostSyncEnabled(bool enabled)
+{
+    hostSyncEnabled.store(enabled);
+    updateVoiceRatios();
+    listeners.call([enabled](AudioEngineListener& l) { l.transportSyncChanged(enabled); });
+}
+
+void AudioEngine::toggleHostSync()
+{
+    setHostSyncEnabled(!hostSyncEnabled.load());
+}
+
+void AudioEngine::setInternalBpm(double bpm)
+{
+    double clamped = juce::jlimit(20.0, 300.0, bpm);
+    internalBpm.store(clamped);
+    updateVoiceRatios();
+    listeners.call([clamped](AudioEngineListener& l) { l.bpmChanged(clamped); });
+}
+
+void AudioEngine::setHostTransportState(bool isPlaying, double bpm, double positionSec, double ppqPosition)
+{
+    bool prevHostPlaying = isHostPlaying.load();
+    isHostPlaying.store(isPlaying);
+    if (bpm > 20.0 && bpm <= 400.0)
+    {
+        hostBpm.store(bpm);
+    }
+    hostPositionSeconds.store(positionSec);
+    hostPpqPosition.store(ppqPosition);
+
+    if (hostSyncEnabled.load())
+    {
+        if (isPlaying && !prevHostPlaying)
+        {
+            play();
+        }
+        else if (!isPlaying && prevHostPlaying)
+        {
+            pause();
+        }
+    }
+}
+
+void AudioEngine::togglePlay()
+{
+    if (isPlaying())
+        pause();
+    else
+        play();
+}
+
+void AudioEngine::toggleLoop()
+{
+    setLooping(!isLooping());
 }
 
 void AudioEngine::updateVoiceRatios()

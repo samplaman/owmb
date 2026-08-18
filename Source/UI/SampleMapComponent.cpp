@@ -222,6 +222,7 @@ bool SampleMapComponent::isInterestedInFileDrag(const juce::StringArray& files)
         juce::File file(f);
         if (file.hasFileExtension("wav") || file.hasFileExtension("mp3") ||
             file.hasFileExtension("flac") || file.hasFileExtension("aiff") ||
+            file.hasFileExtension("aif") || file.hasFileExtension("aifc") ||
             file.hasFileExtension("ogg"))
             return true;
     }
@@ -1283,7 +1284,7 @@ void SampleMapComponent::buttonClicked(juce::Button* button)
         auto chooser = std::make_shared<juce::FileChooser>(
             "Select Audio Samples to Map",
             juce::File::getSpecialLocation(juce::File::userDesktopDirectory),
-            "*.wav;*.mp3;*.flac;*.aiff;*.ogg");
+            "*.wav;*.mp3;*.flac;*.aiff;*.aif;*.aifc;*.ogg");
 
         chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectMultipleItems, [this, chooser](const juce::FileChooser& fc) {
             auto results = fc.getResults();
