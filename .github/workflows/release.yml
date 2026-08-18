@@ -2,13 +2,16 @@ name: OpenWav Auto Release (Windows 11, macOS Universal, macOS Monterey Intel & 
 
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v*'
   workflow_dispatch:
     inputs:
       tag_name:
-        description: 'Release Tag (e.g. v1.0.1)'
+        description: 'Release Tag (e.g. v1.0.0)'
         required: false
+        default: 'v1.0.0'
         type: string
 
 permissions:
@@ -224,7 +227,7 @@ jobs:
 
           pkgbuild --root "$PKG_STAGING" \
             --identifier "com.samplaman.owmb.pkg" \
-            --version "${{ github.event.inputs.tag_name || github.ref_name }}" \
+            --version "${{ github.event.inputs.tag_name || (github.ref == 'refs/heads/main' && '1.0.0') || github.ref_name }}" \
             --install-location "/" \
             "OWMB-${{ matrix.os_name }}-Installer.pkg"
 
@@ -307,7 +310,7 @@ jobs:
     name: Publish GitHub Release
     needs: build
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -335,11 +338,12 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event.inputs.tag_name || github.ref_name }}
-          name: OWMB ${{ github.event.inputs.tag_name || github.ref_name }}
+          tag_name: ${{ github.event.inputs.tag_name || (github.ref == 'refs/heads/main' && 'v1.0.0') || github.ref_name }}
+          name: OWMB ${{ github.event.inputs.tag_name || (github.ref == 'refs/heads/main' && 'v1.0.0') || github.ref_name }}
           draft: false
           prerelease: false
           generate_release_notes: true
+          make_latest: true
           files: |
             OWMB.exe
             OWMB-Installer.exe
