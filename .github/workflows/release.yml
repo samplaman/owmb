@@ -42,9 +42,9 @@ jobs:
       MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
       MACOS_CERTIFICATE_PWD: ${{ secrets.MACOS_CERTIFICATE_PWD }}
       MACOS_CERTIFICATE_NAME: ${{ secrets.MACOS_CERTIFICATE_NAME }}
-      APPLE_ID: ${{ secrets.APPLE_ID }}
-      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      APPLE_ID: ${{ secrets.APPLE_ID || secrets.APPLE_DEVELOPER_EMAIL || secrets.APPLE_USERNAME }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD || secrets.APPLE_PASSWORD || secrets.APPLE_SPECIFIC_PASSWORD || secrets.APPLE_APP_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID || secrets.MACOS_TEAM_ID || secrets.TEAM_ID }}
 
     steps:
       - name: Checkout repository
@@ -225,10 +225,18 @@ jobs:
           cp -R dist/OWMB-${{ matrix.os_name }}/OWMB.vst3 "$PKG_STAGING/Library/Audio/Plug-Ins/VST3/"
           cp -R dist/OWMB-${{ matrix.os_name }}/OWMB.component "$PKG_STAGING/Library/Audio/Plug-Ins/Components/"
 
+          INSTALLER_CERT=$(security find-identity -v 2>/dev/null | grep "Developer ID Installer:" | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/' || true)
+          PKG_SIGN_ARG=()
+          if [ -n "$INSTALLER_CERT" ]; then
+            echo "Signing PKG with Developer ID Installer certificate: $INSTALLER_CERT"
+            PKG_SIGN_ARG=("--sign" "$INSTALLER_CERT")
+          fi
+
           pkgbuild --root "$PKG_STAGING" \
             --identifier "com.samplaman.owmb.pkg" \
             --version "${{ github.event.inputs.tag_name || (github.ref == 'refs/heads/main' && '1.0.0') || github.ref_name }}" \
             --install-location "/" \
+            "${PKG_SIGN_ARG[@]}" \
             "OWMB-${{ matrix.os_name }}-Installer.pkg"
 
           # Copy PKG Installer into distribution folder
@@ -246,26 +254,46 @@ jobs:
             echo "Signing DMG Installer with $MACOS_CERTIFICATE_NAME..."
             codesign --force --sign "$MACOS_CERTIFICATE_NAME" --timestamp "OWMB-${{ matrix.os_name }}-Installer.dmg"
             codesign --verify --verbose=2 "OWMB-${{ matrix.os_name }}-Installer.dmg"
+            codesign --force --sign "$MACOS_CERTIFICATE_NAME" --timestamp "OWMB-${{ matrix.os_name }}.dmg"
           fi
 
-      - name: Notarize and Staple macOS Release
-        if: runner.os == 'macOS' && env.APPLE_ID != '' && env.APPLE_APP_SPECIFIC_PASSWORD != '' && env.APPLE_TEAM_ID != ''
+      - name: Notarize and Staple macOS Release (DMG, PKG, and App)
+        if: runner.os == 'macOS'
         run: |
-          echo "Submitting OWMB-${{ matrix.os_name }}-Installer.dmg to Apple Notary Service..."
+          if [ -z "$APPLE_ID" ] || [ -z "$APPLE_APP_SPECIFIC_PASSWORD" ] || [ -z "$APPLE_TEAM_ID" ]; then
+            echo "::warning ::Apple Notarization credentials (APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID) not found in GitHub secrets. Release built without Apple notarization."
+            exit 0
+          fi
+
+          echo "==> 1. Submitting OWMB-${{ matrix.os_name }}-Installer.dmg to Apple Notary Service..."
           xcrun notarytool submit "OWMB-${{ matrix.os_name }}-Installer.dmg" \
             --apple-id "$APPLE_ID" \
             --password "$APPLE_APP_SPECIFIC_PASSWORD" \
             --team-id "$APPLE_TEAM_ID" \
             --wait
 
-          echo "Stapling notarization ticket to standalone app..."
+          echo "==> 2. Stapling notarization ticket to standalone app..."
           find dist/OWMB-${{ matrix.os_name }} -name "OWMB.app" | while read -r app; do
-            xcrun stapler staple "$app"
+            xcrun stapler staple "$app" || true
           done
 
-          echo "Stapling notarization ticket to DMG Installer..."
+          echo "==> 3. Stapling notarization ticket to DMG Installer..."
           xcrun stapler staple "OWMB-${{ matrix.os_name }}-Installer.dmg"
           cp "OWMB-${{ matrix.os_name }}-Installer.dmg" "OWMB-${{ matrix.os_name }}.dmg"
+
+          INSTALLER_CERT=$(security find-identity -v 2>/dev/null | grep "Developer ID Installer:" | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/' || true)
+          if [ -n "$INSTALLER_CERT" ]; then
+            echo "==> 4. Submitting OWMB-${{ matrix.os_name }}-Installer.pkg to Apple Notary Service..."
+            xcrun notarytool submit "OWMB-${{ matrix.os_name }}-Installer.pkg" \
+              --apple-id "$APPLE_ID" \
+              --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+              --team-id "$APPLE_TEAM_ID" \
+              --wait
+            echo "==> Stapling notarization ticket to PKG Installer..."
+            xcrun stapler staple "OWMB-${{ matrix.os_name }}-Installer.pkg" || true
+          fi
+
+          echo "==> macOS Notarization & Stapling Completed Successfully!"
 
       - name: Package Linux Distros Release (.tar.gz)
         if: runner.os == 'Linux'
