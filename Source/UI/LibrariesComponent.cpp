@@ -1,6 +1,10 @@
 #include "LibrariesComponent.h"
 #include "OpenWavLookAndFeel.h"
 
+#if __has_include(<BinaryData.h>)
+ #include <BinaryData.h>
+#endif
+
 namespace openwav
 {
 
@@ -989,11 +993,11 @@ static juce::String urlEncodePath(const juce::String& path)
         if (c == '/' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
             (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.' || c == '~')
         {
-            encoded << static_cast<char>(c);
+            encoded += static_cast<char>(c);
         }
         else
         {
-            encoded << "%" + juce::String::toHexString(static_cast<int>(c)).paddedLeft('0', 2).toUpperCase();
+            encoded += "%" + juce::String::toHexString(static_cast<int>(c)).paddedLeft('0', 2).toUpperCase();
         }
     }
     return encoded;
@@ -2193,7 +2197,7 @@ bool LibrariesComponent::downloadFileSync(const juce::String& fileId,
                 if (!readError && destFile.existsAsFile() && destFile.getSize() > 0)
                 {
                     bool sizeOk = true;
-                    if (streamLen > 0 && bytesWritten < streamLen * 0.95)
+                    if (streamLen > 0 && bytesWritten < static_cast<int64_t>(static_cast<double>(streamLen) * 0.95))
                     {
                         // Severed stream!
                         sizeOk = false;
@@ -2740,7 +2744,7 @@ void LibrariesComponent::SequentialDownloader::run()
 void LibrariesComponent::lookAndFeelChanged()
 {
     juce::Image logoImage;
-#if defined(JUCE_BINARYDATA_H_INCLUDED) || __has_include(<JuceHeader.h>)
+#if defined(JUCE_BINARYDATA_H_INCLUDED) || __has_include(<BinaryData.h>)
     logoImage = juce::ImageFileFormat::loadFrom(BinaryData::mainpixeldrainlogo_cropped_png, static_cast<size_t>(BinaryData::mainpixeldrainlogo_cropped_pngSize));
 #endif
 

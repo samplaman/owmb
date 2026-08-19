@@ -7,6 +7,10 @@
  #include <juce_gui_extra/juce_gui_extra.h>
 #endif
 
+#if __has_include(<BinaryData.h>)
+ #include <BinaryData.h>
+#endif
+
 #include "../Database/TagDatabaseManager.h"
 #include "../Scanner/LibraryScanner.h"
 #include "../Audio/AudioEngine.h"
