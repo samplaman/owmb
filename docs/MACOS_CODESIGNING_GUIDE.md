@@ -52,7 +52,7 @@ We have automated code signing with Apple Hardened Runtime in [`build-macos.sh`]
 
 ### A. Build and Sign with Auto-Detected Certificate:
 ```bash
-./build-macos.sh --monterey-intel
+./build-macos.sh
 ```
 *(If a Developer ID Application certificate is present in your Keychain, it will automatically sign the `.vst3`, `.component`, and `.app` bundles).*
 
@@ -61,7 +61,6 @@ Generate an App-Specific Password at [appleid.apple.com](https://appleid.apple.c
 
 ```bash
 ./build-macos.sh \
-  --monterey-intel \
   --sign "Developer ID Application: Your Name (TEAM_ID)" \
   --notarize \
   --apple-id "your-apple-id@example.com" \

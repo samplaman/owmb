@@ -8,7 +8,7 @@ set -e
 #   ./build-macos.sh --sign "Developer ID Application: .." # Builds and signs binaries
 #   ./build-macos.sh --sign "..." --notarize               # Builds, signs, and notarizes with Apple
 
-TARGET_TYPE="monterey-intel"
+TARGET_TYPE="universal"
 SIGN_IDENTITY="${CODESIGN_IDENTITY:-}"
 DO_NOTARIZE=false
 APPLE_ID="${APPLE_ID:-}"
@@ -23,10 +23,6 @@ while [[ $# -gt 0 ]]; do
             ;;
         --native)
             TARGET_TYPE="native"
-            shift
-            ;;
-        --intel|--monterey-intel)
-            TARGET_TYPE="monterey-intel"
             shift
             ;;
         --sign)
@@ -51,7 +47,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         *)
             echo "Unknown option: $1"
-            echo "Usage: ./build-macos.sh [--intel|--universal|--native] [--sign <identity>] [--notarize] [--apple-id <email>] [--password <app-pwd>] [--team-id <team-id>]"
+            echo "Usage: ./build-macos.sh [--universal|--native] [--sign <identity>] [--notarize] [--apple-id <email>] [--password <app-pwd>] [--team-id <team-id>]"
             exit 1
             ;;
     esac
@@ -63,13 +59,7 @@ BUILD_DIR="build"
 CMAKE_EXTRA_FLAGS=()
 DIST_NAME=""
 
-if [ "$TARGET_TYPE" = "monterey-intel" ]; then
-    DIST_NAME="OWMB-macOS-Monterey-Intel-x64"
-    CMAKE_EXTRA_FLAGS+=(
-        "-DCMAKE_OSX_ARCHITECTURES=x86_64"
-        "-DCMAKE_OSX_DEPLOYMENT_TARGET=12.0"
-    )
-elif [ "$TARGET_TYPE" = "universal" ]; then
+if [ "$TARGET_TYPE" = "universal" ]; then
     DIST_NAME="OWMB-macOS-Universal"
     CMAKE_EXTRA_FLAGS+=(
         "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64"
@@ -143,24 +133,27 @@ cp -R "dist/$DIST_NAME/OWMB.vst3" "$PKG_STAGING/Library/Audio/Plug-Ins/VST3/"
 cp -R "dist/$DIST_NAME/OWMB.component" "$PKG_STAGING/Library/Audio/Plug-Ins/Components/"
 
 INSTALLER_SIGN_ID=$(security find-identity -v 2>/dev/null | grep "Developer ID Installer:" | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/' || true)
-PKG_SIGN_ARG=()
 if [ -n "$INSTALLER_SIGN_ID" ]; then
     echo "==> Auto-detected Developer ID Installer certificate: $INSTALLER_SIGN_ID"
-    PKG_SIGN_ARG=("--sign" "$INSTALLER_SIGN_ID")
+    pkgbuild --root "$PKG_STAGING" \
+        --identifier "com.samplaman.owmb.pkg" \
+        --version "1.0.0" \
+        --install-location "/" \
+        --sign "$INSTALLER_SIGN_ID" \
+        "$DIST_NAME-Installer.pkg"
+else
+    pkgbuild --root "$PKG_STAGING" \
+        --identifier "com.samplaman.owmb.pkg" \
+        --version "1.0.0" \
+        --install-location "/" \
+        "$DIST_NAME-Installer.pkg"
 fi
-
-pkgbuild --root "$PKG_STAGING" \
-    --identifier "com.samplaman.owmb.pkg" \
-    --version "1.0.1" \
-    --install-location "/" \
-    "${PKG_SIGN_ARG[@]}" \
-    "$DIST_NAME-Installer.pkg"
 
 # 4b. Create DMG Disk Image Installer with shortcuts
 echo "==> Creating DMG Disk Image Installer: $DIST_NAME-Installer.dmg..."
-ln -sf /Applications "dist/$DIST_NAME/Applications (Shortcut)"
-ln -sf "/Library/Audio/Plug-Ins/VST3" "dist/$DIST_NAME/VST3 Plugins (Shortcut)"
-ln -sf "/Library/Audio/Plug-Ins/Components" "dist/$DIST_NAME/AU Plugins (Shortcut)"
+ln -sfn /Applications "dist/$DIST_NAME/Applications (Shortcut)"
+ln -sfn "/Library/Audio/Plug-Ins/VST3" "dist/$DIST_NAME/VST3 Plugins (Shortcut)"
+ln -sfn "/Library/Audio/Plug-Ins/Components" "dist/$DIST_NAME/AU Plugins (Shortcut)"
 
 hdiutil create -volname "OWMB Installer" -srcfolder "dist/$DIST_NAME" -ov -format UDZO "$DIST_NAME-Installer.dmg"
 cp "$DIST_NAME-Installer.dmg" "$DIST_NAME.dmg" 2>/dev/null || true

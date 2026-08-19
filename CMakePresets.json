@@ -30,19 +30,6 @@
       }
     },
     {
-      "name": "macos-monterey-intel",
-      "displayName": "macOS Monterey (Intel x86_64)",
-      "description": "Configure OpenWav Audio Plugin for macOS Monterey (12.0+) on Intel x86_64",
-      "generator": "Unix Makefiles",
-      "binaryDir": "${sourceDir}/build-monterey-intel",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release",
-        "CMAKE_CXX_STANDARD": "17",
-        "CMAKE_OSX_ARCHITECTURES": "x86_64",
-        "CMAKE_OSX_DEPLOYMENT_TARGET": "12.0"
-      }
-    },
-    {
       "name": "macos-universal",
       "displayName": "macOS Universal (arm64 + x86_64)",
       "description": "Configure OpenWav Audio Plugin for macOS Universal",
@@ -65,11 +52,6 @@
     {
       "name": "ninja-release",
       "configurePreset": "ninja-release",
-      "configuration": "Release"
-    },
-    {
-      "name": "macos-monterey-intel",
-      "configurePreset": "macos-monterey-intel",
       "configuration": "Release"
     },
     {

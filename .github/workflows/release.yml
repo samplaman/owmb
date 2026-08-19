@@ -1,4 +1,4 @@
-name: OpenWav Auto Release (Windows 11, macOS Universal, macOS Monterey Intel & Linux Distros)
+name: OpenWav Auto Release (Windows 11, macOS Universal & Linux Distros)
 
 on:
   push:
@@ -31,9 +31,6 @@ jobs:
           - os: macos-14
             os_name: macOS-Universal
             cmake_args: '-DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET="10.15"'
-          - os: macos-14
-            os_name: macOS-Monterey-Intel-x64
-            cmake_args: '-DCMAKE_OSX_ARCHITECTURES="x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET="12.0"'
           - os: ubuntu-latest
             os_name: Linux-Distros-x64
             cmake_args: ""
@@ -209,6 +206,7 @@ jobs:
       - name: Package macOS Release (.pkg and .dmg Installers)
         if: runner.os == 'macOS'
         run: |
+          rm -rf dist/OWMB-${{ matrix.os_name }} "build/pkg_root_${{ matrix.os_name }}" "OWMB-${{ matrix.os_name }}*"
           mkdir -p dist/OWMB-${{ matrix.os_name }}
           find build/OpenWav_artefacts -name "OWMB.vst3" -exec cp -R {} dist/OWMB-${{ matrix.os_name }}/ \; 2>/dev/null || true
           find build/OpenWav_artefacts -name "OWMB.component" -exec cp -R {} dist/OWMB-${{ matrix.os_name }}/ \; 2>/dev/null || true
@@ -225,24 +223,37 @@ jobs:
           cp -R dist/OWMB-${{ matrix.os_name }}/OWMB.vst3 "$PKG_STAGING/Library/Audio/Plug-Ins/VST3/"
           cp -R dist/OWMB-${{ matrix.os_name }}/OWMB.component "$PKG_STAGING/Library/Audio/Plug-Ins/Components/"
 
-          INSTALLER_CERT=$(security find-identity -v 2>/dev/null | grep "Developer ID Installer:" | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/' || true)
-          PKG_SIGN_ARG=()
-          if [ -n "$INSTALLER_CERT" ]; then
-            echo "Signing PKG with Developer ID Installer certificate: $INSTALLER_CERT"
-            PKG_SIGN_ARG=("--sign" "$INSTALLER_CERT")
+          VERSION_TAG="${{ github.event.inputs.tag_name }}"
+          if [ -z "$VERSION_TAG" ]; then
+            if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+              VERSION_TAG="${{ github.ref_name }}"
+              VERSION_TAG="${VERSION_TAG#v}"
+            else
+              VERSION_TAG="1.0.0"
+            fi
           fi
 
-          pkgbuild --root "$PKG_STAGING" \
-            --identifier "com.samplaman.owmb.pkg" \
-            --version "${{ github.event.inputs.tag_name || (github.ref == 'refs/heads/main' && '1.0.0') || github.ref_name }}" \
-            --install-location "/" \
-            "${PKG_SIGN_ARG[@]}" \
-            "OWMB-${{ matrix.os_name }}-Installer.pkg"
+          INSTALLER_CERT=$(security find-identity -v 2>/dev/null | grep "Developer ID Installer:" | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/' || true)
+          if [ -n "$INSTALLER_CERT" ]; then
+            echo "Signing PKG with Developer ID Installer certificate: $INSTALLER_CERT"
+            pkgbuild --root "$PKG_STAGING" \
+              --identifier "com.samplaman.owmb.pkg" \
+              --version "$VERSION_TAG" \
+              --install-location "/" \
+              --sign "$INSTALLER_CERT" \
+              "OWMB-${{ matrix.os_name }}-Installer.pkg"
+          else
+            pkgbuild --root "$PKG_STAGING" \
+              --identifier "com.samplaman.owmb.pkg" \
+              --version "$VERSION_TAG" \
+              --install-location "/" \
+              "OWMB-${{ matrix.os_name }}-Installer.pkg"
+          fi
 
           # 2. Create DMG Disk Image Installer with shortcuts (containing signed App and Plugins)
-          ln -sf /Applications "dist/OWMB-${{ matrix.os_name }}/Applications (Shortcut)"
-          ln -sf "/Library/Audio/Plug-Ins/VST3" "dist/OWMB-${{ matrix.os_name }}/VST3 Plugins (Shortcut)"
-          ln -sf "/Library/Audio/Plug-Ins/Components" "dist/OWMB-${{ matrix.os_name }}/AU Plugins (Shortcut)"
+          ln -sfn /Applications "dist/OWMB-${{ matrix.os_name }}/Applications (Shortcut)"
+          ln -sfn "/Library/Audio/Plug-Ins/VST3" "dist/OWMB-${{ matrix.os_name }}/VST3 Plugins (Shortcut)"
+          ln -sfn "/Library/Audio/Plug-Ins/Components" "dist/OWMB-${{ matrix.os_name }}/AU Plugins (Shortcut)"
 
           hdiutil create -volname "OWMB Installer" -srcfolder "dist/OWMB-${{ matrix.os_name }}" -ov -format UDZO "OWMB-${{ matrix.os_name }}-Installer.dmg"
           cp "OWMB-${{ matrix.os_name }}-Installer.dmg" "OWMB-${{ matrix.os_name }}.dmg"
@@ -365,11 +376,6 @@ jobs:
         with:
           name: OWMB-macOS-Universal
 
-      - name: Download macOS Monterey Intel Artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: OWMB-macOS-Monterey-Intel-x64
-
       - name: Download Linux Distros Artifacts
         uses: actions/download-artifact@v4
         with:
@@ -378,8 +384,8 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event.inputs.tag_name || (github.ref == 'refs/heads/main' && 'v1.0.0') || github.ref_name }}
-          name: OWMB ${{ github.event.inputs.tag_name || (github.ref == 'refs/heads/main' && 'v1.0.0') || github.ref_name }}
+          tag_name: ${{ github.event.inputs.tag_name || (github.ref == 'refs/heads/main' && '1.0.0') || github.ref_name }}
+          name: OWMB ${{ github.event.inputs.tag_name || (github.ref == 'refs/heads/main' && '1.0.0') || github.ref_name }}
           draft: false
           prerelease: false
           generate_release_notes: true
@@ -394,9 +400,6 @@ jobs:
             OWMB-macOS-Universal-Installer.pkg
             OWMB-macOS-Universal-Installer.dmg
             OWMB-macOS-Universal.dmg
-            OWMB-macOS-Monterey-Intel-x64-Installer.pkg
-            OWMB-macOS-Monterey-Intel-x64-Installer.dmg
-            OWMB-macOS-Monterey-Intel-x64.dmg
             OWMB-Linux-Distros-x64.tar.gz
 
 

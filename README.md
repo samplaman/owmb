@@ -22,13 +22,12 @@
 
 ## Download & Releases
 
-Pre-built binaries and installers for **Windows 11**, **macOS** (Universal and Intel Monterey), and **Linux Distros** are available under [GitHub Releases](https://github.com/samplaman/owmb/releases).
+Pre-built binaries and installers for **Windows 11**, **macOS** (Universal for Apple Silicon & Intel), and **Linux Distros** are available under [GitHub Releases](https://github.com/samplaman/owmb/releases).
 
 - **Microsoft Store / Standalone (.exe)**: `OWMB-MicrosoftStore-Standalone.exe` (Unzipped Direct Executable)
 - **Windows Installer (.exe)**: `OWMB-MicrosoftStore-Installer.exe` / `OWMB-Installer.exe` (Unzipped Setup Installer)
 - **Windows 11 Bundle (.zip)**: `OWMB-Windows-11-x64.zip` (VST3 Plugin & Standalone `.exe`)
-- **macOS Universal Installer (.pkg / .dmg)**: `OWMB-macOS-Universal-Installer.pkg` / `OWMB-macOS-Universal-Installer.dmg` (VST3, AU & App for Apple Silicon & Intel)
-- **macOS Monterey Intel Installer (.pkg / .dmg)**: `OWMB-macOS-Monterey-Intel-x64-Installer.pkg` / `OWMB-macOS-Monterey-Intel-x64-Installer.dmg` (VST3, AU & App for Intel macOS 12+)
+- **macOS Universal Installer (.pkg / .dmg)**: `OWMB-macOS-Universal-Installer.pkg` / `OWMB-macOS-Universal-Installer.dmg` / `OWMB-macOS-Universal.dmg` (VST3, AU & App for Apple Silicon & Intel)
 - **Linux Distros (.tar.gz)**: `OWMB-Linux-Distros-x64.tar.gz` (VST3 Plugin & Standalone Executable)
 
 ---
@@ -42,21 +41,19 @@ Pre-built binaries and installers for **Windows 11**, **macOS** (Universal and I
 
 ### Build Steps
 
-#### macOS (Monterey Intel x86_64 or Universal)
+#### macOS (Universal: Apple Silicon & Intel)
 ```bash
 # Clone the repository
 git clone https://github.com/samplaman/owmb.git
 cd owmb
 
 # Option A: Use the macOS build helper script
-./build-macos.sh --monterey-intel   # For macOS Monterey (Intel x86_64)
-# or
-./build-macos.sh --universal        # For Universal binary (arm64 + x86_64)
+./build-macos.sh
 
 # Option B: Manual CMake configuration
 cmake -B build -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_OSX_ARCHITECTURES="x86_64" \
-  -DCMAKE_OSX_DEPLOYMENT_TARGET="12.0"
+  -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
+  -DCMAKE_OSX_DEPLOYMENT_TARGET="10.15"
 cmake --build build --config Release -j 4
 ```
 
