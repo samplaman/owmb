@@ -467,8 +467,11 @@ LibrariesComponent::LibrariesComponent(TagDatabaseManager& db, LibraryScanner& s
     // Pixeldrain Logo on top right
     addAndMakeVisible(pixeldrainLogoComponent);
 
-    // Load API Key or Hotlink from settings
-    apiKeyEditor.setText(dbManager.getPixeldrainApiKey(), juce::dontSendNotification);
+    // Load API Key or Hotlink from settings (default to OWMB Soundbank)
+    juce::String currentKey = dbManager.getPixeldrainApiKey();
+    if (currentKey.trim().isEmpty())
+        currentKey = "https://pixeldrain.com/d/BCLFaT9q";
+    apiKeyEditor.setText(currentKey, juce::dontSendNotification);
     apiKeyEditor.setJustification(juce::Justification::centredLeft);
     apiKeyEditor.setIndents(6, 0);
     apiKeyEditor.setTextToShowWhenEmpty("Enter API Key or Public Hotlink (e.g. /u/id, /l/id, /d/id)...", OpenWavLookAndFeel::textSecondary);
@@ -481,6 +484,14 @@ LibrariesComponent::LibrariesComponent(TagDatabaseManager& db, LibraryScanner& s
 
     connectButton.onClick = [this] { fetchUserFiles(); };
     addAndMakeVisible(connectButton);
+
+    owmbSoundbankButton.setButtonText("OWMB Soundbank");
+    owmbSoundbankButton.setTooltip("Load default OWMB Soundbank (https://pixeldrain.com/d/BCLFaT9q)");
+    owmbSoundbankButton.onClick = [this] {
+        apiKeyEditor.setText("https://pixeldrain.com/d/BCLFaT9q", juce::dontSendNotification);
+        fetchUserFiles();
+    };
+    addAndMakeVisible(owmbSoundbankButton);
 
     statusLabel.setFont(juce::Font(juce::FontOptions(12.0f)));
     statusLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::textSecondary);
@@ -633,7 +644,9 @@ void LibrariesComponent::resized()
     topRow.removeFromLeft(6);
     apiKeyEditor.setBounds(topRow.removeFromLeft(280));
     topRow.removeFromLeft(8);
-    connectButton.setBounds(topRow.removeFromLeft(110));
+    connectButton.setBounds(topRow.removeFromLeft(100));
+    topRow.removeFromLeft(8);
+    owmbSoundbankButton.setBounds(topRow.removeFromLeft(135));
     topRow.removeFromLeft(12);
     statusLabel.setBounds(topRow);
 
@@ -1355,6 +1368,21 @@ void LibrariesComponent::fetchUserFiles()
                         juce::String folderTitle = obj->getProperty("name").toString();
                         if (folderTitle.isNotEmpty())
                             rootNode->name = folderTitle;
+                    }
+                    else if (obj && obj->hasProperty("path") && obj->getProperty("path").isArray())
+                    {
+                        auto pVar = obj->getProperty("path");
+                        if (pVar.size() > 0 && pVar[0].hasProperty("name"))
+                        {
+                            juce::String pName = pVar[0]["name"].toString();
+                            if (pName.isNotEmpty())
+                                rootNode->name = pName;
+                        }
+                    }
+
+                    if (target.idOrKey.equalsIgnoreCase("BCLFaT9q") || rootNode->name.equalsIgnoreCase("Soundbank"))
+                    {
+                        rootNode->name = "OWMB Soundbank";
                     }
 
                     if (obj && obj->hasProperty("children"))

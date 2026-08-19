@@ -93,7 +93,7 @@ private:
     mutable juce::CriticalSection lock;
     std::map<juce::String, MediaItem> itemsMap; // ID -> MediaItem
     std::set<juce::String> scanFolders;
-    juce::String pixeldrainApiKey;
+    juce::String pixeldrainApiKey { "https://pixeldrain.com/d/BCLFaT9q" };
     juce::String downloadFolder;
     bool darkThemeActive = false;
     juce::String primaryColourHex;

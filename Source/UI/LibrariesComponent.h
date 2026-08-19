@@ -138,6 +138,7 @@ private:
     juce::Label apiKeyLabel { {}, "Key or Hotlink:" };
     juce::TextEditor apiKeyEditor;
     juce::TextButton connectButton { "Fetch Files" };
+    juce::TextButton owmbSoundbankButton { "OWMB Soundbank" };
     juce::Label statusLabel;
 
     juce::Label searchLabel { {}, "Search:" };

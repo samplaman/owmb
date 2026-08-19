@@ -708,7 +708,11 @@ void TagDatabaseManager::loadFromFile()
     }
 
     if (obj->hasProperty("pixeldrainApiKey"))
-        pixeldrainApiKey = obj->getProperty("pixeldrainApiKey").toString();
+    {
+        pixeldrainApiKey = obj->getProperty("pixeldrainApiKey").toString().trim();
+        if (pixeldrainApiKey.isEmpty())
+            pixeldrainApiKey = "https://pixeldrain.com/d/BCLFaT9q";
+    }
 
     if (obj->hasProperty("downloadFolder"))
         downloadFolder = obj->getProperty("downloadFolder").toString();
@@ -832,6 +836,8 @@ std::vector<juce::String> TagDatabaseManager::getScanFolders() const
 juce::String TagDatabaseManager::getPixeldrainApiKey() const
 {
     const juce::ScopedLock sl(lock);
+    if (pixeldrainApiKey.trim().isEmpty())
+        return "https://pixeldrain.com/d/BCLFaT9q";
     return pixeldrainApiKey;
 }
 
