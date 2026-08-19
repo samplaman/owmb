@@ -5,7 +5,8 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 if (MSVC)
-    add_compile_options(/utf-8)
+    add_compile_options(/utf-8 /bigobj)
+    add_compile_definitions(_CRT_SECURE_NO_WARNINGS NOMINMAX)
 elseif (UNIX AND NOT APPLE)
     add_compile_options(
         -U_FORTIFY_SOURCE

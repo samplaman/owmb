@@ -612,6 +612,13 @@ LibrariesComponent::LibrariesComponent(TagDatabaseManager& db, LibraryScanner& s
 
 LibrariesComponent::~LibrariesComponent()
 {
+    cancelRequested.store(true);
+    if (sequentialDownloader != nullptr)
+    {
+        sequentialDownloader->signalThreadShouldExit();
+        sequentialDownloader->stopThread(500);
+        sequentialDownloader.reset();
+    }
     folderTreeView.setRootItem(nullptr);
     rootTreeItem.reset();
     tableBox.setModel(nullptr);
