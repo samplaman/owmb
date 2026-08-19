@@ -1371,10 +1371,10 @@ void LibrariesComponent::fetchUserFiles()
                     }
                     else if (obj && obj->hasProperty("path") && obj->getProperty("path").isArray())
                     {
-                        auto pVar = obj->getProperty("path");
-                        if (pVar.size() > 0 && pVar[0].hasProperty("name"))
+                        auto* pArr = obj->getProperty("path").getArray();
+                        if (pArr != nullptr && !pArr->isEmpty())
                         {
-                            juce::String pName = pVar[0]["name"].toString();
+                            juce::String pName = (*pArr)[0]["name"].toString();
                             if (pName.isNotEmpty())
                                 rootNode->name = pName;
                         }
