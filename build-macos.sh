@@ -98,14 +98,22 @@ if [ -n "$SIGN_IDENTITY" ]; then
         ENTITLEMENTS_ARG="--entitlements $ENTITLEMENTS_FILE"
     fi
 
-    # Find and sign VST3, AU, and Standalone App bundles
-    while IFS= read -r -d '' bundle; do
-        echo "    -> Signing bundle: $bundle"
-        codesign --force --deep --options runtime --timestamp \
-            $ENTITLEMENTS_ARG \
-            --sign "$SIGN_IDENTITY" "$bundle"
-        codesign --verify --deep --strict --verbose=2 "$bundle"
-    done < <(find "$BUILD_DIR/OpenWav_artefacts" \( -name "OWMB.vst3" -o -name "OWMB.component" -o -name "OWMB.app" \) -print0)
+    # Find and sign active Release VST3, AU, and Standalone App bundles
+    TARGET_BUNDLES=(
+        "$BUILD_DIR/OpenWav_artefacts/Release/VST3/OWMB.vst3"
+        "$BUILD_DIR/OpenWav_artefacts/Release/AU/OWMB.component"
+        "$BUILD_DIR/OpenWav_artefacts/Release/Standalone/OWMB.app"
+    )
+
+    for bundle in "${TARGET_BUNDLES[@]}"; do
+        if [ -d "$bundle" ]; then
+            echo "    -> Signing bundle: $bundle"
+            codesign --force --deep --options runtime --timestamp \
+                $ENTITLEMENTS_ARG \
+                --sign "$SIGN_IDENTITY" "$bundle"
+            codesign --verify --deep --strict --verbose=2 "$bundle"
+        fi
+    done
     echo "==> Code signing complete!"
 else
     echo "==> Note: No codesigning identity provided. Binaries built unsigned (adhoc)."
@@ -116,9 +124,9 @@ echo "==> Packaging release into dist/$DIST_NAME..."
 rm -rf "dist/$DIST_NAME" "$DIST_NAME.zip" "$DIST_NAME.dmg" "$DIST_NAME-Installer.dmg" "$DIST_NAME-Installer.pkg"
 mkdir -p "dist/$DIST_NAME"
 
-find "$BUILD_DIR/OpenWav_artefacts" -name "OWMB.vst3" -exec cp -R {} "dist/$DIST_NAME/" \; 2>/dev/null || true
-find "$BUILD_DIR/OpenWav_artefacts" -name "OWMB.component" -exec cp -R {} "dist/$DIST_NAME/" \; 2>/dev/null || true
-find "$BUILD_DIR/OpenWav_artefacts" -name "OWMB.app" -exec cp -R {} "dist/$DIST_NAME/" \; 2>/dev/null || true
+[ -d "$BUILD_DIR/OpenWav_artefacts/Release/VST3/OWMB.vst3" ] && cp -R "$BUILD_DIR/OpenWav_artefacts/Release/VST3/OWMB.vst3" "dist/$DIST_NAME/"
+[ -d "$BUILD_DIR/OpenWav_artefacts/Release/AU/OWMB.component" ] && cp -R "$BUILD_DIR/OpenWav_artefacts/Release/AU/OWMB.component" "dist/$DIST_NAME/"
+[ -d "$BUILD_DIR/OpenWav_artefacts/Release/Standalone/OWMB.app" ] && cp -R "$BUILD_DIR/OpenWav_artefacts/Release/Standalone/OWMB.app" "dist/$DIST_NAME/"
 
 # 4a. Create Native macOS PKG Installer
 echo "==> Creating Native macOS PKG Installer: $DIST_NAME-Installer.pkg..."

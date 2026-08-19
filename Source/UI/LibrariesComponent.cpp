@@ -46,8 +46,8 @@ public:
             btnAction.setVisible(true);
             btnAction.setButtonText("Queued");
             btnAction.setEnabled(false);
-            btnAction.setColour(juce::TextButton::buttonColourId, OpenWavLookAndFeel::accentBlue.withAlpha(0.2f));
-            btnAction.setColour(juce::TextButton::textColourOffId, OpenWavLookAndFeel::accentBlue.withMultipliedBrightness(1.4f));
+            btnAction.setColour(juce::TextButton::buttonColourId, OpenWavLookAndFeel::accentBlue.withAlpha(0.22f));
+            btnAction.setColour(juce::TextButton::textColourOffId, OpenWavLookAndFeel::accentBlue.withMultipliedBrightness(1.35f));
             btnAction.setTooltip("Waiting in sequential download queue");
             setTooltip("Waiting in sequential download queue");
         }
@@ -65,10 +65,10 @@ public:
         else if (isDownloaded)
         {
             btnAction.setVisible(true);
-            btnAction.setButtonText(item.isZip ? "Extracted" : "Downloaded");
+            btnAction.setButtonText(item.isZip ? "Extracted" : "In Library");
             btnAction.setEnabled(false);
-            btnAction.setColour(juce::TextButton::buttonColourId, juce::Colour::fromRGB(40, 167, 69).withAlpha(0.2f));
-            btnAction.setColour(juce::TextButton::textColourOffId, juce::Colour::fromRGB(60, 200, 90));
+            btnAction.setColour(juce::TextButton::buttonColourId, juce::Colour::fromRGB(40, 167, 69).withAlpha(0.22f));
+            btnAction.setColour(juce::TextButton::textColourOffId, juce::Colour::fromRGB(65, 215, 100));
             btnAction.setTooltip("File is present in local library");
             setTooltip("File is present in local library");
         }
@@ -77,7 +77,7 @@ public:
             btnAction.setVisible(true);
             btnAction.setButtonText("Download");
             btnAction.setEnabled(true);
-            btnAction.setColour(juce::TextButton::buttonColourId, OpenWavLookAndFeel::bgHover);
+            btnAction.setColour(juce::TextButton::buttonColourId, OpenWavLookAndFeel::bgCard);
             btnAction.setColour(juce::TextButton::textColourOffId, OpenWavLookAndFeel::textPrimary);
             btnAction.setTooltip("Download file from Pixeldrain");
             setTooltip("Download file from Pixeldrain");
@@ -94,7 +94,7 @@ public:
             float cornerSize = 4.0f;
 
             // Background track
-            g.setColour(OpenWavLookAndFeel::bgDark.withMultipliedBrightness(0.7f));
+            g.setColour(OpenWavLookAndFeel::bgCard);
             g.fillRoundedRectangle(bounds, cornerSize);
 
             g.setColour(OpenWavLookAndFeel::borderColour);
@@ -124,14 +124,14 @@ public:
             }
 
             // Outline highlight
-            g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.6f));
+            g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.65f));
             g.drawRoundedRectangle(bounds, cornerSize, 1.0f);
 
             // Centered Percentage Text
             int pct = juce::roundToInt(progress * 100.0);
             juce::String text = isPreviewing ? "Stream " + juce::String(pct) + "%" : juce::String(pct) + "%";
 
-            g.setFont(juce::Font(juce::FontOptions(11.5f).withStyle("Bold")));
+            g.setFont(juce::Font(juce::FontOptions(11.0f).withStyle("Bold")));
 
             // Text shadow for high readability
             g.setColour(juce::Colours::black.withAlpha(0.7f));
@@ -167,7 +167,6 @@ public:
     PixeldrainFolderTreeItem(std::shared_ptr<PixeldrainFolderNode> node, LibrariesComponent& owner)
         : folderNode(node), owner(owner)
     {
-        setDrawsInLeftMargin(true);
     }
 
     ~PixeldrainFolderTreeItem() override
@@ -210,25 +209,25 @@ public:
         if (!mightContainSubItems()) return;
 
         auto center = area.getCentre();
-        float s = 5.0f;
+        float s = 4.5f;
         juce::Path p;
 
         if (isOpen())
         {
             // Crisp down chevron
-            p.startNewSubPath(center.x - s, center.y - s * 0.4f);
-            p.lineTo(center.x, center.y + s * 0.6f);
-            p.lineTo(center.x + s, center.y - s * 0.4f);
-            g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.95f));
+            p.startNewSubPath(center.x - s, center.y - s * 0.35f);
+            p.lineTo(center.x, center.y + s * 0.65f);
+            p.lineTo(center.x + s, center.y - s * 0.35f);
+            g.setColour(OpenWavLookAndFeel::accentCyan);
             g.strokePath(p, juce::PathStrokeType(1.8f, juce::PathStrokeType::mitered, juce::PathStrokeType::rounded));
         }
         else
         {
             // Crisp right chevron
-            p.startNewSubPath(center.x - s * 0.4f, center.y - s);
-            p.lineTo(center.x + s * 0.6f, center.y);
-            p.lineTo(center.x - s * 0.4f, center.y + s);
-            g.setColour(OpenWavLookAndFeel::textSecondary.withAlpha(0.75f));
+            p.startNewSubPath(center.x - s * 0.35f, center.y - s);
+            p.lineTo(center.x + s * 0.65f, center.y);
+            p.lineTo(center.x - s * 0.35f, center.y + s);
+            g.setColour(OpenWavLookAndFeel::textSecondary.withAlpha(0.85f));
             g.strokePath(p, juce::PathStrokeType(1.8f, juce::PathStrokeType::mitered, juce::PathStrokeType::rounded));
         }
     }
@@ -251,7 +250,7 @@ public:
 
             // Left Neon Active Bar
             g.setColour(OpenWavLookAndFeel::accentCyan);
-            g.fillRoundedRectangle(1.0f, 3.0f, 3.0f, static_cast<float>(height - 6), 1.5f);
+            g.fillRoundedRectangle(0.0f, 2.0f, 3.0f, static_cast<float>(height - 4), 1.5f);
 
             // Subtle border glow
             g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.40f));
@@ -259,18 +258,18 @@ public:
         }
 
         // 2. Vector Folder Icon
-        float iconX = 6.0f;
-        float iconY = static_cast<float>((height - 15) / 2);
+        float iconX = 4.0f;
+        float iconY = static_cast<float>((height - 14) / 2);
         float iconW = 16.0f;
         float iconH = 13.0f;
 
         juce::Colour mainFolderColour = isSel ? OpenWavLookAndFeel::accentCyan
-                                             : (isRoot ? OpenWavLookAndFeel::accentCyan.withMultipliedBrightness(0.9f)
+                                             : (isRoot ? OpenWavLookAndFeel::accentCyan.withMultipliedBrightness(0.95f)
                                                        : OpenWavLookAndFeel::accentBlue.withMultipliedBrightness(1.3f));
 
         // Folder back tab
         g.setColour(mainFolderColour.withAlpha(isSel ? 0.95f : 0.75f));
-        g.fillRoundedRectangle(iconX, iconY, 7.0f, 5.0f, 1.5f);
+        g.fillRoundedRectangle(iconX, iconY, 6.0f, 4.0f, 1.0f);
 
         // Folder main body with 3D gradient
         juce::Colour bodyTop = isSel ? OpenWavLookAndFeel::accentCyan.withMultipliedBrightness(1.15f)
@@ -292,14 +291,14 @@ public:
         g.drawRoundedRectangle(iconX, iconY + 3.0f, iconW, iconH - 3.0f, 2.0f, 1.0f);
 
         // 3. Folder Name Label
-        int textX = static_cast<int>(iconX + iconW + 8.0f);
+        int textX = static_cast<int>(iconX + iconW + 7.0f);
         int totalFiles = folderNode->getTotalFileCount();
         juce::String countStr = juce::String(totalFiles);
 
         int badgeWidth = 0;
         if (width > 80)
         {
-            badgeWidth = juce::jmax(26, countStr.length() * 8 + 12);
+            badgeWidth = juce::jmax(26, countStr.length() * 7 + 10);
         }
 
         int textWidth = juce::jmax(10, width - textX - badgeWidth - 6);
@@ -559,9 +558,9 @@ LibrariesComponent::LibrariesComponent(TagDatabaseManager& db, LibraryScanner& s
     addAndMakeVisible(downloadAllWavsButton);
 
     // Online Folders Tree View
-    foldersHeaderLabel.setFont(juce::Font(juce::FontOptions(11.0f).withStyle("Bold")));
+    foldersHeaderLabel.setFont(juce::Font(juce::FontOptions(11.5f).withStyle("Bold")));
     foldersHeaderLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::accentCyan);
-    foldersHeaderLabel.setColour(juce::Label::backgroundColourId, OpenWavLookAndFeel::bgDark.withMultipliedBrightness(0.7f));
+    foldersHeaderLabel.setColour(juce::Label::backgroundColourId, OpenWavLookAndFeel::bgCard);
     foldersHeaderLabel.setColour(juce::Label::outlineColourId, OpenWavLookAndFeel::borderColour);
     foldersHeaderLabel.setJustificationType(juce::Justification::centredLeft);
     foldersHeaderLabel.setText("  ONLINE FOLDERS", juce::dontSendNotification);
@@ -570,15 +569,15 @@ LibrariesComponent::LibrariesComponent(TagDatabaseManager& db, LibraryScanner& s
     folderTreeView.setRootItemVisible(true);
     folderTreeView.setDefaultOpenness(true);
     folderTreeView.setOpenCloseButtonsVisible(true);
-    folderTreeView.setIndentSize(14);
-    folderTreeView.setColour(juce::TreeView::backgroundColourId, OpenWavLookAndFeel::bgDark.withMultipliedBrightness(0.6f));
-    folderTreeView.setColour(juce::TreeView::linesColourId, OpenWavLookAndFeel::borderColour.withAlpha(0.35f));
+    folderTreeView.setIndentSize(18);
+    folderTreeView.setColour(juce::TreeView::backgroundColourId, OpenWavLookAndFeel::bgCard);
+    folderTreeView.setColour(juce::TreeView::linesColourId, OpenWavLookAndFeel::borderColour.withAlpha(0.25f));
     addAndMakeVisible(folderTreeView);
 
     // Breadcrumbs & Toggle
     breadcrumbLabel.setFont(juce::Font(juce::FontOptions(12.0f).withStyle("Bold")));
     breadcrumbLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::textPrimary);
-    breadcrumbLabel.setColour(juce::Label::backgroundColourId, OpenWavLookAndFeel::bgDark.withMultipliedBrightness(0.7f));
+    breadcrumbLabel.setColour(juce::Label::backgroundColourId, OpenWavLookAndFeel::bgCard);
     breadcrumbLabel.setColour(juce::Label::outlineColourId, OpenWavLookAndFeel::borderColour);
     breadcrumbLabel.setJustificationType(juce::Justification::centredLeft);
     breadcrumbLabel.setText("All Files", juce::dontSendNotification);
@@ -635,7 +634,7 @@ void LibrariesComponent::paint(juce::Graphics& g)
     {
         auto treeBounds = folderTreeView.getBounds().toFloat();
         g.setColour(OpenWavLookAndFeel::borderColour);
-        g.drawRoundedRectangle(treeBounds, 3.0f, 1.0f);
+        g.drawRoundedRectangle(treeBounds, 4.0f, 1.0f);
     }
 }
 
@@ -719,114 +718,253 @@ int LibrariesComponent::getNumRows()
     return static_cast<int>(displayedFiles.size());
 }
 
-void LibrariesComponent::paintRowBackground(juce::Graphics& g, int rowNumber, int /*width*/, int /*height*/, bool rowIsSelected)
+void LibrariesComponent::paintRowBackground(juce::Graphics& g, int rowNumber, int width, int height, bool rowIsSelected)
 {
+    auto bounds = juce::Rectangle<int>(0, 0, width, height);
+
     if (rowIsSelected)
     {
-        g.fillAll(OpenWavLookAndFeel::bgHover);
+        // High-tech cyber selection highlight
+        juce::Colour startColour = OpenWavLookAndFeel::accentCyan.withAlpha(0.20f);
+        juce::Colour endColour = OpenWavLookAndFeel::accentBlue.withAlpha(0.06f);
+        juce::ColourGradient grad(startColour, 0.0f, 0.0f, endColour, static_cast<float>(width), 0.0f, false);
+        g.setGradientFill(grad);
+        g.fillRect(bounds);
+
+        // Left Neon active bar
+        g.setColour(OpenWavLookAndFeel::accentCyan);
+        g.fillRect(0, 0, 3, height);
+
+        // Subtle row outline
+        g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.35f));
+        g.drawRect(0, 0, width, height, 1);
     }
     else if (rowNumber % 2 == 1)
     {
-        g.fillAll(OpenWavLookAndFeel::bgDark.withMultipliedBrightness(1.05f));
+        g.setColour(OpenWavLookAndFeel::bgCard);
+        g.fillRect(bounds);
     }
     else
     {
-        g.fillAll(OpenWavLookAndFeel::bgDark);
+        g.setColour(OpenWavLookAndFeel::bgDark);
+        g.fillRect(bounds);
     }
+
+    // Subtle row bottom divider
+    g.setColour(OpenWavLookAndFeel::borderColour.withAlpha(0.35f));
+    g.fillRect(0, height - 1, width, 1);
 }
 
-void LibrariesComponent::paintCell(juce::Graphics& g, int rowNumber, int columnId, int width, int height, bool /*rowIsSelected*/)
+void LibrariesComponent::paintCell(juce::Graphics& g, int rowNumber, int columnId, int width, int height, bool rowIsSelected)
 {
     if (rowNumber < 0 || rowNumber >= static_cast<int>(displayedFiles.size()))
         return;
 
     const auto& item = displayedFiles[static_cast<size_t>(rowNumber)];
-
-    g.setFont(juce::Font(juce::FontOptions(13.0f)));
-    g.setColour(OpenWavLookAndFeel::textPrimary);
-
-    juce::Rectangle<int> cellBounds(4, 0, width - 8, height);
+    juce::Rectangle<int> cellBounds(6, 0, width - 12, height);
 
     if (columnId == 1) // #
     {
-        g.setColour(OpenWavLookAndFeel::textSecondary);
-        g.drawText(juce::String(rowNumber + 1), cellBounds, juce::Justification::centredLeft);
+        if (item.isPreviewing)
+        {
+            // Glowing animated/streaming pulse indicator
+            float dotSize = 8.0f;
+            float cx = width * 0.5f;
+            float cy = height * 0.5f;
+            g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.35f));
+            g.fillEllipse(cx - dotSize, cy - dotSize, dotSize * 2.0f, dotSize * 2.0f);
+            g.setColour(OpenWavLookAndFeel::accentCyan);
+            g.fillEllipse(cx - dotSize * 0.5f, cy - dotSize * 0.5f, dotSize, dotSize);
+        }
+        else
+        {
+            g.setFont(juce::Font(juce::FontOptions(11.5f).withStyle("Regular")));
+            g.setColour(OpenWavLookAndFeel::textSecondary.withAlpha(0.75f));
+            g.drawText(juce::String(rowNumber + 1), cellBounds, juce::Justification::centred);
+        }
     }
     else if (columnId == 2) // Name
     {
-        if (item.isWav)
-            g.setColour(OpenWavLookAndFeel::accentCyan);
-        else if (item.isZip)
-            g.setColour(OpenWavLookAndFeel::accentBlue.withMultipliedBrightness(1.25f));
-        else
-            g.setColour(OpenWavLookAndFeel::textPrimary);
+        // 1. Vector Icon
+        float iconSize = 16.0f;
+        float iconX = static_cast<float>(cellBounds.getX());
+        float iconY = static_cast<float>((height - iconSize) / 2);
 
-        g.drawText(item.name, cellBounds, juce::Justification::centredLeft, true);
-    }
-    else if (columnId == 3) // Type
-    {
-        g.setColour(OpenWavLookAndFeel::textSecondary);
         if (item.isZip)
         {
-            g.drawText("ZIP", cellBounds, juce::Justification::centredLeft);
+            // Archive icon
+            juce::Colour zipCol = juce::Colour::fromRGB(255, 175, 55);
+            g.setColour(zipCol.withAlpha(0.9f));
+            g.drawRoundedRectangle(iconX, iconY + 1.0f, iconSize, iconSize - 2.0f, 2.0f, 1.2f);
+            g.drawLine(iconX + iconSize * 0.5f, iconY + 1.0f, iconX + iconSize * 0.5f, iconY + iconSize - 1.0f, 1.0f);
+            g.drawLine(iconX + iconSize * 0.3f, iconY + iconSize * 0.45f, iconX + iconSize * 0.7f, iconY + iconSize * 0.45f, 1.2f);
         }
         else
         {
-            juce::String ext = juce::File(item.name).getFileExtension().toUpperCase();
-            if (ext.isEmpty()) ext = item.mimeType;
-            g.drawText(ext, cellBounds, juce::Justification::centredLeft);
+            // Waveform bar icon
+            juce::Colour waveCol = item.isDownloaded ? juce::Colour::fromRGB(65, 215, 100)
+                                                    : (rowIsSelected ? OpenWavLookAndFeel::accentCyan : OpenWavLookAndFeel::accentCyan.withAlpha(0.85f));
+            g.setColour(waveCol);
+            float barW = 2.0f;
+            g.fillRoundedRectangle(iconX + 1.0f, iconY + 5.0f, barW, 6.0f, 1.0f);
+            g.fillRoundedRectangle(iconX + 5.0f, iconY + 2.0f, barW, 12.0f, 1.0f);
+            g.fillRoundedRectangle(iconX + 9.0f, iconY + 4.0f, barW, 8.0f, 1.0f);
+            g.fillRoundedRectangle(iconX + 13.0f, iconY + 6.0f, barW, 4.0f, 1.0f);
         }
+
+        // 2. Name Text
+        auto nameBounds = cellBounds.withTrimmedLeft(static_cast<int>(iconSize + 8.0f));
+        g.setFont(juce::Font(juce::FontOptions(13.0f).withStyle(rowIsSelected ? "Bold" : "Regular")));
+
+        if (rowIsSelected)
+            g.setColour(OpenWavLookAndFeel::accentCyan.withMultipliedBrightness(1.3f));
+        else if (item.isZip)
+            g.setColour(juce::Colour::fromRGB(255, 195, 90));
+        else if (item.isDownloaded)
+            g.setColour(OpenWavLookAndFeel::textPrimary);
+        else
+            g.setColour(OpenWavLookAndFeel::textPrimary.withAlpha(0.9f));
+
+        g.drawText(item.name, nameBounds, juce::Justification::centredLeft, true);
+    }
+    else if (columnId == 3) // Type (Pill badge)
+    {
+        juce::String ext = item.isZip ? "ZIP" : juce::File(item.name).getFileExtension().replace(".", "").toUpperCase();
+        if (ext.isEmpty()) ext = "AUD";
+
+        juce::Colour pillBg, pillBorder, pillText;
+        if (item.isZip)
+        {
+            pillBg = juce::Colour::fromRGB(255, 160, 40).withAlpha(0.18f);
+            pillBorder = juce::Colour::fromRGB(255, 170, 50).withAlpha(0.65f);
+            pillText = juce::Colour::fromRGB(255, 185, 80);
+        }
+        else if (ext == "WAV")
+        {
+            pillBg = OpenWavLookAndFeel::accentCyan.withAlpha(0.18f);
+            pillBorder = OpenWavLookAndFeel::accentCyan.withAlpha(0.65f);
+            pillText = OpenWavLookAndFeel::accentCyan.withMultipliedBrightness(1.2f);
+        }
+        else if (ext == "FLAC" || ext == "AIFF" || ext == "AIF")
+        {
+            pillBg = juce::Colour::fromRGB(160, 90, 255).withAlpha(0.18f);
+            pillBorder = juce::Colour::fromRGB(170, 110, 255).withAlpha(0.65f);
+            pillText = juce::Colour::fromRGB(190, 140, 255);
+        }
+        else
+        {
+            pillBg = OpenWavLookAndFeel::accentBlue.withAlpha(0.18f);
+            pillBorder = OpenWavLookAndFeel::accentBlue.withAlpha(0.65f);
+            pillText = OpenWavLookAndFeel::accentBlue.withMultipliedBrightness(1.3f);
+        }
+
+        float pillW = juce::jmin(static_cast<float>(width - 16), 46.0f);
+        float pillH = 18.0f;
+        auto pillRect = juce::Rectangle<float>(static_cast<float>(cellBounds.getX()),
+                                               static_cast<float>((height - pillH) / 2),
+                                               pillW, pillH);
+
+        g.setColour(pillBg);
+        g.fillRoundedRectangle(pillRect, 4.0f);
+        g.setColour(pillBorder);
+        g.drawRoundedRectangle(pillRect, 4.0f, 1.0f);
+
+        g.setFont(juce::Font(juce::FontOptions(10.0f).withStyle("Bold")));
+        g.setColour(pillText);
+        g.drawText(ext, pillRect.toNearestInt(), juce::Justification::centred, false);
     }
     else if (columnId == 4) // Size
     {
+        g.setFont(juce::Font(juce::FontOptions(12.0f)));
         g.setColour(OpenWavLookAndFeel::textSecondary);
         double mb = static_cast<double>(item.sizeBytes) / (1024.0 * 1024.0);
         juce::String sizeStr = (mb >= 1.0) ? juce::String(mb, 2) + " MB" : juce::String(item.sizeBytes / 1024) + " KB";
-        g.drawText(sizeStr, cellBounds, juce::Justification::centredLeft);
+        g.drawText(sizeStr, cellBounds, juce::Justification::centredLeft, true);
     }
     else if (columnId == 5) // Uploaded
     {
+        g.setFont(juce::Font(juce::FontOptions(12.0f)));
         g.setColour(OpenWavLookAndFeel::textSecondary);
         juce::String dateStr = item.dateUpload;
         if (dateStr.contains("T"))
             dateStr = dateStr.upToFirstOccurrenceOf("T", false, false);
-        g.drawText(dateStr, cellBounds, juce::Justification::centredLeft);
+        g.drawText(dateStr, cellBounds, juce::Justification::centredLeft, true);
     }
-    else if (columnId == 6) // Status
+    else if (columnId == 6) // Status (Modern status pill with glowing dot)
     {
+        juce::Colour dotColour, textColour, bgPill;
+        juce::String statusMsg;
+
         if (item.isDownloading)
         {
-            g.setColour(OpenWavLookAndFeel::accentCyan);
+            dotColour = OpenWavLookAndFeel::accentCyan;
+            textColour = OpenWavLookAndFeel::accentCyan.withMultipliedBrightness(1.2f);
+            bgPill = OpenWavLookAndFeel::accentCyan.withAlpha(0.15f);
             int pct = juce::roundToInt(item.downloadProgress * 100.0);
-            g.drawText("Downloading " + juce::String(pct) + "%", cellBounds, juce::Justification::centredLeft);
-        }
-        else if (item.isQueued)
-        {
-            g.setColour(OpenWavLookAndFeel::accentBlue.withMultipliedBrightness(1.35f));
-            g.drawText("Queued in Batch", cellBounds, juce::Justification::centredLeft);
+            statusMsg = "Downloading " + juce::String(pct) + "%";
         }
         else if (item.isPreviewing)
         {
-            g.setColour(OpenWavLookAndFeel::accentCyan);
+            dotColour = OpenWavLookAndFeel::accentCyan;
+            textColour = OpenWavLookAndFeel::accentCyan.withMultipliedBrightness(1.2f);
+            bgPill = OpenWavLookAndFeel::accentCyan.withAlpha(0.15f);
             int pct = juce::roundToInt(item.previewProgress * 100.0);
-            g.drawText("Streaming " + juce::String(pct) + "%", cellBounds, juce::Justification::centredLeft);
+            statusMsg = "Streaming " + juce::String(pct) + "%";
+        }
+        else if (item.isQueued)
+        {
+            dotColour = OpenWavLookAndFeel::accentBlue.withMultipliedBrightness(1.3f);
+            textColour = OpenWavLookAndFeel::accentBlue.withMultipliedBrightness(1.3f);
+            bgPill = OpenWavLookAndFeel::accentBlue.withAlpha(0.15f);
+            statusMsg = "Queued";
         }
         else if (item.isDownloaded)
         {
-            g.setColour(juce::Colour::fromRGB(40, 167, 69));
-            g.drawText(item.isZip ? "Extracted" : "Local Library", cellBounds, juce::Justification::centredLeft);
+            dotColour = juce::Colour::fromRGB(60, 215, 95);
+            textColour = juce::Colour::fromRGB(70, 225, 110);
+            bgPill = juce::Colour::fromRGB(40, 180, 75).withAlpha(0.18f);
+            statusMsg = item.isZip ? "Extracted" : "In Library";
         }
         else if (item.isFailed)
         {
-            g.setColour(OpenWavLookAndFeel::favoriteRed);
-            juce::String err = item.failReason.isNotEmpty() ? item.failReason : "Download Failed";
-            g.drawText(err, cellBounds, juce::Justification::centredLeft);
+            dotColour = OpenWavLookAndFeel::favoriteRed;
+            textColour = OpenWavLookAndFeel::favoriteRed;
+            bgPill = OpenWavLookAndFeel::favoriteRed.withAlpha(0.18f);
+            statusMsg = item.failReason.isNotEmpty() ? item.failReason : "Failed";
         }
         else
         {
-            g.setColour(OpenWavLookAndFeel::textSecondary);
-            g.drawText("Cloud Only", cellBounds, juce::Justification::centredLeft);
+            dotColour = OpenWavLookAndFeel::textSecondary.withAlpha(0.6f);
+            textColour = OpenWavLookAndFeel::textSecondary;
+            bgPill = OpenWavLookAndFeel::bgHover.withAlpha(0.5f);
+            statusMsg = "Cloud";
         }
+
+        float statusW = juce::jmin(static_cast<float>(cellBounds.getWidth()), 105.0f);
+        float statusH = 20.0f;
+        auto statusArea = juce::Rectangle<float>(static_cast<float>(cellBounds.getX()),
+                                                static_cast<float>((height - statusH) / 2),
+                                                statusW, statusH);
+
+        // Pill background
+        g.setColour(bgPill);
+        g.fillRoundedRectangle(statusArea, 10.0f);
+
+        g.setColour(dotColour.withAlpha(0.4f));
+        g.drawRoundedRectangle(statusArea, 10.0f, 1.0f);
+
+        // Glowing dot
+        float dotRadius = 3.0f;
+        float dotX = statusArea.getX() + 7.0f;
+        float dotY = statusArea.getCentreY();
+        g.setColour(dotColour);
+        g.fillEllipse(dotX - dotRadius, dotY - dotRadius, dotRadius * 2.0f, dotRadius * 2.0f);
+
+        // Status text
+        auto textBounds = statusArea.withTrimmedLeft(15.0f).withTrimmedRight(4.0f);
+        g.setFont(juce::Font(juce::FontOptions(10.5f).withStyle("Bold")));
+        g.setColour(textColour);
+        g.drawText(statusMsg, textBounds.toNearestInt(), juce::Justification::centredLeft, true);
     }
 }
 
@@ -2808,16 +2946,16 @@ void LibrariesComponent::lookAndFeelChanged()
     tableBox.setColour(juce::ListBox::outlineColourId, OpenWavLookAndFeel::borderColour);
     tableBox.repaint();
 
-    folderTreeView.setColour(juce::TreeView::backgroundColourId, OpenWavLookAndFeel::bgDark.withMultipliedBrightness(0.6f));
-    folderTreeView.setColour(juce::TreeView::linesColourId, OpenWavLookAndFeel::borderColour.withAlpha(0.35f));
+    folderTreeView.setColour(juce::TreeView::backgroundColourId, OpenWavLookAndFeel::bgCard);
+    folderTreeView.setColour(juce::TreeView::linesColourId, OpenWavLookAndFeel::borderColour.withAlpha(0.25f));
     folderTreeView.repaint();
 
     foldersHeaderLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::accentCyan);
-    foldersHeaderLabel.setColour(juce::Label::backgroundColourId, OpenWavLookAndFeel::bgDark.withMultipliedBrightness(0.7f));
+    foldersHeaderLabel.setColour(juce::Label::backgroundColourId, OpenWavLookAndFeel::bgCard);
     foldersHeaderLabel.setColour(juce::Label::outlineColourId, OpenWavLookAndFeel::borderColour);
 
     breadcrumbLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::textPrimary);
-    breadcrumbLabel.setColour(juce::Label::backgroundColourId, OpenWavLookAndFeel::bgDark.withMultipliedBrightness(0.7f));
+    breadcrumbLabel.setColour(juce::Label::backgroundColourId, OpenWavLookAndFeel::bgCard);
     breadcrumbLabel.setColour(juce::Label::outlineColourId, OpenWavLookAndFeel::borderColour);
 
     includeSubfoldersToggle.setColour(juce::ToggleButton::textColourId, OpenWavLookAndFeel::textSecondary);
