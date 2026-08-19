@@ -2150,7 +2150,7 @@ bool LibrariesComponent::downloadFileSync(const juce::String& fileId,
                     bytesWritten += bytesRead;
 
                     auto now = juce::Time::getMillisecondCounter();
-                    double progress = (totalBytes > 0) ? juce::jlimit(0.0, 1.0, static_cast<double>(bytesWritten) / totalBytes) : 0.0;
+                    double progress = (totalBytes > 0) ? juce::jlimit(0.0, 1.0, static_cast<double>(bytesWritten) / static_cast<double>(totalBytes)) : 0.0;
 
                     // Throttle UI updates to at most once every 40ms or 1% progress change
                     if ((now - lastUiUpdateTime > 40 || (progress - lastReportedProgress) >= 0.01) && totalBytes > 0)
@@ -2217,16 +2217,20 @@ bool LibrariesComponent::downloadFileSync(const juce::String& fileId,
                         {
                             char firstChars[64] = {0};
                             int readBytes = checkStream.read(firstChars, 63);
-                            juce::String startStr(firstChars, static_cast<size_t>(readBytes));
-                            startStr = startStr.trim();
-
-                            // Reject JSON / HTML error responses from Pixeldrain
-                            if (!startStr.startsWith("{\"success\":false") &&
-                                !startStr.startsWithIgnoreCase("<!DOCTYPE") &&
-                                !startStr.startsWithIgnoreCase("<html") &&
-                                !(startStr.startsWith("{") && (startStr.containsIgnoreCase("error") || startStr.containsIgnoreCase("message"))))
+                            if (readBytes > 0)
                             {
-                                success = true;
+                                firstChars[readBytes] = '\0';
+                                juce::String startStr(firstChars);
+                                startStr = startStr.trim();
+
+                                // Reject JSON / HTML error responses from Pixeldrain
+                                if (!startStr.startsWith("{\"success\":false") &&
+                                    !startStr.startsWithIgnoreCase("<!DOCTYPE") &&
+                                    !startStr.startsWithIgnoreCase("<html") &&
+                                    !(startStr.startsWith("{") && (startStr.containsIgnoreCase("error") || startStr.containsIgnoreCase("message"))))
+                                {
+                                    success = true;
+                                }
                             }
                         }
                     }

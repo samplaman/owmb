@@ -104,7 +104,7 @@ jobs:
 
       - name: Build OWMB (Windows)
         if: runner.os == 'Windows'
-        run: cmake --build build --config Release --parallel 4
+        run: cmake --build build --config Release --parallel 4 -- /v:m
 
       - name: Build OWMB (macOS)
         if: runner.os == 'macOS'

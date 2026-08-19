@@ -134,6 +134,11 @@ else()
     target_compile_definitions(OpenWav PRIVATE JUCE_USE_CURL=0)
 endif()
 
+if (MSVC)
+    target_compile_options(OpenWav PRIVATE /utf-8 /bigobj)
+    target_compile_definitions(OpenWav PRIVATE _CRT_SECURE_NO_WARNINGS NOMINMAX)
+endif()
+
 target_link_libraries(OpenWav PRIVATE
     OpenWavAssets
     juce::juce_audio_basics
