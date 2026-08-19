@@ -2944,6 +2944,10 @@ void LibrariesComponent::lookAndFeelChanged()
     tableBox.setColour(juce::ListBox::backgroundColourId, OpenWavLookAndFeel::bgDark);
     tableBox.setOutlineThickness(1);
     tableBox.setColour(juce::ListBox::outlineColourId, OpenWavLookAndFeel::borderColour);
+    tableBox.getHeader().setColour(juce::TableHeaderComponent::backgroundColourId, OpenWavLookAndFeel::bgCard);
+    tableBox.getHeader().setColour(juce::TableHeaderComponent::textColourId, OpenWavLookAndFeel::textPrimary);
+    tableBox.getHeader().setColour(juce::TableHeaderComponent::outlineColourId, OpenWavLookAndFeel::borderColour);
+    tableBox.updateContent();
     tableBox.repaint();
 
     folderTreeView.setColour(juce::TreeView::backgroundColourId, OpenWavLookAndFeel::bgCard);
@@ -2963,11 +2967,34 @@ void LibrariesComponent::lookAndFeelChanged()
 
     // Update labels and text fields with dynamic colors
     apiKeyLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::textPrimary);
+    apiKeyEditor.setColour(juce::TextEditor::backgroundColourId, OpenWavLookAndFeel::bgDark);
+    apiKeyEditor.setColour(juce::TextEditor::textColourId, OpenWavLookAndFeel::textPrimary);
+    apiKeyEditor.setColour(juce::TextEditor::outlineColourId, OpenWavLookAndFeel::borderColour);
+    apiKeyEditor.setColour(juce::TextEditor::focusedOutlineColourId, OpenWavLookAndFeel::accentCyan);
     apiKeyEditor.setTextToShowWhenEmpty("Enter API Key or Public Hotlink (e.g. /u/id or /l/id)...", OpenWavLookAndFeel::textSecondary);
-    statusLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::textSecondary);
+
     searchLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::textPrimary);
+    searchEditor.setColour(juce::TextEditor::backgroundColourId, OpenWavLookAndFeel::bgDark);
+    searchEditor.setColour(juce::TextEditor::textColourId, OpenWavLookAndFeel::textPrimary);
+    searchEditor.setColour(juce::TextEditor::outlineColourId, OpenWavLookAndFeel::borderColour);
+    searchEditor.setColour(juce::TextEditor::focusedOutlineColourId, OpenWavLookAndFeel::accentCyan);
     searchEditor.setTextToShowWhenEmpty("Filter remote files by name...", OpenWavLookAndFeel::textSecondary);
+
+    statusLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::textSecondary);
     saveDirLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::textSecondary);
+
+    repaint();
+}
+
+void LibrariesComponent::visibilityChanged()
+{
+    if (isVisible())
+    {
+        lookAndFeelChanged();
+        tableBox.updateContent();
+        tableBox.repaint();
+        folderTreeView.repaint();
+    }
 }
 
 bool LibrariesComponent::mayDragToExternalWindows() const

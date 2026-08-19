@@ -131,9 +131,11 @@ void AboutDialog::lookAndFeelChanged()
 void AboutDialog::showDialog()
 {
     lookAndFeelChanged();
+    setSize(480, 420);
     
     if (dialogWindow == nullptr)
     {
+        setSize(480, 420);
         juce::DialogWindow::LaunchOptions opts;
         opts.content.setNonOwned(this);
         opts.dialogTitle = "About OWMB";

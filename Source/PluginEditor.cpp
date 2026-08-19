@@ -107,6 +107,9 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
     performanceComponent.clearAllPads();
   };
 
+  // Broadcast current LookAndFeel theme and colours to all sub-components
+  sendLookAndFeelChange();
+
   triggerFilterUpdate();
 
   // Trigger startup scan for newly added/modified audio files in existing scan

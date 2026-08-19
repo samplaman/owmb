@@ -124,9 +124,20 @@ echo "==> Packaging release into dist/$DIST_NAME..."
 rm -rf "dist/$DIST_NAME" "$DIST_NAME.zip" "$DIST_NAME.dmg" "$DIST_NAME-Installer.dmg" "$DIST_NAME-Installer.pkg"
 mkdir -p "dist/$DIST_NAME"
 
-[ -d "$BUILD_DIR/OpenWav_artefacts/Release/VST3/OWMB.vst3" ] && cp -R "$BUILD_DIR/OpenWav_artefacts/Release/VST3/OWMB.vst3" "dist/$DIST_NAME/"
-[ -d "$BUILD_DIR/OpenWav_artefacts/Release/AU/OWMB.component" ] && cp -R "$BUILD_DIR/OpenWav_artefacts/Release/AU/OWMB.component" "dist/$DIST_NAME/"
-[ -d "$BUILD_DIR/OpenWav_artefacts/Release/Standalone/OWMB.app" ] && cp -R "$BUILD_DIR/OpenWav_artefacts/Release/Standalone/OWMB.app" "dist/$DIST_NAME/"
+# Copy bundles from build artifacts (support both multi-config Release/ and single-config layouts)
+copy_bundle_if_exists() {
+    local rel_subpath="$1"
+    local name="$2"
+    if [ -d "$BUILD_DIR/OpenWav_artefacts/Release/$rel_subpath/$name" ]; then
+        cp -R "$BUILD_DIR/OpenWav_artefacts/Release/$rel_subpath/$name" "dist/$DIST_NAME/"
+    elif [ -d "$BUILD_DIR/OpenWav_artefacts/$rel_subpath/$name" ]; then
+        cp -R "$BUILD_DIR/OpenWav_artefacts/$rel_subpath/$name" "dist/$DIST_NAME/"
+    fi
+}
+
+copy_bundle_if_exists "VST3" "OWMB.vst3"
+copy_bundle_if_exists "AU" "OWMB.component"
+copy_bundle_if_exists "Standalone" "OWMB.app"
 
 # 4a. Create Native macOS PKG Installer
 echo "==> Creating Native macOS PKG Installer: $DIST_NAME-Installer.pkg..."
@@ -136,9 +147,11 @@ mkdir -p "$PKG_STAGING/Applications" \
          "$PKG_STAGING/Library/Audio/Plug-Ins/VST3" \
          "$PKG_STAGING/Library/Audio/Plug-Ins/Components"
 
-cp -R "dist/$DIST_NAME/OWMB.app" "$PKG_STAGING/Applications/"
-cp -R "dist/$DIST_NAME/OWMB.vst3" "$PKG_STAGING/Library/Audio/Plug-Ins/VST3/"
-cp -R "dist/$DIST_NAME/OWMB.component" "$PKG_STAGING/Library/Audio/Plug-Ins/Components/"
+[ -d "dist/$DIST_NAME/OWMB.app" ] && cp -R "dist/$DIST_NAME/OWMB.app" "$PKG_STAGING/Applications/"
+[ -d "dist/$DIST_NAME/OWMB.vst3" ] && cp -R "dist/$DIST_NAME/OWMB.vst3" "$PKG_STAGING/Library/Audio/Plug-Ins/VST3/"
+[ -d "dist/$DIST_NAME/OWMB.component" ] && cp -R "dist/$DIST_NAME/OWMB.component" "$PKG_STAGING/Library/Audio/Plug-Ins/Components/"
+
+rm -f "$DIST_NAME-Installer.pkg"
 
 INSTALLER_SIGN_ID=$(security find-identity -v 2>/dev/null | grep "Developer ID Installer:" | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/' || true)
 if [ -n "$INSTALLER_SIGN_ID" ]; then
@@ -158,18 +171,59 @@ else
 fi
 
 # 4b. Create DMG Disk Image Installer with shortcuts
+detach_existing_volumes() {
+    local name="$1"
+    hdiutil info 2>/dev/null | grep -E "/Volumes/${name}|/Volumes/OWMB" | awk '{print $1}' | while read -r dev; do
+        if [ -n "$dev" ]; then
+            echo "==> Detaching busy disk image device: $dev"
+            hdiutil detach "$dev" -force 2>/dev/null || true
+        fi
+    done
+    if [ -d "/Volumes/$name" ]; then
+        echo "==> Detaching mountpoint: /Volumes/$name"
+        hdiutil detach "/Volumes/$name" -force 2>/dev/null || true
+    fi
+}
+
+create_dmg_with_retry() {
+    local volname="$1"
+    local src="$2"
+    local out="$3"
+
+    detach_existing_volumes "$volname"
+    rm -f "$out"
+    sync
+
+    local max_attempts=4
+    for ((try_idx=1; try_idx<=max_attempts; try_idx++)); do
+        echo "==> Creating DMG Disk Image ($out, attempt $try_idx/$max_attempts)..."
+        if hdiutil create -volname "$volname" -srcfolder "$src" -ov -format UDZO "$out"; then
+            echo "==> DMG successfully created: $out"
+            return 0
+        fi
+        echo "Warning: hdiutil create failed (attempt $try_idx/$max_attempts). Detaching lingering mounts, waiting, and retrying..."
+        detach_existing_volumes "$volname"
+        sleep 2
+        sync
+    done
+
+    echo "ERROR: Failed to create DMG $out after $max_attempts attempts."
+    return 1
+}
+
 echo "==> Creating DMG Disk Image Installer: $DIST_NAME-Installer.dmg..."
 ln -sfn /Applications "dist/$DIST_NAME/Applications (Shortcut)"
 ln -sfn "/Library/Audio/Plug-Ins/VST3" "dist/$DIST_NAME/VST3 Plugins (Shortcut)"
 ln -sfn "/Library/Audio/Plug-Ins/Components" "dist/$DIST_NAME/AU Plugins (Shortcut)"
 
-hdiutil create -volname "OWMB Installer" -srcfolder "dist/$DIST_NAME" -ov -format UDZO "$DIST_NAME-Installer.dmg"
-cp "$DIST_NAME-Installer.dmg" "$DIST_NAME.dmg" 2>/dev/null || true
+create_dmg_with_retry "OWMB Installer" "dist/$DIST_NAME" "$DIST_NAME-Installer.dmg"
+cp -f "$DIST_NAME-Installer.dmg" "$DIST_NAME.dmg" 2>/dev/null || true
 
 if [ -n "$SIGN_IDENTITY" ]; then
     echo "==> Signing DMG Installer: $DIST_NAME-Installer.dmg"
     codesign --force --sign "$SIGN_IDENTITY" --timestamp "$DIST_NAME-Installer.dmg"
     codesign --verify --verbose=2 "$DIST_NAME-Installer.dmg"
+    codesign --force --sign "$SIGN_IDENTITY" --timestamp "$DIST_NAME.dmg" 2>/dev/null || true
 fi
 
 # 5. Notarization & Stapling (if enabled)

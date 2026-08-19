@@ -124,9 +124,11 @@ void ConvertDialog::resized()
 void ConvertDialog::showDialog()
 {
     lookAndFeelChanged();
+    setSize(500, 340);
     
     if (dialogWindow == nullptr)
     {
+        setSize(500, 340);
         juce::DialogWindow::LaunchOptions opts;
         opts.content.setNonOwned(this);
         opts.dialogTitle = "Convert Audio File";
@@ -155,7 +157,11 @@ void ConvertDialog::showDialog()
 void ConvertDialog::hideDialog()
 {
     if (dialogWindow != nullptr)
+    {
         dialogWindow->exitModalState(0);
+        dialogWindow = nullptr;
+    }
+    setSize(500, 340);
 }
 
 class ConversionTask : public juce::ThreadWithProgressWindow

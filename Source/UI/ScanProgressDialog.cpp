@@ -107,6 +107,7 @@ void ScanProgressDialog::lookAndFeelChanged()
 void ScanProgressDialog::showDialog()
 {
     lookAndFeelChanged();
+    setSize(500, 280);
     startTimeMs = juce::Time::getMillisecondCounterHiRes();
     elapsedTimeSec = 0.0;
     estimatedTimeRemainingSec = -1.0;
@@ -129,6 +130,7 @@ void ScanProgressDialog::showDialog()
 
     if (!isSilent && dialogWindow == nullptr)
     {
+        setSize(500, 280);
         juce::DialogWindow::LaunchOptions opts;
         opts.content.setNonOwned(this);
         opts.dialogTitle = "Scan Progress";
@@ -160,7 +162,11 @@ void ScanProgressDialog::hideDialog()
 {
     stopTimer();
     if (dialogWindow != nullptr)
+    {
         dialogWindow->exitModalState(0);
+        dialogWindow = nullptr;
+    }
+    setSize(500, 280);
 }
 
 void ScanProgressDialog::mouseDown(const juce::MouseEvent& /*event*/)

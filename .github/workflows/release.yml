@@ -206,22 +206,40 @@ jobs:
       - name: Package macOS Release (.pkg and .dmg Installers)
         if: runner.os == 'macOS'
         run: |
-          rm -rf dist/OWMB-${{ matrix.os_name }} "build/pkg_root_${{ matrix.os_name }}" "OWMB-${{ matrix.os_name }}*"
-          mkdir -p dist/OWMB-${{ matrix.os_name }}
-          find build/OpenWav_artefacts -name "OWMB.vst3" -exec cp -R {} dist/OWMB-${{ matrix.os_name }}/ \; 2>/dev/null || true
-          find build/OpenWav_artefacts -name "OWMB.component" -exec cp -R {} dist/OWMB-${{ matrix.os_name }}/ \; 2>/dev/null || true
-          find build/OpenWav_artefacts -name "OWMB.app" -exec cp -R {} dist/OWMB-${{ matrix.os_name }}/ \; 2>/dev/null || true
+          DIST_DIR="dist/OWMB-${{ matrix.os_name }}"
+          PKG_STAGING="build/pkg_root_${{ matrix.os_name }}"
+          PKG_NAME="OWMB-${{ matrix.os_name }}-Installer.pkg"
+          DMG_INSTALLER_NAME="OWMB-${{ matrix.os_name }}-Installer.dmg"
+          DMG_NAME="OWMB-${{ matrix.os_name }}.dmg"
+
+          # Clean up previous artifacts and staging
+          rm -rf "$DIST_DIR" "$PKG_STAGING"
+          rm -f OWMB-${{ matrix.os_name }}*.dmg OWMB-${{ matrix.os_name }}*.pkg
+          mkdir -p "$DIST_DIR"
+
+          # Copy bundles from build artifacts (support both multi-config and single-config paths)
+          copy_mac_bundle() {
+            local rel_subpath="$1"
+            local name="$2"
+            if [ -d "build/OpenWav_artefacts/Release/$rel_subpath/$name" ]; then
+              cp -R "build/OpenWav_artefacts/Release/$rel_subpath/$name" "$DIST_DIR/"
+            elif [ -d "build/OpenWav_artefacts/$rel_subpath/$name" ]; then
+              cp -R "build/OpenWav_artefacts/$rel_subpath/$name" "$DIST_DIR/"
+            fi
+          }
+
+          copy_mac_bundle "VST3" "OWMB.vst3"
+          copy_mac_bundle "AU" "OWMB.component"
+          copy_mac_bundle "Standalone" "OWMB.app"
           
           # 1. Create Native macOS PKG Installer
-          PKG_STAGING="build/pkg_root_${{ matrix.os_name }}"
-          rm -rf "$PKG_STAGING"
           mkdir -p "$PKG_STAGING/Applications" \
                    "$PKG_STAGING/Library/Audio/Plug-Ins/VST3" \
                    "$PKG_STAGING/Library/Audio/Plug-Ins/Components"
 
-          cp -R dist/OWMB-${{ matrix.os_name }}/OWMB.app "$PKG_STAGING/Applications/"
-          cp -R dist/OWMB-${{ matrix.os_name }}/OWMB.vst3 "$PKG_STAGING/Library/Audio/Plug-Ins/VST3/"
-          cp -R dist/OWMB-${{ matrix.os_name }}/OWMB.component "$PKG_STAGING/Library/Audio/Plug-Ins/Components/"
+          [ -d "$DIST_DIR/OWMB.app" ] && cp -R "$DIST_DIR/OWMB.app" "$PKG_STAGING/Applications/"
+          [ -d "$DIST_DIR/OWMB.vst3" ] && cp -R "$DIST_DIR/OWMB.vst3" "$PKG_STAGING/Library/Audio/Plug-Ins/VST3/"
+          [ -d "$DIST_DIR/OWMB.component" ] && cp -R "$DIST_DIR/OWMB.component" "$PKG_STAGING/Library/Audio/Plug-Ins/Components/"
 
           VERSION_TAG="${{ github.event.inputs.tag_name }}"
           if [ -z "$VERSION_TAG" ]; then
@@ -241,28 +259,68 @@ jobs:
               --version "$VERSION_TAG" \
               --install-location "/" \
               --sign "$INSTALLER_CERT" \
-              "OWMB-${{ matrix.os_name }}-Installer.pkg"
+              "$PKG_NAME"
           else
             pkgbuild --root "$PKG_STAGING" \
               --identifier "com.samplaman.owmb.pkg" \
               --version "$VERSION_TAG" \
               --install-location "/" \
-              "OWMB-${{ matrix.os_name }}-Installer.pkg"
+              "$PKG_NAME"
           fi
 
           # 2. Create DMG Disk Image Installer with shortcuts (containing signed App and Plugins)
-          ln -sfn /Applications "dist/OWMB-${{ matrix.os_name }}/Applications (Shortcut)"
-          ln -sfn "/Library/Audio/Plug-Ins/VST3" "dist/OWMB-${{ matrix.os_name }}/VST3 Plugins (Shortcut)"
-          ln -sfn "/Library/Audio/Plug-Ins/Components" "dist/OWMB-${{ matrix.os_name }}/AU Plugins (Shortcut)"
+          detach_existing_volumes() {
+            local name="$1"
+            hdiutil info 2>/dev/null | grep -E "/Volumes/${name}|/Volumes/OWMB" | awk '{print $1}' | while read -r dev; do
+              if [ -n "$dev" ]; then
+                echo "==> Detaching busy disk image device: $dev"
+                hdiutil detach "$dev" -force 2>/dev/null || true
+              fi
+            done
+            if [ -d "/Volumes/$name" ]; then
+              echo "==> Detaching mountpoint: /Volumes/$name"
+              hdiutil detach "/Volumes/$name" -force 2>/dev/null || true
+            fi
+          }
 
-          hdiutil create -volname "OWMB Installer" -srcfolder "dist/OWMB-${{ matrix.os_name }}" -ov -format UDZO "OWMB-${{ matrix.os_name }}-Installer.dmg"
-          cp "OWMB-${{ matrix.os_name }}-Installer.dmg" "OWMB-${{ matrix.os_name }}.dmg"
+          create_dmg_with_retry() {
+            local volname="$1"
+            local src="$2"
+            local out="$3"
+
+            detach_existing_volumes "$volname"
+            rm -f "$out"
+            sync
+
+            local max_attempts=4
+            for ((try_idx=1; try_idx<=max_attempts; try_idx++)); do
+              echo "==> Creating DMG Disk Image ($out, attempt $try_idx/$max_attempts)..."
+              if hdiutil create -volname "$volname" -srcfolder "$src" -ov -format UDZO "$out"; then
+                echo "==> DMG successfully created: $out"
+                return 0
+              fi
+              echo "Warning: hdiutil create failed (attempt $try_idx/$max_attempts). Detaching lingering mounts, waiting, and retrying..."
+              detach_existing_volumes "$volname"
+              sleep 2
+              sync
+            done
+
+            echo "ERROR: Failed to create DMG $out after $max_attempts attempts."
+            return 1
+          }
+
+          ln -sfn /Applications "$DIST_DIR/Applications (Shortcut)"
+          ln -sfn "/Library/Audio/Plug-Ins/VST3" "$DIST_DIR/VST3 Plugins (Shortcut)"
+          ln -sfn "/Library/Audio/Plug-Ins/Components" "$DIST_DIR/AU Plugins (Shortcut)"
+
+          create_dmg_with_retry "OWMB Installer" "$DIST_DIR" "$DMG_INSTALLER_NAME"
+          cp -f "$DMG_INSTALLER_NAME" "$DMG_NAME"
 
           if [ -n "$MACOS_CERTIFICATE_NAME" ]; then
             echo "Signing DMG Installer with $MACOS_CERTIFICATE_NAME..."
-            codesign --force --sign "$MACOS_CERTIFICATE_NAME" --timestamp "OWMB-${{ matrix.os_name }}-Installer.dmg"
-            codesign --verify --verbose=2 "OWMB-${{ matrix.os_name }}-Installer.dmg"
-            codesign --force --sign "$MACOS_CERTIFICATE_NAME" --timestamp "OWMB-${{ matrix.os_name }}.dmg"
+            codesign --force --sign "$MACOS_CERTIFICATE_NAME" --timestamp "$DMG_INSTALLER_NAME"
+            codesign --verify --verbose=2 "$DMG_INSTALLER_NAME"
+            codesign --force --sign "$MACOS_CERTIFICATE_NAME" --timestamp "$DMG_NAME"
           fi
 
       - name: Notarize and Staple macOS Release (DMG, PKG, and App)
