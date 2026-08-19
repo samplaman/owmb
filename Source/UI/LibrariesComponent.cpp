@@ -204,15 +204,16 @@ public:
         }
     }
 
-    void paintOpenCloseButton(juce::Graphics& g, const juce::Rectangle<float>& area, juce::Colour, bool isItemOpen) override
+    void paintOpenCloseButton(juce::Graphics& g, const juce::Rectangle<float>& area, juce::Colour backgroundColour, bool isMouseOver) override
     {
+        juce::ignoreUnused(backgroundColour, isMouseOver);
         if (!mightContainSubItems()) return;
 
         auto center = area.getCentre();
         float s = 5.0f;
         juce::Path p;
 
-        if (isItemOpen)
+        if (isOpen())
         {
             // Crisp down chevron
             p.startNewSubPath(center.x - s, center.y - s * 0.4f);
@@ -1010,7 +1011,7 @@ static juce::String urlEncodePath(const juce::String& path)
     return encoded;
 }
 
-static juce::URL::InputStreamOptions makeHttpOptions(const juce::String& authHeader = {}, int timeoutMs = 10000, bool acceptJson = true)
+static juce::URL::InputStreamOptions makeHttpOptions(const juce::String& authHeader = juce::String(), int timeoutMs = 10000, bool acceptJson = true)
 {
     auto opts = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
                     .withConnectionTimeoutMs(timeoutMs)
