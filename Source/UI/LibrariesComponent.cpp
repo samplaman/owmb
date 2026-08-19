@@ -2703,7 +2703,7 @@ void LibrariesComponent::SequentialDownloader::run()
 
             if (attempt > 1)
             {
-                juce::MessageManager::callAsync([safeOwner, nextJob, attempt] {
+                juce::MessageManager::callAsync([safeOwner, nextJob, attempt, maxAttempts] {
                     if (safeOwner != nullptr)
                         safeOwner->statusLabel.setText("Retrying (" + juce::String(attempt) + "/" + juce::String(maxAttempts) + "): " + nextJob.fileName, juce::dontSendNotification);
                 });
