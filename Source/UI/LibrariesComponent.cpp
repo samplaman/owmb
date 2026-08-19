@@ -4,52 +4,400 @@
 namespace openwav
 {
 
-class TableActionButtonComponent : public juce::Component
+class DownloadProgressCellComponent : public juce::Component,
+                                      public juce::SettableTooltipClient
 {
 public:
-    TableActionButtonComponent(std::function<void()> onDownloadClick)
-        : downloadAction(onDownloadClick)
+    DownloadProgressCellComponent(std::function<void()> onActionClick)
+        : actionCallback(onActionClick)
     {
-        btnDownload.onClick = [this] { if (downloadAction) downloadAction(); };
-        addAndMakeVisible(btnDownload);
+        btnAction.onClick = [this] { if (actionCallback) actionCallback(); };
+        addAndMakeVisible(btnAction);
     }
 
-    void updateCallbacks(std::function<void()> onDownloadClick)
+    void updateCallbacks(std::function<void()> onActionClick)
     {
-        downloadAction = onDownloadClick;
+        actionCallback = onActionClick;
     }
 
-    void updateState(bool isDownloaded, bool isDownloading, double progress)
+    void updateState(const PixeldrainFile& item)
     {
-        if (isDownloading)
+        isDownloaded = item.isDownloaded;
+        isDownloading = item.isDownloading;
+        isQueued = item.isQueued;
+        isFailed = item.isFailed;
+        isPreviewing = item.isPreviewing;
+        progress = isPreviewing ? item.previewProgress : item.downloadProgress;
+        fileName = item.name;
+        failReason = item.failReason;
+
+        if (isDownloading || isPreviewing)
         {
-            btnDownload.setButtonText("Downloading " + juce::String(juce::roundToInt(progress * 100.0)) + "%");
-            btnDownload.setEnabled(false);
+            btnAction.setVisible(false);
+            setTooltip(isPreviewing ? "Streaming preview: " + juce::String(juce::roundToInt(progress * 100.0)) + "%"
+                                    : "Downloading: " + juce::String(juce::roundToInt(progress * 100.0)) + "%");
+        }
+        else if (isQueued)
+        {
+            btnAction.setVisible(true);
+            btnAction.setButtonText("Queued");
+            btnAction.setEnabled(false);
+            btnAction.setColour(juce::TextButton::buttonColourId, OpenWavLookAndFeel::accentBlue.withAlpha(0.2f));
+            btnAction.setColour(juce::TextButton::textColourOffId, OpenWavLookAndFeel::accentBlue.withMultipliedBrightness(1.4f));
+            btnAction.setTooltip("Waiting in sequential download queue");
+            setTooltip("Waiting in sequential download queue");
+        }
+        else if (isFailed)
+        {
+            btnAction.setVisible(true);
+            btnAction.setButtonText("Retry");
+            btnAction.setEnabled(true);
+            btnAction.setColour(juce::TextButton::buttonColourId, OpenWavLookAndFeel::favoriteRed.withAlpha(0.25f));
+            btnAction.setColour(juce::TextButton::textColourOffId, OpenWavLookAndFeel::favoriteRed);
+            juce::String tip = failReason.isNotEmpty() ? "Failed: " + failReason + " (Click to retry)" : "Click to retry download";
+            btnAction.setTooltip(tip);
+            setTooltip(tip);
         }
         else if (isDownloaded)
         {
-            btnDownload.setButtonText("Downloaded");
-            btnDownload.setEnabled(false);
+            btnAction.setVisible(true);
+            btnAction.setButtonText(item.isZip ? "Extracted" : "Downloaded");
+            btnAction.setEnabled(false);
+            btnAction.setColour(juce::TextButton::buttonColourId, juce::Colour::fromRGB(40, 167, 69).withAlpha(0.2f));
+            btnAction.setColour(juce::TextButton::textColourOffId, juce::Colour::fromRGB(60, 200, 90));
+            btnAction.setTooltip("File is present in local library");
+            setTooltip("File is present in local library");
         }
         else
         {
-            btnDownload.setButtonText("Download");
-            btnDownload.setEnabled(true);
+            btnAction.setVisible(true);
+            btnAction.setButtonText("Download");
+            btnAction.setEnabled(true);
+            btnAction.setColour(juce::TextButton::buttonColourId, OpenWavLookAndFeel::bgHover);
+            btnAction.setColour(juce::TextButton::textColourOffId, OpenWavLookAndFeel::textPrimary);
+            btnAction.setTooltip("Download file from Pixeldrain");
+            setTooltip("Download file from Pixeldrain");
+        }
+
+        repaint();
+    }
+
+    void paint(juce::Graphics& g) override
+    {
+        if (isDownloading || isPreviewing)
+        {
+            auto bounds = getLocalBounds().reduced(2, 4).toFloat();
+            float cornerSize = 4.0f;
+
+            // Background track
+            g.setColour(OpenWavLookAndFeel::bgDark.withMultipliedBrightness(0.7f));
+            g.fillRoundedRectangle(bounds, cornerSize);
+
+            g.setColour(OpenWavLookAndFeel::borderColour);
+            g.drawRoundedRectangle(bounds, cornerSize, 1.0f);
+
+            // Progress bar
+            float clampedProgress = juce::jlimit(0.0f, 1.0f, static_cast<float>(progress));
+            if (clampedProgress > 0.005f)
+            {
+                auto progressBounds = bounds;
+                progressBounds.setWidth(bounds.getWidth() * clampedProgress);
+
+                juce::Colour startColour = isPreviewing ? OpenWavLookAndFeel::accentCyan.withMultipliedBrightness(0.85f)
+                                                       : OpenWavLookAndFeel::accentCyan;
+                juce::Colour endColour = isPreviewing ? OpenWavLookAndFeel::accentBlue
+                                                     : OpenWavLookAndFeel::accentBlue.withMultipliedBrightness(1.2f);
+
+                juce::ColourGradient grad(startColour, progressBounds.getTopLeft(),
+                                          endColour, progressBounds.getBottomRight(), false);
+                g.setGradientFill(grad);
+                g.fillRoundedRectangle(progressBounds, cornerSize);
+
+                // Subtle glowing top highlight
+                g.setColour(juce::Colours::white.withAlpha(0.18f));
+                auto highlightBounds = progressBounds.removeFromTop(progressBounds.getHeight() * 0.45f);
+                g.fillRoundedRectangle(highlightBounds, cornerSize);
+            }
+
+            // Outline highlight
+            g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.6f));
+            g.drawRoundedRectangle(bounds, cornerSize, 1.0f);
+
+            // Centered Percentage Text
+            int pct = juce::roundToInt(progress * 100.0);
+            juce::String text = isPreviewing ? "Stream " + juce::String(pct) + "%" : juce::String(pct) + "%";
+
+            g.setFont(juce::Font(juce::FontOptions(11.5f).withStyle("Bold")));
+
+            // Text shadow for high readability
+            g.setColour(juce::Colours::black.withAlpha(0.7f));
+            g.drawText(text, bounds.translated(1, 1), juce::Justification::centred, false);
+
+            g.setColour(juce::Colours::white);
+            g.drawText(text, bounds, juce::Justification::centred, false);
         }
     }
 
     void resized() override
     {
-        btnDownload.setBounds(getLocalBounds().reduced(2, 2));
+        btnAction.setBounds(getLocalBounds().reduced(2, 2));
     }
 
 private:
-    juce::TextButton btnDownload { "Download" };
-    std::function<void()> downloadAction;
+    juce::TextButton btnAction { "Download" };
+    std::function<void()> actionCallback;
+
+    bool isDownloaded { false };
+    bool isDownloading { false };
+    bool isQueued { false };
+    bool isFailed { false };
+    bool isPreviewing { false };
+    double progress { 0.0 };
+    juce::String fileName;
+    juce::String failReason;
+};
+
+class PixeldrainFolderTreeItem : public juce::TreeViewItem
+{
+public:
+    PixeldrainFolderTreeItem(std::shared_ptr<PixeldrainFolderNode> node, LibrariesComponent& owner)
+        : folderNode(node), owner(owner)
+    {
+        setDrawsInLeftMargin(true);
+    }
+
+    ~PixeldrainFolderTreeItem() override
+    {
+        clearSubItems();
+    }
+
+    int getItemHeight() const override
+    {
+        return 28;
+    }
+
+    bool mightContainSubItems() override
+    {
+        return folderNode != nullptr && !folderNode->subFolders.empty();
+    }
+
+    juce::String getUniqueName() const override
+    {
+        return folderNode != nullptr ? folderNode->fullPath : juce::String();
+    }
+
+    void itemOpennessChanged(bool isNowOpen) override
+    {
+        if (isNowOpen)
+        {
+            if (getNumSubItems() == 0 && folderNode != nullptr)
+            {
+                for (const auto& sub : folderNode->subFolders)
+                {
+                    addSubItem(new PixeldrainFolderTreeItem(sub, owner));
+                }
+            }
+        }
+    }
+
+    void paintOpenCloseButton(juce::Graphics& g, const juce::Rectangle<float>& area, juce::Colour, bool isItemOpen) override
+    {
+        if (!mightContainSubItems()) return;
+
+        auto center = area.getCentre();
+        float s = 5.0f;
+        juce::Path p;
+
+        if (isItemOpen)
+        {
+            // Crisp down chevron
+            p.startNewSubPath(center.x - s, center.y - s * 0.4f);
+            p.lineTo(center.x, center.y + s * 0.6f);
+            p.lineTo(center.x + s, center.y - s * 0.4f);
+            g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.95f));
+            g.strokePath(p, juce::PathStrokeType(1.8f, juce::PathStrokeType::mitered, juce::PathStrokeType::rounded));
+        }
+        else
+        {
+            // Crisp right chevron
+            p.startNewSubPath(center.x - s * 0.4f, center.y - s);
+            p.lineTo(center.x + s * 0.6f, center.y);
+            p.lineTo(center.x - s * 0.4f, center.y + s);
+            g.setColour(OpenWavLookAndFeel::textSecondary.withAlpha(0.75f));
+            g.strokePath(p, juce::PathStrokeType(1.8f, juce::PathStrokeType::mitered, juce::PathStrokeType::rounded));
+        }
+    }
+
+    void paintItem(juce::Graphics& g, int width, int height) override
+    {
+        if (folderNode == nullptr || width <= 0 || height <= 0) return;
+
+        bool isSel = isSelected();
+        bool isRoot = folderNode->isRoot;
+        auto bounds = juce::Rectangle<float>(0.0f, 1.0f, static_cast<float>(width), static_cast<float>(height - 2));
+
+        // 1. Selection Highlight Bar with cyber gradient & left neon indicator
+        if (isSel)
+        {
+            juce::ColourGradient grad(OpenWavLookAndFeel::accentCyan.withAlpha(0.20f), 0.0f, 0.0f,
+                                      OpenWavLookAndFeel::accentBlue.withAlpha(0.06f), static_cast<float>(width), 0.0f, false);
+            g.setGradientFill(grad);
+            g.fillRoundedRectangle(bounds, 4.0f);
+
+            // Left Neon Active Bar
+            g.setColour(OpenWavLookAndFeel::accentCyan);
+            g.fillRoundedRectangle(1.0f, 3.0f, 3.0f, static_cast<float>(height - 6), 1.5f);
+
+            // Subtle border glow
+            g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.40f));
+            g.drawRoundedRectangle(bounds, 4.0f, 1.0f);
+        }
+
+        // 2. Vector Folder Icon
+        float iconX = 6.0f;
+        float iconY = static_cast<float>((height - 15) / 2);
+        float iconW = 16.0f;
+        float iconH = 13.0f;
+
+        juce::Colour mainFolderColour = isSel ? OpenWavLookAndFeel::accentCyan
+                                             : (isRoot ? OpenWavLookAndFeel::accentCyan.withMultipliedBrightness(0.9f)
+                                                       : OpenWavLookAndFeel::accentBlue.withMultipliedBrightness(1.3f));
+
+        // Folder back tab
+        g.setColour(mainFolderColour.withAlpha(isSel ? 0.95f : 0.75f));
+        g.fillRoundedRectangle(iconX, iconY, 7.0f, 5.0f, 1.5f);
+
+        // Folder main body with 3D gradient
+        juce::Colour bodyTop = isSel ? OpenWavLookAndFeel::accentCyan.withMultipliedBrightness(1.15f)
+                                     : mainFolderColour;
+        juce::Colour bodyBottom = isSel ? OpenWavLookAndFeel::accentBlue
+                                        : mainFolderColour.withMultipliedBrightness(0.7f);
+
+        juce::ColourGradient folderGrad(bodyTop, iconX, iconY + 3.0f,
+                                        bodyBottom, iconX, iconY + iconH, false);
+        g.setGradientFill(folderGrad);
+        g.fillRoundedRectangle(iconX, iconY + 3.0f, iconW, iconH - 3.0f, 2.0f);
+
+        // Top edge glossy reflection line
+        g.setColour(juce::Colours::white.withAlpha(isSel ? 0.35f : 0.18f));
+        g.drawLine(iconX + 1.0f, iconY + 4.0f, iconX + iconW - 1.0f, iconY + 4.0f, 1.0f);
+
+        // Folder outline
+        g.setColour(isSel ? OpenWavLookAndFeel::accentCyan.withAlpha(0.85f) : mainFolderColour.withAlpha(0.5f));
+        g.drawRoundedRectangle(iconX, iconY + 3.0f, iconW, iconH - 3.0f, 2.0f, 1.0f);
+
+        // 3. Folder Name Label
+        int textX = static_cast<int>(iconX + iconW + 8.0f);
+        int totalFiles = folderNode->getTotalFileCount();
+        juce::String countStr = juce::String(totalFiles);
+
+        int badgeWidth = 0;
+        if (width > 80)
+        {
+            badgeWidth = juce::jmax(26, countStr.length() * 8 + 12);
+        }
+
+        int textWidth = juce::jmax(10, width - textX - badgeWidth - 6);
+
+        g.setFont(juce::Font(juce::FontOptions(12.5f).withStyle(isSel ? "Bold" : (isRoot ? "Bold" : "Regular"))));
+        g.setColour(isSel ? OpenWavLookAndFeel::accentCyan.withMultipliedBrightness(1.3f)
+                          : (isRoot ? OpenWavLookAndFeel::accentCyan : OpenWavLookAndFeel::textPrimary));
+        g.drawText(folderNode->name, textX, 0, textWidth, height, juce::Justification::centredLeft, true);
+
+        // 4. Sleek Count Badge
+        if (badgeWidth > 0)
+        {
+            auto badgeArea = juce::Rectangle<float>(static_cast<float>(width - badgeWidth - 4),
+                                                    static_cast<float>((height - 18) / 2),
+                                                    static_cast<float>(badgeWidth),
+                                                    18.0f);
+
+            // Badge Background
+            juce::Colour badgeBg = isSel ? OpenWavLookAndFeel::accentCyan.withAlpha(0.22f)
+                                         : OpenWavLookAndFeel::bgDark.withMultipliedBrightness(1.6f);
+            g.setColour(badgeBg);
+            g.fillRoundedRectangle(badgeArea, 9.0f);
+
+            // Badge Border
+            juce::Colour badgeBorder = isSel ? OpenWavLookAndFeel::accentCyan.withAlpha(0.6f)
+                                             : OpenWavLookAndFeel::borderColour.withAlpha(0.65f);
+            g.setColour(badgeBorder);
+            g.drawRoundedRectangle(badgeArea, 9.0f, 1.0f);
+
+            // Badge Text
+            g.setFont(juce::Font(juce::FontOptions(10.5f).withStyle("Bold")));
+            g.setColour(isSel ? OpenWavLookAndFeel::accentCyan.withMultipliedBrightness(1.3f)
+                              : (totalFiles > 0 ? OpenWavLookAndFeel::textSecondary.withMultipliedBrightness(1.3f)
+                                                : OpenWavLookAndFeel::textSecondary.withAlpha(0.5f)));
+            g.drawText(countStr, badgeArea.toNearestInt(), juce::Justification::centred, false);
+        }
+    }
+
+    void itemSelectionChanged(bool isNowSelected) override
+    {
+        if (isNowSelected && folderNode != nullptr)
+        {
+            juce::Component::SafePointer<LibrariesComponent> safeOwner(&owner);
+            auto node = folderNode;
+            juce::MessageManager::callAsync([safeOwner, node] {
+                if (safeOwner != nullptr && node != nullptr)
+                    safeOwner->selectFolder(node);
+            });
+        }
+    }
+
+    void itemClicked(const juce::MouseEvent& e) override
+    {
+        if (folderNode != nullptr)
+        {
+            if (e.mods.isPopupMenu())
+            {
+                juce::Component::SafePointer<LibrariesComponent> safeOwner(&owner);
+                auto node = folderNode;
+                juce::PopupMenu m;
+                m.addItem(1, "Download Folder '" + node->name + "' (" + juce::String(node->getTotalFileCount()) + " audio files)");
+                m.addSeparator();
+                m.addItem(2, "Expand All Subfolders");
+                m.addItem(3, "Collapse All Subfolders");
+
+                m.showMenuAsync(juce::PopupMenu::Options(), [this, safeOwner, node](int result) {
+                    if (result == 1)
+                    {
+                        if (safeOwner != nullptr && node != nullptr)
+                            safeOwner->downloadFolder(node);
+                    }
+                    else if (result == 2)
+                    {
+                        setOpen(true);
+                        for (int i = 0; i < getNumSubItems(); ++i)
+                        {
+                            if (auto* sub = getSubItem(i))
+                                sub->setOpen(true);
+                        }
+                    }
+                    else if (result == 3)
+                    {
+                        setOpen(false);
+                    }
+                });
+            }
+        }
+    }
+
+private:
+    std::shared_ptr<PixeldrainFolderNode> folderNode;
+    LibrariesComponent& owner;
 };
 
 static bool isSupportedAudioFile(const juce::String& name, const juce::String& mime)
 {
+    juce::String lower = name.toLowerCase().trim();
+    juce::String base = juce::File(lower).getFileName();
+
+    if (base.startsWith(".") || lower.contains(".search_index") || lower.contains("search_index.gz") ||
+        lower.endsWith(".gz") || lower.contains("__macosx") || base.startsWith("._"))
+        return false;
+
     juce::String ext = juce::File(name).getFileExtension().toLowerCase();
     if (ext == ".wav" || ext == ".mp3" || ext == ".flac" || ext == ".ogg" || ext == ".aiff" || ext == ".aif" || ext == ".aifc")
         return true;
@@ -64,12 +412,21 @@ static bool isSupportedAudioFile(const juce::String& name, const juce::String& m
 
 static bool isZipFile(const juce::String& name, const juce::String& mime)
 {
+    juce::String lower = name.toLowerCase().trim();
+    juce::String base = juce::File(lower).getFileName();
+
+    // Never consider gzip, search_index, tar, or hidden files as zip archives
+    if (base.startsWith(".") || lower.contains(".search_index") || lower.contains("search_index.gz") ||
+        lower.endsWith(".gz") || lower.endsWith(".tar") || lower.endsWith(".tgz") ||
+        lower.endsWith(".7z") || lower.endsWith(".rar") || lower.contains("__macosx") || base.startsWith("._"))
+        return false;
+
     juce::String ext = juce::File(name).getFileExtension().toLowerCase();
     if (ext == ".zip")
         return true;
 
     juce::String mimeLower = mime.toLowerCase();
-    if (mimeLower.contains("zip"))
+    if (mimeLower == "application/zip" || mimeLower == "application/x-zip-compressed")
         return true;
 
     return false;
@@ -77,6 +434,28 @@ static bool isZipFile(const juce::String& name, const juce::String& mime)
 
 static bool isSupportedRemoteFile(const juce::String& name, const juce::String& mime)
 {
+    juce::String lower = name.toLowerCase().trim();
+    juce::String base = juce::File(lower).getFileName();
+
+    // Explicitly reject index files, hidden files, metadata, and non-supported archives
+    if (base.startsWith(".") ||
+        lower.contains(".search_index") ||
+        lower.contains("search_index.gz") ||
+        lower.endsWith(".gz") ||
+        lower.endsWith(".tar") ||
+        lower.endsWith(".7z") ||
+        lower.endsWith(".rar") ||
+        lower.endsWith(".json") ||
+        lower.endsWith(".txt") ||
+        lower.endsWith(".md") ||
+        lower.endsWith(".xml") ||
+        lower.endsWith(".ds_store") ||
+        lower.startsWith("__macosx") ||
+        base.startsWith("._"))
+    {
+        return false;
+    }
+
     return isSupportedAudioFile(name, mime) || isZipFile(name, mime);
 }
 
@@ -96,19 +475,19 @@ LibrariesComponent::LibrariesComponent(TagDatabaseManager& db, LibraryScanner& s
     apiKeyEditor.addListener(this);
     addAndMakeVisible(apiKeyEditor);
 
-    apiKeyLabel.setFont(juce::Font(13.0f).boldened());
+    apiKeyLabel.setFont(juce::Font(juce::FontOptions(13.0f).withStyle("Bold")));
     apiKeyLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::textPrimary);
     addAndMakeVisible(apiKeyLabel);
 
     connectButton.onClick = [this] { fetchUserFiles(); };
     addAndMakeVisible(connectButton);
 
-    statusLabel.setFont(juce::Font(12.0f));
+    statusLabel.setFont(juce::Font(juce::FontOptions(12.0f)));
     statusLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::textSecondary);
     statusLabel.setText(statusText, juce::dontSendNotification);
     addAndMakeVisible(statusLabel);
 
-    searchLabel.setFont(juce::Font(13.0f).boldened());
+    searchLabel.setFont(juce::Font(juce::FontOptions(13.0f).withStyle("Bold")));
     searchLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::textPrimary);
     addAndMakeVisible(searchLabel);
 
@@ -119,7 +498,7 @@ LibrariesComponent::LibrariesComponent(TagDatabaseManager& db, LibraryScanner& s
     addAndMakeVisible(searchEditor);
 
     juce::File downloadDir(dbManager.getDownloadFolder());
-    saveDirLabel.setFont(juce::Font(12.0f));
+    saveDirLabel.setFont(juce::Font(juce::FontOptions(12.0f)));
     saveDirLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::textSecondary);
     saveDirLabel.setText("Save to: " + downloadDir.getFullPathName(), juce::dontSendNotification);
     addAndMakeVisible(saveDirLabel);
@@ -150,19 +529,59 @@ LibrariesComponent::LibrariesComponent(TagDatabaseManager& db, LibraryScanner& s
     };
     addAndMakeVisible(chooseDirButton);
 
+    downloadFolderButton.setButtonText("Download Folder");
+    downloadFolderButton.onClick = [this] {
+        if (selectedFolderNode != nullptr)
+            downloadFolder(selectedFolderNode);
+        else if (rootFolderNode != nullptr)
+            downloadFolder(rootFolderNode);
+    };
+    addAndMakeVisible(downloadFolderButton);
+
     downloadAllWavsButton.setButtonText("Download All");
     downloadAllWavsButton.onClick = [this] { downloadAllWavs(); };
     addAndMakeVisible(downloadAllWavsButton);
 
+    // Online Folders Tree View
+    foldersHeaderLabel.setFont(juce::Font(juce::FontOptions(11.0f).withStyle("Bold")));
+    foldersHeaderLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::accentCyan);
+    foldersHeaderLabel.setColour(juce::Label::backgroundColourId, OpenWavLookAndFeel::bgDark.withMultipliedBrightness(0.7f));
+    foldersHeaderLabel.setColour(juce::Label::outlineColourId, OpenWavLookAndFeel::borderColour);
+    foldersHeaderLabel.setJustificationType(juce::Justification::centredLeft);
+    foldersHeaderLabel.setText("  ONLINE FOLDERS", juce::dontSendNotification);
+    addAndMakeVisible(foldersHeaderLabel);
+
+    folderTreeView.setRootItemVisible(true);
+    folderTreeView.setDefaultOpenness(true);
+    folderTreeView.setOpenCloseButtonsVisible(true);
+    folderTreeView.setIndentSize(14);
+    folderTreeView.setColour(juce::TreeView::backgroundColourId, OpenWavLookAndFeel::bgDark.withMultipliedBrightness(0.6f));
+    folderTreeView.setColour(juce::TreeView::linesColourId, OpenWavLookAndFeel::borderColour.withAlpha(0.35f));
+    addAndMakeVisible(folderTreeView);
+
+    // Breadcrumbs & Toggle
+    breadcrumbLabel.setFont(juce::Font(juce::FontOptions(12.0f).withStyle("Bold")));
+    breadcrumbLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::textPrimary);
+    breadcrumbLabel.setColour(juce::Label::backgroundColourId, OpenWavLookAndFeel::bgDark.withMultipliedBrightness(0.7f));
+    breadcrumbLabel.setColour(juce::Label::outlineColourId, OpenWavLookAndFeel::borderColour);
+    breadcrumbLabel.setJustificationType(juce::Justification::centredLeft);
+    breadcrumbLabel.setText("All Files", juce::dontSendNotification);
+    addAndMakeVisible(breadcrumbLabel);
+
+    includeSubfoldersToggle.setButtonText("Include Subfolders");
+    includeSubfoldersToggle.setToggleState(true, juce::dontSendNotification);
+    includeSubfoldersToggle.onClick = [this] { filterRemoteFiles(); };
+    addAndMakeVisible(includeSubfoldersToggle);
+
     // Setup Table Box
     auto& header = tableBox.getHeader();
     header.addColumn("#", 1, 40, 30, 60, juce::TableHeaderComponent::notSortable);
-    header.addColumn("Name", 2, 320, 150, 600);
-    header.addColumn("Type", 3, 90, 60, 120);
-    header.addColumn("Size", 4, 90, 60, 120);
-    header.addColumn("Uploaded", 5, 140, 100, 200);
-    header.addColumn("Status", 6, 120, 80, 180);
-    header.addColumn("Action", 7, 120, 80, 180);
+    header.addColumn("Name", 2, 280, 150, 600);
+    header.addColumn("Type", 3, 70, 50, 100);
+    header.addColumn("Size", 4, 80, 60, 120);
+    header.addColumn("Uploaded", 5, 110, 90, 160);
+    header.addColumn("Status", 6, 110, 80, 160);
+    header.addColumn("Action", 7, 110, 80, 160);
 
     tableBox.setModel(this);
     tableBox.setRowHeight(36);
@@ -178,6 +597,8 @@ LibrariesComponent::LibrariesComponent(TagDatabaseManager& db, LibraryScanner& s
 
 LibrariesComponent::~LibrariesComponent()
 {
+    folderTreeView.setRootItem(nullptr);
+    rootTreeItem.reset();
     tableBox.setModel(nullptr);
     apiKeyEditor.removeListener(this);
     searchEditor.removeListener(this);
@@ -186,6 +607,13 @@ LibrariesComponent::~LibrariesComponent()
 void LibrariesComponent::paint(juce::Graphics& g)
 {
     g.fillAll(OpenWavLookAndFeel::bgDark);
+
+    if (folderTreeView.isVisible())
+    {
+        auto treeBounds = folderTreeView.getBounds().toFloat();
+        g.setColour(OpenWavLookAndFeel::borderColour);
+        g.drawRoundedRectangle(treeBounds, 3.0f, 1.0f);
+    }
 }
 
 void LibrariesComponent::resized()
@@ -214,33 +642,50 @@ void LibrariesComponent::resized()
     auto secondRow = area.removeFromTop(32);
     searchLabel.setBounds(secondRow.removeFromLeft(55));
     secondRow.removeFromLeft(6);
-    searchEditor.setBounds(secondRow.removeFromLeft(240));
-    secondRow.removeFromLeft(16);
-    saveDirLabel.setBounds(secondRow.removeFromLeft(360));
+    searchEditor.setBounds(secondRow.removeFromLeft(220));
+    secondRow.removeFromLeft(14);
+    saveDirLabel.setBounds(secondRow.removeFromLeft(260));
     secondRow.removeFromLeft(8);
-    chooseDirButton.setBounds(secondRow.removeFromLeft(130));
-    secondRow.removeFromLeft(12);
-    downloadAllWavsButton.setBounds(secondRow.removeFromLeft(150));
+    chooseDirButton.setBounds(secondRow.removeFromLeft(120));
+    secondRow.removeFromLeft(10);
+    downloadFolderButton.setBounds(secondRow.removeFromLeft(140));
+    secondRow.removeFromLeft(8);
+    downloadAllWavsButton.setBounds(secondRow.removeFromLeft(130));
 
     area.removeFromTop(12);
 
-    tableBox.setBounds(area);
+    auto mainArea = area;
+    int treeWidth = juce::jlimit(180, 320, juce::roundToInt(mainArea.getWidth() * 0.25f));
+
+    auto leftArea = mainArea.removeFromLeft(treeWidth);
+    mainArea.removeFromLeft(10); // gap between tree and table
+
+    // Left Pane: Folders Tree
+    auto leftHeaderArea = leftArea.removeFromTop(24);
+    foldersHeaderLabel.setBounds(leftHeaderArea);
+    leftArea.removeFromTop(4);
+    folderTreeView.setBounds(leftArea);
+
+    // Right Pane: Breadcrumbs + Table
+    auto rightTopRow = mainArea.removeFromTop(24);
+    includeSubfoldersToggle.setBounds(rightTopRow.removeFromRight(140));
+    breadcrumbLabel.setBounds(rightTopRow);
+
+    mainArea.removeFromTop(4);
+    tableBox.setBounds(mainArea);
 
     auto& header = tableBox.getHeader();
-    int tableWidth = area.getWidth();
-    // Fixed columns: Column 1 (#) = 40 px
+    int tableWidth = mainArea.getWidth();
     int availableWidth = tableWidth - 40;
     if (availableWidth > 100)
     {
-        // Default sum of resizable column widths is 980 px.
-        double scale = static_cast<double>(availableWidth) / 980.0;
-        
-        header.setColumnWidth(2, static_cast<int>(320 * scale));
-        header.setColumnWidth(3, static_cast<int>(90 * scale));
-        header.setColumnWidth(4, static_cast<int>(90 * scale));
-        header.setColumnWidth(5, static_cast<int>(140 * scale));
-        header.setColumnWidth(6, static_cast<int>(120 * scale));
-        header.setColumnWidth(7, static_cast<int>(120 * scale));
+        double scale = static_cast<double>(availableWidth) / 760.0;
+        header.setColumnWidth(2, static_cast<int>(280 * scale));
+        header.setColumnWidth(3, static_cast<int>(70 * scale));
+        header.setColumnWidth(4, static_cast<int>(80 * scale));
+        header.setColumnWidth(5, static_cast<int>(110 * scale));
+        header.setColumnWidth(6, static_cast<int>(110 * scale));
+        header.setColumnWidth(7, static_cast<int>(110 * scale));
     }
 }
 
@@ -272,7 +717,7 @@ void LibrariesComponent::paintCell(juce::Graphics& g, int rowNumber, int columnI
 
     const auto& item = displayedFiles[static_cast<size_t>(rowNumber)];
 
-    g.setFont(juce::Font(13.0f));
+    g.setFont(juce::Font(juce::FontOptions(13.0f)));
     g.setColour(OpenWavLookAndFeel::textPrimary);
 
     juce::Rectangle<int> cellBounds(4, 0, width - 8, height);
@@ -327,12 +772,30 @@ void LibrariesComponent::paintCell(juce::Graphics& g, int rowNumber, int columnI
         if (item.isDownloading)
         {
             g.setColour(OpenWavLookAndFeel::accentCyan);
-            g.drawText("Downloading...", cellBounds, juce::Justification::centredLeft);
+            int pct = juce::roundToInt(item.downloadProgress * 100.0);
+            g.drawText("Downloading " + juce::String(pct) + "%", cellBounds, juce::Justification::centredLeft);
+        }
+        else if (item.isQueued)
+        {
+            g.setColour(OpenWavLookAndFeel::accentBlue.withMultipliedBrightness(1.35f));
+            g.drawText("Queued in Batch", cellBounds, juce::Justification::centredLeft);
+        }
+        else if (item.isPreviewing)
+        {
+            g.setColour(OpenWavLookAndFeel::accentCyan);
+            int pct = juce::roundToInt(item.previewProgress * 100.0);
+            g.drawText("Streaming " + juce::String(pct) + "%", cellBounds, juce::Justification::centredLeft);
         }
         else if (item.isDownloaded)
         {
             g.setColour(juce::Colour::fromRGB(40, 167, 69));
             g.drawText(item.isZip ? "Extracted" : "Local Library", cellBounds, juce::Justification::centredLeft);
+        }
+        else if (item.isFailed)
+        {
+            g.setColour(OpenWavLookAndFeel::favoriteRed);
+            juce::String err = item.failReason.isNotEmpty() ? item.failReason : "Download Failed";
+            g.drawText(err, cellBounds, juce::Justification::centredLeft);
         }
         else
         {
@@ -358,10 +821,10 @@ juce::Component* LibrariesComponent::refreshComponentForCell(int rowNumber, int 
 
     const auto& item = displayedFiles[static_cast<size_t>(rowNumber)];
 
-    auto* actionComp = dynamic_cast<TableActionButtonComponent*>(existingComponentToUpdate);
+    auto* actionComp = dynamic_cast<DownloadProgressCellComponent*>(existingComponentToUpdate);
     if (actionComp == nullptr)
     {
-        actionComp = new TableActionButtonComponent(
+        actionComp = new DownloadProgressCellComponent(
             [this, rowNumber] { downloadFile(rowNumber); }
         );
     }
@@ -372,7 +835,7 @@ juce::Component* LibrariesComponent::refreshComponentForCell(int rowNumber, int 
         );
     }
 
-    actionComp->updateState(item.isDownloaded, item.isDownloading, item.downloadProgress);
+    actionComp->updateState(item);
     return actionComp;
 }
 
@@ -439,7 +902,13 @@ void LibrariesComponent::textEditorTextChanged(juce::TextEditor& editor)
         {
             allRemoteFiles.clear();
             displayedFiles.clear();
+            rootFolderNode = nullptr;
+            selectedFolderNode = nullptr;
+            rebuildFolderTree();
+            breadcrumbLabel.setText("All Files", juce::dontSendNotification);
+            downloadFolderButton.setButtonText("Download Folder");
             tableBox.updateContent();
+            tableBox.repaint();
             statusLabel.setText("Ready. Enter your Pixeldrain API key or hotlink to fetch account files.", juce::dontSendNotification);
         }
     }
@@ -491,8 +960,30 @@ static void extractFileObj(const juce::var& itemVar, std::vector<PixeldrainFile>
     f.mimeType = mime;
     f.isWav = juce::File(name).getFileExtension().equalsIgnoreCase(".wav") || mime.containsIgnoreCase("wav");
     f.isZip = isZipFile(name, mime);
+    f.folderPath = "/";
+    f.relativePath = name;
 
     outFiles.push_back(f);
+}
+
+static juce::String urlEncodePath(const juce::String& path)
+{
+    juce::String encoded;
+    auto utf8 = path.toRawUTF8();
+    for (size_t i = 0; utf8[i] != 0; ++i)
+    {
+        unsigned char c = static_cast<unsigned char>(utf8[i]);
+        if (c == '/' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+            (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.' || c == '~')
+        {
+            encoded << static_cast<char>(c);
+        }
+        else
+        {
+            encoded << "%" + juce::String::toHexString(static_cast<int>(c)).paddedLeft('0', 2).toUpperCase();
+        }
+    }
+    return encoded;
 }
 
 static juce::URL::InputStreamOptions makeHttpOptions(const juce::String& authHeader = {}, int timeoutMs = 10000, bool acceptJson = true)
@@ -513,9 +1004,13 @@ static juce::URL::InputStreamOptions makeHttpOptions(const juce::String& authHea
     return opts.withExtraHeaders(extraHeaders);
 }
 
-static void extractFilesFromFilesystemNode(const juce::var& nodeVar, std::vector<PixeldrainFile>& outFiles, const juce::String& authHeader)
+static void extractFilesFromFilesystemNode(const juce::var& nodeVar,
+                                         std::vector<PixeldrainFile>& outFiles,
+                                         const juce::String& authHeader,
+                                         const juce::String& currentFolderPath,
+                                         std::shared_ptr<PixeldrainFolderNode> currentFolderNode)
 {
-    if (!nodeVar.isObject()) return;
+    if (!nodeVar.isObject() || currentFolderNode == nullptr) return;
     auto* obj = nodeVar.getDynamicObject();
     if (!obj) return;
 
@@ -524,29 +1019,58 @@ static void extractFilesFromFilesystemNode(const juce::var& nodeVar, std::vector
 
     if (isDir)
     {
-        juce::String subDirId = obj->getProperty("id").toString();
-        if (subDirId.isEmpty()) subDirId = obj->getProperty("path").toString();
-        if (subDirId.isEmpty()) subDirId = obj->getProperty("name").toString();
+        juce::String dirName = obj->getProperty("name").toString();
+        if (dirName.isEmpty()) dirName = obj->getProperty("path").toString();
+        if (dirName.isEmpty()) dirName = "Folder";
 
-        if (subDirId.isNotEmpty())
+        // Ignore hidden directories and search index directories
+        if (dirName.startsWith(".") || dirName.startsWithIgnoreCase("__MACOSX") || dirName.containsIgnoreCase("search_index"))
+            return;
+
+        juce::String dirPath = currentFolderPath.isEmpty() ? ("/" + dirName) : (currentFolderPath + "/" + dirName);
+
+        auto subFolderNode = std::make_shared<PixeldrainFolderNode>();
+        subFolderNode->id = obj->getProperty("id").toString();
+        if (subFolderNode->id.isEmpty()) subFolderNode->id = obj->getProperty("path").toString();
+        subFolderNode->name = dirName;
+        subFolderNode->fullPath = dirPath;
+        subFolderNode->parentFolder = currentFolderNode;
+
+        currentFolderNode->subFolders.push_back(subFolderNode);
+
+        // Process inline children if present
+        if (obj->hasProperty("children") && obj->getProperty("children").isArray())
         {
-            juce::URL subUrl("https://pixeldrain.com/api/filesystem/" + subDirId);
-            std::unique_ptr<juce::InputStream> subStream(subUrl.createInputStream(makeHttpOptions(authHeader, 10000)));
-            if (subStream != nullptr)
+            auto cVar = obj->getProperty("children");
+            for (const auto& child : *cVar.getArray())
             {
-                auto subText = subStream->readEntireStreamAsString();
-                auto subParsed = juce::JSON::parse(subText);
-                if (subParsed.isObject())
+                extractFilesFromFilesystemNode(child, outFiles, authHeader, dirPath, subFolderNode);
+            }
+        }
+        else
+        {
+            // Fetch children dynamically from filesystem API
+            juce::String subDirId = subFolderNode->id;
+            if (subDirId.isNotEmpty())
+            {
+                juce::URL subUrl("https://pixeldrain.com/api/filesystem/" + subDirId);
+                std::unique_ptr<juce::InputStream> subStream(subUrl.createInputStream(makeHttpOptions(authHeader, 10000)));
+                if (subStream != nullptr)
                 {
-                    auto* subObj = subParsed.getDynamicObject();
-                    if (subObj && subObj->hasProperty("children"))
+                    auto subText = subStream->readEntireStreamAsString();
+                    auto subParsed = juce::JSON::parse(subText);
+                    if (subParsed.isObject())
                     {
-                        auto cVar = subObj->getProperty("children");
-                        if (cVar.isArray())
+                        auto* subObj = subParsed.getDynamicObject();
+                        if (subObj && subObj->hasProperty("children"))
                         {
-                            for (const auto& child : *cVar.getArray())
+                            auto cVar = subObj->getProperty("children");
+                            if (cVar.isArray())
                             {
-                                extractFilesFromFilesystemNode(child, outFiles, authHeader);
+                                for (const auto& child : *cVar.getArray())
+                                {
+                                    extractFilesFromFilesystemNode(child, outFiles, authHeader, dirPath, subFolderNode);
+                                }
                             }
                         }
                     }
@@ -556,7 +1080,93 @@ static void extractFilesFromFilesystemNode(const juce::var& nodeVar, std::vector
     }
     else
     {
-        extractFileObj(nodeVar, outFiles);
+        juce::String name = obj->getProperty("name").toString();
+        juce::String mime = obj->getProperty("mime_type").toString();
+        if (mime.isEmpty()) mime = obj->getProperty("file_type").toString();
+
+        if (!isSupportedRemoteFile(name, mime))
+            return;
+
+        PixeldrainFile f;
+        f.id = obj->getProperty("id").toString();
+        if (f.id.isEmpty()) f.id = obj->getProperty("file_id").toString();
+        if (f.id.isEmpty()) f.id = obj->getProperty("path").toString();
+        if (f.id.isEmpty()) f.id = name;
+
+        f.name = name;
+        f.mimeType = mime;
+        if (obj->hasProperty("size"))
+            f.sizeBytes = static_cast<int64_t>(static_cast<juce::int64>(obj->getProperty("size")));
+        else if (obj->hasProperty("file_size"))
+            f.sizeBytes = static_cast<int64_t>(static_cast<juce::int64>(obj->getProperty("file_size")));
+
+        f.dateUpload = obj->getProperty("date_upload").toString();
+        if (f.dateUpload.isEmpty()) f.dateUpload = obj->getProperty("date_created").toString();
+
+        f.isWav = juce::File(f.name).getFileExtension().equalsIgnoreCase(".wav") || f.mimeType.containsIgnoreCase("wav");
+        f.isZip = isZipFile(f.name, f.mimeType);
+
+        f.folderPath = currentFolderPath;
+        juce::String cleanFolder = currentFolderPath.trim().trimCharactersAtStart("/\\");
+        f.relativePath = cleanFolder.isNotEmpty() ? (cleanFolder + "/" + f.name) : f.name;
+
+        currentFolderNode->files.push_back(f);
+        outFiles.push_back(f);
+    }
+}
+
+static void buildTreeFromFlatFiles(std::vector<PixeldrainFile>& files, std::shared_ptr<PixeldrainFolderNode> rootNode)
+{
+    if (rootNode == nullptr) return;
+
+    for (auto& f : files)
+    {
+        juce::String name = f.name;
+        if (name.contains("/") || name.contains("\\"))
+        {
+            juce::String normalized = name.replace("\\", "/");
+            juce::String folderPart = normalized.upToLastOccurrenceOf("/", false, false);
+            juce::String baseName = normalized.fromLastOccurrenceOf("/", false, false);
+
+            f.name = baseName;
+            f.folderPath = "/" + folderPart;
+            f.relativePath = normalized;
+
+            auto current = rootNode;
+            juce::StringArray tokens;
+            tokens.addTokens(folderPart, "/", "");
+            juce::String currentPath = "";
+
+            for (const auto& token : tokens)
+            {
+                currentPath += "/" + token;
+                std::shared_ptr<PixeldrainFolderNode> nextNode = nullptr;
+                for (const auto& sub : current->subFolders)
+                {
+                    if (sub->name.equalsIgnoreCase(token))
+                    {
+                        nextNode = sub;
+                        break;
+                    }
+                }
+                if (nextNode == nullptr)
+                {
+                    nextNode = std::make_shared<PixeldrainFolderNode>();
+                    nextNode->name = token;
+                    nextNode->fullPath = currentPath;
+                    nextNode->parentFolder = current;
+                    current->subFolders.push_back(nextNode);
+                }
+                current = nextNode;
+            }
+            current->files.push_back(f);
+        }
+        else
+        {
+            f.folderPath = "/";
+            f.relativePath = f.name;
+            rootNode->files.push_back(f);
+        }
     }
 }
 
@@ -695,6 +1305,15 @@ void LibrariesComponent::fetchUserFiles()
     juce::String inputStr = apiKeyEditor.getText().trim();
     if (inputStr.isEmpty())
     {
+        allRemoteFiles.clear();
+        displayedFiles.clear();
+        rootFolderNode = nullptr;
+        selectedFolderNode = nullptr;
+        rebuildFolderTree();
+        breadcrumbLabel.setText("All Files", juce::dontSendNotification);
+        downloadFolderButton.setButtonText("Download Folder");
+        tableBox.updateContent();
+        tableBox.repaint();
         statusLabel.setText("Please enter an API Key or Public Hotlink (e.g. /d/id, /u/id, or /l/id).", juce::dontSendNotification);
         return;
     }
@@ -705,8 +1324,18 @@ void LibrariesComponent::fetchUserFiles()
 
     auto target = parsePixeldrainInput(inputStr);
 
-    juce::Thread::launch([this, target] {
+    juce::Component::SafePointer<LibrariesComponent> safeThis(this);
+
+    juce::Thread::launch([safeThis, target] {
+        if (safeThis == nullptr) return;
+
         std::vector<PixeldrainFile> fetchedFiles;
+        auto rootNode = std::make_shared<PixeldrainFolderNode>();
+        rootNode->id = target.idOrKey;
+        rootNode->name = (target.kind == PixeldrainTarget::Directory) ? "Cloud Folder" : (target.kind == PixeldrainTarget::List ? "Cloud List" : "Cloud Library");
+        rootNode->fullPath = "/";
+        rootNode->isRoot = true;
+
         juce::String errorMsg;
 
         if (target.kind == PixeldrainTarget::Directory)
@@ -721,6 +1350,13 @@ void LibrariesComponent::fetchUserFiles()
                 if (parsed.isObject())
                 {
                     auto* obj = parsed.getDynamicObject();
+                    if (obj && obj->hasProperty("name"))
+                    {
+                        juce::String folderTitle = obj->getProperty("name").toString();
+                        if (folderTitle.isNotEmpty())
+                            rootNode->name = folderTitle;
+                    }
+
                     if (obj && obj->hasProperty("children"))
                     {
                         auto cVar = obj->getProperty("children");
@@ -728,7 +1364,7 @@ void LibrariesComponent::fetchUserFiles()
                         {
                             for (const auto& child : *cVar.getArray())
                             {
-                                extractFilesFromFilesystemNode(child, fetchedFiles, "");
+                                extractFilesFromFilesystemNode(child, fetchedFiles, "", "", rootNode);
                             }
                         }
                     }
@@ -747,6 +1383,11 @@ void LibrariesComponent::fetchUserFiles()
                     if (listParsed.isObject())
                     {
                         auto* obj = listParsed.getDynamicObject();
+                        if (obj && obj->hasProperty("title"))
+                        {
+                            juce::String t = obj->getProperty("title").toString();
+                            if (t.isNotEmpty()) rootNode->name = t;
+                        }
                         if (obj && obj->hasProperty("files"))
                         {
                             auto fVar = obj->getProperty("files");
@@ -758,6 +1399,7 @@ void LibrariesComponent::fetchUserFiles()
                         }
                     }
                 }
+                buildTreeFromFlatFiles(fetchedFiles, rootNode);
             }
 
             if (fetchedFiles.empty())
@@ -775,6 +1417,7 @@ void LibrariesComponent::fetchUserFiles()
                 auto responseText = stream->readEntireStreamAsString();
                 auto parsed = juce::JSON::parse(responseText);
                 extractFileObj(parsed, fetchedFiles);
+                buildTreeFromFlatFiles(fetchedFiles, rootNode);
 
                 // Fallback 1: Try list endpoint
                 if (fetchedFiles.empty())
@@ -799,6 +1442,7 @@ void LibrariesComponent::fetchUserFiles()
                             }
                         }
                     }
+                    buildTreeFromFlatFiles(fetchedFiles, rootNode);
                 }
 
                 // Fallback 2: Try filesystem endpoint
@@ -819,7 +1463,7 @@ void LibrariesComponent::fetchUserFiles()
                                 if (cVar.isArray())
                                 {
                                     for (const auto& child : *cVar.getArray())
-                                        extractFilesFromFilesystemNode(child, fetchedFiles, "");
+                                        extractFilesFromFilesystemNode(child, fetchedFiles, "", "", rootNode);
                                 }
                             }
                         }
@@ -843,6 +1487,11 @@ void LibrariesComponent::fetchUserFiles()
                 if (parsed.isObject())
                 {
                     auto* obj = parsed.getDynamicObject();
+                    if (obj && obj->hasProperty("title"))
+                    {
+                        juce::String t = obj->getProperty("title").toString();
+                        if (t.isNotEmpty()) rootNode->name = t;
+                    }
                     if (obj && obj->hasProperty("files"))
                     {
                         auto fVar = obj->getProperty("files");
@@ -855,6 +1504,7 @@ void LibrariesComponent::fetchUserFiles()
                         }
                     }
                 }
+                buildTreeFromFlatFiles(fetchedFiles, rootNode);
             }
 
             // Fallback to filesystem endpoint
@@ -875,7 +1525,7 @@ void LibrariesComponent::fetchUserFiles()
                             if (cVar.isArray())
                             {
                                 for (const auto& child : *cVar.getArray())
-                                    extractFilesFromFilesystemNode(child, fetchedFiles, "");
+                                    extractFilesFromFilesystemNode(child, fetchedFiles, "", "", rootNode);
                             }
                         }
                     }
@@ -922,6 +1572,7 @@ void LibrariesComponent::fetchUserFiles()
                         extractFileObj(itemVar, fetchedFiles);
                     }
                 }
+                buildTreeFromFlatFiles(fetchedFiles, rootNode);
             }
             else
             {
@@ -929,26 +1580,33 @@ void LibrariesComponent::fetchUserFiles()
             }
         }
 
-        juce::MessageManager::callAsync([this, fetchedFiles, errorMsg] {
-            isFetching = false;
+        juce::MessageManager::callAsync([safeThis, fetchedFiles, rootNode, errorMsg] {
+            if (safeThis == nullptr) return;
+
+            safeThis->isFetching = false;
             if (fetchedFiles.empty())
             {
-                allRemoteFiles.clear();
-                displayedFiles.clear();
-                tableBox.updateContent();
+                safeThis->allRemoteFiles.clear();
+                safeThis->displayedFiles.clear();
+                safeThis->rootFolderNode = nullptr;
+                safeThis->rebuildFolderTree();
+                safeThis->tableBox.updateContent();
 
                 if (errorMsg.isNotEmpty())
-                    statusLabel.setText("Notice: " + errorMsg, juce::dontSendNotification);
+                    safeThis->statusLabel.setText("Notice: " + errorMsg, juce::dontSendNotification);
                 else
-                    statusLabel.setText("No supported files found (.wav, .mp3, .flac, .ogg, .aiff, .zip).", juce::dontSendNotification);
+                    safeThis->statusLabel.setText("No supported files found (.wav, .mp3, .flac, .ogg, .aiff, .zip).", juce::dontSendNotification);
             }
             else
             {
-                allRemoteFiles = fetchedFiles;
-                updateDownloadStatuses();
-                filterRemoteFiles();
+                safeThis->allRemoteFiles = fetchedFiles;
+                safeThis->rootFolderNode = rootNode;
+                safeThis->rebuildFolderTree();
+                safeThis->updateDownloadStatuses();
+                safeThis->filterRemoteFiles();
 
-                statusLabel.setText("Loaded " + juce::String(allRemoteFiles.size()) + " file(s) (.wav, .mp3, .flac, .ogg, .aiff, .zip)", juce::dontSendNotification);
+                safeThis->statusLabel.setText("Loaded " + juce::String(safeThis->allRemoteFiles.size()) + " file(s) in " +
+                                   juce::String(rootNode->subFolders.size()) + " folder(s).", juce::dontSendNotification);
             }
         });
     });
@@ -960,23 +1618,101 @@ void LibrariesComponent::updateDownloadStatuses()
 
     for (auto& f : allRemoteFiles)
     {
-        juce::File checkFile = targetDir.getChildFile(f.name);
-        if (checkFile.existsAsFile())
+        juce::String relPath = f.relativePath.isNotEmpty() ? f.relativePath : f.name;
+        juce::File checkFile = targetDir.getChildFile(relPath);
+        if (!checkFile.existsAsFile())
+            checkFile = targetDir.getChildFile(f.name);
+
+        if (checkFile.existsAsFile() && checkFile.getSize() > 0)
         {
             f.isDownloaded = true;
+            f.isQueued = false;
+            f.isDownloading = false;
+            f.isFailed = false;
+            f.downloadProgress = 1.0;
             f.localPath = checkFile.getFullPathName();
         }
     }
 }
 
+void LibrariesComponent::updateBatchProgressLabel()
+{
+    if (totalBatchCount > 0 && sequentialDownloader != nullptr && sequentialDownloader->isThreadRunning())
+    {
+        int activeIdx = juce::jmin(totalBatchCount, completedBatchCount + 1);
+        statusLabel.setText("Batch downloading (" + juce::String(activeIdx) + "/" + juce::String(totalBatchCount) + ")...", juce::dontSendNotification);
+    }
+}
+
+void LibrariesComponent::selectFolder(std::shared_ptr<PixeldrainFolderNode> folder)
+{
+    selectedFolderNode = folder;
+    if (folder != nullptr)
+    {
+        juce::String pathStr = folder->fullPath;
+        if (pathStr.isEmpty() || pathStr == "/") pathStr = "All Files (" + folder->name + ")";
+        breadcrumbLabel.setText(pathStr + "   |   " + juce::String(folder->getTotalFileCount()) + " audio file(s)", juce::dontSendNotification);
+        downloadFolderButton.setButtonText("Download Folder (" + juce::String(folder->getTotalFileCount()) + ")");
+    }
+    else
+    {
+        breadcrumbLabel.setText("All Files", juce::dontSendNotification);
+        downloadFolderButton.setButtonText("Download Folder");
+    }
+    filterRemoteFiles();
+}
+
+void LibrariesComponent::rebuildFolderTree()
+{
+    folderTreeView.setRootItem(nullptr);
+    rootTreeItem.reset();
+
+    if (rootFolderNode == nullptr)
+        return;
+
+    rootTreeItem = std::make_unique<PixeldrainFolderTreeItem>(rootFolderNode, *this);
+    folderTreeView.setRootItem(rootTreeItem.get());
+    rootTreeItem->setOpen(true);
+
+    selectedFolderNode = rootFolderNode;
+    selectFolder(rootFolderNode);
+}
+
 void LibrariesComponent::filterRemoteFiles()
 {
     juce::String kw = searchEditor.getText().trim().toLowerCase();
+    bool includeSubs = includeSubfoldersToggle.getToggleState();
     displayedFiles.clear();
 
-    for (const auto& f : allRemoteFiles)
+    std::vector<PixeldrainFile> candidateFiles;
+    if (selectedFolderNode == nullptr || selectedFolderNode->isRoot)
     {
-        if (kw.isEmpty() || f.name.toLowerCase().contains(kw) || f.mimeType.toLowerCase().contains(kw))
+        candidateFiles = allRemoteFiles;
+    }
+    else
+    {
+        if (includeSubs)
+            selectedFolderNode->getAllFilesRecursive(candidateFiles);
+        else
+            candidateFiles = selectedFolderNode->files;
+    }
+
+    // Sync latest status from allRemoteFiles into candidateFiles
+    for (auto& cand : candidateFiles)
+    {
+        for (const auto& master : allRemoteFiles)
+        {
+            if (master.id == cand.id)
+            {
+                cand = master;
+                break;
+            }
+        }
+    }
+
+    for (const auto& f : candidateFiles)
+    {
+        if (kw.isEmpty() || f.name.toLowerCase().contains(kw) || f.mimeType.toLowerCase().contains(kw) || f.relativePath.toLowerCase().contains(kw))
         {
             displayedFiles.push_back(f);
         }
@@ -986,84 +1722,50 @@ void LibrariesComponent::filterRemoteFiles()
     tableBox.repaint();
 }
 
-void LibrariesComponent::downloadFile(int displayedIndex)
+void LibrariesComponent::downloadFolder(std::shared_ptr<PixeldrainFolderNode> folder)
 {
-    if (displayedIndex < 0 || displayedIndex >= static_cast<int>(displayedFiles.size()))
-        return;
+    if (folder == nullptr) return;
 
-    auto& targetItem = displayedFiles[static_cast<size_t>(displayedIndex)];
-    if (targetItem.isDownloading || targetItem.isDownloaded)
-        return;
+    std::vector<PixeldrainFile> folderFiles;
+    folder->getAllFilesRecursive(folderFiles);
 
-    targetItem.isDownloading = true;
-    targetItem.downloadProgress = 0.0;
-
-    for (auto& f : allRemoteFiles)
-    {
-        if (f.id == targetItem.id)
-        {
-            f.isDownloading = true;
-            f.downloadProgress = 0.0;
-        }
-    }
-
-    activeDownloadCount++;
-    tableBox.updateContent();
-
-    juce::String fileId = targetItem.id;
-    juce::String fileName = targetItem.name;
-    bool isZip = targetItem.isZip || juce::File(fileName).getFileExtension().equalsIgnoreCase(".zip");
-    juce::String inputStr = apiKeyEditor.getText().trim();
-    juce::File destFolder(dbManager.getDownloadFolder());
-    if (!destFolder.exists())
-        destFolder.createDirectory();
-
-    juce::File destFile = destFolder.getChildFile(fileName);
-
-    juce::Component::SafePointer<LibrariesComponent> safeThis(this);
-
-    juce::Thread::launch([safeThis, fileId, fileName, inputStr, destFile, isZip] {
-        if (safeThis == nullptr) return;
-
-        auto shouldExit = [safeThis] { return safeThis == nullptr; };
-        bool success = downloadFileSync(fileId, fileName, inputStr, destFile, shouldExit, safeThis);
-
-        int extractedCount = 0;
-        if (success && isZip && destFile.existsAsFile())
-        {
-            juce::MessageManager::callAsync([safeThis, fileName] {
-                if (safeThis != nullptr)
-                    safeThis->statusLabel.setText("Extracting audio files from " + fileName + "...", juce::dontSendNotification);
-            });
-
-            juce::String statusMsg;
-            extractedCount = extractAudioFilesFromZip(destFile, destFile.getParentDirectory(), statusMsg);
-        }
-
-        juce::MessageManager::callAsync([safeThis, fileId, destFile, success, isZip, extractedCount] {
-            if (safeThis != nullptr)
-            {
-                safeThis->handleDownloadFinished(fileId, destFile, success, isZip, extractedCount);
-            }
-        });
-    });
+    queueDownloads(folderFiles, "folder '" + folder->name + "'");
 }
 
 void LibrariesComponent::downloadAllWavs()
 {
-    std::vector<QueuedDownload> newJobs;
-    for (auto& item : displayedFiles)
+    if (sequentialDownloader != nullptr && sequentialDownloader->isThreadRunning())
     {
-        if (!item.isDownloaded && !item.isDownloading)
-        {
-            item.isDownloading = true;
-            item.downloadProgress = 0.0;
+        cancelAllDownloads();
+        return;
+    }
 
+    auto& sourceList = searchEditor.getText().trim().isEmpty() ? allRemoteFiles : displayedFiles;
+    queueDownloads(sourceList, "all remote files");
+}
+
+void LibrariesComponent::queueDownloads(const std::vector<PixeldrainFile>& filesToQueue, const juce::String& batchTitle)
+{
+    if (sequentialDownloader != nullptr && sequentialDownloader->isThreadRunning())
+    {
+        cancelAllDownloads();
+        return;
+    }
+
+    cancelRequested = false;
+    std::vector<QueuedDownload> newJobs;
+
+    for (const auto& item : filesToQueue)
+    {
+        if (!item.isDownloaded && !item.isDownloading && !item.isQueued)
+        {
             for (auto& f : allRemoteFiles)
             {
                 if (f.id == item.id)
                 {
-                    f.isDownloading = true;
+                    f.isQueued = true;
+                    f.isFailed = false;
+                    f.failReason = "";
                     f.downloadProgress = 0.0;
                 }
             }
@@ -1071,6 +1773,8 @@ void LibrariesComponent::downloadAllWavs()
             QueuedDownload job;
             job.fileId = item.id;
             job.fileName = item.name;
+            job.relativePath = item.relativePath.isNotEmpty() ? item.relativePath : item.name;
+            job.sizeBytes = item.sizeBytes;
             job.isZip = item.isZip || juce::File(item.name).getFileExtension().equalsIgnoreCase(".zip");
             newJobs.push_back(job);
         }
@@ -1078,12 +1782,19 @@ void LibrariesComponent::downloadAllWavs()
 
     if (newJobs.empty())
     {
-        statusLabel.setText("No new files to download.", juce::dontSendNotification);
+        statusLabel.setText("No new files to download in " + batchTitle + ".", juce::dontSendNotification);
         return;
     }
 
-    statusLabel.setText("Starting download of " + juce::String(newJobs.size()) + " file(s)...", juce::dontSendNotification);
-    tableBox.updateContent();
+    totalBatchCount = static_cast<int>(newJobs.size());
+    completedBatchCount = 0;
+
+    downloadAllWavsButton.setButtonText("Cancel All");
+    downloadAllWavsButton.setColour(juce::TextButton::buttonColourId, OpenWavLookAndFeel::favoriteRed.withAlpha(0.3f));
+    downloadAllWavsButton.setColour(juce::TextButton::textColourOffId, OpenWavLookAndFeel::favoriteRed);
+
+    statusLabel.setText("Queued " + juce::String(newJobs.size()) + " file(s) from " + batchTitle + "...", juce::dontSendNotification);
+    filterRemoteFiles();
 
     {
         const juce::ScopedLock sl (downloadQueueLock);
@@ -1101,15 +1812,167 @@ void LibrariesComponent::downloadAllWavs()
     }
 }
 
+void LibrariesComponent::downloadFile(int displayedIndex)
+{
+    if (displayedIndex < 0 || displayedIndex >= static_cast<int>(displayedFiles.size()))
+        return;
+
+    auto& targetItem = displayedFiles[static_cast<size_t>(displayedIndex)];
+    if (targetItem.isDownloading || targetItem.isDownloaded)
+        return;
+
+    targetItem.isDownloading = true;
+    targetItem.isQueued = false;
+    targetItem.isFailed = false;
+    targetItem.failReason = "";
+    targetItem.downloadProgress = 0.0;
+
+    for (auto& f : allRemoteFiles)
+    {
+        if (f.id == targetItem.id)
+        {
+            f.isDownloading = true;
+            f.isQueued = false;
+            f.isFailed = false;
+            f.failReason = "";
+            f.downloadProgress = 0.0;
+        }
+    }
+
+    activeDownloadCount++;
+    tableBox.repaint();
+
+    juce::String fileId = targetItem.id;
+    juce::String fileName = targetItem.name;
+    juce::String relPath = targetItem.relativePath.isNotEmpty() ? targetItem.relativePath : targetItem.name;
+    int64_t sizeBytes = targetItem.sizeBytes;
+    bool isZip = targetItem.isZip || juce::File(fileName).getFileExtension().equalsIgnoreCase(".zip");
+    juce::String inputStr = apiKeyEditor.getText().trim();
+    juce::File destFolder(dbManager.getDownloadFolder());
+    if (!destFolder.exists())
+        destFolder.createDirectory();
+
+    juce::File destFile = destFolder.getChildFile(relPath);
+    destFile.getParentDirectory().createDirectory();
+
+    statusLabel.setText("Downloading: " + fileName + "...", juce::dontSendNotification);
+
+    juce::Component::SafePointer<LibrariesComponent> safeThis(this);
+
+    juce::Thread::launch([safeThis, fileId, fileName, sizeBytes, inputStr, destFile, isZip] {
+        if (safeThis == nullptr) return;
+
+        auto shouldExit = [safeThis] { return safeThis == nullptr; };
+        bool success = false;
+
+        // Try download with automatic retry
+        for (int attempt = 1; attempt <= 3; ++attempt)
+        {
+            if (safeThis == nullptr) return;
+            if (attempt > 1) juce::Thread::sleep(500 * attempt);
+
+            success = downloadFileSync(fileId, fileName, sizeBytes, inputStr, destFile, shouldExit, safeThis);
+            if (success) break;
+        }
+
+        int extractedCount = 0;
+        if (success && isZip && destFile.existsAsFile())
+        {
+            juce::MessageManager::callAsync([safeThis, fileName] {
+                if (safeThis != nullptr)
+                    safeThis->statusLabel.setText("Extracting audio files from " + fileName + "...", juce::dontSendNotification);
+            });
+
+            juce::String statusMsg;
+            extractedCount = extractAudioFilesFromZip(destFile, destFile.getParentDirectory(), statusMsg);
+        }
+
+        juce::String failReason = success ? "" : "Download Failed";
+
+        juce::MessageManager::callAsync([safeThis, fileId, destFile, success, isZip, extractedCount, failReason] {
+            if (safeThis != nullptr)
+            {
+                safeThis->handleDownloadFinished(fileId, destFile, success, isZip, extractedCount, failReason);
+            }
+        });
+    });
+}
+
+void LibrariesComponent::cancelAllDownloads()
+{
+    cancelRequested = true;
+
+    {
+        const juce::ScopedLock sl (downloadQueueLock);
+        downloadQueue.clear();
+    }
+
+    if (sequentialDownloader != nullptr && sequentialDownloader->isThreadRunning())
+    {
+        sequentialDownloader->signalThreadShouldExit();
+        sequentialDownloader->stopThread(250);
+    }
+
+    activeDownloadCount = 0;
+
+    for (auto& f : allRemoteFiles)
+    {
+        if (f.isQueued || f.isDownloading)
+        {
+            f.isQueued = false;
+            f.isDownloading = false;
+            f.downloadProgress = 0.0;
+        }
+    }
+
+    for (auto& f : displayedFiles)
+    {
+        if (f.isQueued || f.isDownloading)
+        {
+            f.isQueued = false;
+            f.isDownloading = false;
+            f.downloadProgress = 0.0;
+        }
+    }
+
+    downloadAllWavsButton.setButtonText("Download All");
+    downloadAllWavsButton.removeColour(juce::TextButton::buttonColourId);
+    downloadAllWavsButton.removeColour(juce::TextButton::textColourOffId);
+
+    statusLabel.setText("Batch download cancelled.", juce::dontSendNotification);
+    tableBox.updateContent();
+    tableBox.repaint();
+}
+
 bool LibrariesComponent::downloadFileSync(const juce::String& fileId,
                                          const juce::String& fileName,
+                                         int64_t expectedSizeBytes,
                                          const juce::String& apiKey,
                                          const juce::File& destFile,
                                          std::function<bool()> shouldExit,
                                          juce::Component::SafePointer<LibrariesComponent> safeThis,
                                          bool isPreview)
 {
+    auto target = parsePixeldrainInput(apiKey);
+    juce::String rootDirId = target.idOrKey;
+
     juce::String cleanId = fileId.trim();
+    juce::String cleanName = fileName.trim().trimCharactersAtStart("/\\");
+    juce::String cleanRel = cleanName;
+
+    if (safeThis != nullptr)
+    {
+        for (const auto& f : safeThis->allRemoteFiles)
+        {
+            if (f.id == fileId || f.name == fileName)
+            {
+                if (f.relativePath.isNotEmpty())
+                    cleanRel = f.relativePath.trim().trimCharactersAtStart("/\\");
+                break;
+            }
+        }
+    }
+
     juce::StringArray candidateUrls;
 
     if (cleanId.startsWithIgnoreCase("http://") || cleanId.startsWithIgnoreCase("https://"))
@@ -1121,6 +1984,7 @@ bool LibrariesComponent::downloadFileSync(const juce::String& fileId,
             if (idPart.contains("?")) idPart = idPart.upToFirstOccurrenceOf("?", false, false);
             candidateUrls.add("https://pixeldrain.com/api/file/" + idPart + "?download");
             candidateUrls.add("https://pixeldrain.com/api/file/" + idPart);
+            candidateUrls.add("https://pixeldrain.com/api/filesystem/" + idPart + "?download");
         }
         else
         {
@@ -1129,32 +1993,63 @@ bool LibrariesComponent::downloadFileSync(const juce::String& fileId,
             candidateUrls.add(fullUrl);
         }
     }
-    else if (cleanId.startsWith("/"))
-    {
-        candidateUrls.add("https://pixeldrain.com/api/filesystem" + cleanId + "?download");
-        candidateUrls.add("https://pixeldrain.com/api/filesystem" + cleanId);
-    }
-    else if (cleanId.startsWithIgnoreCase("filesystem/"))
-    {
-        juce::String pathPart = cleanId.substring(11);
-        candidateUrls.add("https://pixeldrain.com/api/filesystem/" + pathPart + "?download");
-        candidateUrls.add("https://pixeldrain.com/api/filesystem/" + pathPart);
-    }
     else
     {
-        if (cleanId.startsWithIgnoreCase("file/"))
-            cleanId = cleanId.substring(5);
+        // 1. Filesystem directory path endpoints (e.g. /d/<rootId>/<path>)
+        if (target.kind == PixeldrainTarget::Directory && rootDirId.isNotEmpty())
+        {
+            if (cleanRel.isNotEmpty())
+                candidateUrls.add("https://pixeldrain.com/api/filesystem/" + urlEncodePath(rootDirId + "/" + cleanRel) + "?download");
+            if (cleanName.isNotEmpty() && cleanName != cleanRel)
+                candidateUrls.add("https://pixeldrain.com/api/filesystem/" + urlEncodePath(rootDirId + "/" + cleanName) + "?download");
+            if (cleanId != cleanRel && cleanId != cleanName && !cleanId.contains("://"))
+                candidateUrls.add("https://pixeldrain.com/api/filesystem/" + urlEncodePath(rootDirId + "/" + cleanId) + "?download");
+        }
 
-        candidateUrls.add("https://pixeldrain.com/api/file/" + cleanId + "?download");
-        candidateUrls.add("https://pixeldrain.com/api/file/" + cleanId);
+        // 2. Direct File ID endpoints (if cleanId is 8-char or standard ID)
+        juce::String bareId = cleanId;
+        if (bareId.startsWithIgnoreCase("file/"))
+            bareId = bareId.substring(5);
+
+        if (!bareId.contains("/") && !bareId.contains(" ") && bareId.isNotEmpty())
+        {
+            candidateUrls.add("https://pixeldrain.com/api/file/" + bareId + "?download");
+            candidateUrls.add("https://pixeldrain.com/api/file/" + bareId);
+            candidateUrls.add("https://pixeldrain.com/u/" + bareId + "?download");
+        }
+
+        // 3. Shared List endpoint
+        if (target.kind == PixeldrainTarget::List && rootDirId.isNotEmpty())
+        {
+            candidateUrls.add("https://pixeldrain.com/api/list/" + rootDirId + "/" + urlEncodePath(cleanName) + "?download");
+        }
+
+        // 4. Standalone filesystem path endpoints
+        if (cleanId.startsWith("/"))
+        {
+            candidateUrls.add("https://pixeldrain.com/api/filesystem" + urlEncodePath(cleanId) + "?download");
+            candidateUrls.add("https://pixeldrain.com/api/filesystem" + urlEncodePath(cleanId));
+        }
+        else
+        {
+            candidateUrls.add("https://pixeldrain.com/api/filesystem/" + urlEncodePath(cleanId) + "?download");
+            candidateUrls.add("https://pixeldrain.com/api/filesystem/" + urlEncodePath(cleanId));
+        }
+
+        if (cleanRel.isNotEmpty() && cleanRel != cleanId)
+        {
+            candidateUrls.add("https://pixeldrain.com/api/filesystem/" + urlEncodePath(cleanRel) + "?download");
+        }
     }
 
-    auto target = parsePixeldrainInput(apiKey);
     juce::String authHeader;
     if (target.kind == PixeldrainTarget::UserAccount && target.idOrKey.isNotEmpty())
     {
         authHeader = "Authorization: Basic " + juce::Base64::toBase64(":" + target.idOrKey);
     }
+
+    // Ensure parent directory exists before writing
+    destFile.getParentDirectory().createDirectory();
 
     bool success = false;
 
@@ -1163,12 +2058,12 @@ bool LibrariesComponent::downloadFileSync(const juce::String& fileId,
         if (shouldExit() || safeThis == nullptr) break;
 
         juce::URL url(downloadUrlStr);
-        auto stream = url.createInputStream(makeHttpOptions(authHeader, 15000, false));
+        auto stream = url.createInputStream(makeHttpOptions(authHeader, 20000, false));
 
         if (stream == nullptr && authHeader.isNotEmpty())
         {
             // Fallback retry without auth header if private account header failed
-            stream = url.createInputStream(makeHttpOptions("", 15000, false));
+            stream = url.createInputStream(makeHttpOptions("", 20000, false));
         }
 
         if (stream != nullptr)
@@ -1177,24 +2072,54 @@ bool LibrariesComponent::downloadFileSync(const juce::String& fileId,
             auto outStream = destFile.createOutputStream();
             if (outStream != nullptr)
             {
-                int64_t totalBytes = stream->getTotalLength();
+                int64_t streamLen = stream->getTotalLength();
+                int64_t totalBytes = (streamLen > 0) ? streamLen : expectedSizeBytes;
+
                 int64_t bytesWritten = 0;
-                char buffer[8192];
+                char buffer[16384];
+                auto lastUiUpdateTime = juce::Time::getMillisecondCounter();
+                double lastReportedProgress = -1.0;
+                bool readError = false;
 
                 while (!stream->isExhausted())
                 {
                     if (shouldExit() || safeThis == nullptr)
+                    {
+                        readError = true;
                         break;
+                    }
 
                     int bytesRead = stream->read(buffer, sizeof(buffer));
-                    if (bytesRead <= 0) break;
-                    outStream->write(buffer, static_cast<size_t>(bytesRead));
+                    if (bytesRead < 0)
+                    {
+                        readError = true;
+                        break;
+                    }
+                    if (bytesRead == 0)
+                    {
+                        if (stream->isExhausted())
+                            break;
+                        juce::Thread::sleep(5);
+                        continue;
+                    }
+
+                    if (!outStream->write(buffer, static_cast<size_t>(bytesRead)))
+                    {
+                        readError = true;
+                        break;
+                    }
                     bytesWritten += bytesRead;
 
-                    if (totalBytes > 0)
+                    auto now = juce::Time::getMillisecondCounter();
+                    double progress = (totalBytes > 0) ? juce::jlimit(0.0, 1.0, static_cast<double>(bytesWritten) / totalBytes) : 0.0;
+
+                    // Throttle UI updates to at most once every 40ms or 1% progress change
+                    if ((now - lastUiUpdateTime > 40 || (progress - lastReportedProgress) >= 0.01) && totalBytes > 0)
                     {
-                        double progress = static_cast<double>(bytesWritten) / totalBytes;
-                        juce::MessageManager::callAsync([safeThis, fileId, progress, isPreview, fileName] {
+                        lastUiUpdateTime = now;
+                        lastReportedProgress = progress;
+
+                        juce::MessageManager::callAsync([safeThis, fileId, progress, bytesWritten, isPreview, fileName] {
                             if (safeThis != nullptr)
                             {
                                 for (auto& f : safeThis->allRemoteFiles)
@@ -1204,10 +2129,26 @@ bool LibrariesComponent::downloadFileSync(const juce::String& fileId,
                                         if (isPreview)
                                             f.previewProgress = progress;
                                         else
+                                        {
                                             f.downloadProgress = progress;
+                                            f.bytesDownloaded = bytesWritten;
+                                        }
                                     }
                                 }
-                                safeThis->filterRemoteFiles();
+                                for (auto& f : safeThis->displayedFiles)
+                                {
+                                    if (f.id == fileId)
+                                    {
+                                        if (isPreview)
+                                            f.previewProgress = progress;
+                                        else
+                                        {
+                                            f.downloadProgress = progress;
+                                            f.bytesDownloaded = bytesWritten;
+                                        }
+                                    }
+                                }
+                                safeThis->tableBox.repaint();
 
                                 if (isPreview)
                                 {
@@ -1218,40 +2159,84 @@ bool LibrariesComponent::downloadFileSync(const juce::String& fileId,
                     }
                 }
                 outStream->flush();
+                outStream.reset(); // close file before reading to check
 
-                if (destFile.existsAsFile() && destFile.getSize() > 128)
+                // Check for completion & integrity
+                if (!readError && destFile.existsAsFile() && destFile.getSize() > 0)
                 {
-                    juce::FileInputStream checkStream(destFile);
-                    if (checkStream.openedOk())
+                    bool sizeOk = true;
+                    if (streamLen > 0 && bytesWritten < streamLen * 0.95)
                     {
-                        char firstChars[32] = {0};
-                        int readBytes = checkStream.read(firstChars, 31);
-                        juce::String startStr(firstChars, static_cast<size_t>(readBytes));
-                        startStr = startStr.trim();
+                        // Severed stream!
+                        sizeOk = false;
+                    }
 
-                        // Reject JSON / HTML error responses from Pixeldrain
-                        if (!startStr.startsWith("{") && !startStr.startsWith("<") &&
-                            !startStr.containsIgnoreCase("error") && !startStr.containsIgnoreCase("404"))
+                    if (sizeOk)
+                    {
+                        juce::FileInputStream checkStream(destFile);
+                        if (checkStream.openedOk())
                         {
-                            success = true;
+                            char firstChars[64] = {0};
+                            int readBytes = checkStream.read(firstChars, 63);
+                            juce::String startStr(firstChars, static_cast<size_t>(readBytes));
+                            startStr = startStr.trim();
+
+                            // Reject JSON / HTML error responses from Pixeldrain
+                            if (!startStr.startsWith("{\"success\":false") &&
+                                !startStr.startsWithIgnoreCase("<!DOCTYPE") &&
+                                !startStr.startsWithIgnoreCase("<html") &&
+                                !(startStr.startsWith("{") && (startStr.containsIgnoreCase("error") || startStr.containsIgnoreCase("message"))))
+                            {
+                                success = true;
+                            }
                         }
                     }
                 }
 
                 if (success)
+                {
+                    // Final 100% progress update
+                    juce::MessageManager::callAsync([safeThis, fileId, isPreview] {
+                        if (safeThis != nullptr)
+                        {
+                            for (auto& f : safeThis->allRemoteFiles)
+                            {
+                                if (f.id == fileId)
+                                {
+                                    if (isPreview) f.previewProgress = 1.0;
+                                    else f.downloadProgress = 1.0;
+                                }
+                            }
+                            for (auto& f : safeThis->displayedFiles)
+                            {
+                                if (f.id == fileId)
+                                {
+                                    if (isPreview) f.previewProgress = 1.0;
+                                    else f.downloadProgress = 1.0;
+                                }
+                            }
+                            safeThis->tableBox.repaint();
+                        }
+                    });
                     break;
+                }
                 else
+                {
                     destFile.deleteFile();
+                    // Small polite delay between candidate URL attempts if an error was encountered
+                    juce::Thread::sleep(100);
+                }
             }
         }
     }
 
-    if (!success)
+    if (!success && !shouldExit())
     {
-        juce::MessageManager::callAsync([safeThis, fileName] {
+        juce::MessageManager::callAsync([safeThis, fileName, isPreview] {
             if (safeThis != nullptr)
             {
-                safeThis->statusLabel.setText("Failed to connect or stream preview: " + fileName, juce::dontSendNotification);
+                if (isPreview)
+                    safeThis->statusLabel.setText("Failed to connect or stream preview: " + fileName, juce::dontSendNotification);
             }
         });
     }
@@ -1336,7 +2321,7 @@ int LibrariesComponent::extractAudioFilesFromZip(const juce::File& zipFile,
     return extractedAudioCount;
 }
 
-void LibrariesComponent::handleDownloadFinished(const juce::String& fileId, const juce::File& destFile, bool success, bool isZip, int extractedCount)
+void LibrariesComponent::handleDownloadFinished(const juce::String& fileId, const juce::File& destFile, bool success, bool isZip, int extractedCount, const juce::String& failReason)
 {
     activeDownloadCount--;
     if (activeDownloadCount.load() < 0)
@@ -1347,18 +2332,60 @@ void LibrariesComponent::handleDownloadFinished(const juce::String& fileId, cons
         if (f.id == fileId)
         {
             f.isDownloading = false;
+            f.isQueued = false;
             if (success)
             {
                 f.isDownloaded = true;
+                f.isFailed = false;
+                f.failReason = "";
+                f.downloadProgress = 1.0;
                 f.localPath = destFile.getFullPathName();
+            }
+            else
+            {
+                f.isFailed = true;
+                f.failReason = failReason.isNotEmpty() ? failReason : "Failed";
+                f.downloadProgress = 0.0;
             }
         }
     }
-    filterRemoteFiles();
+
+    for (auto& f : displayedFiles)
+    {
+        if (f.id == fileId)
+        {
+            f.isDownloading = false;
+            f.isQueued = false;
+            if (success)
+            {
+                f.isDownloaded = true;
+                f.isFailed = false;
+                f.failReason = "";
+                f.downloadProgress = 1.0;
+                f.localPath = destFile.getFullPathName();
+            }
+            else
+            {
+                f.isFailed = true;
+                f.failReason = failReason.isNotEmpty() ? failReason : "Failed";
+                f.downloadProgress = 0.0;
+            }
+        }
+    }
+
+    tableBox.repaint();
 
     if (success && isZip)
     {
         statusLabel.setText("Downloaded " + destFile.getFileName() + " & auto-extracted " + juce::String(extractedCount) + " audio file(s).", juce::dontSendNotification);
+    }
+    else if (success)
+    {
+        statusLabel.setText("Downloaded " + destFile.getFileName() + " to library.", juce::dontSendNotification);
+    }
+    else
+    {
+        statusLabel.setText("Failed to download " + destFile.getFileName() + ". Click Retry to try again.", juce::dontSendNotification);
     }
 
     checkAndTriggerBatchScan();
@@ -1367,13 +2394,11 @@ void LibrariesComponent::handleDownloadFinished(const juce::String& fileId, cons
 void LibrariesComponent::checkAndTriggerBatchScan()
 {
     bool anyDownloading = false;
+    bool anyQueued = false;
     for (const auto& f : allRemoteFiles)
     {
-        if (f.isDownloading)
-        {
-            anyDownloading = true;
-            break;
-        }
+        if (f.isDownloading) anyDownloading = true;
+        if (f.isQueued) anyQueued = true;
     }
 
     bool queueEmpty = true;
@@ -1382,14 +2407,28 @@ void LibrariesComponent::checkAndTriggerBatchScan()
         queueEmpty = downloadQueue.empty();
     }
 
-    if (!anyDownloading && queueEmpty && activeDownloadCount.load() <= 0)
+    if (!anyDownloading && !anyQueued && queueEmpty && activeDownloadCount.load() <= 0)
     {
+        downloadAllWavsButton.setButtonText("Download All");
+        downloadAllWavsButton.removeColour(juce::TextButton::buttonColourId);
+        downloadAllWavsButton.removeColour(juce::TextButton::textColourOffId);
+
+        int failedCount = 0;
+        for (const auto& f : allRemoteFiles)
+        {
+            if (f.isFailed) failedCount++;
+        }
+
         juce::File downloadFolder(dbManager.getDownloadFolder());
         if (downloadFolder.exists())
         {
             dbManager.addScanFolder(downloadFolder.getFullPathName());
             libraryScanner.startScan({ downloadFolder.getFullPathName() });
-            statusLabel.setText("All downloads finished. Library rescan started.", juce::dontSendNotification);
+
+            if (failedCount > 0)
+                statusLabel.setText("Downloads finished with " + juce::String(failedCount) + " error(s). Library rescan started.", juce::dontSendNotification);
+            else
+                statusLabel.setText("All downloads finished. Library rescan started.", juce::dontSendNotification);
         }
         else
         {
@@ -1458,19 +2497,20 @@ void LibrariesComponent::previewFile(int displayedIndex)
         }
     }
 
-    tableBox.updateContent();
+    tableBox.repaint();
 
     juce::String fileId = targetItem.id;
     juce::String fileName = targetItem.name;
+    int64_t sizeBytes = targetItem.sizeBytes;
     juce::String inputStr = apiKeyEditor.getText().trim();
 
     juce::Component::SafePointer<LibrariesComponent> safeThis(this);
 
-    juce::Thread::launch([safeThis, fileId, fileName, inputStr, previewFile] {
+    juce::Thread::launch([safeThis, fileId, fileName, sizeBytes, inputStr, previewFile] {
         if (safeThis == nullptr) return;
 
         auto shouldExit = [safeThis] { return safeThis == nullptr; };
-        bool success = downloadFileSync(fileId, fileName, inputStr, previewFile, shouldExit, safeThis, true);
+        bool success = downloadFileSync(fileId, fileName, sizeBytes, inputStr, previewFile, shouldExit, safeThis, true);
 
         juce::MessageManager::callAsync([safeThis, fileId, previewFile, success] {
             if (safeThis != nullptr)
@@ -1512,7 +2552,18 @@ void LibrariesComponent::handlePreviewFinished(const juce::String& fileId, const
             }
         }
     }
-    filterRemoteFiles();
+    for (auto& f : displayedFiles)
+    {
+        if (f.id == fileId)
+        {
+            f.isPreviewing = false;
+            if (success && previewFile.existsAsFile() && previewFile.getSize() > 128)
+            {
+                f.previewPath = previewFile.getFullPathName();
+            }
+        }
+    }
+    tableBox.repaint();
 }
 
 LibrariesComponent::SequentialDownloader::SequentialDownloader(LibrariesComponent& owner)
@@ -1522,7 +2573,7 @@ LibrariesComponent::SequentialDownloader::SequentialDownloader(LibrariesComponen
 
 LibrariesComponent::SequentialDownloader::~SequentialDownloader()
 {
-    stopThread(100);
+    stopThread(250);
 }
 
 void LibrariesComponent::SequentialDownloader::run()
@@ -1531,7 +2582,7 @@ void LibrariesComponent::SequentialDownloader::run()
 
     while (!threadShouldExit())
     {
-        if (safeOwner == nullptr)
+        if (safeOwner == nullptr || safeOwner->cancelRequested.load())
             return;
 
         QueuedDownload nextJob;
@@ -1551,21 +2602,82 @@ void LibrariesComponent::SequentialDownloader::run()
             safeOwner->downloadQueue.erase(safeOwner->downloadQueue.begin());
         }
 
-        // Perform the download
+        if (threadShouldExit() || safeOwner == nullptr || safeOwner->cancelRequested.load())
+            return;
+
+        // Transition file from Queued to Actively Downloading
+        juce::MessageManager::callAsync([safeOwner, nextJob] {
+            if (safeOwner != nullptr)
+            {
+                for (auto& f : safeOwner->allRemoteFiles)
+                {
+                    if (f.id == nextJob.fileId)
+                    {
+                        f.isQueued = false;
+                        f.isDownloading = true;
+                        f.downloadProgress = 0.0;
+                    }
+                }
+                for (auto& f : safeOwner->displayedFiles)
+                {
+                    if (f.id == nextJob.fileId)
+                    {
+                        f.isQueued = false;
+                        f.isDownloading = true;
+                        f.downloadProgress = 0.0;
+                    }
+                }
+                safeOwner->tableBox.repaint();
+
+                int currentFileIndex = safeOwner->completedBatchCount + 1;
+                safeOwner->statusLabel.setText("Downloading (" + juce::String(currentFileIndex) + "/" +
+                                               juce::String(safeOwner->totalBatchCount) + "): " +
+                                               nextJob.fileName, juce::dontSendNotification);
+            }
+        });
+
+        // Perform the download with retries
         juce::File destFolder(safeOwner->dbManager.getDownloadFolder());
         if (!destFolder.exists())
             destFolder.createDirectory();
 
-        juce::File destFile = destFolder.getChildFile(nextJob.fileName);
+        juce::String relPath = nextJob.relativePath.isNotEmpty() ? nextJob.relativePath : nextJob.fileName;
+        juce::File destFile = destFolder.getChildFile(relPath);
+        destFile.getParentDirectory().createDirectory();
+
         juce::String apiKey = safeOwner->dbManager.getPixeldrainApiKey();
 
-        juce::MessageManager::callAsync([safeOwner, nextJob] {
-            if (safeOwner != nullptr)
-                safeOwner->statusLabel.setText("Downloading: " + nextJob.fileName, juce::dontSendNotification);
-        });
+        bool success = false;
+        juce::String errorReason;
 
-        bool success = downloadFileSync(nextJob.fileId, nextJob.fileName, apiKey, destFile,
-                                        [this] { return threadShouldExit(); }, safeOwner);
+        // Retry loop (up to 3 attempts with exponential backoff)
+        const int maxAttempts = 3;
+        for (int attempt = 1; attempt <= maxAttempts; ++attempt)
+        {
+            if (threadShouldExit() || safeOwner == nullptr || safeOwner->cancelRequested.load())
+                break;
+
+            if (attempt > 1)
+            {
+                juce::MessageManager::callAsync([safeOwner, nextJob, attempt] {
+                    if (safeOwner != nullptr)
+                        safeOwner->statusLabel.setText("Retrying (" + juce::String(attempt) + "/" + juce::String(maxAttempts) + "): " + nextJob.fileName, juce::dontSendNotification);
+                });
+                juce::Thread::sleep(500 * attempt);
+            }
+
+            success = downloadFileSync(nextJob.fileId, nextJob.fileName, nextJob.sizeBytes, apiKey, destFile,
+                                       [this, safeOwner] {
+                                            return threadShouldExit() || safeOwner == nullptr || safeOwner->cancelRequested.load();
+                                       },
+                                       safeOwner);
+
+            if (success)
+                break;
+        }
+
+        if (threadShouldExit() || safeOwner == nullptr || safeOwner->cancelRequested.load())
+            return;
 
         int extractedCount = 0;
         bool isZip = nextJob.isZip || destFile.getFileExtension().equalsIgnoreCase(".zip");
@@ -1580,12 +2692,19 @@ void LibrariesComponent::SequentialDownloader::run()
             extractedCount = extractAudioFilesFromZip(destFile, destFile.getParentDirectory(), statusMsg);
         }
 
-        juce::MessageManager::callAsync([safeOwner, nextJob, destFile, success, isZip, extractedCount] {
+        if (!success)
+            errorReason = "Download Failed";
+
+        juce::MessageManager::callAsync([safeOwner, nextJob, destFile, success, isZip, extractedCount, errorReason] {
             if (safeOwner != nullptr)
             {
-                safeOwner->handleDownloadFinished(nextJob.fileId, destFile, success, isZip, extractedCount);
+                safeOwner->completedBatchCount++;
+                safeOwner->handleDownloadFinished(nextJob.fileId, destFile, success, isZip, extractedCount, errorReason);
             }
         });
+
+        // Polite delay between sequential downloads to prevent Pixeldrain API 429 rate limiting
+        juce::Thread::sleep(200);
     }
 }
 
@@ -1639,11 +2758,26 @@ void LibrariesComponent::lookAndFeelChanged()
         pixeldrainLogoComponent.setVisible(false);
     }
 
-    // Refresh table colours when LookAndFeel changes
+    // Refresh table and tree colours when LookAndFeel changes
     tableBox.setColour(juce::ListBox::backgroundColourId, OpenWavLookAndFeel::bgDark);
     tableBox.setOutlineThickness(1);
     tableBox.setColour(juce::ListBox::outlineColourId, OpenWavLookAndFeel::borderColour);
     tableBox.repaint();
+
+    folderTreeView.setColour(juce::TreeView::backgroundColourId, OpenWavLookAndFeel::bgDark.withMultipliedBrightness(0.6f));
+    folderTreeView.setColour(juce::TreeView::linesColourId, OpenWavLookAndFeel::borderColour.withAlpha(0.35f));
+    folderTreeView.repaint();
+
+    foldersHeaderLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::accentCyan);
+    foldersHeaderLabel.setColour(juce::Label::backgroundColourId, OpenWavLookAndFeel::bgDark.withMultipliedBrightness(0.7f));
+    foldersHeaderLabel.setColour(juce::Label::outlineColourId, OpenWavLookAndFeel::borderColour);
+
+    breadcrumbLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::textPrimary);
+    breadcrumbLabel.setColour(juce::Label::backgroundColourId, OpenWavLookAndFeel::bgDark.withMultipliedBrightness(0.7f));
+    breadcrumbLabel.setColour(juce::Label::outlineColourId, OpenWavLookAndFeel::borderColour);
+
+    includeSubfoldersToggle.setColour(juce::ToggleButton::textColourId, OpenWavLookAndFeel::textSecondary);
+    includeSubfoldersToggle.setColour(juce::ToggleButton::tickColourId, OpenWavLookAndFeel::accentCyan);
 
     // Update labels and text fields with dynamic colors
     apiKeyLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::textPrimary);

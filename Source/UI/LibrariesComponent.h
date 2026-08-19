@@ -32,13 +32,47 @@ struct PixeldrainFile
     bool isZip { false };
     bool isDownloaded { false };
     bool isDownloading { false };
+    bool isQueued { false };
+    bool isFailed { false };
+    juce::String failReason;
     double downloadProgress { 0.0 };
+    int64_t bytesDownloaded { 0 };
     juce::String localPath;
+    juce::String folderPath;    // e.g. "/Drums/Kicks"
+    juce::String relativePath;  // e.g. "Drums/Kicks/kick_01.wav"
 
     // Preview/Streaming Support
     bool isPreviewing { false };
     double previewProgress { 0.0 };
     juce::String previewPath;
+};
+
+struct PixeldrainFolderNode : public std::enable_shared_from_this<PixeldrainFolderNode>
+{
+    juce::String id;
+    juce::String name;
+    juce::String fullPath;
+    bool isRoot { false };
+    std::weak_ptr<PixeldrainFolderNode> parentFolder;
+    std::vector<std::shared_ptr<PixeldrainFolderNode>> subFolders;
+    std::vector<PixeldrainFile> files;
+
+    int getDirectFileCount() const { return static_cast<int>(files.size()); }
+    int getTotalFileCount() const
+    {
+        int count = static_cast<int>(files.size());
+        for (const auto& sub : subFolders)
+            count += sub->getTotalFileCount();
+        return count;
+    }
+
+    void getAllFilesRecursive(std::vector<PixeldrainFile>& out) const
+    {
+        for (const auto& f : files)
+            out.push_back(f);
+        for (const auto& sub : subFolders)
+            sub->getAllFilesRecursive(out);
+    }
 };
 
 class LibrariesComponent : public juce::Component,
@@ -67,19 +101,27 @@ public:
     void fetchUserFiles();
     void downloadFile(int displayedIndex);
     void downloadAllWavs();
+    void downloadFolder(std::shared_ptr<PixeldrainFolderNode> folder);
+    void cancelAllDownloads();
     void previewFile(int displayedIndex);
     void handlePreviewFinished(const juce::String& fileId, const juce::File& previewFile, bool success);
+
+    // Folder Tree Operations
+    void selectFolder(std::shared_ptr<PixeldrainFolderNode> folder);
+    void rebuildFolderTree();
 
 private:
     void textEditorTextChanged(juce::TextEditor& editor) override;
     void filterRemoteFiles();
     void updateDownloadStatuses();
+    void updateBatchProgressLabel();
+    void queueDownloads(const std::vector<PixeldrainFile>& filesToQueue, const juce::String& batchTitle);
 
     TagDatabaseManager& dbManager;
     LibraryScanner& libraryScanner;
     AudioEngine& audioEngine;
 
-    // Controls
+    // Header Controls
     struct ClickableImageComponent : public juce::ImageComponent
     {
         ClickableImageComponent()
@@ -103,7 +145,18 @@ private:
 
     juce::Label saveDirLabel;
     juce::TextButton chooseDirButton { "Change Folder..." };
-    juce::TextButton downloadAllWavsButton { "Download All Audio" };
+    juce::TextButton downloadFolderButton { "Download Folder" };
+    juce::TextButton downloadAllWavsButton { "Download All" };
+
+    // Tree View and Breadcrumb Controls
+    juce::Label foldersHeaderLabel { {}, "ONLINE FOLDERS" };
+    juce::TreeView folderTreeView;
+    std::unique_ptr<juce::TreeViewItem> rootTreeItem;
+    std::shared_ptr<PixeldrainFolderNode> rootFolderNode;
+    std::shared_ptr<PixeldrainFolderNode> selectedFolderNode;
+
+    juce::Label breadcrumbLabel;
+    juce::ToggleButton includeSubfoldersToggle { "Include Subfolders" };
 
     juce::TableListBox tableBox;
 
@@ -114,6 +167,8 @@ private:
     {
         juce::String fileId;
         juce::String fileName;
+        juce::String relativePath;
+        int64_t sizeBytes { 0 };
         bool isZip { false };
     };
     juce::CriticalSection downloadQueueLock;
@@ -132,6 +187,7 @@ private:
 
     static bool downloadFileSync(const juce::String& fileId,
                                  const juce::String& fileName,
+                                 int64_t expectedSizeBytes,
                                  const juce::String& apiKey,
                                  const juce::File& destFile,
                                  std::function<bool()> shouldExit,
@@ -142,12 +198,15 @@ private:
                                        const juce::File& destinationFolder,
                                        juce::String& outStatus);
 
-    void handleDownloadFinished(const juce::String& fileId, const juce::File& destFile, bool success, bool isZip = false, int extractedCount = 0);
+    void handleDownloadFinished(const juce::String& fileId, const juce::File& destFile, bool success, bool isZip = false, int extractedCount = 0, const juce::String& failReason = {});
     void checkAndTriggerBatchScan();
 
     std::atomic<int> activeDownloadCount { 0 };
+    std::atomic<bool> cancelRequested { false };
+    int totalBatchCount { 0 };
+    int completedBatchCount { 0 };
     std::atomic<bool> isFetching { false };
-    juce::String statusText { "Ready. Enter your Pixeldrain API key to fetch account files." };
+    juce::String statusText { "Ready. Enter your Pixeldrain API key or hotlink to fetch account files." };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(LibrariesComponent)
 };
