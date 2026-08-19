@@ -62,6 +62,24 @@ static bool isSupportedAudioFile(const juce::String& name, const juce::String& m
     return false;
 }
 
+static bool isZipFile(const juce::String& name, const juce::String& mime)
+{
+    juce::String ext = juce::File(name).getFileExtension().toLowerCase();
+    if (ext == ".zip")
+        return true;
+
+    juce::String mimeLower = mime.toLowerCase();
+    if (mimeLower.contains("zip"))
+        return true;
+
+    return false;
+}
+
+static bool isSupportedRemoteFile(const juce::String& name, const juce::String& mime)
+{
+    return isSupportedAudioFile(name, mime) || isZipFile(name, mime);
+}
+
 
 
 LibrariesComponent::LibrariesComponent(TagDatabaseManager& db, LibraryScanner& scanner, AudioEngine& audio)
@@ -74,7 +92,7 @@ LibrariesComponent::LibrariesComponent(TagDatabaseManager& db, LibraryScanner& s
     apiKeyEditor.setText(dbManager.getPixeldrainApiKey(), juce::dontSendNotification);
     apiKeyEditor.setJustification(juce::Justification::centredLeft);
     apiKeyEditor.setIndents(6, 0);
-    apiKeyEditor.setTextToShowWhenEmpty("Enter API Key or Public Hotlink (e.g. /u/id or /l/id)...", OpenWavLookAndFeel::textSecondary);
+    apiKeyEditor.setTextToShowWhenEmpty("Enter API Key or Public Hotlink (e.g. /u/id, /l/id, /d/id)...", OpenWavLookAndFeel::textSecondary);
     apiKeyEditor.addListener(this);
     addAndMakeVisible(apiKeyEditor);
 
@@ -132,6 +150,7 @@ LibrariesComponent::LibrariesComponent(TagDatabaseManager& db, LibraryScanner& s
     };
     addAndMakeVisible(chooseDirButton);
 
+    downloadAllWavsButton.setButtonText("Download All");
     downloadAllWavsButton.onClick = [this] { downloadAllWavs(); };
     addAndMakeVisible(downloadAllWavsButton);
 
@@ -267,6 +286,8 @@ void LibrariesComponent::paintCell(juce::Graphics& g, int rowNumber, int columnI
     {
         if (item.isWav)
             g.setColour(OpenWavLookAndFeel::accentCyan);
+        else if (item.isZip)
+            g.setColour(OpenWavLookAndFeel::accentBlue.withMultipliedBrightness(1.25f));
         else
             g.setColour(OpenWavLookAndFeel::textPrimary);
 
@@ -275,9 +296,16 @@ void LibrariesComponent::paintCell(juce::Graphics& g, int rowNumber, int columnI
     else if (columnId == 3) // Type
     {
         g.setColour(OpenWavLookAndFeel::textSecondary);
-        juce::String ext = juce::File(item.name).getFileExtension().toUpperCase();
-        if (ext.isEmpty()) ext = item.mimeType;
-        g.drawText(ext, cellBounds, juce::Justification::centredLeft);
+        if (item.isZip)
+        {
+            g.drawText("ZIP", cellBounds, juce::Justification::centredLeft);
+        }
+        else
+        {
+            juce::String ext = juce::File(item.name).getFileExtension().toUpperCase();
+            if (ext.isEmpty()) ext = item.mimeType;
+            g.drawText(ext, cellBounds, juce::Justification::centredLeft);
+        }
     }
     else if (columnId == 4) // Size
     {
@@ -304,7 +332,7 @@ void LibrariesComponent::paintCell(juce::Graphics& g, int rowNumber, int columnI
         else if (item.isDownloaded)
         {
             g.setColour(juce::Colour::fromRGB(40, 167, 69));
-            g.drawText("Local Library", cellBounds, juce::Justification::centredLeft);
+            g.drawText(item.isZip ? "Extracted" : "Local Library", cellBounds, juce::Justification::centredLeft);
         }
         else
         {
@@ -353,6 +381,19 @@ void LibrariesComponent::cellDoubleClicked(int rowNumber, int /*columnId*/, cons
     if (rowNumber >= 0 && rowNumber < static_cast<int>(displayedFiles.size()))
     {
         const auto& item = displayedFiles[static_cast<size_t>(rowNumber)];
+        if (item.isZip)
+        {
+            if (item.isDownloaded)
+            {
+                statusLabel.setText("ZIP archive '" + item.name + "' is already downloaded & extracted in library.", juce::dontSendNotification);
+            }
+            else
+            {
+                downloadFile(rowNumber);
+            }
+            return;
+        }
+
         if (item.isDownloaded && juce::File(item.localPath).existsAsFile())
         {
             audioEngine.loadFile(juce::File(item.localPath), true);
@@ -430,8 +471,8 @@ static void extractFileObj(const juce::var& itemVar, std::vector<PixeldrainFile>
     juce::String mime = fileObj->getProperty("mime_type").toString();
     if (mime.isEmpty()) mime = fileObj->getProperty("file_type").toString();
 
-    // STRICT AUDIO FILTER: Only .wav, .mp3, .flac, .ogg, .aiff (.aif)
-    if (!isSupportedAudioFile(name, mime))
+    // STRICT AUDIO + ZIP FILTER: .wav, .mp3, .flac, .ogg, .aiff (.aif) and .zip
+    if (!isSupportedRemoteFile(name, mime))
         return;
 
     PixeldrainFile f;
@@ -449,6 +490,7 @@ static void extractFileObj(const juce::var& itemVar, std::vector<PixeldrainFile>
 
     f.mimeType = mime;
     f.isWav = juce::File(name).getFileExtension().equalsIgnoreCase(".wav") || mime.containsIgnoreCase("wav");
+    f.isZip = isZipFile(name, mime);
 
     outFiles.push_back(f);
 }
@@ -898,7 +940,7 @@ void LibrariesComponent::fetchUserFiles()
                 if (errorMsg.isNotEmpty())
                     statusLabel.setText("Notice: " + errorMsg, juce::dontSendNotification);
                 else
-                    statusLabel.setText("No audio files found (.wav, .mp3, .flac, .ogg, .aiff).", juce::dontSendNotification);
+                    statusLabel.setText("No supported files found (.wav, .mp3, .flac, .ogg, .aiff, .zip).", juce::dontSendNotification);
             }
             else
             {
@@ -906,7 +948,7 @@ void LibrariesComponent::fetchUserFiles()
                 updateDownloadStatuses();
                 filterRemoteFiles();
 
-                statusLabel.setText("Loaded " + juce::String(allRemoteFiles.size()) + " audio file(s) (.wav, .mp3, .flac, .ogg, .aiff)", juce::dontSendNotification);
+                statusLabel.setText("Loaded " + juce::String(allRemoteFiles.size()) + " file(s) (.wav, .mp3, .flac, .ogg, .aiff, .zip)", juce::dontSendNotification);
             }
         });
     });
@@ -970,6 +1012,7 @@ void LibrariesComponent::downloadFile(int displayedIndex)
 
     juce::String fileId = targetItem.id;
     juce::String fileName = targetItem.name;
+    bool isZip = targetItem.isZip || juce::File(fileName).getFileExtension().equalsIgnoreCase(".zip");
     juce::String inputStr = apiKeyEditor.getText().trim();
     juce::File destFolder(dbManager.getDownloadFolder());
     if (!destFolder.exists())
@@ -979,16 +1022,28 @@ void LibrariesComponent::downloadFile(int displayedIndex)
 
     juce::Component::SafePointer<LibrariesComponent> safeThis(this);
 
-    juce::Thread::launch([safeThis, fileId, fileName, inputStr, destFile] {
+    juce::Thread::launch([safeThis, fileId, fileName, inputStr, destFile, isZip] {
         if (safeThis == nullptr) return;
 
         auto shouldExit = [safeThis] { return safeThis == nullptr; };
         bool success = downloadFileSync(fileId, fileName, inputStr, destFile, shouldExit, safeThis);
 
-        juce::MessageManager::callAsync([safeThis, fileId, destFile, success] {
+        int extractedCount = 0;
+        if (success && isZip && destFile.existsAsFile())
+        {
+            juce::MessageManager::callAsync([safeThis, fileName] {
+                if (safeThis != nullptr)
+                    safeThis->statusLabel.setText("Extracting audio files from " + fileName + "...", juce::dontSendNotification);
+            });
+
+            juce::String statusMsg;
+            extractedCount = extractAudioFilesFromZip(destFile, destFile.getParentDirectory(), statusMsg);
+        }
+
+        juce::MessageManager::callAsync([safeThis, fileId, destFile, success, isZip, extractedCount] {
             if (safeThis != nullptr)
             {
-                safeThis->handleDownloadFinished(fileId, destFile, success);
+                safeThis->handleDownloadFinished(fileId, destFile, success, isZip, extractedCount);
             }
         });
     });
@@ -1016,17 +1071,18 @@ void LibrariesComponent::downloadAllWavs()
             QueuedDownload job;
             job.fileId = item.id;
             job.fileName = item.name;
+            job.isZip = item.isZip || juce::File(item.name).getFileExtension().equalsIgnoreCase(".zip");
             newJobs.push_back(job);
         }
     }
 
     if (newJobs.empty())
     {
-        statusLabel.setText("No new audio files to download.", juce::dontSendNotification);
+        statusLabel.setText("No new files to download.", juce::dontSendNotification);
         return;
     }
 
-    statusLabel.setText("Starting download of " + juce::String(newJobs.size()) + " audio files...", juce::dontSendNotification);
+    statusLabel.setText("Starting download of " + juce::String(newJobs.size()) + " file(s)...", juce::dontSendNotification);
     tableBox.updateContent();
 
     {
@@ -1202,7 +1258,85 @@ bool LibrariesComponent::downloadFileSync(const juce::String& fileId,
     return success;
 }
 
-void LibrariesComponent::handleDownloadFinished(const juce::String& fileId, const juce::File& destFile, bool success)
+int LibrariesComponent::extractAudioFilesFromZip(const juce::File& zipFile,
+                                               const juce::File& destinationFolder,
+                                               juce::String& outStatus)
+{
+    if (!zipFile.existsAsFile())
+    {
+        outStatus = "Zip file not found: " + zipFile.getFullPathName();
+        return 0;
+    }
+
+    juce::ZipFile zip(zipFile);
+    int numEntries = zip.getNumEntries();
+    if (numEntries <= 0)
+    {
+        outStatus = "Zip archive is empty: " + zipFile.getFileName();
+        return 0;
+    }
+
+    bool allEntriesShareSingleFolder = true;
+    juce::String rootDirName;
+    for (int i = 0; i < numEntries; ++i)
+    {
+        const auto* entry = zip.getEntry(i);
+        if (entry == nullptr) continue;
+        juce::String fn = entry->filename.replace("\\", "/");
+        if (fn.isEmpty() || fn.startsWith("/") || fn.contains("__MACOSX") || fn.startsWith("."))
+            continue;
+
+        if (!fn.contains("/"))
+        {
+            allEntriesShareSingleFolder = false;
+            break;
+        }
+        juce::String topFolder = fn.upToFirstOccurrenceOf("/", false, false);
+        if (rootDirName.isEmpty())
+            rootDirName = topFolder;
+        else if (rootDirName != topFolder)
+        {
+            allEntriesShareSingleFolder = false;
+            break;
+        }
+    }
+
+    juce::File extractBaseDir = (allEntriesShareSingleFolder && rootDirName.isNotEmpty())
+                                ? destinationFolder
+                                : destinationFolder.getChildFile(zipFile.getFileNameWithoutExtension());
+
+    if (!extractBaseDir.exists())
+        extractBaseDir.createDirectory();
+
+    int extractedAudioCount = 0;
+    for (int i = 0; i < numEntries; ++i)
+    {
+        const auto* entry = zip.getEntry(i);
+        if (entry == nullptr) continue;
+
+        juce::String entryPath = entry->filename.replace("\\", "/");
+
+        // Skip macOS metadata and hidden files
+        if (entryPath.contains("__MACOSX") || entryPath.startsWith(".") ||
+            juce::File(entryPath).getFileName().startsWith("._") ||
+            juce::File(entryPath).getFileName().startsWithIgnoreCase(".ds_store"))
+            continue;
+
+        if (isSupportedAudioFile(entryPath, ""))
+        {
+            auto result = zip.uncompressEntry(i, extractBaseDir, true);
+            if (result.wasOk())
+            {
+                extractedAudioCount++;
+            }
+        }
+    }
+
+    outStatus = "Extracted " + juce::String(extractedAudioCount) + " audio file(s) from " + zipFile.getFileName();
+    return extractedAudioCount;
+}
+
+void LibrariesComponent::handleDownloadFinished(const juce::String& fileId, const juce::File& destFile, bool success, bool isZip, int extractedCount)
 {
     activeDownloadCount--;
     if (activeDownloadCount.load() < 0)
@@ -1221,6 +1355,11 @@ void LibrariesComponent::handleDownloadFinished(const juce::String& fileId, cons
         }
     }
     filterRemoteFiles();
+
+    if (success && isZip)
+    {
+        statusLabel.setText("Downloaded " + destFile.getFileName() + " & auto-extracted " + juce::String(extractedCount) + " audio file(s).", juce::dontSendNotification);
+    }
 
     checkAndTriggerBatchScan();
 }
@@ -1267,6 +1406,12 @@ void LibrariesComponent::previewFile(int displayedIndex)
     auto& targetItem = displayedFiles[static_cast<size_t>(displayedIndex)];
     if (targetItem.isDownloading || targetItem.isPreviewing)
         return;
+
+    if (targetItem.isZip)
+    {
+        statusLabel.setText("ZIP archive: '" + targetItem.name + "'. Click Download to auto-extract audio files.", juce::dontSendNotification);
+        return;
+    }
 
     if (targetItem.isDownloaded && juce::File(targetItem.localPath).existsAsFile())
     {
@@ -1422,10 +1567,23 @@ void LibrariesComponent::SequentialDownloader::run()
         bool success = downloadFileSync(nextJob.fileId, nextJob.fileName, apiKey, destFile,
                                         [this] { return threadShouldExit(); }, safeOwner);
 
-        juce::MessageManager::callAsync([safeOwner, nextJob, destFile, success] {
+        int extractedCount = 0;
+        bool isZip = nextJob.isZip || destFile.getFileExtension().equalsIgnoreCase(".zip");
+        if (success && isZip && destFile.existsAsFile())
+        {
+            juce::MessageManager::callAsync([safeOwner, nextJob] {
+                if (safeOwner != nullptr)
+                    safeOwner->statusLabel.setText("Extracting audio files from " + nextJob.fileName + "...", juce::dontSendNotification);
+            });
+
+            juce::String statusMsg;
+            extractedCount = extractAudioFilesFromZip(destFile, destFile.getParentDirectory(), statusMsg);
+        }
+
+        juce::MessageManager::callAsync([safeOwner, nextJob, destFile, success, isZip, extractedCount] {
             if (safeOwner != nullptr)
             {
-                safeOwner->handleDownloadFinished(nextJob.fileId, destFile, success);
+                safeOwner->handleDownloadFinished(nextJob.fileId, destFile, success, isZip, extractedCount);
             }
         });
     }

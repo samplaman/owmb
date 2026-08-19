@@ -29,6 +29,7 @@ struct PixeldrainFile
     juce::String dateUpload;
     juce::String mimeType;
     bool isWav { false };
+    bool isZip { false };
     bool isDownloaded { false };
     bool isDownloading { false };
     double downloadProgress { 0.0 };
@@ -113,6 +114,7 @@ private:
     {
         juce::String fileId;
         juce::String fileName;
+        bool isZip { false };
     };
     juce::CriticalSection downloadQueueLock;
     std::vector<QueuedDownload> downloadQueue;
@@ -136,7 +138,11 @@ private:
                                  juce::Component::SafePointer<LibrariesComponent> safeThis,
                                  bool isPreview = false);
 
-    void handleDownloadFinished(const juce::String& fileId, const juce::File& destFile, bool success);
+    static int extractAudioFilesFromZip(const juce::File& zipFile,
+                                       const juce::File& destinationFolder,
+                                       juce::String& outStatus);
+
+    void handleDownloadFinished(const juce::String& fileId, const juce::File& destFile, bool success, bool isZip = false, int extractedCount = 0);
     void checkAndTriggerBatchScan();
 
     std::atomic<int> activeDownloadCount { 0 };
