@@ -106,11 +106,15 @@ void SampleCloudComponent::CloudOverlayComponent::paint(juce::Graphics &g) {
 
 void SampleCloudComponent::CloudOverlayComponent::resized() {
   auto b = getLocalBounds();
-  owner.zoomInButton.setBounds(b.getRight() - 50, b.getBottom() - 140, 40, 40);
-  owner.zoomOutButton.setBounds(b.getRight() - 50, b.getBottom() - 90, 40, 40);
-  owner.resetZoomButton.setBounds(b.getRight() - 120, b.getBottom() - 40, 110, 30);
-  owner.viewModeButton.setBounds(b.getRight() - 170, b.getBottom() - 40, 40, 30);
-  owner.autoRotateButton.setBounds(b.getRight() - 280, b.getBottom() - 40, 100, 30);
+  int dockRight = b.getRight() - 15;
+  int dockBottom = b.getBottom() - 15;
+
+  owner.zoomInButton.setBounds(dockRight - 36, dockBottom - 145, 36, 36);
+  owner.zoomOutButton.setBounds(dockRight - 36, dockBottom - 102, 36, 36);
+
+  owner.resetZoomButton.setBounds(dockRight - 95, dockBottom - 36, 95, 32);
+  owner.viewModeButton.setBounds(dockRight - 145, dockBottom - 36, 44, 32);
+  owner.autoRotateButton.setBounds(dockRight - 245, dockBottom - 36, 94, 32);
 }
 
 void SampleCloudComponent::CloudOverlayComponent::mouseDown(
@@ -264,9 +268,12 @@ void SampleCloudComponent::setItems(const std::vector<MediaItem> &items) {
     clusters.clear();
     constellationEdges.clear();
     vertexBuffer.clear();
+    lineVertexBuffer.clear();
 #if JUCE_MAC
-    if (metalView)
+    if (metalView) {
       metalView->updateVertices({});
+      metalView->updateLines({});
+    }
 #else
     vboNeedsUpdate = true;
 #endif
@@ -317,13 +324,13 @@ void SampleCloudComponent::runLayoutAsync(std::vector<MediaItem> items) {
       comp->vertexBuffer.clear();
       comp->vertexBuffer.reserve(comp->nodes.size() + comp->clusters.size());
 
-      // Render a large glowing planet at the center of each cluster for the label
+      // Render a luminous planet star at the center of each cluster
       for (const auto &c : comp->clusters) {
         comp->vertexBuffer.push_back({
             c.centerPos.x, c.centerPos.y, c.centerPos.z, c.colour.getFloatRed(),
             c.colour.getFloatGreen(), c.colour.getFloatBlue(),
-            c.colour.getFloatAlpha() * 0.85f,
-            38.0f // Massive planet radius
+            c.colour.getFloatAlpha() * 0.95f,
+            24.0f // Brilliant cluster star center
         });
       }
 
@@ -334,6 +341,23 @@ void SampleCloudComponent::runLayoutAsync(std::vector<MediaItem> items) {
              n.colour.getFloatBlue(), n.colour.getFloatAlpha(), n.radius});
       }
 
+      comp->lineVertexBuffer.clear();
+      // Add inter-cluster constellation lines
+      for (const auto& edge : comp->constellationEdges) {
+        if (edge.first < comp->clusters.size() && edge.second < comp->clusters.size()) {
+          const auto& c1 = comp->clusters[edge.first];
+          const auto& c2 = comp->clusters[edge.second];
+          comp->lineVertexBuffer.push_back({
+            c1.centerPos.x, c1.centerPos.y, c1.centerPos.z,
+            c1.colour.getFloatRed(), c1.colour.getFloatGreen(), c1.colour.getFloatBlue(), 0.55f
+          });
+          comp->lineVertexBuffer.push_back({
+            c2.centerPos.x, c2.centerPos.y, c2.centerPos.z,
+            c2.colour.getFloatRed(), c2.colour.getFloatGreen(), c2.colour.getFloatBlue(), 0.55f
+          });
+        }
+      }
+
 #if JUCE_MAC
       if (comp->metalView) {
         std::vector<MetalVertex> mVerts;
@@ -342,6 +366,13 @@ void SampleCloudComponent::runLayoutAsync(std::vector<MediaItem> items) {
           mVerts.push_back({v.x, v.y, v.z, v.r, v.g, v.b, v.a, v.radius});
         }
         comp->metalView->updateVertices(mVerts);
+
+        std::vector<MetalLineVertex> mLines;
+        mLines.reserve(comp->lineVertexBuffer.size());
+        for (const auto& lv : comp->lineVertexBuffer) {
+          mLines.push_back({lv.x, lv.y, lv.z, lv.r, lv.g, lv.b, lv.a});
+        }
+        comp->metalView->updateLines(mLines);
       }
 #else
       comp->vboNeedsUpdate = true;
@@ -431,7 +462,7 @@ SampleCloudComponent::calculateClusterLayoutInternal(
     int totalInTag = tagTotalCounts[node.primaryTag];
 
     uint32_t nodeHash = static_cast<uint32_t>(node.item.filePath.hashCode() ^
-                                               (countIdx * 2654435761u));
+                                                (countIdx * 2654435761u));
 
     float phi = 2.39996323f;
     float uNorm = static_cast<float>(countIdx + 0.5f) /
@@ -459,7 +490,26 @@ SampleCloudComponent::calculateClusterLayoutInternal(
     node.currentPos = node.targetPos;
   }
 
+  // Generate Inter-Cluster Constellation Connections
   std::vector<std::pair<size_t, size_t>> outEdges;
+  for (size_t i = 0; i < tagCount; ++i) {
+    std::vector<std::pair<float, size_t>> neighbors;
+    for (size_t j = 0; j < tagCount; ++j) {
+      if (i == j) continue;
+      auto delta = outClusters[j].centerPos - outClusters[i].centerPos;
+      float d = std::sqrt(delta.x * delta.x + delta.y * delta.y + delta.z * delta.z);
+      neighbors.push_back({d, j});
+    }
+    std::sort(neighbors.begin(), neighbors.end());
+    size_t connectCount = std::min(static_cast<size_t>(2), neighbors.size());
+    for (size_t k = 0; k < connectCount; ++k) {
+      size_t j = neighbors[k].second;
+      if (i < j) {
+        outEdges.push_back({i, j});
+      }
+    }
+  }
+
   return {outClusters, outEdges};
 }
 
@@ -477,6 +527,15 @@ void SampleCloudComponent::selectItemById(const juce::String &itemId) {
   }
 }
 
+void SampleCloudComponent::flyToCluster(int clusterIdx) {
+  if (clusterIdx < 0 || clusterIdx >= static_cast<int>(clusters.size()))
+    return;
+  targetCameraCenterPos = clusters[clusterIdx].centerPos;
+  targetZoomScale = juce::jlimit(0.2f, 4.0f, 1.40f);
+  selectedNodeIndex = -1;
+  overlayComponent.repaint();
+}
+
 void SampleCloudComponent::paint(juce::Graphics &g) {
 #if !JUCE_MAC
   paintOverlay(g);
@@ -492,7 +551,8 @@ void SampleCloudComponent::paintOverlay(juce::Graphics &g) {
     return;
   }
 
-  // Draw clean high-contrast vignette (matches OpenGL look exactly)
+#if !JUCE_MAC
+  // Draw clean high-contrast vignette on OpenGL fallback (on macOS, Metal draws this on GPU)
   bool isLightMode = OpenWavLookAndFeel::bgCard.getBrightness() > 0.5f;
   float w = (float)getWidth();
   float h = (float)getHeight();
@@ -505,103 +565,187 @@ void SampleCloudComponent::paintOverlay(juce::Graphics &g) {
                                 0.0f, true);
   g.setGradientFill(vignette);
   g.fillRect(getLocalBounds());
+#endif
 
-  // Draw 2D ring highlight over 3D point cloud surface
-  if (hoveredNodeIndex >= 0 || selectedNodeIndex >= 0) {
+  const float halfW = getWidth() * 0.5f;
+  const float halfH = getHeight() * 0.5f;
+
+  // 1. Selected Node Starlight Beacon
+  if (selectedNodeIndex >= 0 && selectedNodeIndex < (int)nodes.size()) {
     if (lastViewProjectionMatrix.mat[15] != 0.0f) {
-      float halfW = getWidth() * 0.5f;
-      float halfH = getHeight() * 0.5f;
-      for (int i : {hoveredNodeIndex, selectedNodeIndex}) {
-        if (i >= 0 && i < (int)nodes.size()) {
-          auto &n = nodes[i];
-          juce::Vector3D<float> p(n.currentPos.x, n.currentPos.y,
-                                  n.currentPos.z);
-          float w = lastViewProjectionMatrix.mat[3] * p.x +
-                    lastViewProjectionMatrix.mat[7] * p.y +
-                    lastViewProjectionMatrix.mat[11] * p.z +
-                    lastViewProjectionMatrix.mat[15];
-          float spX = lastViewProjectionMatrix.mat[0] * p.x +
-                      lastViewProjectionMatrix.mat[4] * p.y +
-                      lastViewProjectionMatrix.mat[8] * p.z +
-                      lastViewProjectionMatrix.mat[12];
-          float spY = lastViewProjectionMatrix.mat[1] * p.x +
-                      lastViewProjectionMatrix.mat[5] * p.y +
-                      lastViewProjectionMatrix.mat[9] * p.z +
-                      lastViewProjectionMatrix.mat[13];
-          float spZ = lastViewProjectionMatrix.mat[2] * p.x +
-                      lastViewProjectionMatrix.mat[6] * p.y +
-                      lastViewProjectionMatrix.mat[10] * p.z +
-                      lastViewProjectionMatrix.mat[14];
-          if (spZ > 0.0f && w > 0.0f) {
-            float sx = halfW + (spX / w) * halfW;
-            float sy = halfH - (spY / w) * halfH;
-            float r = std::max(2.2f, n.radius * 2.0f);
-            g.setColour(i == hoveredNodeIndex ? juce::Colours::white
-                                              : OpenWavLookAndFeel::accentCyan);
-            g.drawEllipse(sx - r - 2.0f, sy - r - 2.0f, (r + 2.0f) * 2.0f,
-                          (r + 2.0f) * 2.0f, 2.0f);
-            
-            if (i == hoveredNodeIndex) {
-              juce::Font tooltipFont(14.0f);
-              g.setFont(tooltipFont);
-              juce::String name = n.item.fileName;
-              juce::String details = n.item.cachedFormattedDuration + " | " + n.item.cachedFormattedSampleRate;
-              
-              float nameW = tooltipFont.getStringWidthFloat(name);
-              float detW = tooltipFont.getStringWidthFloat(details);
-              float tooltipW = std::max(nameW, detW) + 20.0f;
-              float tooltipH = 50.0f;
-              
-              float tx = sx + r + 10.0f;
-              float ty = sy - tooltipH * 0.5f;
-              
-              if (tx + tooltipW > getWidth() - 10.0f) {
-                  tx = sx - r - 10.0f - tooltipW;
-              }
-              if (ty < 10.0f) ty = 10.0f;
-              if (ty + tooltipH > getHeight() - 10.0f) ty = getHeight() - 10.0f - tooltipH;
+      auto &n = nodes[selectedNodeIndex];
+      juce::Vector3D<float> p(n.currentPos.x, n.currentPos.y, n.currentPos.z);
+      float w = lastViewProjectionMatrix.mat[3] * p.x +
+                lastViewProjectionMatrix.mat[7] * p.y +
+                lastViewProjectionMatrix.mat[11] * p.z +
+                lastViewProjectionMatrix.mat[15];
+      if (w > 0.001f) {
+        float spX = lastViewProjectionMatrix.mat[0] * p.x +
+                    lastViewProjectionMatrix.mat[4] * p.y +
+                    lastViewProjectionMatrix.mat[8] * p.z +
+                    lastViewProjectionMatrix.mat[12];
+        float spY = lastViewProjectionMatrix.mat[1] * p.x +
+                    lastViewProjectionMatrix.mat[5] * p.y +
+                    lastViewProjectionMatrix.mat[9] * p.z +
+                    lastViewProjectionMatrix.mat[13];
+        float spZ = lastViewProjectionMatrix.mat[2] * p.x +
+                    lastViewProjectionMatrix.mat[6] * p.y +
+                    lastViewProjectionMatrix.mat[10] * p.z +
+                    lastViewProjectionMatrix.mat[14];
+        if (spZ > 0.0f) {
+          float sx = halfW + (spX / w) * halfW;
+          float sy = halfH - (spY / w) * halfH;
+          float r = std::max(2.5f, n.radius * 2.0f);
 
-              g.setColour(OpenWavLookAndFeel::bgCard.withAlpha(0.9f));
-              g.fillRoundedRectangle(tx, ty, tooltipW, tooltipH, 6.0f);
-              g.setColour(OpenWavLookAndFeel::bgDark);
-              g.drawRoundedRectangle(tx, ty, tooltipW, tooltipH, 6.0f, 1.5f);
-
-              g.setColour(OpenWavLookAndFeel::textPrimary);
-              g.drawText(name, tx + 10.0f, ty + 5.0f, tooltipW - 20.0f, 20.0f, juce::Justification::centredLeft);
-              g.setColour(OpenWavLookAndFeel::textSecondary);
-              g.drawText(details, tx + 10.0f, ty + 25.0f, tooltipW - 20.0f, 20.0f, juce::Justification::centredLeft);
-            }
-          }
+          g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.85f));
+          g.drawEllipse(sx - r - 3.0f, sy - r - 3.0f, (r + 3.0f) * 2.0f,
+                        (r + 3.0f) * 2.0f, 2.0f);
+          g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.35f));
+          g.drawEllipse(sx - r - 7.0f, sy - r - 7.0f, (r + 7.0f) * 2.0f,
+                        (r + 7.0f) * 2.0f, 1.0f);
         }
       }
     }
   }
 
+  // 3. Sci-Fi Holographic Targeting Reticle & Floating HUD Card on Hover
+  if (hoveredNodeIndex >= 0 && hoveredNodeIndex < (int)nodes.size()) {
+    if (lastViewProjectionMatrix.mat[15] != 0.0f) {
+      auto &n = nodes[hoveredNodeIndex];
+      juce::Vector3D<float> p(n.currentPos.x, n.currentPos.y, n.currentPos.z);
+      float w = lastViewProjectionMatrix.mat[3] * p.x +
+                lastViewProjectionMatrix.mat[7] * p.y +
+                lastViewProjectionMatrix.mat[11] * p.z +
+                lastViewProjectionMatrix.mat[15];
+      if (w > 0.001f) {
+        float spX = lastViewProjectionMatrix.mat[0] * p.x +
+                    lastViewProjectionMatrix.mat[4] * p.y +
+                    lastViewProjectionMatrix.mat[8] * p.z +
+                    lastViewProjectionMatrix.mat[12];
+        float spY = lastViewProjectionMatrix.mat[1] * p.x +
+                    lastViewProjectionMatrix.mat[5] * p.y +
+                    lastViewProjectionMatrix.mat[9] * p.z +
+                    lastViewProjectionMatrix.mat[13];
+        float spZ = lastViewProjectionMatrix.mat[2] * p.x +
+                    lastViewProjectionMatrix.mat[6] * p.y +
+                    lastViewProjectionMatrix.mat[10] * p.z +
+                    lastViewProjectionMatrix.mat[14];
+        if (spZ > 0.0f) {
+          float sx = halfW + (spX / w) * halfW;
+          float sy = halfH - (spY / w) * halfH;
+          float r = std::max(2.5f, n.radius * 2.0f);
+
+          // A. Pulsing radar wave ring
+          float radarR = r + 4.0f + pulseRadar * 28.0f;
+          float radarAlpha = (1.0f - pulseRadar) * 0.75f;
+          g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(radarAlpha));
+          g.drawEllipse(sx - radarR, sy - radarR, radarR * 2.0f, radarR * 2.0f, 1.5f);
+
+          // B. Animated Rotating Sci-Fi Targeting Brackets
+          float bDist = r + 7.0f;
+          float bArm = 5.0f;
+          g.setColour(juce::Colours::white.withAlpha(0.95f));
+          g.saveState();
+          g.addTransform(juce::AffineTransform::rotation(reticleAngle, sx, sy));
+          // Top-Left bracket
+          g.drawLine(sx - bDist, sy - bDist, sx - bDist + bArm, sy - bDist, 1.8f);
+          g.drawLine(sx - bDist, sy - bDist, sx - bDist, sy - bDist + bArm, 1.8f);
+          // Top-Right bracket
+          g.drawLine(sx + bDist, sy - bDist, sx + bDist - bArm, sy - bDist, 1.8f);
+          g.drawLine(sx + bDist, sy - bDist, sx + bDist, sy - bDist + bArm, 1.8f);
+          // Bottom-Left bracket
+          g.drawLine(sx - bDist, sy + bDist, sx - bDist + bArm, sy + bDist, 1.8f);
+          g.drawLine(sx - bDist, sy + bDist, sx - bDist, sy + bDist - bArm, 1.8f);
+          // Bottom-Right bracket
+          g.drawLine(sx + bDist, sy + bDist, sx + bDist - bArm, sy + bDist, 1.8f);
+          g.drawLine(sx + bDist, sy + bDist, sx + bDist, sy + bDist - bArm, 1.8f);
+          g.restoreState();
+
+          // C. Floating Glassmorphic HUD Card
+          float cardW = 280.0f;
+          float cardH = 54.0f;
+          float cardX = sx + r + 20.0f;
+          float cardY = sy - cardH * 0.5f;
+
+          if (cardX + cardW > getWidth() - 15.0f) {
+            cardX = sx - r - 20.0f - cardW;
+          }
+          if (cardY < 15.0f) cardY = 15.0f;
+          if (cardY + cardH > getHeight() - 50.0f) cardY = getHeight() - 50.0f - cardH;
+
+          // Holographic connecting laser line
+          float attachX = (cardX > sx) ? cardX : (cardX + cardW);
+          float attachY = cardY + cardH * 0.5f;
+          g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.65f));
+          g.drawLine(sx + (cardX > sx ? r + 8.0f : -r - 8.0f), sy, attachX, attachY, 1.2f);
+          g.fillEllipse(attachX - 3.0f, attachY - 3.0f, 6.0f, 6.0f);
+
+          // Frosted Glass Card Background
+          juce::Rectangle<float> cardBounds(cardX, cardY, cardW, cardH);
+          g.setColour(OpenWavLookAndFeel::bgCard.withAlpha(0.94f));
+          g.fillRoundedRectangle(cardBounds, 7.0f);
+          g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.55f));
+          g.drawRoundedRectangle(cardBounds, 7.0f, 1.2f);
+
+          // Card Header: Audio tag + File Name
+          g.setFont(juce::Font(13.5f, juce::Font::bold));
+          g.setColour(OpenWavLookAndFeel::accentCyan);
+          g.drawText("AUDIO", cardX + 12.0f, cardY + 7.0f, 44.0f, 18.0f, juce::Justification::centredLeft);
+          g.setColour(OpenWavLookAndFeel::textPrimary);
+          g.drawText(n.item.fileName, cardX + 60.0f, cardY + 7.0f, cardW - 72.0f, 18.0f,
+                     juce::Justification::centredLeft, true);
+
+          // Badges Row
+          float badgeY = cardY + 28.0f;
+          juce::Font metaFont(11.0f, juce::Font::plain);
+          g.setFont(metaFont);
+
+          // Primary Tag Badge
+          juce::String tagText = n.primaryTag.startsWith("#") ? n.primaryTag.substring(1) : n.primaryTag;
+          float tagW = metaFont.getStringWidthFloat(tagText) + 12.0f;
+          juce::Rectangle<float> tagBounds(cardX + 12.0f, badgeY, tagW, 18.0f);
+          g.setColour(n.colour.withAlpha(0.25f));
+          g.fillRoundedRectangle(tagBounds, 4.0f);
+          g.setColour(n.colour);
+          g.drawRoundedRectangle(tagBounds, 4.0f, 1.0f);
+          g.setColour(OpenWavLookAndFeel::textPrimary);
+          g.drawText(tagText, tagBounds, juce::Justification::centred);
+
+          // Format / Duration Details
+          juce::String metaStr = n.item.cachedFormattedDuration + "  •  " + n.item.cachedFormattedSampleRate;
+          g.setColour(OpenWavLookAndFeel::textSecondary);
+          g.drawText(metaStr, cardX + 16.0f + tagW, badgeY, cardW - tagW - 28.0f, 18.0f,
+                     juce::Justification::centredLeft);
+        }
+      }
+    }
+  }
+
+  // 4. Bottom Category Legend Dock
   if (!clusters.empty()) {
-    juce::Font legendFont(13.0f, juce::Font::bold);
+    juce::Font legendFont(12.0f, juce::Font::bold);
     g.setFont(legendFont);
 
-    float padding = 20.0f;
-    float circleSize = 12.0f;
-
-    float startY = getHeight() - 30.0f;
+    float padding = 16.0f;
+    float circleSize = 10.0f;
+    float startY = getHeight() - 32.0f;
     float x = 20.0f + legendScrollOffset;
 
     g.saveState();
-    g.reduceClipRegion(0, getHeight() - 40, getWidth() - 320, 40);
+    g.reduceClipRegion(0, getHeight() - 42, getWidth() - 310, 42);
 
     for (const auto &cluster : clusters) {
       juce::String fullTag = getFullCategoryName(cluster.tag).toUpperCase();
       float textW = legendFont.getStringWidthFloat(fullTag);
 
+      // Category color dot
       g.setColour(cluster.colour.withAlpha(revealAlpha));
-      g.fillEllipse(x, startY + 10.0f - circleSize * 0.5f, circleSize,
-                    circleSize);
+      g.fillEllipse(x, startY + 10.0f - circleSize * 0.5f, circleSize, circleSize);
 
-      g.setColour(
-          OpenWavLookAndFeel::textPrimary.withAlpha(0.8f * revealAlpha));
-      g.drawText(fullTag, x + circleSize + 6.0f, startY,
-                 textW, 20.0f, juce::Justification::centredLeft);
+      // Category label text
+      g.setColour(OpenWavLookAndFeel::textPrimary.withAlpha(0.85f * revealAlpha));
+      g.drawText(fullTag, x + circleSize + 6.0f, startY, textW, 20.0f,
+                 juce::Justification::centredLeft);
 
       x += circleSize + 6.0f + textW + padding;
     }
@@ -649,6 +793,8 @@ void SampleCloudComponent::timerCallback() {
   }
 
   pulsePhase += 0.05f;
+  reticleAngle += 0.035f;
+  pulseRadar = std::fmod(pulseRadar + 0.035f, 1.0f);
 
   float aspect = (getHeight() > 0) ? (getWidth() / (float)getHeight()) : 1.0f;
   auto projectionMatrix = juce::Matrix3D<float>::fromFrustum(
@@ -697,12 +843,17 @@ void SampleCloudComponent::timerCallback() {
     metalView->updateUniforms(u);
     metalView->renderNow();
   }
-#endif
 
+  // Repaint overlay for reticle, radar pulse, or reveal animation
+  if (hoveredNodeIndex >= 0 || selectedNodeIndex >= 0 || revealAlpha < 1.0f) {
+    overlayComponent.repaint();
+  }
+#else
   if (needsRepaint) {
     overlayComponent.repaint();
     repaint();
   }
+#endif
 }
 
 void SampleCloudComponent::resetZoomAndPan() {
@@ -738,10 +889,25 @@ void SampleCloudComponent::resized() {
 }
 
 void SampleCloudComponent::mouseDown(const juce::MouseEvent &e) {
-  if (e.mods.isRightButtonDown() || e.mods.isPopupMenu()) {
-    if (hoveredNodeIndex >= 0)
-      showContextMenuForNode(hoveredNodeIndex);
+  if (e.mods.isRightButtonDown() || e.mods.isPopupMenu())
     return;
+
+  // Check if a bottom category in legend was clicked
+  if (e.y > getHeight() - 42 && e.x < getWidth() - 310) {
+    float x = 20.0f + legendScrollOffset;
+    float startY = getHeight() - 32.0f;
+    juce::Font legendFont(12.0f, juce::Font::bold);
+    for (size_t i = 0; i < clusters.size(); ++i) {
+      juce::String fullTag = getFullCategoryName(clusters[i].tag).toUpperCase();
+      float textW = legendFont.getStringWidthFloat(fullTag);
+      float itemW = 10.0f + 6.0f + textW + 16.0f;
+      juce::Rectangle<float> itemBounds(x, startY, itemW, 25.0f);
+      if (itemBounds.contains(e.position)) {
+        flyToCluster(static_cast<int>(i));
+        return;
+      }
+      x += itemW;
+    }
   }
 
   mouseDragStartPos = e.position;
@@ -812,49 +978,62 @@ void SampleCloudComponent::mouseMove(const juce::MouseEvent &e) {
   if (nodes.empty() || lastViewProjectionMatrix.mat[15] == 0.0f)
     return;
 
+  const float halfW = getWidth() * 0.5f;
+  const float halfH = getHeight() * 0.5f;
+  const float mx = e.position.x;
+  const float my = e.position.y;
+
+  // Cache matrix coefficients in registers
+  const float m00 = lastViewProjectionMatrix.mat[0],  m04 = lastViewProjectionMatrix.mat[4],  m08 = lastViewProjectionMatrix.mat[8],  m12 = lastViewProjectionMatrix.mat[12];
+  const float m01 = lastViewProjectionMatrix.mat[1],  m05 = lastViewProjectionMatrix.mat[5],  m09 = lastViewProjectionMatrix.mat[9],  m13 = lastViewProjectionMatrix.mat[13];
+  const float m02 = lastViewProjectionMatrix.mat[2],  m06 = lastViewProjectionMatrix.mat[6],  m10 = lastViewProjectionMatrix.mat[10], m14 = lastViewProjectionMatrix.mat[14];
+  const float m03 = lastViewProjectionMatrix.mat[3],  m07 = lastViewProjectionMatrix.mat[7],  m11 = lastViewProjectionMatrix.mat[11], m15 = lastViewProjectionMatrix.mat[15];
+
   int bestIndex = -1;
   float bestZ = std::numeric_limits<float>::max();
-  float halfW = getWidth() * 0.5f;
-  float halfH = getHeight() * 0.5f;
 
-  for (size_t i = 0; i < nodes.size(); ++i) {
-    auto &n = nodes[i];
-    juce::Vector3D<float> p(n.currentPos.x, n.currentPos.y, n.currentPos.z);
-    float w = lastViewProjectionMatrix.mat[3] * p.x +
-              lastViewProjectionMatrix.mat[7] * p.y +
-              lastViewProjectionMatrix.mat[11] * p.z +
-              lastViewProjectionMatrix.mat[15];
-    if (w > 0.0f) {
-      float spX = lastViewProjectionMatrix.mat[0] * p.x +
-                  lastViewProjectionMatrix.mat[4] * p.y +
-                  lastViewProjectionMatrix.mat[8] * p.z +
-                  lastViewProjectionMatrix.mat[12];
-      float spY = lastViewProjectionMatrix.mat[1] * p.x +
-                  lastViewProjectionMatrix.mat[5] * p.y +
-                  lastViewProjectionMatrix.mat[9] * p.z +
-                  lastViewProjectionMatrix.mat[13];
-      float spZ = lastViewProjectionMatrix.mat[2] * p.x +
-                  lastViewProjectionMatrix.mat[6] * p.y +
-                  lastViewProjectionMatrix.mat[10] * p.z +
-                  lastViewProjectionMatrix.mat[14];
-      float sx = halfW + (spX / w) * halfW;
-      float sy = halfH - (spY / w) * halfH;
-      float dx = sx - e.position.x;
-      float dy = sy - e.position.y;
-      float visualRadius = std::max(2.2f, n.radius * 2.0f) + 4.0f;
-      if (dx * dx + dy * dy < visualRadius * visualRadius) {
-        if (spZ < bestZ) {
-          bestZ = spZ;
-          bestIndex = static_cast<int>(i);
-        }
-      }
+  const size_t numNodes = nodes.size();
+  for (size_t i = 0; i < numNodes; ++i) {
+    const auto &n = nodes[i];
+    const float px = n.currentPos.x;
+    const float py = n.currentPos.y;
+    const float pz = n.currentPos.z;
+
+    const float w = m03 * px + m07 * py + m11 * pz + m15;
+    if (w <= 0.001f)
+      continue;
+
+    const float spZ = m02 * px + m06 * py + m10 * pz + m14;
+    if (spZ <= 0.0f || spZ >= bestZ)
+      continue;
+
+    const float invW = 1.0f / w;
+    const float spX = m00 * px + m04 * py + m08 * pz + m12;
+    const float sx = halfW + (spX * invW) * halfW;
+    const float visualRadius = std::max(2.2f, n.radius * 2.0f) + 4.0f;
+
+    const float dx = sx - mx;
+    if (std::abs(dx) > visualRadius)
+      continue;
+
+    const float spY = m01 * px + m05 * py + m09 * pz + m13;
+    const float sy = halfH - (spY * invW) * halfH;
+    const float dy = sy - my;
+    if (std::abs(dy) > visualRadius)
+      continue;
+
+    if (dx * dx + dy * dy < visualRadius * visualRadius) {
+      bestZ = spZ;
+      bestIndex = static_cast<int>(i);
     }
   }
 
   if (bestIndex != hoveredNodeIndex) {
     hoveredNodeIndex = bestIndex;
     overlayComponent.repaint();
+#if !JUCE_MAC
     repaint();
+#endif
   }
 }
 
@@ -862,15 +1041,15 @@ void SampleCloudComponent::mouseWheelMove(
     const juce::MouseEvent &e, const juce::MouseWheelDetails &wheel) {
   if (e.y > getHeight() - 40 && e.x < getWidth() - 320) {
     float totalWidth = 0.0f;
-    juce::Font legendFont(13.0f, juce::Font::bold);
+    juce::Font legendFont(12.0f, juce::Font::bold);
     for (const auto &cluster : clusters) {
       juce::String fullTag = getFullCategoryName(cluster.tag).toUpperCase();
-      totalWidth += 12.0f + 6.0f +
+      totalWidth += 10.0f + 6.0f +
                     legendFont.getStringWidthFloat(fullTag) +
-                    20.0f;
+                    16.0f;
     }
 
-    float viewWidth = getWidth() - 320.0f - 20.0f;
+    float viewWidth = getWidth() - 310.0f - 20.0f;
     float maxScroll = 0.0f;
     if (totalWidth > viewWidth)
       maxScroll = totalWidth - viewWidth;
@@ -993,26 +1172,6 @@ SampleCloudComponent::getColourForTag(const juce::String &tag) const {
   uint32_t hash = static_cast<uint32_t>(tag.hashCode());
   float hue = (hash % 360) / 360.0f;
   return juce::Colour::fromHSV(hue, 0.65f, 0.85f, 1.0f);
-}
-
-void SampleCloudComponent::showContextMenuForNode(int idx) {
-  if (idx < 0 || idx >= static_cast<int>(nodes.size()))
-    return;
-  const auto &item = nodes[idx].item;
-
-  juce::PopupMenu menu;
-  menu.addSectionHeader(item.fileName);
-  menu.addItem(1,
-               item.isFavorite ? "Remove from Favorites" : "Add to Favorites");
-  menu.addItem(2, "Add Custom Tag...");
-  menu.addItem(3, "Reveal in Explorer");
-
-  menu.showMenuAsync(juce::PopupMenu::Options(), [this, item](int result) {
-    if (result == 1)
-      dbManager.toggleFavorite(item.id);
-    else if (result == 3)
-      juce::File(item.filePath).revealToUser();
-  });
 }
 
 // ==============================================================================

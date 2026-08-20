@@ -13,6 +13,11 @@ struct MetalVertex {
     float radius;
 };
 
+struct MetalLineVertex {
+    float x, y, z;
+    float r, g, b, a;
+};
+
 struct MetalUniforms {
     float projectionMatrix[16];
     float viewMatrix[16];
@@ -37,6 +42,7 @@ public:
     void* getNativeView() const;
 
     void updateVertices(const std::vector<MetalVertex>& vertices);
+    void updateLines(const std::vector<MetalLineVertex>& lines);
     void updateUniforms(const MetalUniforms& uniforms);
     void setClearColor(float r, float g, float b, float a);
     void setPaused(bool paused);

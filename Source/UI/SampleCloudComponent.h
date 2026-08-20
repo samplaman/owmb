@@ -122,7 +122,6 @@ private:
     void resetZoomAndPan();
     juce::Colour getColourForTag(const juce::String& tag) const;
     juce::String getPrimaryCategoryTag(const std::set<juce::String>& tags) const;
-    void showContextMenuForNode(int idx);
 
     void runLayoutAsync(std::vector<MediaItem> items);
     std::pair<std::vector<TagCluster>, std::vector<std::pair<size_t, size_t>>> calculateClusterLayoutInternal(std::vector<CloudNode>& nodesCopy);
@@ -191,6 +190,16 @@ private:
         float radius;
     };
     std::vector<Vertex> vertexBuffer;
+
+    struct LineVertex {
+        float x, y, z;
+        float r, g, b, a;
+    };
+    std::vector<LineVertex> lineVertexBuffer;
+
+    void flyToCluster(int clusterIdx);
+    float reticleAngle { 0.0f };
+    float pulseRadar { 0.0f };
 
     juce::Matrix3D<float> lastViewProjectionMatrix;
 
