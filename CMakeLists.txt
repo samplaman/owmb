@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.22)
 project(OpenWav VERSION 1.0.0 LANGUAGES C CXX)
 
+if (APPLE)
+    enable_language(OBJCXX)
+endif()
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -156,3 +160,16 @@ target_link_libraries(OpenWav PRIVATE
     juce::juce_gui_extra
     juce::juce_opengl
     )
+
+if (APPLE)
+    target_sources(OpenWav PRIVATE
+        Source/UI/MetalCloudView.h
+        Source/UI/MetalCloudView.mm
+    )
+    target_link_libraries(OpenWav PRIVATE
+        "-framework Metal"
+        "-framework MetalKit"
+        "-framework QuartzCore"
+        "-framework AppKit"
+    )
+endif()

@@ -6,9 +6,6 @@
 #endif
 #include <GL/gl.h>
 #include <windows.h>
-
-#elif JUCE_MAC
-#include <OpenGL/gl.h>
 #elif JUCE_LINUX
 #include <GL/gl.h>
 #endif
@@ -92,9 +89,58 @@ static juce::String getFullCategoryName(const juce::String& tag) {
     return tag.startsWith("#") ? tag.substring(1) : tag;
 }
 
+SampleCloudComponent::CloudOverlayComponent::CloudOverlayComponent(
+    SampleCloudComponent &ownerComp)
+    : owner(ownerComp) {
+  setInterceptsMouseClicks(true, true);
+  addAndMakeVisible(owner.zoomInButton);
+  addAndMakeVisible(owner.zoomOutButton);
+  addAndMakeVisible(owner.resetZoomButton);
+  addAndMakeVisible(owner.viewModeButton);
+  addAndMakeVisible(owner.autoRotateButton);
+}
+
+void SampleCloudComponent::CloudOverlayComponent::paint(juce::Graphics &g) {
+  owner.paintOverlay(g);
+}
+
+void SampleCloudComponent::CloudOverlayComponent::resized() {
+  auto b = getLocalBounds();
+  owner.zoomInButton.setBounds(b.getRight() - 50, b.getBottom() - 140, 40, 40);
+  owner.zoomOutButton.setBounds(b.getRight() - 50, b.getBottom() - 90, 40, 40);
+  owner.resetZoomButton.setBounds(b.getRight() - 120, b.getBottom() - 40, 110, 30);
+  owner.viewModeButton.setBounds(b.getRight() - 170, b.getBottom() - 40, 40, 30);
+  owner.autoRotateButton.setBounds(b.getRight() - 280, b.getBottom() - 40, 100, 30);
+}
+
+void SampleCloudComponent::CloudOverlayComponent::mouseDown(
+    const juce::MouseEvent &e) {
+  owner.mouseDown(e);
+}
+void SampleCloudComponent::CloudOverlayComponent::mouseDrag(
+    const juce::MouseEvent &e) {
+  owner.mouseDrag(e);
+}
+void SampleCloudComponent::CloudOverlayComponent::mouseUp(
+    const juce::MouseEvent &e) {
+  owner.mouseUp(e);
+}
+void SampleCloudComponent::CloudOverlayComponent::mouseMove(
+    const juce::MouseEvent &e) {
+  owner.mouseMove(e);
+}
+void SampleCloudComponent::CloudOverlayComponent::mouseWheelMove(
+    const juce::MouseEvent &e, const juce::MouseWheelDetails &wheel) {
+  owner.mouseWheelMove(e, wheel);
+}
+void SampleCloudComponent::CloudOverlayComponent::mouseDoubleClick(
+    const juce::MouseEvent &e) {
+  owner.mouseDoubleClick(e);
+}
+
 SampleCloudComponent::SampleCloudComponent(TagDatabaseManager &db,
                                            AudioEngine &engine)
-    : dbManager(db), audioEngine(engine) {
+    : dbManager(db), audioEngine(engine), overlayComponent(*this) {
   zoomInButton.onClick = [this] {
     targetZoomScale = juce::jlimit(0.05f, 10.0f, targetZoomScale * 1.25f);
   };
@@ -117,33 +163,86 @@ SampleCloudComponent::SampleCloudComponent(TagDatabaseManager &db,
     viewModeButton.setButtonText(is2DMode ? "3D" : "2D");
   };
 
-  addAndMakeVisible(zoomInButton);
-  addAndMakeVisible(zoomOutButton);
-  addAndMakeVisible(resetZoomButton);
-  addAndMakeVisible(viewModeButton);
-  addAndMakeVisible(autoRotateButton);
-
   autoRotateButton.onClick = [this] {
     autoRotate = !autoRotate;
     autoRotateButton.setButtonText(autoRotate ? "Stop Spin" : "Spin");
   };
 
+#if JUCE_MAC
+  metalView = std::make_unique<MetalCloudView>();
+  if (metalView->initialize()) {
+    metalContainer = std::make_unique<juce::NSViewComponent>();
+    metalContainer->setView(metalView->getNativeView());
+    metalContainer->setInterceptsMouseClicks(false, false);
+    addChildComponent(metalContainer.get());
+    metalContainer->toBack();
+    metalContainer->setVisible(true);
+  }
+#else
+  addAndMakeVisible(overlayComponent);
   openGLContext.setOpenGLVersionRequired(
       juce::OpenGLContext::OpenGLVersion::openGL3_2);
   openGLContext.setRenderer(this);
   openGLContext.attachTo(*this);
-  openGLContext.setContinuousRepainting(
-      true); // Enable continuous repainting for twinkling animation
+  openGLContext.setContinuousRepainting(true);
+#endif
 
   startTimerHz(60);
 }
 
 SampleCloudComponent::~SampleCloudComponent() {
+#if JUCE_MAC
+  if (overlayComponent.isOnDesktop())
+    overlayComponent.removeFromDesktop();
+  if (metalView)
+    metalView->setPaused(true);
+  metalContainer.reset();
+  metalView.reset();
+#else
   openGLContext.detach();
+#endif
   stopTimer();
   layoutActive = false;
   if (layoutThread.joinable())
     layoutThread.join();
+}
+
+void SampleCloudComponent::parentHierarchyChanged() {
+#if JUCE_MAC
+  if (auto *peer = getPeer()) {
+    if (!overlayComponent.isOnDesktop()) {
+      overlayComponent.addToDesktop(
+          juce::ComponentPeer::windowIsSemiTransparent,
+          peer->getNativeHandle());
+      overlayComponent.setVisible(isShowing());
+      overlayComponent.toFront(false);
+      auto peerArea = peer->getAreaCoveredBy(*this);
+      overlayComponent.setBounds(peerArea);
+    }
+  } else {
+    if (overlayComponent.isOnDesktop()) {
+      overlayComponent.removeFromDesktop();
+    }
+  }
+#endif
+}
+
+void SampleCloudComponent::visibilityChanged() {
+#if JUCE_MAC
+  if (metalView)
+    metalView->setPaused(!isShowing());
+  overlayComponent.setVisible(isShowing());
+  if (isShowing()) {
+    overlayComponent.toFront(false);
+    if (auto *peer = getPeer())
+      overlayComponent.setBounds(peer->getAreaCoveredBy(*this));
+  }
+#else
+  if (!isShowing())
+    openGLContext.setContinuousRepainting(false);
+  else
+    openGLContext.setContinuousRepainting(true);
+#endif
 }
 
 void SampleCloudComponent::setItems(const std::vector<MediaItem> &items) {
@@ -160,13 +259,28 @@ void SampleCloudComponent::setItems(const std::vector<MediaItem> &items) {
   if (layoutThread.joinable())
     layoutThread.join();
 
-  layoutActive = true;
+  if (items.empty()) {
+    nodes.clear();
+    clusters.clear();
+    constellationEdges.clear();
+    vertexBuffer.clear();
+#if JUCE_MAC
+    if (metalView)
+      metalView->updateVertices({});
+#else
+    vboNeedsUpdate = true;
+#endif
+    overlayComponent.repaint();
+    repaint();
+    return;
+  }
+
   layoutPending = true;
+  layoutActive = true;
+  overlayComponent.repaint();
   repaint();
 
-  auto itemsCopy = items;
-  layoutThread =
-      std::thread([this, itemsCopy]() { runLayoutAsync(itemsCopy); });
+  runLayoutAsync(items);
 }
 
 void SampleCloudComponent::runLayoutAsync(std::vector<MediaItem> items) {
@@ -178,10 +292,9 @@ void SampleCloudComponent::runLayoutAsync(std::vector<MediaItem> items) {
     node.item = item;
     node.primaryTag = getPrimaryCategoryTag(item.tags);
     node.colour = getColourForTag(node.primaryTag);
-    float dur = static_cast<float>(item.durationSeconds);
-    node.radius = juce::jlimit(3.0f, 9.0f, 3.0f + dur * 1.0f);
+    node.radius = 4.0f;
     node.hoverScale = 1.0f;
-    newNodes.push_back(node);
+    newNodes.push_back(std::move(node));
   }
 
   auto [newClusters, newEdges] = calculateClusterLayoutInternal(newNodes);
@@ -204,8 +317,7 @@ void SampleCloudComponent::runLayoutAsync(std::vector<MediaItem> items) {
       comp->vertexBuffer.clear();
       comp->vertexBuffer.reserve(comp->nodes.size() + comp->clusters.size());
 
-      // Render a large glowing planet at the center of each cluster for the
-      // label
+      // Render a large glowing planet at the center of each cluster for the label
       for (const auto &c : comp->clusters) {
         comp->vertexBuffer.push_back({
             c.centerPos.x, c.centerPos.y, c.centerPos.z, c.colour.getFloatRed(),
@@ -221,10 +333,23 @@ void SampleCloudComponent::runLayoutAsync(std::vector<MediaItem> items) {
              n.colour.getFloatRed(), n.colour.getFloatGreen(),
              n.colour.getFloatBlue(), n.colour.getFloatAlpha(), n.radius});
       }
+
+#if JUCE_MAC
+      if (comp->metalView) {
+        std::vector<MetalVertex> mVerts;
+        mVerts.reserve(comp->vertexBuffer.size());
+        for (const auto& v : comp->vertexBuffer) {
+          mVerts.push_back({v.x, v.y, v.z, v.r, v.g, v.b, v.a, v.radius});
+        }
+        comp->metalView->updateVertices(mVerts);
+      }
+#else
       comp->vboNeedsUpdate = true;
+#endif
 
       comp->layoutPending = false;
       comp->revealAlpha = 0.0f;
+      comp->overlayComponent.repaint();
       comp->repaint();
     }
   });
@@ -249,52 +374,20 @@ SampleCloudComponent::calculateClusterLayoutInternal(
   for (const auto &pair : clusterMap)
     outClusters.push_back(pair.second);
 
-  std::sort(outClusters.begin(), outClusters.end(),
-            [](const TagCluster &a, const TagCluster &b) {
-              return a.count > b.count;
-            });
-
   size_t tagCount = outClusters.size();
   if (tagCount > 0) {
-    float baseRadius = 750.0f;
-    float goldenAngle = 2.39996323f;
+    float goldenRatio = (1.0f + std::sqrt(5.0f)) / 2.0f;
+    float baseRadius =
+        std::max(350.0f, std::sqrt(static_cast<float>(tagCount)) * 140.0f);
 
     for (size_t i = 0; i < tagCount; ++i) {
-      auto tagLower = outClusters[i].tag.toLowerCase();
+      float theta = 2.0f * juce::MathConstants<float>::pi * i / goldenRatio;
+      float phi = std::acos(1.0f - 2.0f * (i + 0.5f) / tagCount);
 
-      if (tagLower.contains("kick"))
-        outClusters[i].centerPos = {-520.0f, -80.0f, -220.0f};
-      else if (tagLower.contains("snare"))
-        outClusters[i].centerPos = {520.0f, -80.0f, 220.0f};
-      else if (tagLower.contains("bass"))
-        outClusters[i].centerPos = {0.0f, 520.0f, 320.0f};
-      else if (tagLower.contains("hat") || tagLower.contains("hihat"))
-        outClusters[i].centerPos = {0.0f, -520.0f, -320.0f};
-      else if (tagLower.contains("perc"))
-        outClusters[i].centerPos = {680.0f, 240.0f, -350.0f};
-      else if (tagLower.contains("piano") || tagLower.contains("keys") || tagLower.contains("organ"))
-        outClusters[i].centerPos = {-320.0f, 380.0f, -420.0f};
-      else if (tagLower.contains("guitar") || tagLower.contains("gtr"))
-        outClusters[i].centerPos = {320.0f, 380.0f, -420.0f};
-      else if (tagLower.contains("string") || tagLower.contains("violin") || tagLower.contains("cello"))
-        outClusters[i].centerPos = {-450.0f, 420.0f, 220.0f};
-      else if (tagLower.contains("brass") || tagLower.contains("horn") || tagLower.contains("trumpet"))
-        outClusters[i].centerPos = {450.0f, 420.0f, 220.0f};
-      else if (tagLower.contains("vocal") || tagLower.contains("vox") || tagLower.contains("acapella"))
-        outClusters[i].centerPos = {0.0f, -280.0f, 520.0f};
-      else if (tagLower.contains("fx") || tagLower.contains("riser") || tagLower.contains("subdrop") || tagLower.contains("sweep"))
-        outClusters[i].centerPos = {450.0f, -350.0f, 380.0f};
-      else if (tagLower.contains("synth") || tagLower.contains("lead"))
-        outClusters[i].centerPos = {-680.0f, -240.0f, 350.0f};
-      else {
-        float theta = static_cast<float>(i) * goldenAngle;
-        float r = baseRadius + (i * 95.0f);
-        float x = r * std::cos(theta);
-        float z = r * std::sin(theta);
-        float y = (i % 2 == 0 ? 1.0f : -1.0f) * (90.0f + (i * 35.0f));
-
-        outClusters[i].centerPos = {x, y, z};
-      }
+      outClusters[i].centerPos = {
+          baseRadius * std::sin(phi) * std::cos(theta),
+          baseRadius * std::cos(phi) * 0.75f,
+          baseRadius * std::sin(phi) * std::sin(theta)};
     }
 
     for (int iter = 0; iter < 16; ++iter) {
@@ -366,8 +459,6 @@ SampleCloudComponent::calculateClusterLayoutInternal(
     node.currentPos = node.targetPos;
   }
 
-  // Edges calculation removed for O(N^2) performance reasons, as OpenGL doesn't
-  // render CPU edges anymore
   std::vector<std::pair<size_t, size_t>> outEdges;
   return {outClusters, outEdges};
 }
@@ -379,6 +470,7 @@ void SampleCloudComponent::selectItemById(const juce::String &itemId) {
     if (nodes[i].item.id == itemId) {
       selectedNodeIndex = static_cast<int>(i);
       targetCameraCenterPos = nodes[i].targetPos;
+      overlayComponent.repaint();
       repaint();
       break;
     }
@@ -386,6 +478,12 @@ void SampleCloudComponent::selectItemById(const juce::String &itemId) {
 }
 
 void SampleCloudComponent::paint(juce::Graphics &g) {
+#if !JUCE_MAC
+  paintOverlay(g);
+#endif
+}
+
+void SampleCloudComponent::paintOverlay(juce::Graphics &g) {
   if (layoutPending) {
     g.setColour(juce::Colours::white);
     g.setFont(18.0f);
@@ -394,7 +492,7 @@ void SampleCloudComponent::paint(juce::Graphics &g) {
     return;
   }
 
-  // Draw clean high-contrast vignette
+  // Draw clean high-contrast vignette (matches OpenGL look exactly)
   bool isLightMode = OpenWavLookAndFeel::bgCard.getBrightness() > 0.5f;
   float w = (float)getWidth();
   float h = (float)getHeight();
@@ -408,15 +506,13 @@ void SampleCloudComponent::paint(juce::Graphics &g) {
   g.setGradientFill(vignette);
   g.fillRect(getLocalBounds());
 
-
-
-  // Draw 2D ring highlight over OpenGL surface
+  // Draw 2D ring highlight over 3D point cloud surface
   if (hoveredNodeIndex >= 0 || selectedNodeIndex >= 0) {
     if (lastViewProjectionMatrix.mat[15] != 0.0f) {
       float halfW = getWidth() * 0.5f;
       float halfH = getHeight() * 0.5f;
       for (int i : {hoveredNodeIndex, selectedNodeIndex}) {
-        if (i >= 0 && i < nodes.size()) {
+        if (i >= 0 && i < (int)nodes.size()) {
           auto &n = nodes[i];
           juce::Vector3D<float> p(n.currentPos.x, n.currentPos.y,
                                   n.currentPos.z);
@@ -436,7 +532,7 @@ void SampleCloudComponent::paint(juce::Graphics &g) {
                       lastViewProjectionMatrix.mat[6] * p.y +
                       lastViewProjectionMatrix.mat[10] * p.z +
                       lastViewProjectionMatrix.mat[14];
-          if (spZ > 0.0f) {
+          if (spZ > 0.0f && w > 0.0f) {
             float sx = halfW + (spX / w) * halfW;
             float sy = halfH - (spY / w) * halfH;
             float r = std::max(2.2f, n.radius * 2.0f);
@@ -554,8 +650,59 @@ void SampleCloudComponent::timerCallback() {
 
   pulsePhase += 0.05f;
 
-  if (needsRepaint)
+  float aspect = (getHeight() > 0) ? (getWidth() / (float)getHeight()) : 1.0f;
+  auto projectionMatrix = juce::Matrix3D<float>::fromFrustum(
+      -aspect * 0.1f, aspect * 0.1f, -0.1f, 0.1f, 0.2f, 1000000.0f);
+
+  juce::Matrix3D<float> viewMatrix;
+  viewMatrix = viewMatrix *
+               juce::Matrix3D<float>::fromTranslation(
+                   {0.0f, 0.0f, -cameraDistance / zoomScale});
+
+  float crx = std::cos(rotX), srx = std::sin(rotX);
+  float cry = std::cos(rotY), sry = std::sin(rotY);
+  juce::Matrix3D<float> rotMatrix(cry, 0.0f, sry, 0.0f, srx * sry, crx,
+                                  -srx * cry, 0.0f, -crx * sry, srx, crx * cry,
+                                  0.0f, 0.0f, 0.0f, 0.0f, 1.0f);
+  viewMatrix = viewMatrix * rotMatrix;
+
+  viewMatrix = viewMatrix *
+               juce::Matrix3D<float>::fromTranslation(
+                   {-cameraCenterPos.x, -cameraCenterPos.y, -cameraCenterPos.z});
+
+  lastViewProjectionMatrix = projectionMatrix * viewMatrix;
+
+#if JUCE_MAC
+  if (metalView && isShowing()) {
+    MetalUniforms u {};
+    memcpy(u.projectionMatrix, projectionMatrix.mat, sizeof(u.projectionMatrix));
+    memcpy(u.viewMatrix, viewMatrix.mat, sizeof(u.viewMatrix));
+    u.revealAlpha = revealAlpha;
+    u.time = static_cast<float>(juce::Time::getMillisecondCounterHiRes() / 1000.0);
+    bool isLightMode = OpenWavLookAndFeel::bgCard.getBrightness() > 0.5f;
+    u.isLightMode = isLightMode ? 1.0f : 0.0f;
+    float scale = 1.0f;
+    if (auto *peer = getPeer())
+      scale = (float)peer->getPlatformScaleFactor();
+    if (scale < 1.0f) scale = 1.0f;
+    u.scaleFactor = scale;
+    auto bgCard = OpenWavLookAndFeel::bgCard;
+    u.fogColor[0] = bgCard.getFloatRed();
+    u.fogColor[1] = bgCard.getFloatGreen();
+    u.fogColor[2] = bgCard.getFloatBlue();
+    u.viewportWidth = (float)getWidth();
+    u.viewportHeight = (float)getHeight();
+
+    metalView->setClearColor(bgCard.getFloatRed(), bgCard.getFloatGreen(), bgCard.getFloatBlue(), 1.0f);
+    metalView->updateUniforms(u);
+    metalView->renderNow();
+  }
+#endif
+
+  if (needsRepaint) {
+    overlayComponent.repaint();
     repaint();
+  }
 }
 
 void SampleCloudComponent::resetZoomAndPan() {
@@ -568,16 +715,26 @@ void SampleCloudComponent::resetZoomAndPan() {
   targetRotY = 0.45f;
   is2DMode = false;
   viewModeButton.setButtonText("2D");
+  overlayComponent.repaint();
   repaint();
 }
 
 void SampleCloudComponent::resized() {
   auto b = getLocalBounds();
-  zoomInButton.setBounds(b.getRight() - 50, b.getBottom() - 140, 40, 40);
-  zoomOutButton.setBounds(b.getRight() - 50, b.getBottom() - 90, 40, 40);
-  resetZoomButton.setBounds(b.getRight() - 120, b.getBottom() - 40, 110, 30);
-  viewModeButton.setBounds(b.getRight() - 170, b.getBottom() - 40, 40, 30);
-  autoRotateButton.setBounds(b.getRight() - 280, b.getBottom() - 40, 100, 30);
+#if JUCE_MAC
+  if (metalContainer)
+    metalContainer->setBounds(b);
+  if (overlayComponent.isOnDesktop()) {
+    if (auto *peer = getPeer())
+      overlayComponent.setBounds(peer->getAreaCoveredBy(*this));
+    else
+      overlayComponent.setBounds(b);
+  } else {
+    overlayComponent.setBounds(b);
+  }
+#else
+  overlayComponent.setBounds(b);
+#endif
 }
 
 void SampleCloudComponent::mouseDown(const juce::MouseEvent &e) {
@@ -628,6 +785,7 @@ void SampleCloudComponent::mouseDrag(const juce::MouseEvent &e) {
                               juce::MathConstants<float>::halfPi,
                               dragStartRotX - (delta.y * 0.01f));
   }
+  overlayComponent.repaint();
   repaint();
 }
 
@@ -642,6 +800,7 @@ void SampleCloudComponent::mouseUp(const juce::MouseEvent &e) {
       listeners.call([&](SampleCloudListener &l) {
         l.cloudSampleSelected(nodes[selectedNodeIndex].item);
       });
+      overlayComponent.repaint();
       repaint();
     }
   }
@@ -694,6 +853,7 @@ void SampleCloudComponent::mouseMove(const juce::MouseEvent &e) {
 
   if (bestIndex != hoveredNodeIndex) {
     hoveredNodeIndex = bestIndex;
+    overlayComponent.repaint();
     repaint();
   }
 }
@@ -717,10 +877,12 @@ void SampleCloudComponent::mouseWheelMove(
 
     legendScrollOffset += wheel.deltaX * 150.0f + wheel.deltaY * 150.0f;
     legendScrollOffset = juce::jlimit(-maxScroll, 0.0f, legendScrollOffset);
+    overlayComponent.repaint();
     repaint();
   } else {
     targetZoomScale = juce::jlimit(
         0.05f, 10.0f, targetZoomScale * std::pow(1.15f, wheel.deltaY * 3.0f));
+    overlayComponent.repaint();
     repaint();
   }
 }
@@ -854,8 +1016,10 @@ void SampleCloudComponent::showContextMenuForNode(int idx) {
 }
 
 // ==============================================================================
-// RAW OPENGL RENDERING
+// RAW OPENGL RENDERING (WINDOWS / LINUX FALLBACK)
 // ==============================================================================
+
+#if !JUCE_MAC
 
 #ifndef GL_FALSE
 #define GL_FALSE 0
@@ -975,10 +1139,6 @@ void SampleCloudComponent::renderOpenGL() {
   if (layoutPending || !shaderProgram || vertexBuffer.empty())
     return;
 
-// We must manually call glEnable and glBlendFunc
-// Since we don't have glew, we can use the JUCE OpenGLHelpers or just rely on
-// the driver But glBlendFunc, glEnable, glDrawArrays are standard OpenGL 1.1
-// available in opengl32.dll
 #if !defined(_WIN32)
   juce::gl::glEnable(GL_BLEND);
   juce::gl::glBlendFunc(GL_SRC_ALPHA, isLightMode ? GL_ONE_MINUS_SRC_ALPHA : 1);
@@ -999,7 +1159,7 @@ void SampleCloudComponent::renderOpenGL() {
 
   shaderProgram->use();
 
-  float aspect = getWidth() / (float)getHeight();
+  float aspect = (getHeight() > 0) ? (getWidth() / (float)getHeight()) : 1.0f;
   auto projectionMatrix = juce::Matrix3D<float>::fromFrustum(
       -aspect * 0.1f, aspect * 0.1f, -0.1f, 0.1f, 0.2f, 1000000.0f);
 
@@ -1008,7 +1168,6 @@ void SampleCloudComponent::renderOpenGL() {
                juce::Matrix3D<float>::fromTranslation(
                    {0.0f, 0.0f, -cameraDistance / zoomScale});
 
-  // Matrix3D rotation requires manual building or usage of rotation(Vector3D)
   float crx = std::cos(rotX), srx = std::sin(rotX);
   float cry = std::cos(rotY), sry = std::sin(rotY);
   juce::Matrix3D<float> rotMatrix(cry, 0.0f, sry, 0.0f, srx * sry, crx,
@@ -1094,5 +1253,7 @@ void SampleCloudComponent::openGLContextClosing() {
   openGLContext.extensions.glDeleteBuffers(1, &vbo);
   shaderProgram.reset();
 }
+
+#endif // !JUCE_MAC
 
 } // namespace openwav

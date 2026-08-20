@@ -4,8 +4,16 @@
  #include <JuceHeader.h>
 #else
  #include <juce_gui_basics/juce_gui_basics.h>
- #include <juce_opengl/juce_opengl.h>
+ #include <juce_gui_extra/juce_gui_extra.h>
+ #if !JUCE_MAC
+  #include <juce_opengl/juce_opengl.h>
+ #endif
 #endif
+
+#if JUCE_MAC
+ #include "MetalCloudView.h"
+#endif
+
 #include <thread>
 #include <atomic>
 #include <vector>
@@ -27,8 +35,10 @@ public:
 };
 
 class SampleCloudComponent : public juce::Component,
-                             public juce::Timer,
-                             public juce::OpenGLRenderer
+                             public juce::Timer
+#if !JUCE_MAC
+                           , public juce::OpenGLRenderer
+#endif
 {
 public:
     struct Vector3D
@@ -68,7 +78,10 @@ public:
     void selectItemById(const juce::String& itemId);
     
     void paint(juce::Graphics& g) override;
+    void paintOverlay(juce::Graphics& g);
     void resized() override;
+    void visibilityChanged() override;
+    void parentHierarchyChanged() override;
     void mouseDown(const juce::MouseEvent& e) override;
     void mouseDrag(const juce::MouseEvent& e) override;
     void mouseUp(const juce::MouseEvent& e) override;
@@ -79,11 +92,32 @@ public:
     void addListener(SampleCloudListener* listener);
     void removeListener(SampleCloudListener* listener);
 
+#if !JUCE_MAC
     void newOpenGLContextCreated() override;
     void renderOpenGL() override;
     void openGLContextClosing() override;
+#endif
 
 private:
+    class CloudOverlayComponent : public juce::Component
+    {
+    public:
+        CloudOverlayComponent(SampleCloudComponent& ownerComp);
+        ~CloudOverlayComponent() override = default;
+
+        void paint(juce::Graphics& g) override;
+        void resized() override;
+        void mouseDown(const juce::MouseEvent& e) override;
+        void mouseDrag(const juce::MouseEvent& e) override;
+        void mouseUp(const juce::MouseEvent& e) override;
+        void mouseMove(const juce::MouseEvent& e) override;
+        void mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel) override;
+        void mouseDoubleClick(const juce::MouseEvent& e) override;
+
+    private:
+        SampleCloudComponent& owner;
+    };
+
     void timerCallback() override;
     void resetZoomAndPan();
     juce::Colour getColourForTag(const juce::String& tag) const;
@@ -139,10 +173,17 @@ private:
     float pulsePhase { 0.0f };
     float legendScrollOffset { 0.0f };
 
+#if JUCE_MAC
+    std::unique_ptr<MetalCloudView> metalView;
+    std::unique_ptr<juce::NSViewComponent> metalContainer;
+#else
     juce::OpenGLContext openGLContext;
     std::unique_ptr<juce::OpenGLShaderProgram> shaderProgram;
     GLuint vbo { 0 };
     bool vboNeedsUpdate { false };
+#endif
+
+    CloudOverlayComponent overlayComponent;
 
     struct Vertex {
         float x, y, z;
