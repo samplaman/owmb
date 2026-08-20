@@ -5,6 +5,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initLightbox();
   initCopyButton();
   initKeyboardNav();
+  initTouchSwipe();
 });
 
 // ==========================================================================
@@ -26,7 +27,8 @@ function initGallery() {
 
   // Tab click listeners
   galleryState.tabs.forEach((tab, index) => {
-    tab.addEventListener('click', () => {
+    tab.addEventListener('click', (e) => {
+      e.preventDefault();
       goToSlide(index);
     });
   });
@@ -36,14 +38,16 @@ function initGallery() {
   const nextBtn = document.getElementById('nextSlideBtn');
 
   if (prevBtn) {
-    prevBtn.addEventListener('click', () => {
+    prevBtn.addEventListener('click', (e) => {
+      e.preventDefault();
       const newIndex = (galleryState.currentIndex - 1 + galleryState.total) % galleryState.total;
       goToSlide(newIndex);
     });
   }
 
   if (nextBtn) {
-    nextBtn.addEventListener('click', () => {
+    nextBtn.addEventListener('click', (e) => {
+      e.preventDefault();
       const newIndex = (galleryState.currentIndex + 1) % galleryState.total;
       goToSlide(newIndex);
     });
@@ -62,6 +66,15 @@ function goToSlide(index) {
     tab.setAttribute('aria-selected', isActive ? 'true' : 'false');
   });
 
+  // Auto-scroll active tab into view on smaller screens
+  if (galleryState.tabs[index]) {
+    galleryState.tabs[index].scrollIntoView({
+      behavior: 'smooth',
+      inline: 'center',
+      block: 'nearest'
+    });
+  }
+
   // Update slides
   galleryState.slides.forEach((slide, i) => {
     slide.classList.toggle('active', i === index);
@@ -73,17 +86,11 @@ function goToSlide(index) {
     const title = activeSlide.getAttribute('data-title') || 'OWMB View';
     const desc = activeSlide.getAttribute('data-desc') || '';
 
-    const windowTitleEl = document.getElementById('galleryWindowTitle');
     const captionTitleEl = document.getElementById('galleryCaptionTitle');
     const captionTextEl = document.getElementById('galleryCaptionText');
     const counterEl = document.getElementById('galleryCounter');
 
-    if (windowTitleEl) windowTitleEl.textContent = title;
-    if (captionTitleEl) {
-      // Extract short name from title
-      const shortTitle = title.replace('OWMB — ', '');
-      captionTitleEl.textContent = shortTitle;
-    }
+    if (captionTitleEl) captionTitleEl.textContent = title;
     if (captionTextEl) captionTextEl.textContent = desc;
     if (counterEl) counterEl.textContent = `${index + 1} / ${galleryState.total}`;
   }
@@ -113,11 +120,17 @@ function initLightbox() {
 
   // Open triggers
   if (openFullscreenBtn) {
-    openFullscreenBtn.addEventListener('click', () => openLightbox(galleryState.currentIndex));
+    openFullscreenBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      openLightbox(galleryState.currentIndex);
+    });
   }
 
   document.querySelectorAll('.image-zoom-trigger').forEach((trigger, idx) => {
-    trigger.addEventListener('click', () => openLightbox(idx));
+    trigger.addEventListener('click', (e) => {
+      e.preventDefault();
+      openLightbox(idx);
+    });
   });
 
   // Close triggers
@@ -204,7 +217,42 @@ function initKeyboardNav() {
 }
 
 // ==========================================================================
-// 4. Copy Terminal Code Snippet
+// 4. Touch Swipe Support for Mobile & Tablets
+// ==========================================================================
+function initTouchSwipe() {
+  const container = document.querySelector('.gallery-slides-wrapper');
+  if (!container) return;
+
+  let touchStartX = 0;
+  let touchEndX = 0;
+
+  container.addEventListener('touchstart', (e) => {
+    touchStartX = e.changedTouches[0].screenX;
+  }, { passive: true });
+
+  container.addEventListener('touchend', (e) => {
+    touchEndX = e.changedTouches[0].screenX;
+    handleSwipe();
+  }, { passive: true });
+
+  function handleSwipe() {
+    const diff = touchEndX - touchStartX;
+    if (Math.abs(diff) > 45) {
+      if (diff < 0) {
+        // Swipe Left -> Next
+        const newIndex = (galleryState.currentIndex + 1) % galleryState.total;
+        goToSlide(newIndex);
+      } else {
+        // Swipe Right -> Prev
+        const newIndex = (galleryState.currentIndex - 1 + galleryState.total) % galleryState.total;
+        goToSlide(newIndex);
+      }
+    }
+  }
+}
+
+// ==========================================================================
+// 5. Copy Terminal Code Snippet
 // ==========================================================================
 function initCopyButton() {
   const copyBtn = document.getElementById('copyTerminalBtn');
