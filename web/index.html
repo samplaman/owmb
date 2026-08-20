@@ -2,9 +2,9 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
   <title>OWMB — OpenWav Media Browser | High-Performance Audio Plugin & Sample Manager</title>
-  <meta name="description" content="OWMB is an open-source, high-performance audio plugin (VST3, AU, Standalone) and sample manager featuring a 3D sample cloud visualizer, acoustic analysis, live audio recording, keyzone mapping, and online soundbanks. Built with JUCE 8 & C++17.">
+  <meta name="description" content="OWMB is an open-source, high-performance audio plugin (VST3, AU, Standalone) and sample manager featuring an interactive 3D sample cloud visualizer, acoustic analysis, live audio recording, keyzone mapping, and online soundbanks. Built with JUCE 8 & C++17.">
   <meta name="keywords" content="OWMB, OpenWav Media Browser, sample manager, audio plugin, VST3, AU, JUCE 8, C++17, audio sampler, 3D sample cloud, soundbank, audio analysis">
   
   <!-- Open Graph / Meta -->
@@ -37,8 +37,8 @@
       </a>
 
       <nav class="nav-links" aria-label="Main Navigation">
+        <a href="#showcase">Showcase</a>
         <a href="#features">Features</a>
-        <a href="#screenshots">Screenshots</a>
         <a href="#download">Download</a>
         <a href="#build">Build Guide</a>
       </nav>
@@ -52,9 +52,10 @@
     </div>
   </header>
 
-  <!-- Hero Section -->
-  <section class="hero-section">
+  <!-- Hero & Interactive App Showcase Section -->
+  <section id="showcase" class="hero-section">
     <div class="container">
+      
       <div class="hero-badge">
         <span class="badge-dot"></span>
         Built with JUCE 8 &amp; C++17 • Universal Binary
@@ -65,7 +66,7 @@
       </h1>
       
       <p class="hero-subtitle">
-        <strong>OWMB (OpenWav Media Browser)</strong> combines an interactive 3D sample cloud constellation, live audio recorder &amp; 9-band EQ, timbral acoustic analysis, keyzone multi-sampling, 32-pad performance, and online soundbanks into one blistering-fast pro-audio tool.
+        <strong>OWMB (OpenWav Media Browser)</strong> brings together an interactive 3D sample constellation, live audio recorder &amp; 9-band EQ, acoustic analysis, multisample mapping, 32-pad performance, and online soundbanks in one ultra-fast pro-audio tool.
       </p>
 
       <div class="hero-cta">
@@ -73,19 +74,126 @@
           <i class="fa-solid fa-download"></i>
           <span>Download Free</span>
         </a>
-        <a href="#screenshots" class="btn btn-glass btn-lg">
-          <i class="fa-solid fa-images"></i>
-          <span>Explore Gallery</span>
-        </a>
         <a href="https://github.com/samplaman/owmb" target="_blank" rel="noopener" class="btn btn-outline btn-lg">
           <i class="fa-brands fa-github"></i>
           <span>Source Code</span>
         </a>
       </div>
 
-      <!-- Hero Screenshot -->
-      <div class="hero-image-container">
-        <img src="screenshots/02-3d-cloud.png" alt="OWMB 3D Sample Cloud Constellation" class="hero-img">
+      <!-- Interactive Multi-View Showcase -->
+      <div class="showcase-wrapper">
+        
+        <!-- View Mode Navigation Tabs -->
+        <div class="showcase-tabs-container">
+          <div class="showcase-tabs" role="tablist" aria-label="OWMB Interface Views">
+            <button type="button" class="tab-btn active" data-target="slide-list" role="tab" aria-selected="true">
+              <i class="fa-solid fa-list"></i>
+              <span>List Browser</span>
+            </button>
+            <button type="button" class="tab-btn" data-target="slide-cloud" role="tab" aria-selected="false">
+              <i class="fa-solid fa-cloud"></i>
+              <span>3D Sample Cloud</span>
+            </button>
+            <button type="button" class="tab-btn" data-target="slide-library" role="tab" aria-selected="false">
+              <i class="fa-solid fa-book-open"></i>
+              <span>Cloud Library</span>
+            </button>
+            <button type="button" class="tab-btn" data-target="slide-record" role="tab" aria-selected="false">
+              <i class="fa-solid fa-microphone-lines"></i>
+              <span>Audio Recorder &amp; EQ</span>
+            </button>
+            <button type="button" class="tab-btn" data-target="slide-analysis" role="tab" aria-selected="false">
+              <i class="fa-solid fa-chart-simple"></i>
+              <span>Acoustic Analysis</span>
+            </button>
+            <button type="button" class="tab-btn" data-target="slide-map" role="tab" aria-selected="false">
+              <i class="fa-solid fa-keyboard"></i>
+              <span>Sample Map</span>
+            </button>
+            <button type="button" class="tab-btn" data-target="slide-perf" role="tab" aria-selected="false">
+              <i class="fa-solid fa-grip"></i>
+              <span>Performance Grid</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Screenshot Display Viewport -->
+        <div class="showcase-viewport">
+          
+          <!-- Slide 1: List Browser -->
+          <div id="slide-list" class="showcase-slide active" data-title="List Browser &amp; Waveform Editor" data-desc="Multi-column file browser with instant tag filtering, waveform zoom, transient auto-slicing, and transport controls.">
+            <div class="image-zoom-trigger" title="Click to view fullscreen in high resolution">
+              <img src="screenshots/01-list-browser.png" alt="OWMB List Browser &amp; Waveform View" class="showcase-img">
+              <div class="zoom-overlay"><i class="fa-solid fa-magnifying-glass-plus"></i> Zoom Fullscreen</div>
+            </div>
+          </div>
+
+          <!-- Slide 2: 3D Cloud -->
+          <div id="slide-cloud" class="showcase-slide" data-title="3D Sample Cloud Constellation" data-desc="Interactive 3D spatial constellation clustering samples organically by acoustic timbre and spectral similarity.">
+            <div class="image-zoom-trigger" title="Click to view fullscreen in high resolution">
+              <img src="screenshots/02-3d-cloud.png" alt="OWMB 3D Sample Cloud Constellation" class="showcase-img">
+              <div class="zoom-overlay"><i class="fa-solid fa-magnifying-glass-plus"></i> Zoom Fullscreen</div>
+            </div>
+          </div>
+
+          <!-- Slide 3: Online Library -->
+          <div id="slide-library" class="showcase-slide" data-title="Online Library &amp; Soundbank Integration" data-desc="Pixeldrain cloud integration for browsing remote soundbank directories and downloading assets straight to your local library.">
+            <div class="image-zoom-trigger" title="Click to view fullscreen in high resolution">
+              <img src="screenshots/03-online-library.png" alt="OWMB Pixeldrain Online Library View" class="showcase-img">
+              <div class="zoom-overlay"><i class="fa-solid fa-magnifying-glass-plus"></i> Zoom Fullscreen</div>
+            </div>
+          </div>
+
+          <!-- Slide 4: Audio Recorder & EQ -->
+          <div id="slide-record" class="showcase-slide" data-title="Audio Sample Recorder &amp; Parametric EQ" data-desc="Real-time stereo sample recording with count-in, low-cut filter, live oscilloscope, and a full 9-band parametric equalizer.">
+            <div class="image-zoom-trigger" title="Click to view fullscreen in high resolution">
+              <img src="screenshots/04-recorder-eq.png" alt="OWMB Audio Sample Recorder &amp; Parametric EQ" class="showcase-img">
+              <div class="zoom-overlay"><i class="fa-solid fa-magnifying-glass-plus"></i> Zoom Fullscreen</div>
+            </div>
+          </div>
+
+          <!-- Slide 5: Acoustic Analysis -->
+          <div id="slide-analysis" class="showcase-slide" data-title="Acoustic Fingerprint &amp; Timbral Analysis" data-desc="Real-time timbral radar chart displaying Zero Crossing Rate (ZCR), Crest factor, HF ratio, and Decay envelope metrics.">
+            <div class="image-zoom-trigger" title="Click to view fullscreen in high resolution">
+              <img src="screenshots/05-acoustic-analysis.png" alt="OWMB Acoustic Fingerprint &amp; Timbral Analysis" class="showcase-img">
+              <div class="zoom-overlay"><i class="fa-solid fa-magnifying-glass-plus"></i> Zoom Fullscreen</div>
+            </div>
+          </div>
+
+          <!-- Slide 6: Sample Map -->
+          <div id="slide-map" class="showcase-slide" data-title="Keyzone &amp; Multi-Sample Mapping" data-desc="Chromatic keyzone mapping with auto-pitch, velocity layering, pitch tracking, and direct transfer into performance mode.">
+            <div class="image-zoom-trigger" title="Click to view fullscreen in high resolution">
+              <img src="screenshots/06-sample-map.png" alt="OWMB Keyzone &amp; Multisample Map" class="showcase-img">
+              <div class="zoom-overlay"><i class="fa-solid fa-magnifying-glass-plus"></i> Zoom Fullscreen</div>
+            </div>
+          </div>
+
+          <!-- Slide 7: Performance Grid -->
+          <div id="slide-perf" class="showcase-slide" data-title="32-Pad Performance Mode" data-desc="Performance pad grid with multi-bank support (Bank A-D), auto-fill, randomization, and ADSR envelope shaping.">
+            <div class="image-zoom-trigger" title="Click to view fullscreen in high resolution">
+              <img src="screenshots/07-performance-grid.png" alt="OWMB 32-Pad Performance Grid" class="showcase-img">
+              <div class="zoom-overlay"><i class="fa-solid fa-magnifying-glass-plus"></i> Zoom Fullscreen</div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Showcase Description & Controls Banner -->
+        <div class="showcase-caption-banner">
+          <div class="caption-info">
+            <span class="caption-title" id="galleryCaptionTitle">List Browser &amp; Waveform Editor</span>
+            <p class="caption-text" id="galleryCaptionText">Multi-column file browser with instant tag filtering, waveform zoom, transient auto-slicing, and transport controls.</p>
+          </div>
+          <div class="showcase-controls">
+            <button type="button" id="prevSlideBtn" class="showcase-nav-btn" aria-label="Previous Slide"><i class="fa-solid fa-chevron-left"></i></button>
+            <span id="galleryCounter" class="showcase-counter">1 / 7</span>
+            <button type="button" id="nextSlideBtn" class="showcase-nav-btn" aria-label="Next Slide"><i class="fa-solid fa-chevron-right"></i></button>
+            <button type="button" id="openLightboxBtn" class="showcase-fullscreen-btn" title="View Fullscreen" aria-label="View Fullscreen">
+              <i class="fa-solid fa-expand"></i> <span>Fullscreen</span>
+            </button>
+          </div>
+        </div>
+
       </div>
 
     </div>
@@ -178,128 +286,6 @@
     </div>
   </section>
 
-  <!-- Interactive Screenshots Showcase Section -->
-  <section id="screenshots" class="screenshots-section">
-    <div class="container">
-      <div class="section-header center">
-        <span class="section-tag">Interface Showcase</span>
-        <h2 class="section-title">Explore Every Workspace View</h2>
-        <p class="section-desc">Click through each dedicated mode to see OWMB's sleek dark studio interface in action.</p>
-      </div>
-
-      <!-- Screenshot Tabs Navigation -->
-      <div class="screenshot-tabs-wrapper">
-        <div class="screenshot-tabs" role="tablist" aria-label="OWMB Interface Views">
-          <button class="tab-btn active" data-target="screenshot-list" role="tab" aria-selected="true">
-            <i class="fa-solid fa-list"></i>
-            <span>List Browser</span>
-          </button>
-          <button class="tab-btn" data-target="screenshot-cloud" role="tab" aria-selected="false">
-            <i class="fa-solid fa-cloud"></i>
-            <span>3D Sample Cloud</span>
-          </button>
-          <button class="tab-btn" data-target="screenshot-library" role="tab" aria-selected="false">
-            <i class="fa-solid fa-book-open"></i>
-            <span>Cloud Library</span>
-          </button>
-          <button class="tab-btn" data-target="screenshot-record" role="tab" aria-selected="false">
-            <i class="fa-solid fa-microphone-lines"></i>
-            <span>Audio Recorder &amp; EQ</span>
-          </button>
-          <button class="tab-btn" data-target="screenshot-analysis" role="tab" aria-selected="false">
-            <i class="fa-solid fa-chart-simple"></i>
-            <span>Acoustic Analysis</span>
-          </button>
-          <button class="tab-btn" data-target="screenshot-map" role="tab" aria-selected="false">
-            <i class="fa-solid fa-keyboard"></i>
-            <span>Sample Map</span>
-          </button>
-          <button class="tab-btn" data-target="screenshot-perf" role="tab" aria-selected="false">
-            <i class="fa-solid fa-grip"></i>
-            <span>Performance Grid</span>
-          </button>
-        </div>
-      </div>
-
-      <!-- Screenshot Display Container -->
-      <div class="gallery-container">
-        <div class="gallery-slides-wrapper">
-          <!-- 1. List Browser -->
-          <div id="screenshot-list" class="gallery-slide active" data-title="List Browser &amp; Waveform Editor" data-desc="Multi-column file browser with instant tag filtering, waveform zoom, transient auto-slicing, and transport controls.">
-            <div class="image-zoom-trigger" title="Click to view full resolution">
-              <img src="screenshots/01-list-browser.png" alt="OWMB List Browser &amp; Waveform View" class="gallery-img">
-              <div class="zoom-overlay"><i class="fa-solid fa-magnifying-glass-plus"></i> Click to Zoom Fullscreen</div>
-            </div>
-          </div>
-
-          <!-- 2. 3D Cloud -->
-          <div id="screenshot-cloud" class="gallery-slide" data-title="3D Sample Cloud Constellation" data-desc="Interactive 3D spatial constellation clustering samples organically by acoustic timbre and spectral similarity.">
-            <div class="image-zoom-trigger" title="Click to view full resolution">
-              <img src="screenshots/02-3d-cloud.png" alt="OWMB 3D Sample Cloud Constellation" class="gallery-img">
-              <div class="zoom-overlay"><i class="fa-solid fa-magnifying-glass-plus"></i> Click to Zoom Fullscreen</div>
-            </div>
-          </div>
-
-          <!-- 3. Cloud Library -->
-          <div id="screenshot-library" class="gallery-slide" data-title="Online Library &amp; Soundbank Integration" data-desc="Pixeldrain cloud integration for browsing remote soundbank directories and downloading assets straight to your local library.">
-            <div class="image-zoom-trigger" title="Click to view full resolution">
-              <img src="screenshots/03-online-library.png" alt="OWMB Pixeldrain Online Library View" class="gallery-img">
-              <div class="zoom-overlay"><i class="fa-solid fa-magnifying-glass-plus"></i> Click to Zoom Fullscreen</div>
-            </div>
-          </div>
-
-          <!-- 4. Audio Recorder & EQ -->
-          <div id="screenshot-record" class="gallery-slide" data-title="Audio Sample Recorder &amp; Parametric EQ" data-desc="Real-time stereo sample recording with count-in, low-cut filter, live oscilloscope, and a full 9-band parametric equalizer.">
-            <div class="image-zoom-trigger" title="Click to view full resolution">
-              <img src="screenshots/04-recorder-eq.png" alt="OWMB Audio Sample Recorder &amp; Parametric EQ" class="gallery-img">
-              <div class="zoom-overlay"><i class="fa-solid fa-magnifying-glass-plus"></i> Click to Zoom Fullscreen</div>
-            </div>
-          </div>
-
-          <!-- 5. Acoustic Analysis -->
-          <div id="screenshot-analysis" class="gallery-slide" data-title="Acoustic Fingerprint &amp; Timbral Analysis" data-desc="Real-time timbral radar chart displaying Zero Crossing Rate (ZCR), Crest factor, HF ratio, and Decay envelope metrics.">
-            <div class="image-zoom-trigger" title="Click to view full resolution">
-              <img src="screenshots/05-acoustic-analysis.png" alt="OWMB Acoustic Fingerprint &amp; Timbral Analysis" class="gallery-img">
-              <div class="zoom-overlay"><i class="fa-solid fa-magnifying-glass-plus"></i> Click to Zoom Fullscreen</div>
-            </div>
-          </div>
-
-          <!-- 6. Sample Map -->
-          <div id="screenshot-map" class="gallery-slide" data-title="Keyzone &amp; Multi-Sample Mapping" data-desc="Chromatic keyzone mapping with auto-pitch, velocity layering, pitch tracking, and direct transfer into performance mode.">
-            <div class="image-zoom-trigger" title="Click to view full resolution">
-              <img src="screenshots/06-sample-map.png" alt="OWMB Keyzone &amp; Multisample Map" class="gallery-img">
-              <div class="zoom-overlay"><i class="fa-solid fa-magnifying-glass-plus"></i> Click to Zoom Fullscreen</div>
-            </div>
-          </div>
-
-          <!-- 7. Performance Grid -->
-          <div id="screenshot-perf" class="gallery-slide" data-title="32-Pad Performance Mode" data-desc="Performance pad grid with multi-bank support (Bank A-D), auto-fill, randomization, and ADSR envelope shaping.">
-            <div class="image-zoom-trigger" title="Click to view full resolution">
-              <img src="screenshots/07-performance-grid.png" alt="OWMB 32-Pad Performance Grid" class="gallery-img">
-              <div class="zoom-overlay"><i class="fa-solid fa-magnifying-glass-plus"></i> Click to Zoom Fullscreen</div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Slide Description & Navigation Banner -->
-        <div class="gallery-caption-banner">
-          <div class="caption-info">
-            <span class="caption-title" id="galleryCaptionTitle">List Browser &amp; Waveform Editor</span>
-            <p class="caption-text" id="galleryCaptionText">Multi-column file browser with instant tag filtering, waveform zoom, transient auto-slicing, and transport controls.</p>
-          </div>
-          <div class="gallery-controls">
-            <button id="prevSlideBtn" class="gallery-nav-btn" aria-label="Previous Slide"><i class="fa-solid fa-chevron-left"></i></button>
-            <span id="galleryCounter" class="gallery-counter">1 / 7</span>
-            <button id="nextSlideBtn" class="gallery-nav-btn" aria-label="Next Slide"><i class="fa-solid fa-chevron-right"></i></button>
-            <button id="openLightboxBtn" class="gallery-fullscreen-btn" title="View Fullscreen" aria-label="View Fullscreen">
-              <i class="fa-solid fa-expand"></i> <span>Fullscreen</span>
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  </section>
-
   <!-- Download & Releases Section -->
   <section id="download" class="download-section">
     <div class="container">
@@ -387,7 +373,7 @@
           <div class="terminal-title">
             <i class="fa-solid fa-terminal"></i> Terminal Commands
           </div>
-          <button id="copyTerminalBtn" class="copy-btn" aria-label="Copy Terminal Commands">
+          <button type="button" id="copyTerminalBtn" class="copy-btn" aria-label="Copy Terminal Commands">
             <i class="fa-regular fa-copy"></i> Copy
           </button>
         </div>
@@ -407,7 +393,7 @@ cmake --build build --config Release -j 4</code></pre>
     <div class="lightbox-container">
       <div class="lightbox-header">
         <span class="lightbox-title" id="lightboxTitle">OWMB View</span>
-        <button id="lightboxCloseBtn" class="lightbox-close-btn" aria-label="Close Fullscreen View">
+        <button type="button" id="lightboxCloseBtn" class="lightbox-close-btn" aria-label="Close Fullscreen View">
           <i class="fa-solid fa-xmark"></i>
         </button>
       </div>
@@ -417,8 +403,8 @@ cmake --build build --config Release -j 4</code></pre>
       <div class="lightbox-footer">
         <span id="lightboxCaption">View Details</span>
         <div class="lightbox-nav-buttons">
-          <button id="lightboxPrevBtn" class="lightbox-arrow-btn" aria-label="Previous image"><i class="fa-solid fa-chevron-left"></i></button>
-          <button id="lightboxNextBtn" class="lightbox-arrow-btn" aria-label="Next image"><i class="fa-solid fa-chevron-right"></i></button>
+          <button type="button" id="lightboxPrevBtn" class="lightbox-arrow-btn" aria-label="Previous image"><i class="fa-solid fa-chevron-left"></i></button>
+          <button type="button" id="lightboxNextBtn" class="lightbox-arrow-btn" aria-label="Next image"><i class="fa-solid fa-chevron-right"></i></button>
         </div>
       </div>
     </div>
@@ -437,8 +423,8 @@ cmake --build build --config Release -j 4</code></pre>
       <div class="footer-links">
         <div class="link-col">
           <h4>Navigation</h4>
+          <a href="#showcase">Showcase</a>
           <a href="#features">Features</a>
-          <a href="#screenshots">Screenshots</a>
           <a href="#download">Downloads</a>
           <a href="#build">Build Guide</a>
         </div>

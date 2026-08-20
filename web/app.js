@@ -1,7 +1,7 @@
 // OWMB Landing Page - Interactive JavaScript Engine
 
 document.addEventListener('DOMContentLoaded', () => {
-  initGallery();
+  initShowcase();
   initLightbox();
   initCopyButton();
   initKeyboardNav();
@@ -9,27 +9,27 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // ==========================================================================
-// 1. Gallery State & Tab Switcher
+// 1. Interactive Showcase State & Tab Switcher
 // ==========================================================================
-const galleryState = {
+const showcaseState = {
   currentIndex: 0,
   slides: [],
   tabs: [],
   total: 0
 };
 
-function initGallery() {
-  galleryState.tabs = Array.from(document.querySelectorAll('.tab-btn'));
-  galleryState.slides = Array.from(document.querySelectorAll('.gallery-slide'));
-  galleryState.total = galleryState.slides.length;
+function initShowcase() {
+  showcaseState.tabs = Array.from(document.querySelectorAll('.tab-btn'));
+  showcaseState.slides = Array.from(document.querySelectorAll('.showcase-slide'));
+  showcaseState.total = showcaseState.slides.length;
 
-  if (!galleryState.tabs.length || !galleryState.slides.length) return;
+  if (!showcaseState.tabs.length || !showcaseState.slides.length) return;
 
   // Tab click listeners
-  galleryState.tabs.forEach((tab, index) => {
+  showcaseState.tabs.forEach((tab, index) => {
     tab.addEventListener('click', (e) => {
       e.preventDefault();
-      goToSlide(index);
+      goToShowcaseSlide(index);
     });
   });
 
@@ -40,48 +40,48 @@ function initGallery() {
   if (prevBtn) {
     prevBtn.addEventListener('click', (e) => {
       e.preventDefault();
-      const newIndex = (galleryState.currentIndex - 1 + galleryState.total) % galleryState.total;
-      goToSlide(newIndex);
+      const newIndex = (showcaseState.currentIndex - 1 + showcaseState.total) % showcaseState.total;
+      goToShowcaseSlide(newIndex);
     });
   }
 
   if (nextBtn) {
     nextBtn.addEventListener('click', (e) => {
       e.preventDefault();
-      const newIndex = (galleryState.currentIndex + 1) % galleryState.total;
-      goToSlide(newIndex);
+      const newIndex = (showcaseState.currentIndex + 1) % showcaseState.total;
+      goToShowcaseSlide(newIndex);
     });
   }
 }
 
-function goToSlide(index) {
-  if (index < 0 || index >= galleryState.total) return;
+function goToShowcaseSlide(index) {
+  if (index < 0 || index >= showcaseState.total) return;
 
-  galleryState.currentIndex = index;
+  showcaseState.currentIndex = index;
 
-  // Update tabs
-  galleryState.tabs.forEach((tab, i) => {
+  // Update tab active states
+  showcaseState.tabs.forEach((tab, i) => {
     const isActive = i === index;
     tab.classList.toggle('active', isActive);
     tab.setAttribute('aria-selected', isActive ? 'true' : 'false');
   });
 
-  // Auto-scroll active tab into view on smaller screens
-  if (galleryState.tabs[index]) {
-    galleryState.tabs[index].scrollIntoView({
+  // Auto-scroll active tab into view horizontally on smaller screens
+  if (showcaseState.tabs[index]) {
+    showcaseState.tabs[index].scrollIntoView({
       behavior: 'smooth',
       inline: 'center',
       block: 'nearest'
     });
   }
 
-  // Update slides
-  galleryState.slides.forEach((slide, i) => {
+  // Update slide display
+  showcaseState.slides.forEach((slide, i) => {
     slide.classList.toggle('active', i === index);
   });
 
-  // Update Window title and Captions
-  const activeSlide = galleryState.slides[index];
+  // Update captions & counter
+  const activeSlide = showcaseState.slides[index];
   if (activeSlide) {
     const title = activeSlide.getAttribute('data-title') || 'OWMB View';
     const desc = activeSlide.getAttribute('data-desc') || '';
@@ -92,10 +92,10 @@ function goToSlide(index) {
 
     if (captionTitleEl) captionTitleEl.textContent = title;
     if (captionTextEl) captionTextEl.textContent = desc;
-    if (counterEl) counterEl.textContent = `${index + 1} / ${galleryState.total}`;
+    if (counterEl) counterEl.textContent = `${index + 1} / ${showcaseState.total}`;
   }
 
-  // Update Lightbox if open
+  // Update Lightbox if currently open
   if (lightboxState.isOpen) {
     updateLightboxContent(index);
   }
@@ -122,7 +122,7 @@ function initLightbox() {
   if (openFullscreenBtn) {
     openFullscreenBtn.addEventListener('click', (e) => {
       e.preventDefault();
-      openLightbox(galleryState.currentIndex);
+      openLightbox(showcaseState.currentIndex);
     });
   }
 
@@ -141,16 +141,16 @@ function initLightbox() {
   if (prevBtn) {
     prevBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      const newIndex = (galleryState.currentIndex - 1 + galleryState.total) % galleryState.total;
-      goToSlide(newIndex);
+      const newIndex = (showcaseState.currentIndex - 1 + showcaseState.total) % showcaseState.total;
+      goToShowcaseSlide(newIndex);
     });
   }
 
   if (nextBtn) {
     nextBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      const newIndex = (galleryState.currentIndex + 1) % galleryState.total;
-      goToSlide(newIndex);
+      const newIndex = (showcaseState.currentIndex + 1) % showcaseState.total;
+      goToShowcaseSlide(newIndex);
     });
   }
 }
@@ -164,7 +164,7 @@ function openLightbox(index) {
   modal.setAttribute('aria-hidden', 'false');
   document.body.style.overflow = 'hidden';
 
-  goToSlide(index);
+  goToShowcaseSlide(index);
   updateLightboxContent(index);
 }
 
@@ -179,10 +179,10 @@ function closeLightbox() {
 }
 
 function updateLightboxContent(index) {
-  const activeSlide = galleryState.slides[index];
+  const activeSlide = showcaseState.slides[index];
   if (!activeSlide) return;
 
-  const imgEl = activeSlide.querySelector('.gallery-img');
+  const imgEl = activeSlide.querySelector('.showcase-img');
   const lightboxImg = document.getElementById('lightboxImg');
   const lightboxTitle = document.getElementById('lightboxTitle');
   const lightboxCaption = document.getElementById('lightboxCaption');
@@ -195,7 +195,7 @@ function updateLightboxContent(index) {
   const title = activeSlide.getAttribute('data-title') || 'OWMB View';
   const desc = activeSlide.getAttribute('data-desc') || '';
 
-  if (lightboxTitle) lightboxTitle.textContent = `${title} (${index + 1}/${galleryState.total})`;
+  if (lightboxTitle) lightboxTitle.textContent = `${title} (${index + 1} / ${showcaseState.total})`;
   if (lightboxCaption) lightboxCaption.textContent = desc;
 }
 
@@ -207,11 +207,11 @@ function initKeyboardNav() {
     if (e.key === 'Escape' && lightboxState.isOpen) {
       closeLightbox();
     } else if (e.key === 'ArrowLeft') {
-      const newIndex = (galleryState.currentIndex - 1 + galleryState.total) % galleryState.total;
-      goToSlide(newIndex);
+      const newIndex = (showcaseState.currentIndex - 1 + showcaseState.total) % showcaseState.total;
+      goToShowcaseSlide(newIndex);
     } else if (e.key === 'ArrowRight') {
-      const newIndex = (galleryState.currentIndex + 1) % galleryState.total;
-      goToSlide(newIndex);
+      const newIndex = (showcaseState.currentIndex + 1) % showcaseState.total;
+      goToShowcaseSlide(newIndex);
     }
   });
 }
@@ -220,7 +220,7 @@ function initKeyboardNav() {
 // 4. Touch Swipe Support for Mobile & Tablets
 // ==========================================================================
 function initTouchSwipe() {
-  const container = document.querySelector('.gallery-slides-wrapper');
+  const container = document.querySelector('.showcase-viewport');
   if (!container) return;
 
   let touchStartX = 0;
@@ -239,13 +239,13 @@ function initTouchSwipe() {
     const diff = touchEndX - touchStartX;
     if (Math.abs(diff) > 45) {
       if (diff < 0) {
-        // Swipe Left -> Next
-        const newIndex = (galleryState.currentIndex + 1) % galleryState.total;
-        goToSlide(newIndex);
+        // Swipe Left -> Next Slide
+        const newIndex = (showcaseState.currentIndex + 1) % showcaseState.total;
+        goToShowcaseSlide(newIndex);
       } else {
-        // Swipe Right -> Prev
-        const newIndex = (galleryState.currentIndex - 1 + galleryState.total) % galleryState.total;
-        goToSlide(newIndex);
+        // Swipe Right -> Prev Slide
+        const newIndex = (showcaseState.currentIndex - 1 + showcaseState.total) % showcaseState.total;
+        goToShowcaseSlide(newIndex);
       }
     }
   }
