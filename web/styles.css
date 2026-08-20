@@ -71,10 +71,10 @@ a {
   text-decoration: none;
 }
 
-/* Layout Container */
+/* Layout Container - Wider, Spacious Desktop Grid */
 .container {
   width: 92%;
-  max-width: 1140px;
+  max-width: 1240px;
   margin: 0 auto;
 }
 
@@ -129,7 +129,7 @@ a {
 
 .nav-links {
   display: flex;
-  gap: 2rem;
+  gap: 2.25rem;
 }
 
 .nav-links a {
@@ -238,11 +238,11 @@ a {
 }
 
 .hero-title {
-  font-size: 3.2rem;
+  font-size: 3.35rem;
   font-weight: 800;
   line-height: 1.15;
   letter-spacing: -1.2px;
-  max-width: 860px;
+  max-width: 900px;
   margin: 0 auto 1.5rem auto;
   color: #ffffff;
   background: linear-gradient(180deg, #ffffff 50%, #a1a1aa 100%);
@@ -251,9 +251,9 @@ a {
 }
 
 .hero-subtitle {
-  font-size: 1.12rem;
+  font-size: 1.15rem;
   color: var(--text-muted);
-  max-width: 740px;
+  max-width: 780px;
   margin: 0 auto 2.25rem auto;
   font-weight: 400;
   line-height: 1.7;
@@ -268,13 +268,13 @@ a {
   gap: 1rem;
   justify-content: center;
   flex-wrap: wrap;
-  margin-bottom: 3.25rem;
+  margin-bottom: 3.5rem;
 }
 
-/* Hero Showcase Container & Webpage Resizing */
+/* Hero Showcase Container - Wider, Generous Presentation */
 .hero-showcase-container {
   width: 100%;
-  max-width: 960px;
+  max-width: 1100px;
   margin: 0 auto;
 }
 
@@ -286,7 +286,7 @@ a {
   scrollbar-width: none;
   -ms-overflow-style: none;
   padding: 0.25rem 0 1rem 0;
-  margin-bottom: 1rem;
+  margin-bottom: 1.15rem;
   text-align: center;
 }
 
@@ -298,17 +298,17 @@ a {
   display: inline-flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: 0.5rem;
+  gap: 0.55rem;
   padding: 0.25rem;
   max-width: 100%;
 }
 
 .tab-btn {
-  padding: 0.55rem 1.15rem;
+  padding: 0.55rem 1.2rem;
   border-radius: 24px;
   font-family: var(--font-main);
   font-weight: 500;
-  font-size: 0.85rem;
+  font-size: 0.86rem;
   background: var(--bg-card);
   color: var(--text-muted);
   border: 1px solid var(--border-color);
@@ -339,10 +339,10 @@ a {
   box-shadow: 0 2px 12px rgba(0, 210, 196, 0.35);
 }
 
-/* Gallery Viewport: Resized Webpage Display with Full Crispness */
+/* Gallery Viewport: Spacious, Wider Display with Full Crispness */
 .gallery-viewport {
   width: 100%;
-  max-width: 960px;
+  max-width: 1100px;
   margin: 0 auto;
   background: transparent;
   border: none;
@@ -426,7 +426,7 @@ a {
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
   margin-top: 1.25rem;
-  padding: 1.25rem 1.5rem;
+  padding: 1.25rem 1.6rem;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -439,7 +439,7 @@ a {
 }
 
 .caption-title {
-  font-size: 1rem;
+  font-size: 1.05rem;
   font-weight: 600;
   color: var(--text-main);
   display: block;
@@ -447,7 +447,7 @@ a {
 }
 
 .caption-text {
-  font-size: 0.88rem;
+  font-size: 0.9rem;
   color: var(--text-muted);
   line-height: 1.5;
 }
@@ -516,7 +516,7 @@ a {
 }
 
 .section-header {
-  margin-bottom: 2.5rem;
+  margin-bottom: 2.75rem;
 }
 
 .section-header.center {
@@ -535,7 +535,7 @@ a {
 }
 
 .section-title {
-  font-size: 2.25rem;
+  font-size: 2.35rem;
   font-weight: 700;
   letter-spacing: -0.75px;
   color: var(--text-main);
@@ -544,14 +544,14 @@ a {
 
 .section-desc {
   color: var(--text-muted);
-  font-size: 1.05rem;
-  max-width: 620px;
+  font-size: 1.08rem;
+  max-width: 660px;
   margin: 0 auto;
 }
 
 .features-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
   gap: 1.5rem;
 }
 
@@ -559,7 +559,7 @@ a {
   background: var(--bg-card);
   border: 1px solid var(--border-color-subtle);
   border-radius: var(--radius-lg);
-  padding: 2rem;
+  padding: 2.25rem 2rem;
   transition: all var(--transition);
   display: flex;
   flex-direction: column;
@@ -572,29 +572,29 @@ a {
 }
 
 .feature-icon {
-  width: 44px;
-  height: 44px;
+  width: 46px;
+  height: 46px;
   border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.25rem;
-  margin-bottom: 1.25rem;
+  font-size: 1.3rem;
+  margin-bottom: 1.35rem;
   background: var(--accent-cyan-dim);
   color: var(--accent-cyan);
   border: 1px solid rgba(0, 210, 196, 0.2);
 }
 
 .feature-card h3 {
-  font-size: 1.15rem;
+  font-size: 1.18rem;
   font-weight: 600;
-  margin-bottom: 0.6rem;
+  margin-bottom: 0.65rem;
   color: var(--text-main);
 }
 
 .feature-card p {
   color: var(--text-muted);
-  font-size: 0.92rem;
+  font-size: 0.94rem;
   line-height: 1.6;
 }
 
@@ -606,9 +606,9 @@ a {
 
 .download-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
-  gap: 1.75rem;
-  max-width: 1000px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+  gap: 1.85rem;
+  max-width: 1080px;
   margin: 0 auto;
 }
 
@@ -616,7 +616,7 @@ a {
   background: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-xl);
-  padding: 2.25rem 2rem;
+  padding: 2.4rem 2.1rem;
   text-align: center;
   position: relative;
   transition: all var(--transition);
@@ -677,7 +677,7 @@ a {
 }
 
 .spec-list li {
-  font-size: 0.88rem;
+  font-size: 0.9rem;
   color: var(--text-muted);
   margin-bottom: 0.65rem;
   display: flex;
@@ -710,7 +710,7 @@ a {
   background: #08090c;
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
-  max-width: 760px;
+  max-width: 800px;
   margin: 0 auto;
   overflow: hidden;
   box-shadow: var(--shadow-md);
@@ -755,13 +755,13 @@ a {
 }
 
 .terminal-body {
-  padding: 1.5rem;
+  padding: 1.6rem;
   overflow-x: auto;
 }
 
 .terminal-body pre {
   font-family: var(--font-mono);
-  font-size: 0.9rem;
+  font-size: 0.92rem;
   line-height: 1.7;
   color: #e5e7eb;
 }
@@ -796,8 +796,8 @@ a {
 .lightbox-container {
   position: relative;
   z-index: 10000;
-  width: min(94vw, 1200px);
-  max-height: 92vh;
+  width: min(95vw, 1340px);
+  max-height: 94vh;
   display: flex;
   flex-direction: column;
   background: #11131a;
@@ -841,7 +841,7 @@ a {
 
 .lightbox-image-wrapper {
   overflow: auto;
-  max-height: calc(86vh - 90px);
+  max-height: calc(88vh - 90px);
   background: transparent;
   display: flex;
   align-items: center;
@@ -851,7 +851,7 @@ a {
 
 .lightbox-img {
   max-width: 100%;
-  max-height: calc(86vh - 90px);
+  max-height: calc(88vh - 90px);
   width: auto;
   height: auto;
   object-fit: contain;
