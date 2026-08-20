@@ -268,13 +268,13 @@ a {
   gap: 1rem;
   justify-content: center;
   flex-wrap: wrap;
-  margin-bottom: 3.5rem;
+  margin-bottom: 3.25rem;
 }
 
-/* Hero Showcase Container */
+/* Hero Showcase Container & Webpage Resizing */
 .hero-showcase-container {
   width: 100%;
-  max-width: 1040px;
+  max-width: 960px;
   margin: 0 auto;
 }
 
@@ -286,7 +286,7 @@ a {
   scrollbar-width: none;
   -ms-overflow-style: none;
   padding: 0.25rem 0 1rem 0;
-  margin-bottom: 1.25rem;
+  margin-bottom: 1rem;
   text-align: center;
 }
 
@@ -339,10 +339,10 @@ a {
   box-shadow: 0 2px 12px rgba(0, 210, 196, 0.35);
 }
 
-/* Gallery Viewport: 100% Transparent, No Artificial Black Shadows or Borders */
+/* Gallery Viewport: Resized Webpage Display with Full Crispness */
 .gallery-viewport {
   width: 100%;
-  max-width: 1040px;
+  max-width: 960px;
   margin: 0 auto;
   background: transparent;
   border: none;
@@ -375,21 +375,22 @@ a {
   border: none;
   outline: none;
   user-select: none;
+  width: 100%;
 }
 
 .gallery-img {
   width: 100%;
   height: auto;
   display: block;
-  border-radius: var(--radius-lg);
   border: none;
   outline: none;
   background: transparent;
+  object-fit: contain;
   transition: transform 0.25s ease;
 }
 
 .image-zoom-trigger:hover .gallery-img {
-  transform: scale(1.006);
+  transform: scale(1.005);
 }
 
 .zoom-overlay {
@@ -795,8 +796,8 @@ a {
 .lightbox-container {
   position: relative;
   z-index: 10000;
-  width: min(94vw, 1260px);
-  max-height: 94vh;
+  width: min(94vw, 1200px);
+  max-height: 92vh;
   display: flex;
   flex-direction: column;
   background: #11131a;
@@ -840,7 +841,7 @@ a {
 
 .lightbox-image-wrapper {
   overflow: auto;
-  max-height: calc(88vh - 90px);
+  max-height: calc(86vh - 90px);
   background: transparent;
   display: flex;
   align-items: center;
@@ -850,7 +851,7 @@ a {
 
 .lightbox-img {
   max-width: 100%;
-  max-height: calc(88vh - 90px);
+  max-height: calc(86vh - 90px);
   width: auto;
   height: auto;
   object-fit: contain;
