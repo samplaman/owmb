@@ -33,12 +33,11 @@
 
   --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.2);
   --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.35);
-  --shadow-lg: 0 20px 48px rgba(0, 0, 0, 0.6);
 
   --transition: 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-/* Reset & Fail-Safe Container Bounds */
+/* Reset & Container Bounds */
 *, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
@@ -64,6 +63,7 @@ img {
   border: none;
   outline: none;
   background: transparent;
+  box-shadow: none;
 }
 
 a {
@@ -71,7 +71,7 @@ a {
   text-decoration: none;
 }
 
-/* Main Layout Container */
+/* Layout Container */
 .container {
   width: 92%;
   max-width: 1140px;
@@ -208,7 +208,7 @@ a {
 
 /* Hero Section */
 .hero-section {
-  padding: 4.5rem 0 5rem 0;
+  padding: 4.5rem 0 3.5rem 0;
   text-align: center;
   position: relative;
   background: radial-gradient(circle at 50% 12%, rgba(0, 210, 196, 0.08) 0%, transparent 60%);
@@ -268,29 +268,27 @@ a {
   gap: 1rem;
   justify-content: center;
   flex-wrap: wrap;
-  margin-bottom: 3.5rem;
+  margin-bottom: 2.5rem;
 }
 
-/* Main Hero Image: Clean, Borderless, Transparent */
+/* Main Hero Image: Transparent Background, No Harsh Box Shadows */
 .hero-image-container {
   max-width: 1040px;
   margin: 0 auto;
-  border-radius: var(--radius-lg);
-  overflow: hidden;
   background: transparent;
   border: none;
   outline: none;
+  box-shadow: none;
 }
 
 .hero-img {
   width: 100%;
   height: auto;
   display: block;
-  border-radius: var(--radius-lg);
   border: none;
   outline: none;
   background: transparent;
-  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
+  box-shadow: none; /* Lets the screenshot's native transparent window shadow render smoothly */
 }
 
 /* Section Header */
@@ -330,26 +328,32 @@ a {
 
 /* Interactive Screenshot Gallery Section */
 .gallery-section {
-  padding: 5rem 0 6rem 0;
+  padding: 4.5rem 0 6rem 0;
   background: var(--bg-secondary);
   border-top: 1px solid var(--border-color);
   border-bottom: 1px solid var(--border-color);
 }
 
-/* Gallery Tabs Navigation */
+/* Gallery Tabs Navigation - Hidden Scrollbar */
 .gallery-tabs-container {
   width: 100%;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
-  padding: 0.25rem 0 1.25rem 0;
-  margin-bottom: 1rem;
-  scrollbar-width: thin;
-  scrollbar-color: var(--border-color) transparent;
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge */
+  padding: 0.25rem 0 1rem 0;
+  margin-bottom: 0.75rem;
   text-align: center;
+}
+
+.gallery-tabs-container::-webkit-scrollbar {
+  display: none; /* Chrome, Safari, Opera */
 }
 
 .gallery-tabs {
   display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: center;
   gap: 0.5rem;
   padding: 0.25rem;
   max-width: 100%;
@@ -391,16 +395,15 @@ a {
   box-shadow: 0 2px 12px rgba(0, 210, 196, 0.35);
 }
 
-/* Gallery Viewport: Transparent, Borderless */
+/* Gallery Viewport: Transparent Background, No Artificial Black Shadows */
 .gallery-viewport {
   width: 100%;
   max-width: 1040px;
   margin: 0 auto;
-  border-radius: var(--radius-lg);
-  overflow: hidden;
   background: transparent;
   border: none;
   outline: none;
+  box-shadow: none;
   position: relative;
 }
 
@@ -423,11 +426,10 @@ a {
 .image-zoom-trigger {
   position: relative;
   cursor: zoom-in;
-  overflow: hidden;
-  border-radius: var(--radius-lg);
   background: transparent;
   border: none;
   outline: none;
+  box-shadow: none;
   user-select: none;
 }
 
@@ -436,11 +438,10 @@ a {
   height: auto;
   display: block;
   background: transparent;
-  border-radius: var(--radius-lg);
   border: none;
   outline: none;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
-  transition: transform 0.3s ease;
+  box-shadow: none; /* Native transparent window shadow blends naturally */
+  transition: transform 0.25s ease;
 }
 
 .image-zoom-trigger:hover .gallery-img {
@@ -449,9 +450,9 @@ a {
 
 .zoom-overlay {
   position: absolute;
-  bottom: 1.25rem;
-  right: 1.25rem;
-  background: rgba(10, 11, 14, 0.85);
+  bottom: 1.5rem;
+  right: 1.5rem;
+  background: rgba(10, 11, 14, 0.88);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   color: var(--text-main);
@@ -479,7 +480,7 @@ a {
   background: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
-  margin-top: 1.25rem;
+  margin-top: 1rem;
   padding: 1.25rem 1.5rem;
   display: flex;
   align-items: center;
@@ -874,10 +875,10 @@ a {
   width: auto;
   height: auto;
   object-fit: contain;
-  border-radius: var(--radius-md);
   border: none;
   outline: none;
   background: transparent;
+  box-shadow: none;
 }
 
 .lightbox-footer {
@@ -985,8 +986,7 @@ a {
 /* Responsive Rules */
 @media (max-width: 900px) {
   .hero-title { font-size: 2.5rem; }
-  .gallery-tabs-container { text-align: left; }
-  .gallery-tabs { display: flex; justify-content: flex-start; width: max-content; }
+  .gallery-tabs { justify-content: center; }
   .footer-container { flex-direction: column; gap: 2rem; }
   .footer-links { gap: 2.5rem; }
 }
@@ -997,6 +997,7 @@ a {
   .nav-links { display: none; }
   .hero-cta { flex-direction: column; }
   .btn-lg { width: 100%; }
+  .gallery-tabs { justify-content: flex-start; }
   .gallery-caption-banner { flex-direction: column; align-items: flex-start; }
   .gallery-controls { width: 100%; justify-content: space-between; margin-top: 0.5rem; }
   .footer-bottom-content { flex-direction: column; text-align: center; gap: 0.5rem; }
