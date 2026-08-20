@@ -4,6 +4,7 @@
  #include <JuceHeader.h>
 #else
  #include <juce_core/juce_core.h>
+ #include <juce_events/juce_events.h>
 #endif
 
 #include "../Models/MediaItem.h"
@@ -22,11 +23,13 @@ public:
     virtual void tagsUpdated() = 0;
 };
 
-class TagDatabaseManager
+class TagDatabaseManager : private juce::Timer
 {
 public:
     TagDatabaseManager();
-    ~TagDatabaseManager();
+    ~TagDatabaseManager() override;
+
+    void triggerAsyncSave();
 
     // Data Access & Query
     std::vector<MediaItem> getAllItems() const;
@@ -57,8 +60,10 @@ public:
     void notifyIndexUpdated();
     void notifyTagsUpdated();
 
-    // Tag Auto-Inference Helper
+    // Tag & Metadata Auto-Inference Helper
     static std::set<juce::String> inferTagsFromPath(const juce::String& filePath, double durationSeconds = 0.0, int numChannels = 0);
+    static void sanitizeTags(std::set<juce::String>& tags);
+    static double extractBpmFromFilename(const juce::String& text);
     static double calculateAcousticDistance(const MediaItem& a, const MediaItem& b);
     static float calculateMatchPercentage(const MediaItem& a, const MediaItem& b);
 
@@ -88,6 +93,7 @@ public:
     void setPrimaryColourHex(const juce::String& hex);
 
 private:
+    void timerCallback() override;
     juce::File getDatabaseFile() const;
 
     mutable juce::CriticalSection lock;

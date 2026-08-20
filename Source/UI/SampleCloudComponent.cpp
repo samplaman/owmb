@@ -32,15 +32,64 @@ namespace openwav {
 
 static juce::String getFullCategoryName(const juce::String& tag) {
     auto t = tag.toLowerCase();
+    if (t.contains("subkick")) return "Sub Kick";
     if (t.contains("kick")) return "Kick Drum";
     if (t.contains("snare")) return "Snare Drum";
+    if (t.contains("rimshot") || t.contains("rim")) return "Rimshot";
+    if (t.contains("clap")) return "Clap";
+    if (t.contains("snap")) return "Snap";
+    if (t.contains("openhat") || t.contains("open_hat")) return "Open Hi-Hat";
+    if (t.contains("closedhat") || t.contains("closed_hat")) return "Closed Hi-Hat";
     if (t.contains("hat") || t.contains("hihat")) return "Hi-Hat";
+    if (t.contains("tom")) return "Tom Drum";
+    if (t.contains("crash")) return "Crash Cymbal";
+    if (t.contains("ride")) return "Ride Cymbal";
+    if (t.contains("cymbal")) return "Cymbal";
+    if (t.contains("shaker")) return "Shaker";
+    if (t.contains("tamb")) return "Tambourine";
+    if (t.contains("cowbell")) return "Cowbell";
+    if (t.contains("conga") || t.contains("bongo")) return "Latin Percussion";
     if (t.contains("perc")) return "Percussion";
+    if (t.contains("subbass") || t.contains("sub_bass")) return "Sub Bass";
+    if (t.contains("synthbass") || t.contains("synth_bass")) return "Synth Bass";
+    if (t.contains("reesebass") || t.contains("reese")) return "Reese Bass";
+    if (t.contains("808bass") || t.contains("808")) return "808 Bass";
     if (t.contains("bass")) return "Bass";
-    if (t.contains("synth") || t.contains("lead")) return "Synthesizer";
+    if (t.contains("piano") || t.contains("rhodes") || t.contains("organ") || t.contains("keys")) return "Keys & Piano";
+    if (t.contains("guitar") || t.contains("gtr")) return "Guitar";
+    if (t.contains("violin") || t.contains("viola") || t.contains("cello") || t.contains("contrabass") || t.contains("string")) return "Strings";
+    if (t.contains("frenchhorn") || t.contains("trumpet") || t.contains("trombone") || t.contains("tuba") || t.contains("brass")) return "Brass";
+    if (t.contains("flute") || t.contains("piccolo") || t.contains("oboe") || t.contains("clarinet") || t.contains("bassoon") || t.contains("woodwind")) return "Woodwinds";
+    if (t.contains("timpani") || t.contains("glock") || t.contains("xylophone") || t.contains("marimba") || t.contains("harp")) return "Orchestral Percussion";
+    if (t.contains("choir") || t.contains("chorus")) return "Choir";
+    if (t.contains("sax")) return "Saxophone";
+    if (t.contains("lead")) return "Lead Synth";
+    if (t.contains("pad")) return "Synth Pad";
+    if (t.contains("pluck")) return "Synth Pluck";
+    if (t.contains("arp")) return "Arpeggio";
+    if (t.contains("synth")) return "Synthesizer";
+    if (t.contains("acapella")) return "Acapella";
+    if (t.contains("vocalchop") || t.contains("voxchop")) return "Vocal Chop";
+    if (t.contains("vocal") || t.contains("vox") || t.contains("chant") || t.contains("speech")) return "Vocal";
+    if (t.contains("riser") || t.contains("uplifter")) return "Riser FX";
+    if (t.contains("downlifter") || t.contains("faller")) return "Downlifter FX";
+    if (t.contains("subdrop")) return "Sub Drop FX";
+    if (t.contains("impact")) return "Impact FX";
+    if (t.contains("sweep") || t.contains("whoosh")) return "Sweep FX";
+    if (t.contains("foley")) return "Foley";
+    if (t.contains("vinyl")) return "Vinyl & Texture";
+    if (t.contains("atmos")) return "Atmosphere";
+    if (t.contains("glitch")) return "Glitch FX";
+    if (t.contains("fx") || t.contains("sfx")) return "Sound FX";
+    if (t.contains("drumloop") || t.contains("drum_loop")) return "Drum Loop";
+    if (t.contains("toploop") || t.contains("top_loop")) return "Top Loop";
+    if (t.contains("percloop")) return "Percussion Loop";
+    if (t.contains("bassloop")) return "Bass Loop";
+    if (t.contains("melodicloop")) return "Melodic Loop";
+    if (t.contains("vocalloop")) return "Vocal Loop";
     if (t.contains("loop")) return "Loop";
-    if (t.contains("vocal")) return "Vocal";
-    return tag;
+    if (t.contains("oneshot") || t.contains("one_shot")) return "One-Shot";
+    return tag.startsWith("#") ? tag.substring(1) : tag;
 }
 
 SampleCloudComponent::SampleCloudComponent(TagDatabaseManager &db,
@@ -223,6 +272,18 @@ SampleCloudComponent::calculateClusterLayoutInternal(
         outClusters[i].centerPos = {0.0f, -520.0f, -320.0f};
       else if (tagLower.contains("perc"))
         outClusters[i].centerPos = {680.0f, 240.0f, -350.0f};
+      else if (tagLower.contains("piano") || tagLower.contains("keys") || tagLower.contains("organ"))
+        outClusters[i].centerPos = {-320.0f, 380.0f, -420.0f};
+      else if (tagLower.contains("guitar") || tagLower.contains("gtr"))
+        outClusters[i].centerPos = {320.0f, 380.0f, -420.0f};
+      else if (tagLower.contains("string") || tagLower.contains("violin") || tagLower.contains("cello"))
+        outClusters[i].centerPos = {-450.0f, 420.0f, 220.0f};
+      else if (tagLower.contains("brass") || tagLower.contains("horn") || tagLower.contains("trumpet"))
+        outClusters[i].centerPos = {450.0f, 420.0f, 220.0f};
+      else if (tagLower.contains("vocal") || tagLower.contains("vox") || tagLower.contains("acapella"))
+        outClusters[i].centerPos = {0.0f, -280.0f, 520.0f};
+      else if (tagLower.contains("fx") || tagLower.contains("riser") || tagLower.contains("subdrop") || tagLower.contains("sweep"))
+        outClusters[i].centerPos = {450.0f, -350.0f, 380.0f};
       else if (tagLower.contains("synth") || tagLower.contains("lead"))
         outClusters[i].centerPos = {-680.0f, -240.0f, 350.0f};
       else {
@@ -725,31 +786,47 @@ juce::Colour
 SampleCloudComponent::getColourForTag(const juce::String &tag) const {
   auto t = tag.toLowerCase();
   if (t.contains("kick"))
-    return juce::Colour(0xffe53935);
-  if (t.contains("snare"))
-    return juce::Colour(0xfff57c00);
+    return juce::Colour(0xffe53935); // Crimson Red
+  if (t.contains("snare") || t.contains("rimshot") || t.contains("rim"))
+    return juce::Colour(0xfff57c00); // Bright Orange
+  if (t.contains("clap") || t.contains("snap"))
+    return juce::Colour(0xffff9800); // Amber
   if (t.contains("hat") || t.contains("hihat"))
-    return juce::Colour(0xff0288d1);
-  if (t.contains("perc"))
-    return juce::Colour(0xff2e7d32);
+    return juce::Colour(0xff0288d1); // Light Blue
+  if (t.contains("tom"))
+    return juce::Colour(0xffd84315); // Rust Red
+  if (t.contains("crash") || t.contains("ride") || t.contains("cymbal"))
+    return juce::Colour(0xff00acc1); // Cyan
+  if (t.contains("perc") || t.contains("shaker") || t.contains("tamb") || t.contains("conga") || t.contains("bongo") || t.contains("cowbell"))
+    return juce::Colour(0xff2e7d32); // Forest Green
   if (t.contains("bass"))
-    return juce::Colour(0xff673ab7);
-  if (t.contains("string") || t.contains("violin") || t.contains("cello") || t.contains("viola"))
-    return juce::Colour(0xffab47bc); // Purple
-  if (t.contains("brass") || t.contains("horn") || t.contains("trumpet") || t.contains("trombone"))
+    return juce::Colour(0xff673ab7); // Deep Violet
+  if (t.contains("piano") || t.contains("rhodes") || t.contains("organ") || t.contains("keys"))
+    return juce::Colour(0xff3f51b5); // Indigo
+  if (t.contains("guitar") || t.contains("gtr"))
+    return juce::Colour(0xff00897b); // Sea Green
+  if (t.contains("string") || t.contains("violin") || t.contains("cello") || t.contains("viola") || t.contains("contrabass"))
+    return juce::Colour(0xffab47bc); // Orchid Purple
+  if (t.contains("brass") || t.contains("horn") || t.contains("trumpet") || t.contains("trombone") || t.contains("tuba"))
     return juce::Colour(0xffff7043); // Bronze Orange
-  if (t.contains("woodwind") || t.contains("flute") || t.contains("oboe") || t.contains("clarinet"))
+  if (t.contains("woodwind") || t.contains("flute") || t.contains("oboe") || t.contains("clarinet") || t.contains("bassoon"))
     return juce::Colour(0xff26a69a); // Teal
   if (t.contains("orchestral") || t.contains("symphon") || t.contains("ensemble"))
     return juce::Colour(0xff8d6e63); // Mahogany
-  if (t.contains("timpani") || t.contains("choir") || t.contains("harp"))
+  if (t.contains("timpani") || t.contains("glock") || t.contains("xylophone") || t.contains("marimba") || t.contains("harp"))
     return juce::Colour(0xffec407a); // Magenta
-  if (t.contains("synth") || t.contains("lead"))
-    return juce::Colour(0xffffb300);
+  if (t.contains("choir") || t.contains("chorus"))
+    return juce::Colour(0xffe91e63); // Pink
+  if (t.contains("vocal") || t.contains("vox") || t.contains("acapella") || t.contains("chant") || t.contains("speech"))
+    return juce::Colour(0xffc2185b); // Deep Rose
+  if (t.contains("lead") || t.contains("pluck") || t.contains("arp"))
+    return juce::Colour(0xffffb300); // Gold
+  if (t.contains("pad") || t.contains("synth"))
+    return juce::Colour(0xff7e57c2); // Lavender Blue
+  if (t.contains("riser") || t.contains("downlifter") || t.contains("subdrop") || t.contains("impact") || t.contains("sweep") || t.contains("fx") || t.contains("sfx") || t.contains("foley") || t.contains("glitch"))
+    return juce::Colour(0xff00b0ff); // Electric Blue
   if (t.contains("loop"))
-    return juce::Colour(0xff00897b);
-  if (t.contains("vocal"))
-    return juce::Colour(0xffc2185b);
+    return juce::Colour(0xff009688); // Teal Green
 
   uint32_t hash = static_cast<uint32_t>(tag.hashCode());
   float hue = (hash % 360) / 360.0f;

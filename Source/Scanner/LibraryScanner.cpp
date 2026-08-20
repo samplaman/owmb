@@ -420,13 +420,18 @@ static void analyzeAudioData(juce::AudioFormatReader* reader, MediaItem& item)
     reader->read(&buffer, 0, maxSamplesToAnalyze, 0, true, false);
     const float* samples = buffer.getReadPointer(0);
 
-    // 1. Calculate Peak, RMS, and Decay
+    // 1. Calculate Peak, Peak Location (Attack Time), and RMS
     float maxVal = 0.0f;
+    int maxValIndex = 0;
     double sumSq = 0.0;
     for (int i = 0; i < maxSamplesToAnalyze; ++i)
     {
         float val = std::abs(samples[i]);
-        if (val > maxVal) maxVal = val;
+        if (val > maxVal)
+        {
+            maxVal = val;
+            maxValIndex = i;
+        }
         sumSq += val * val;
     }
 
@@ -436,6 +441,8 @@ static void analyzeAudioData(juce::AudioFormatReader* reader, MediaItem& item)
         return;
     }
 
+    double sampleRate = reader->sampleRate > 0.0 ? reader->sampleRate : 44100.0;
+    double attackTimeMs = (static_cast<double>(maxValIndex) / sampleRate) * 1000.0;
     float rms = static_cast<float>(std::sqrt(sumSq / maxSamplesToAnalyze));
 
     // Calculate RMS in 4 sequential blocks to estimate decay
@@ -506,50 +513,79 @@ static void analyzeAudioData(juce::AudioFormatReader* reader, MediaItem& item)
     item.decayRatio = decayRatio;
     item.crestFactor = static_cast<double>(crestFactor);
 
-    // 3. Audio Classification (Shallow Decision Tree / Rule-based)
-    if (!isLoop)
+    // Check if item already has a semantic category tag (e.g. from filename or folder path)
+    bool hasExistingCategory = false;
+    for (const auto& t : item.tags)
     {
-        // One-Shot classifications
-        if (highFreqRatio < 0.22 && zcr < 0.06)
+        if (t != "#Wav" && t != "#MP3" && t != "#FLAC" && t != "#OGG" && t != "#AIFF" &&
+            t != "#Stereo" && t != "#Mono" && t != "#Short" && t != "#Long" &&
+            t != "#OneShot" && t != "#Loop" && t != "#Silent" &&
+            !t.endsWithIgnoreCase("BPM"))
         {
-            item.tags.insert("#Kick");
-        }
-        else if (highFreqRatio >= 1.1 || zcr >= 0.22)
-        {
-            item.tags.insert("#HiHat");
-        }
-        else if (highFreqRatio >= 0.55 && highFreqRatio < 1.1 && zcr >= 0.10)
-        {
-            if (decayRatio > 0.12)
-                item.tags.insert("#Snare");
-            else
-                item.tags.insert("#Clap");
-        }
-        else
-        {
-            item.tags.insert("#Percussion");
+            hasExistingCategory = true;
+            break;
         }
     }
-    else
+
+    // 3. Audio Classification (Only run fallback drum/synth heuristics if no category was inferred from metadata/path)
+    if (!hasExistingCategory)
     {
-        // Loop classifications
-        if (highFreqRatio < 0.12 && zcr < 0.04)
+        if (!isLoop)
         {
-            item.tags.insert("#Bass");
-        }
-        else if (crestFactor > 3.6f && highFreqRatio > 0.35)
-        {
-            item.tags.insert("#DrumLoop");
+            // One-Shot classifications with strict physical constraints
+            if (duration <= 0.75 && attackTimeMs <= 18.0 && decayRatio < 0.14 && highFreqRatio < 0.20 && zcr < 0.055 && crestFactor > 3.0)
+            {
+                // Fast-decaying low-frequency transient onset -> Kick Drum
+                item.tags.insert("#Kick");
+            }
+            else if (duration > 0.60 && highFreqRatio < 0.18 && zcr < 0.05 && decayRatio >= 0.18)
+            {
+                // Sustained low frequency -> Bass
+                item.tags.insert("#Bass");
+            }
+            else if (attackTimeMs <= 15.0 && (highFreqRatio >= 1.1 || zcr >= 0.22))
+            {
+                item.tags.insert("#HiHat");
+            }
+            else if (attackTimeMs <= 20.0 && highFreqRatio >= 0.50 && highFreqRatio < 1.1 && zcr >= 0.09)
+            {
+                if (decayRatio > 0.12)
+                    item.tags.insert("#Snare");
+                else
+                    item.tags.insert("#Clap");
+            }
+            else if (attackTimeMs <= 15.0 && crestFactor > 3.8f)
+            {
+                item.tags.insert("#Percussion");
+            }
         }
         else
         {
-            item.tags.insert("#Synth");
+            // Loop classifications
+            if (highFreqRatio < 0.12 && zcr < 0.04)
+            {
+                item.tags.insert("#Bass");
+            }
+            else if (crestFactor > 3.6f && highFreqRatio > 0.35)
+            {
+                item.tags.insert("#DrumLoop");
+            }
+            else
+            {
+                item.tags.insert("#Synth");
+            }
         }
+    }
 
-        // 4. BPM Estimation via Autocorrelation of Envelope Onsets
+    // 4. BPM Estimation via Audio Analysis (Only for confirmed LOOPS, never for one-shots!)
+    if (item.bpm <= 0.0 && isLoop && duration >= 1.0)
+    {
+        double estimatedBpm = 0.0;
+
+        // Autocorrelation with Sub-Sample Parabolic Interpolation & Octave Normalization
         const int envBlockSize = 256;
         const int numEnvBlocks = maxSamplesToAnalyze / envBlockSize;
-        if (numEnvBlocks > 16)
+        if (numEnvBlocks > 32)
         {
             std::vector<float> env(numEnvBlocks, 0.0f);
             for (int b = 0; b < numEnvBlocks; ++b)
@@ -565,55 +601,138 @@ static void analyzeAudioData(juce::AudioFormatReader* reader, MediaItem& item)
                 env[b] = bMax;
             }
 
-            // Onsets = first-difference of envelope
+            // Onsets = first-difference of envelope with half-wave rectification
             std::vector<float> onsets(numEnvBlocks, 0.0f);
+            int onsetCount = 0;
             for (int i = 1; i < numEnvBlocks; ++i)
             {
-                onsets[i] = std::max(0.0f, env[i] - env[i - 1]);
+                float diff = std::max(0.0f, env[i] - env[i - 1]);
+                onsets[i] = diff;
+                if (diff > 0.08f) onsetCount++;
             }
 
-            double fsEnv = reader->sampleRate / envBlockSize;
-            int minLag = static_cast<int>(60.0 * fsEnv / 180.0);
-            int maxLag = static_cast<int>(60.0 * fsEnv / 60.0);
-
-            double maxR = -1.0;
-            int bestLag = 0;
-
-            for (int lag = minLag; lag <= maxLag; ++lag)
+            // Require at least 3 distinct rhythmic transient peaks for a credible loop
+            if (onsetCount >= 3)
             {
-                double sum = 0.0;
-                int count = 0;
-                for (int i = lag; i < numEnvBlocks; ++i)
+                double fsEnv = sampleRate / envBlockSize;
+                int minLag = static_cast<int>(60.0 * fsEnv / 200.0);
+                int maxLag = static_cast<int>(60.0 * fsEnv / 60.0);
+                minLag = std::max(2, minLag);
+                maxLag = std::min(numEnvBlocks - 2, maxLag);
+
+                std::vector<double> rValues(maxLag + 2, 0.0);
+                double maxR = -1.0;
+                int bestLag = 0;
+
+                for (int lag = minLag; lag <= maxLag; ++lag)
                 {
-                    sum += onsets[i] * onsets[i - lag];
-                    count++;
-                }
-                if (count > 0)
-                {
-                    double r = sum / count;
-                    if (r > maxR)
+                    double sumXY = 0.0;
+                    double sumX2 = 0.0;
+                    double sumY2 = 0.0;
+                    int count = 0;
+                    for (int i = lag; i < numEnvBlocks; ++i)
                     {
-                        maxR = r;
-                        bestLag = lag;
+                        float x = onsets[i];
+                        float y = onsets[i - lag];
+                        sumXY += x * y;
+                        sumX2 += x * x;
+                        sumY2 += y * y;
+                        count++;
+                    }
+
+                    if (count > 0 && sumX2 > 1e-9 && sumY2 > 1e-9)
+                    {
+                        double r = sumXY / std::sqrt(sumX2 * sumY2);
+                        rValues[lag] = r;
+                        if (r > maxR)
+                        {
+                            maxR = r;
+                            bestLag = lag;
+                        }
                     }
                 }
-            }
 
-            if (bestLag > 0)
-            {
-                double estimatedBpm = 60.0 * fsEnv / bestLag;
-                estimatedBpm = std::round(estimatedBpm * 10.0) / 10.0;
-                if (estimatedBpm >= 50.0 && estimatedBpm <= 200.0)
+                // Require a clear autocorrelation peak (R >= 0.38)
+                if (bestLag > minLag && bestLag < maxLag && maxR >= 0.38)
                 {
-                    item.bpm = estimatedBpm;
-                    item.tags.insert("#" + juce::String(juce::roundToInt(estimatedBpm)) + "BPM");
+                    // Sub-sample parabolic interpolation around peak
+                    double y1 = rValues[bestLag - 1];
+                    double y2 = rValues[bestLag];
+                    double y3 = rValues[bestLag + 1];
+                    double denom = (y1 - 2.0 * y2 + y3);
+                    double delta = 0.0;
+                    if (std::abs(denom) > 1e-7)
+                    {
+                        delta = (y1 - y3) / (2.0 * denom);
+                        delta = juce::jlimit(-0.5, 0.5, delta);
+                    }
+
+                    double refinedLag = static_cast<double>(bestLag) + delta;
+                    double dspBpm = (60.0 * fsEnv) / refinedLag;
+
+                    // Octave normalization: fold half-time / double-time into standard human tempo range [75, 165]
+                    if (dspBpm < 75.0)
+                    {
+                        int doubleLag = juce::roundToInt(bestLag / 2.0);
+                        if (doubleLag >= minLag && rValues[doubleLag] > maxR * 0.70)
+                        {
+                            dspBpm *= 2.0;
+                        }
+                    }
+                    else if (dspBpm > 175.0)
+                    {
+                        int halfLag = juce::roundToInt(bestLag * 2.0);
+                        if (halfLag <= maxLag && rValues[halfLag] > maxR * 0.70)
+                        {
+                            dspBpm /= 2.0;
+                        }
+                    }
+
+                    // If within 0.35 of an integer tempo (e.g. 127.85 -> 128.0), snap to exact integer
+                    double nearestInt = std::round(dspBpm);
+                    if (std::abs(dspBpm - nearestInt) < 0.35)
+                    {
+                        dspBpm = nearestInt;
+                    }
+                    else
+                    {
+                        dspBpm = std::round(dspBpm * 10.0) / 10.0;
+                    }
+
+                    // Check exact loop bar-length match (4, 8, 16, 32, 64 beats)
+                    double bestBarBpm = 0.0;
+                    const int candidateBeats[] = { 4, 8, 16, 32, 64 };
+                    for (int b : candidateBeats)
+                    {
+                        double testBpm = (60.0 * b) / duration;
+                        if (std::abs(testBpm - dspBpm) < 2.5)
+                        {
+                            double roundedBar = std::round(testBpm);
+                            if (std::abs(testBpm - roundedBar) < 0.25)
+                            {
+                                bestBarBpm = roundedBar;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (bestBarBpm > 0.0)
+                        estimatedBpm = bestBarBpm;
+                    else
+                        estimatedBpm = dspBpm;
                 }
             }
+        }
+
+        if (estimatedBpm >= 60.0 && estimatedBpm <= 200.0)
+        {
+            item.bpm = estimatedBpm;
+            item.tags.insert("#" + juce::String(juce::roundToInt(estimatedBpm)) + "BPM");
         }
     }
 
     // 5. Acoustic DSP Character Tagging
-    if (crestFactor > 4.2f)
+    if (crestFactor > 4.0f && attackTimeMs <= 18.0)
         item.tags.insert("#Punchy");
     if (highFreqRatio >= 0.70)
         item.tags.insert("#Bright");
@@ -661,6 +780,26 @@ MediaItem LibraryScanner::processAudioFile(const juce::File& file, juce::AudioFo
             headerParsed = true;
     }
 
+    // Extract BPM from filename or folder path first as authoritative ground truth
+    double fnBpm = TagDatabaseManager::extractBpmFromFilename(file.getFileNameWithoutExtension());
+    if (fnBpm <= 0.0)
+    {
+        fnBpm = TagDatabaseManager::extractBpmFromFilename(file.getParentDirectory().getFileName());
+    }
+
+    if (fnBpm >= 40.0 && fnBpm <= 260.0)
+    {
+        item.bpm = fnBpm;
+        item.tags.insert("#" + juce::String(juce::roundToInt(fnBpm)) + "BPM");
+    }
+
+    // Auto-infer tags from path, file type, channels, and duration
+    auto pathTags = TagDatabaseManager::inferTagsFromPath(absPath, item.durationSeconds, item.numChannels);
+    for (const auto& t : pathTags)
+    {
+        item.tags.insert(t);
+    }
+
     // Read audio header metadata using JUCE format reader as fallback
     std::unique_ptr<juce::AudioFormatReader> reader(localFormatManager.createReaderFor(file));
     if (reader != nullptr)
@@ -685,12 +824,8 @@ MediaItem LibraryScanner::processAudioFile(const juce::File& file, juce::AudioFo
         analyzeAudioData(reader.get(), item);
     }
 
-    // Auto-infer tags from path, file type, channels, and duration
-    auto pathTags = TagDatabaseManager::inferTagsFromPath(absPath, item.durationSeconds, item.numChannels);
-    for (const auto& t : pathTags)
-    {
-        item.tags.insert(t);
-    }
+    // Final conflict sanitization to ensure no conflicting or improper tags exist
+    TagDatabaseManager::sanitizeTags(item.tags);
 
     return item;
 }

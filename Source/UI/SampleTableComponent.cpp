@@ -377,19 +377,50 @@ void SampleTableComponent::paintCell(juce::Graphics& g, int rowNumber, int colum
             break;
         }
 
-        case 7: // Rating Stars
+        case 7: // Rating Stars (High-performance vector rendering)
         {
-            g.setColour(juce::Colours::gold);
-            if (item.cachedStarRating.isNotEmpty())
+            float totalW = static_cast<float>(bounds.getWidth());
+            float starSize = 10.0f;
+            float starSpacing = (totalW - (5.0f * starSize)) / 6.0f;
+            starSpacing = juce::jlimit(2.0f, 6.0f, starSpacing);
+            float startX = bounds.getX() + starSpacing;
+            float cy = bounds.getCentreY();
+
+            juce::Path starPath;
+            for (int i = 0; i < 5; ++i)
             {
-                g.drawText(item.cachedStarRating, bounds, juce::Justification::centredLeft, true);
+                float outerAngle = i * juce::MathConstants<float>::twoPi / 5.0f - juce::MathConstants<float>::halfPi;
+                float innerAngle = outerAngle + juce::MathConstants<float>::pi / 5.0f;
+                float rOuter = starSize * 0.5f;
+                float rInner = rOuter * 0.42f;
+
+                float ox = std::cos(outerAngle) * rOuter;
+                float oy = std::sin(outerAngle) * rOuter;
+                float ix = std::cos(innerAngle) * rInner;
+                float iy = std::sin(innerAngle) * rInner;
+
+                if (i == 0) starPath.startNewSubPath(ox, oy);
+                else starPath.lineTo(ox, oy);
+                starPath.lineTo(ix, iy);
             }
-            else
+            starPath.closeSubPath();
+
+            for (int s = 1; s <= 5; ++s)
             {
-                juce::String stars;
-                for (int s = 0; s < item.rating; ++s) stars += juce::String::fromUTF8("\xe2\x98\x85");
-                for (int s = item.rating; s < 5; ++s) stars += juce::String::fromUTF8("\xe2\x98\x86");
-                g.drawText(stars, bounds, juce::Justification::centredLeft, true);
+                float sx = startX + (s - 1) * (starSize + starSpacing) + starSize * 0.5f;
+                juce::Path currentStar = starPath;
+                currentStar.applyTransform(juce::AffineTransform::translation(sx, cy));
+
+                if (s <= item.rating)
+                {
+                    g.setColour(juce::Colour::fromRGB(255, 200, 45)); // Vibrant gold
+                    g.fillPath(currentStar);
+                }
+                else
+                {
+                    g.setColour(OpenWavLookAndFeel::textSecondary.withAlpha(0.25f));
+                    g.strokePath(currentStar, juce::PathStrokeType(1.0f));
+                }
             }
             break;
         }
@@ -596,9 +627,54 @@ void SampleTableComponent::cellClicked(int rowNumber, int columnId, const juce::
         return;
     }
 
-    if (columnId == 8) // Favorite Heart Toggle
+    if (columnId == 8) // Favorite Heart Toggle (Instant O(1) update)
     {
+        bool newFav = !displayedItems[static_cast<size_t>(rowNumber)].isFavorite;
+        displayedItems[static_cast<size_t>(rowNumber)].isFavorite = newFav;
         dbManager.toggleFavorite(item.id);
+
+        if (currentFavOnly && !newFav)
+        {
+            displayedItems.erase(displayedItems.begin() + rowNumber);
+            table.updateContent();
+        }
+        else
+        {
+            table.repaintRow(rowNumber);
+        }
+        return;
+    }
+
+    if (columnId == 7) // Rating Stars Direct Click (Instant O(1) update)
+    {
+        int colIndex = table.getHeader().getIndexOfColumnId(7, true);
+        int colX = (colIndex >= 0) ? table.getHeader().getColumnPosition(colIndex).getX() : 0;
+        float localX = static_cast<float>(e.x - colX);
+
+        float totalW = static_cast<float>(table.getHeader().getColumnWidth(7));
+        float starSize = 10.0f;
+        float starSpacing = (totalW - (5.0f * starSize)) / 6.0f;
+        starSpacing = juce::jlimit(2.0f, 6.0f, starSpacing);
+        float step = starSize + starSpacing;
+        float startX = starSpacing;
+
+        int clickedStar = 1;
+        if (localX < startX + starSize)
+        {
+            clickedStar = 1;
+        }
+        else
+        {
+            clickedStar = static_cast<int>((localX - startX) / step) + 1;
+            clickedStar = juce::jlimit(1, 5, clickedStar);
+        }
+
+        int newRating = (item.rating == clickedStar) ? 0 : clickedStar; // Click same star to clear rating
+        displayedItems[static_cast<size_t>(rowNumber)].rating = newRating;
+        displayedItems[static_cast<size_t>(rowNumber)].precomputeCachedStrings();
+
+        dbManager.setRating(item.id, newRating);
+        table.repaintRow(rowNumber);
         return;
     }
 
@@ -773,11 +849,40 @@ void SampleTableComponent::showContextMenuForRow(int rowNumber)
     menu.showMenuAsync(juce::PopupMenu::Options(), [this, item](int result) {
         if (result == 1)
         {
+            for (size_t i = 0; i < displayedItems.size(); ++i)
+            {
+                if (displayedItems[i].id == item.id)
+                {
+                    bool newFav = !displayedItems[i].isFavorite;
+                    displayedItems[i].isFavorite = newFav;
+                    if (currentFavOnly && !newFav)
+                    {
+                        displayedItems.erase(displayedItems.begin() + i);
+                        table.updateContent();
+                    }
+                    else
+                    {
+                        table.repaintRow(static_cast<int>(i));
+                    }
+                    break;
+                }
+            }
             dbManager.toggleFavorite(item.id);
         }
         else if (result >= 10 && result <= 15)
         {
-            dbManager.setRating(item.id, result - 10);
+            int newRating = result - 10;
+            for (size_t i = 0; i < displayedItems.size(); ++i)
+            {
+                if (displayedItems[i].id == item.id)
+                {
+                    displayedItems[i].rating = newRating;
+                    displayedItems[i].precomputeCachedStrings();
+                    table.repaintRow(static_cast<int>(i));
+                    break;
+                }
+            }
+            dbManager.setRating(item.id, newRating);
         }
         else if (result == 2)
         {
