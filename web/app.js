@@ -1,7 +1,7 @@
 // OWMB Landing Page - Interactive JavaScript Engine
 
 document.addEventListener('DOMContentLoaded', () => {
-  initShowcase();
+  initGallery();
   initLightbox();
   initCopyButton();
   initKeyboardNav();
@@ -9,27 +9,27 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // ==========================================================================
-// 1. Interactive Showcase State & Tab Switcher
+// 1. Gallery State & Tab Switcher
 // ==========================================================================
-const showcaseState = {
+const galleryState = {
   currentIndex: 0,
   slides: [],
   tabs: [],
   total: 0
 };
 
-function initShowcase() {
-  showcaseState.tabs = Array.from(document.querySelectorAll('.tab-btn'));
-  showcaseState.slides = Array.from(document.querySelectorAll('.showcase-slide'));
-  showcaseState.total = showcaseState.slides.length;
+function initGallery() {
+  galleryState.tabs = Array.from(document.querySelectorAll('.tab-btn'));
+  galleryState.slides = Array.from(document.querySelectorAll('.gallery-slide'));
+  galleryState.total = galleryState.slides.length;
 
-  if (!showcaseState.tabs.length || !showcaseState.slides.length) return;
+  if (!galleryState.tabs.length || !galleryState.slides.length) return;
 
   // Tab click listeners
-  showcaseState.tabs.forEach((tab, index) => {
+  galleryState.tabs.forEach((tab, index) => {
     tab.addEventListener('click', (e) => {
       e.preventDefault();
-      goToShowcaseSlide(index);
+      goToSlide(index);
     });
   });
 
@@ -40,48 +40,48 @@ function initShowcase() {
   if (prevBtn) {
     prevBtn.addEventListener('click', (e) => {
       e.preventDefault();
-      const newIndex = (showcaseState.currentIndex - 1 + showcaseState.total) % showcaseState.total;
-      goToShowcaseSlide(newIndex);
+      const newIndex = (galleryState.currentIndex - 1 + galleryState.total) % galleryState.total;
+      goToSlide(newIndex);
     });
   }
 
   if (nextBtn) {
     nextBtn.addEventListener('click', (e) => {
       e.preventDefault();
-      const newIndex = (showcaseState.currentIndex + 1) % showcaseState.total;
-      goToShowcaseSlide(newIndex);
+      const newIndex = (galleryState.currentIndex + 1) % galleryState.total;
+      goToSlide(newIndex);
     });
   }
 }
 
-function goToShowcaseSlide(index) {
-  if (index < 0 || index >= showcaseState.total) return;
+function goToSlide(index) {
+  if (index < 0 || index >= galleryState.total) return;
 
-  showcaseState.currentIndex = index;
+  galleryState.currentIndex = index;
 
-  // Update tab active states
-  showcaseState.tabs.forEach((tab, i) => {
+  // Update tabs
+  galleryState.tabs.forEach((tab, i) => {
     const isActive = i === index;
     tab.classList.toggle('active', isActive);
     tab.setAttribute('aria-selected', isActive ? 'true' : 'false');
   });
 
   // Auto-scroll active tab into view horizontally on smaller screens
-  if (showcaseState.tabs[index]) {
-    showcaseState.tabs[index].scrollIntoView({
+  if (galleryState.tabs[index]) {
+    galleryState.tabs[index].scrollIntoView({
       behavior: 'smooth',
       inline: 'center',
       block: 'nearest'
     });
   }
 
-  // Update slide display
-  showcaseState.slides.forEach((slide, i) => {
+  // Update slides
+  galleryState.slides.forEach((slide, i) => {
     slide.classList.toggle('active', i === index);
   });
 
   // Update captions & counter
-  const activeSlide = showcaseState.slides[index];
+  const activeSlide = galleryState.slides[index];
   if (activeSlide) {
     const title = activeSlide.getAttribute('data-title') || 'OWMB View';
     const desc = activeSlide.getAttribute('data-desc') || '';
@@ -92,10 +92,10 @@ function goToShowcaseSlide(index) {
 
     if (captionTitleEl) captionTitleEl.textContent = title;
     if (captionTextEl) captionTextEl.textContent = desc;
-    if (counterEl) counterEl.textContent = `${index + 1} / ${showcaseState.total}`;
+    if (counterEl) counterEl.textContent = `${index + 1} / ${galleryState.total}`;
   }
 
-  // Update Lightbox if currently open
+  // Update Lightbox if open
   if (lightboxState.isOpen) {
     updateLightboxContent(index);
   }
@@ -122,7 +122,7 @@ function initLightbox() {
   if (openFullscreenBtn) {
     openFullscreenBtn.addEventListener('click', (e) => {
       e.preventDefault();
-      openLightbox(showcaseState.currentIndex);
+      openLightbox(galleryState.currentIndex);
     });
   }
 
@@ -141,16 +141,16 @@ function initLightbox() {
   if (prevBtn) {
     prevBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      const newIndex = (showcaseState.currentIndex - 1 + showcaseState.total) % showcaseState.total;
-      goToShowcaseSlide(newIndex);
+      const newIndex = (galleryState.currentIndex - 1 + galleryState.total) % galleryState.total;
+      goToSlide(newIndex);
     });
   }
 
   if (nextBtn) {
     nextBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      const newIndex = (showcaseState.currentIndex + 1) % showcaseState.total;
-      goToShowcaseSlide(newIndex);
+      const newIndex = (galleryState.currentIndex + 1) % galleryState.total;
+      goToSlide(newIndex);
     });
   }
 }
@@ -164,7 +164,7 @@ function openLightbox(index) {
   modal.setAttribute('aria-hidden', 'false');
   document.body.style.overflow = 'hidden';
 
-  goToShowcaseSlide(index);
+  goToSlide(index);
   updateLightboxContent(index);
 }
 
@@ -179,10 +179,10 @@ function closeLightbox() {
 }
 
 function updateLightboxContent(index) {
-  const activeSlide = showcaseState.slides[index];
+  const activeSlide = galleryState.slides[index];
   if (!activeSlide) return;
 
-  const imgEl = activeSlide.querySelector('.showcase-img');
+  const imgEl = activeSlide.querySelector('.gallery-img');
   const lightboxImg = document.getElementById('lightboxImg');
   const lightboxTitle = document.getElementById('lightboxTitle');
   const lightboxCaption = document.getElementById('lightboxCaption');
@@ -195,7 +195,7 @@ function updateLightboxContent(index) {
   const title = activeSlide.getAttribute('data-title') || 'OWMB View';
   const desc = activeSlide.getAttribute('data-desc') || '';
 
-  if (lightboxTitle) lightboxTitle.textContent = `${title} (${index + 1} / ${showcaseState.total})`;
+  if (lightboxTitle) lightboxTitle.textContent = `${title} (${index + 1} / ${galleryState.total})`;
   if (lightboxCaption) lightboxCaption.textContent = desc;
 }
 
@@ -207,11 +207,11 @@ function initKeyboardNav() {
     if (e.key === 'Escape' && lightboxState.isOpen) {
       closeLightbox();
     } else if (e.key === 'ArrowLeft') {
-      const newIndex = (showcaseState.currentIndex - 1 + showcaseState.total) % showcaseState.total;
-      goToShowcaseSlide(newIndex);
+      const newIndex = (galleryState.currentIndex - 1 + galleryState.total) % galleryState.total;
+      goToSlide(newIndex);
     } else if (e.key === 'ArrowRight') {
-      const newIndex = (showcaseState.currentIndex + 1) % showcaseState.total;
-      goToShowcaseSlide(newIndex);
+      const newIndex = (galleryState.currentIndex + 1) % galleryState.total;
+      goToSlide(newIndex);
     }
   });
 }
@@ -220,7 +220,7 @@ function initKeyboardNav() {
 // 4. Touch Swipe Support for Mobile & Tablets
 // ==========================================================================
 function initTouchSwipe() {
-  const container = document.querySelector('.showcase-viewport');
+  const container = document.querySelector('.gallery-viewport');
   if (!container) return;
 
   let touchStartX = 0;
@@ -240,12 +240,12 @@ function initTouchSwipe() {
     if (Math.abs(diff) > 45) {
       if (diff < 0) {
         // Swipe Left -> Next Slide
-        const newIndex = (showcaseState.currentIndex + 1) % showcaseState.total;
-        goToShowcaseSlide(newIndex);
+        const newIndex = (galleryState.currentIndex + 1) % galleryState.total;
+        goToSlide(newIndex);
       } else {
         // Swipe Right -> Prev Slide
-        const newIndex = (showcaseState.currentIndex - 1 + showcaseState.total) % showcaseState.total;
-        goToShowcaseSlide(newIndex);
+        const newIndex = (galleryState.currentIndex - 1 + galleryState.total) % galleryState.total;
+        goToSlide(newIndex);
       }
     }
   }
