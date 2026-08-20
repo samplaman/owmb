@@ -208,7 +208,7 @@ a {
 
 /* Hero Section */
 .hero-section {
-  padding: 4.5rem 0 4rem 0;
+  padding: 4.5rem 0 6rem 0;
   text-align: center;
   position: relative;
   background: radial-gradient(circle at 50% 12%, rgba(0, 210, 196, 0.08) 0%, transparent 60%);
@@ -268,68 +268,14 @@ a {
   gap: 1rem;
   justify-content: center;
   flex-wrap: wrap;
-  margin-bottom: 3rem;
+  margin-bottom: 3.5rem;
 }
 
-/* Main Hero Image: Clean, Borderless, Transparent */
-.hero-image-container {
+/* Hero Showcase Container */
+.hero-showcase-container {
+  width: 100%;
   max-width: 1040px;
   margin: 0 auto;
-  background: transparent;
-  border: none;
-  outline: none;
-}
-
-.hero-img {
-  width: 100%;
-  height: auto;
-  display: block;
-  border-radius: var(--radius-lg);
-  border: none;
-  outline: none;
-  background: transparent;
-}
-
-/* Section Header */
-.section-header {
-  margin-bottom: 2.5rem;
-}
-
-.section-header.center {
-  text-align: center;
-}
-
-.section-tag {
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  color: var(--accent-cyan);
-  text-transform: uppercase;
-  letter-spacing: 1.5px;
-  margin-bottom: 0.5rem;
-  display: block;
-  font-weight: 600;
-}
-
-.section-title {
-  font-size: 2.25rem;
-  font-weight: 700;
-  letter-spacing: -0.75px;
-  color: var(--text-main);
-  margin-bottom: 0.75rem;
-}
-
-.section-desc {
-  color: var(--text-muted);
-  font-size: 1.05rem;
-  max-width: 620px;
-  margin: 0 auto;
-}
-
-/* Interactive Screenshot Gallery Section */
-.gallery-section {
-  padding: 5rem 0 6rem 0;
-  background: transparent;
-  border: none;
 }
 
 /* Gallery Tabs Navigation - Hidden Scrollbar */
@@ -393,7 +339,7 @@ a {
   box-shadow: 0 2px 12px rgba(0, 210, 196, 0.35);
 }
 
-/* Gallery Viewport: Crucial display:none on non-active slides */
+/* Gallery Viewport: 100% Transparent, No Artificial Black Shadows or Borders */
 .gallery-viewport {
   width: 100%;
   max-width: 1040px;
@@ -566,6 +512,40 @@ a {
   background: var(--bg-secondary);
   border-top: 1px solid var(--border-color);
   border-bottom: 1px solid var(--border-color);
+}
+
+.section-header {
+  margin-bottom: 2.5rem;
+}
+
+.section-header.center {
+  text-align: center;
+}
+
+.section-tag {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--accent-cyan);
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  margin-bottom: 0.5rem;
+  display: block;
+  font-weight: 600;
+}
+
+.section-title {
+  font-size: 2.25rem;
+  font-weight: 700;
+  letter-spacing: -0.75px;
+  color: var(--text-main);
+  margin-bottom: 0.75rem;
+}
+
+.section-desc {
+  color: var(--text-muted);
+  font-size: 1.05rem;
+  max-width: 620px;
+  margin: 0 auto;
 }
 
 .features-grid {
