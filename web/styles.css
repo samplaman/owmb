@@ -271,24 +271,23 @@ a {
   margin-bottom: 2.5rem;
 }
 
-/* Main Hero Image: Transparent Background, No Harsh Box Shadows */
+/* Main Hero Image: Clean, Borderless, Transparent */
 .hero-image-container {
   max-width: 1040px;
   margin: 0 auto;
   background: transparent;
   border: none;
   outline: none;
-  box-shadow: none;
 }
 
 .hero-img {
   width: 100%;
   height: auto;
   display: block;
+  border-radius: var(--radius-lg);
   border: none;
   outline: none;
   background: transparent;
-  box-shadow: none; /* Lets the screenshot's native transparent window shadow render smoothly */
 }
 
 /* Section Header */
@@ -329,9 +328,8 @@ a {
 /* Interactive Screenshot Gallery Section */
 .gallery-section {
   padding: 4.5rem 0 6rem 0;
-  background: var(--bg-secondary);
-  border-top: 1px solid var(--border-color);
-  border-bottom: 1px solid var(--border-color);
+  background: transparent;
+  border: none;
 }
 
 /* Gallery Tabs Navigation - Hidden Scrollbar */
@@ -339,15 +337,15 @@ a {
   width: 100%;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
-  scrollbar-width: none; /* Firefox */
-  -ms-overflow-style: none; /* IE/Edge */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
   padding: 0.25rem 0 1rem 0;
   margin-bottom: 0.75rem;
   text-align: center;
 }
 
 .gallery-tabs-container::-webkit-scrollbar {
-  display: none; /* Chrome, Safari, Opera */
+  display: none;
 }
 
 .gallery-tabs {
@@ -395,7 +393,7 @@ a {
   box-shadow: 0 2px 12px rgba(0, 210, 196, 0.35);
 }
 
-/* Gallery Viewport: Transparent Background, No Artificial Black Shadows */
+/* Gallery Viewport: 100% Transparent, No Artificial Black Shadows or Borders */
 .gallery-viewport {
   width: 100%;
   max-width: 1040px;
@@ -403,7 +401,6 @@ a {
   background: transparent;
   border: none;
   outline: none;
-  box-shadow: none;
   position: relative;
 }
 
@@ -411,6 +408,8 @@ a {
   display: none;
   width: 100%;
   background: transparent;
+  border: none;
+  outline: none;
 }
 
 .gallery-slide.active {
@@ -429,7 +428,6 @@ a {
   background: transparent;
   border: none;
   outline: none;
-  box-shadow: none;
   user-select: none;
 }
 
@@ -437,10 +435,10 @@ a {
   width: 100%;
   height: auto;
   display: block;
-  background: transparent;
+  border-radius: var(--radius-lg);
   border: none;
   outline: none;
-  box-shadow: none; /* Native transparent window shadow blends naturally */
+  background: transparent;
   transition: transform 0.25s ease;
 }
 
@@ -480,7 +478,7 @@ a {
   background: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
-  margin-top: 1rem;
+  margin-top: 1.25rem;
   padding: 1.25rem 1.5rem;
   display: flex;
   align-items: center;
@@ -565,7 +563,9 @@ a {
 /* Features Grid */
 .features-section {
   padding: 6rem 0;
-  background: var(--bg-primary);
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-color);
 }
 
 .features-grid {
@@ -620,8 +620,7 @@ a {
 /* Download Section */
 .download-section {
   padding: 6rem 0;
-  background: var(--bg-secondary);
-  border-top: 1px solid var(--border-color);
+  background: var(--bg-primary);
 }
 
 .download-grid {
@@ -722,7 +721,7 @@ a {
 /* Developer Build Section */
 .build-section {
   padding: 6rem 0;
-  background: var(--bg-primary);
+  background: var(--bg-secondary);
   border-top: 1px solid var(--border-color);
 }
 
@@ -875,10 +874,10 @@ a {
   width: auto;
   height: auto;
   object-fit: contain;
+  border-radius: var(--radius-md);
   border: none;
   outline: none;
   background: transparent;
-  box-shadow: none;
 }
 
 .lightbox-footer {
