@@ -3,16 +3,26 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>OWMB — OpenWav Media Browser</title>
-  <meta name="description" content="OWMB is an open-source, high-performance audio plugin (VST3, Standalone) and sample manager built with JUCE 8 & C++17.">
+  <title>OWMB — OpenWav Media Browser | High-Performance Audio Plugin & Sample Manager</title>
+  <meta name="description" content="OWMB is an open-source, high-performance audio plugin (VST3, AU, Standalone) and sample manager featuring a 3D sample cloud visualizer, acoustic analysis, live audio recording, keyzone mapping, and online soundbanks. Built with JUCE 8 & C++17.">
+  <meta name="keywords" content="OWMB, OpenWav Media Browser, sample manager, audio plugin, VST3, AU, JUCE 8, C++17, audio sampler, 3D sample cloud, soundbank, audio analysis">
+  
+  <!-- Open Graph / Meta -->
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="OWMB — OpenWav Media Browser">
+  <meta property="og:description" content="High-performance audio plugin & standalone sample manager built with JUCE 8 & C++17.">
+  <meta property="og:image" content="screenshots/02-3d-cloud.png">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="owmbico.png">
   
   <!-- Google Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   
   <!-- FontAwesome Icons -->
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
   
   <link rel="stylesheet" href="styles.css">
 </head>
@@ -21,12 +31,12 @@
   <!-- Navigation Bar -->
   <header class="navbar">
     <div class="container nav-container">
-      <a href="#" class="brand-logo">
+      <a href="#" class="brand-logo" aria-label="OWMB Home">
         <img src="owmblogo.png" alt="OWMB Logo" class="nav-logo-img">
         <span class="version-badge">v1.0</span>
       </a>
 
-      <nav class="nav-links">
+      <nav class="nav-links" aria-label="Main Navigation">
         <a href="#features">Features</a>
         <a href="#screenshots">Screenshots</a>
         <a href="#download">Download</a>
@@ -46,31 +56,36 @@
   <section class="hero-section">
     <div class="container">
       <div class="hero-badge">
-        Built with JUCE 8 & C++17
+        <span class="badge-dot"></span>
+        Built with JUCE 8 &amp; C++17 • Universal Binary
       </div>
       
       <h1 class="hero-title">
-        OpenWav Media Browser
+        Next-Generation Audio Plugin &amp; Sample Manager
       </h1>
       
       <p class="hero-subtitle">
-        High-performance audio plugin & standalone sample manager featuring an interactive 3D sample cloud constellation, multi-tag filtering, and DAW drag-and-drop.
+        <strong>OWMB (OpenWav Media Browser)</strong> combines an interactive 3D sample cloud constellation, live audio recorder &amp; 9-band EQ, timbral acoustic analysis, keyzone multi-sampling, 32-pad performance, and online soundbanks into one blistering-fast pro-audio tool.
       </p>
 
       <div class="hero-cta">
-        <a href="#download" class="btn btn-primary">
+        <a href="#download" class="btn btn-primary btn-lg">
           <i class="fa-solid fa-download"></i>
-          <span>Download Binaries</span>
+          <span>Download Free</span>
         </a>
-        <a href="https://github.com/samplaman/owmb" target="_blank" rel="noopener" class="btn btn-outline">
+        <a href="#screenshots" class="btn btn-glass btn-lg">
+          <i class="fa-solid fa-images"></i>
+          <span>Explore Gallery</span>
+        </a>
+        <a href="https://github.com/samplaman/owmb" target="_blank" rel="noopener" class="btn btn-outline btn-lg">
           <i class="fa-brands fa-github"></i>
           <span>Source Code</span>
         </a>
       </div>
 
       <!-- Hero Screenshot -->
-      <div class="hero-image-wrapper">
-        <img src="ss1.png" alt="OWMB Sample Cloud Screenshot" class="hero-img">
+      <div class="hero-image-container">
+        <img src="screenshots/02-3d-cloud.png" alt="OWMB 3D Sample Cloud Constellation" class="hero-img">
       </div>
 
     </div>
@@ -79,9 +94,10 @@
   <!-- Features Grid Section -->
   <section id="features" class="features-section">
     <div class="container">
-      <div class="section-header">
-        <span class="section-tag">Overview</span>
-        <h2 class="section-title">Key Capabilities</h2>
+      <div class="section-header center">
+        <span class="section-tag">Capabilities</span>
+        <h2 class="section-title">Built for Producers, Composers &amp; Sound Designers</h2>
+        <p class="section-desc">Designed from the ground up for zero latency, massive sample libraries, and creative sound exploration.</p>
       </div>
 
       <div class="features-grid">
@@ -91,75 +107,195 @@
             <i class="fa-solid fa-diagram-project"></i>
           </div>
           <h3>3D Sample Constellation</h3>
-          <p>Visually browse WAV files in 3D space organized by acoustic timbre and spectral similarity.</p>
+          <p>Explore your entire audio library arranged organically in 3D space grouped by timbral similarity, pitch, and acoustic texture.</p>
         </div>
 
         <div class="feature-card">
           <div class="feature-icon">
-            <i class="fa-solid fa-gauge-high"></i>
+            <i class="fa-solid fa-bolt"></i>
           </div>
-          <h3>Async Scanner</h3>
-          <p>Scans large sample libraries in seconds asynchronously without blocking audio playback.</p>
+          <h3>Ultra-Fast Async Scanner</h3>
+          <p>Scan tens of thousands of WAV, MP3, FLAC, OGG, and AIFF files in seconds without interrupting playback or audio rendering.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">
+            <i class="fa-solid fa-cloud-arrow-down"></i>
+          </div>
+          <h3>Pixeldrain Cloud Soundbanks</h3>
+          <p>Directly browse and download curated online soundbanks and royalty-free sample collections straight into your library.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">
+            <i class="fa-solid fa-microphone-lines"></i>
+          </div>
+          <h3>Audio Recorder &amp; 9-Band EQ</h3>
+          <p>Capture live inputs or DAW routing with count-in, auto-normalization, live oscilloscope, and an interactive 9-band parametric EQ.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">
+            <i class="fa-solid fa-chart-simple"></i>
+          </div>
+          <h3>Timbral Acoustic Analysis</h3>
+          <p>Real-time spider radar chart detailing Zero Crossing Rate, Crest Factor, High Frequency Ratio, and Spectral Decay parameters.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">
+            <i class="fa-solid fa-keyboard"></i>
+          </div>
+          <h3>Keyzone Multisample Mapping</h3>
+          <p>Chromatic multi-sample zone mapping with pitch tracking, root note detection, velocity layering, and instant performance loading.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">
+            <i class="fa-solid fa-grip"></i>
+          </div>
+          <h3>32-Pad Performance Grid</h3>
+          <p>Live MPC-style performance grid with multi-bank triggering, auto-fill, randomization, and envelope ADSR controls.</p>
         </div>
 
         <div class="feature-card">
           <div class="feature-icon">
             <i class="fa-solid fa-hand-pointer"></i>
           </div>
-          <h3>DAW Drag & Drop</h3>
-          <p>Drag samples directly into Ableton Live, FL Studio, Logic Pro, Reaper, or Bitwig.</p>
+          <h3>DAW Drag &amp; Drop</h3>
+          <p>Drag samples or sliced transients straight from OWMB into Ableton Live, FL Studio, Logic Pro, Reaper, Cubase, or Bitwig.</p>
         </div>
 
         <div class="feature-card">
           <div class="feature-icon">
             <i class="fa-solid fa-tags"></i>
           </div>
-          <h3>Tag-Based Filtering</h3>
-          <p>Multi-tag searching, folder path management, auto-inference, and hidden file filtering.</p>
-        </div>
-
-        <div class="feature-card">
-          <div class="feature-icon">
-            <i class="fa-solid fa-sliders"></i>
-          </div>
-          <h3>VST3 & Standalone</h3>
-          <p>Use OWMB as a 64-bit DAW plugin or as a standalone desktop application.</p>
-        </div>
-
-        <div class="feature-card">
-          <div class="feature-icon">
-            <i class="fa-solid fa-code"></i>
-          </div>
-          <h3>JUCE 8 Engine</h3>
-          <p>Written in modern C++17 with JUCE 8 for low latency, cross-platform performance.</p>
+          <h3>Multi-Tag Smart Filtering</h3>
+          <p>Filter effortlessly with multi-tag Boolean AND/OR queries, rating stars, format pills, BPM tags, and custom tag libraries.</p>
         </div>
 
       </div>
     </div>
   </section>
 
-  <!-- Plugin Screenshots Showcase Section -->
+  <!-- Interactive Screenshots Showcase Section -->
   <section id="screenshots" class="screenshots-section">
     <div class="container">
       <div class="section-header center">
-        <span class="section-tag">Interface</span>
-        <h2 class="section-title">Application Screenshots</h2>
+        <span class="section-tag">Interface Showcase</span>
+        <h2 class="section-title">Explore Every Workspace View</h2>
+        <p class="section-desc">Click through each dedicated mode to see OWMB's sleek dark studio interface in action.</p>
       </div>
 
       <!-- Screenshot Tabs Navigation -->
-      <div class="screenshot-tabs">
-        <button class="tab-btn active" data-target="screenshot-1">
-          3D Sample Cloud (ss1)
-        </button>
-        <button class="tab-btn" data-target="screenshot-2">
-          Library & Tag Filtering (ss2)
-        </button>
+      <div class="screenshot-tabs-wrapper">
+        <div class="screenshot-tabs" role="tablist" aria-label="OWMB Interface Views">
+          <button class="tab-btn active" data-target="screenshot-list" role="tab" aria-selected="true">
+            <i class="fa-solid fa-list"></i>
+            <span>List Browser</span>
+          </button>
+          <button class="tab-btn" data-target="screenshot-cloud" role="tab" aria-selected="false">
+            <i class="fa-solid fa-cloud"></i>
+            <span>3D Sample Cloud</span>
+          </button>
+          <button class="tab-btn" data-target="screenshot-library" role="tab" aria-selected="false">
+            <i class="fa-solid fa-book-open"></i>
+            <span>Cloud Library</span>
+          </button>
+          <button class="tab-btn" data-target="screenshot-record" role="tab" aria-selected="false">
+            <i class="fa-solid fa-microphone-lines"></i>
+            <span>Audio Recorder &amp; EQ</span>
+          </button>
+          <button class="tab-btn" data-target="screenshot-analysis" role="tab" aria-selected="false">
+            <i class="fa-solid fa-chart-simple"></i>
+            <span>Acoustic Analysis</span>
+          </button>
+          <button class="tab-btn" data-target="screenshot-map" role="tab" aria-selected="false">
+            <i class="fa-solid fa-keyboard"></i>
+            <span>Sample Map</span>
+          </button>
+          <button class="tab-btn" data-target="screenshot-perf" role="tab" aria-selected="false">
+            <i class="fa-solid fa-grip"></i>
+            <span>Performance Grid</span>
+          </button>
+        </div>
       </div>
 
-      <!-- Screenshot Display -->
-      <div class="screenshots-display-container">
-        <img id="screenshot-1" src="ss1.png" alt="OWMB 3D Sample Cloud Screenshot" class="showcase-img active">
-        <img id="screenshot-2" src="ss2.png" alt="OWMB Tag Filtering Screenshot" class="showcase-img">
+      <!-- Screenshot Display Container -->
+      <div class="gallery-container">
+        <div class="gallery-slides-wrapper">
+          <!-- 1. List Browser -->
+          <div id="screenshot-list" class="gallery-slide active" data-title="List Browser &amp; Waveform Editor" data-desc="Multi-column file browser with instant tag filtering, waveform zoom, transient auto-slicing, and transport controls.">
+            <div class="image-zoom-trigger" title="Click to view full resolution">
+              <img src="screenshots/01-list-browser.png" alt="OWMB List Browser &amp; Waveform View" class="gallery-img">
+              <div class="zoom-overlay"><i class="fa-solid fa-magnifying-glass-plus"></i> Click to Zoom Fullscreen</div>
+            </div>
+          </div>
+
+          <!-- 2. 3D Cloud -->
+          <div id="screenshot-cloud" class="gallery-slide" data-title="3D Sample Cloud Constellation" data-desc="Interactive 3D spatial constellation clustering samples organically by acoustic timbre and spectral similarity.">
+            <div class="image-zoom-trigger" title="Click to view full resolution">
+              <img src="screenshots/02-3d-cloud.png" alt="OWMB 3D Sample Cloud Constellation" class="gallery-img">
+              <div class="zoom-overlay"><i class="fa-solid fa-magnifying-glass-plus"></i> Click to Zoom Fullscreen</div>
+            </div>
+          </div>
+
+          <!-- 3. Cloud Library -->
+          <div id="screenshot-library" class="gallery-slide" data-title="Online Library &amp; Soundbank Integration" data-desc="Pixeldrain cloud integration for browsing remote soundbank directories and downloading assets straight to your local library.">
+            <div class="image-zoom-trigger" title="Click to view full resolution">
+              <img src="screenshots/03-online-library.png" alt="OWMB Pixeldrain Online Library View" class="gallery-img">
+              <div class="zoom-overlay"><i class="fa-solid fa-magnifying-glass-plus"></i> Click to Zoom Fullscreen</div>
+            </div>
+          </div>
+
+          <!-- 4. Audio Recorder & EQ -->
+          <div id="screenshot-record" class="gallery-slide" data-title="Audio Sample Recorder &amp; Parametric EQ" data-desc="Real-time stereo sample recording with count-in, low-cut filter, live oscilloscope, and a full 9-band parametric equalizer.">
+            <div class="image-zoom-trigger" title="Click to view full resolution">
+              <img src="screenshots/04-recorder-eq.png" alt="OWMB Audio Sample Recorder &amp; Parametric EQ" class="gallery-img">
+              <div class="zoom-overlay"><i class="fa-solid fa-magnifying-glass-plus"></i> Click to Zoom Fullscreen</div>
+            </div>
+          </div>
+
+          <!-- 5. Acoustic Analysis -->
+          <div id="screenshot-analysis" class="gallery-slide" data-title="Acoustic Fingerprint &amp; Timbral Analysis" data-desc="Real-time timbral radar chart displaying Zero Crossing Rate (ZCR), Crest factor, HF ratio, and Decay envelope metrics.">
+            <div class="image-zoom-trigger" title="Click to view full resolution">
+              <img src="screenshots/05-acoustic-analysis.png" alt="OWMB Acoustic Fingerprint &amp; Timbral Analysis" class="gallery-img">
+              <div class="zoom-overlay"><i class="fa-solid fa-magnifying-glass-plus"></i> Click to Zoom Fullscreen</div>
+            </div>
+          </div>
+
+          <!-- 6. Sample Map -->
+          <div id="screenshot-map" class="gallery-slide" data-title="Keyzone &amp; Multi-Sample Mapping" data-desc="Chromatic keyzone mapping with auto-pitch, velocity layering, pitch tracking, and direct transfer into performance mode.">
+            <div class="image-zoom-trigger" title="Click to view full resolution">
+              <img src="screenshots/06-sample-map.png" alt="OWMB Keyzone &amp; Multisample Map" class="gallery-img">
+              <div class="zoom-overlay"><i class="fa-solid fa-magnifying-glass-plus"></i> Click to Zoom Fullscreen</div>
+            </div>
+          </div>
+
+          <!-- 7. Performance Grid -->
+          <div id="screenshot-perf" class="gallery-slide" data-title="32-Pad Performance Mode" data-desc="Performance pad grid with multi-bank support (Bank A-D), auto-fill, randomization, and ADSR envelope shaping.">
+            <div class="image-zoom-trigger" title="Click to view full resolution">
+              <img src="screenshots/07-performance-grid.png" alt="OWMB 32-Pad Performance Grid" class="gallery-img">
+              <div class="zoom-overlay"><i class="fa-solid fa-magnifying-glass-plus"></i> Click to Zoom Fullscreen</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Slide Description & Navigation Banner -->
+        <div class="gallery-caption-banner">
+          <div class="caption-info">
+            <span class="caption-title" id="galleryCaptionTitle">List Browser &amp; Waveform Editor</span>
+            <p class="caption-text" id="galleryCaptionText">Multi-column file browser with instant tag filtering, waveform zoom, transient auto-slicing, and transport controls.</p>
+          </div>
+          <div class="gallery-controls">
+            <button id="prevSlideBtn" class="gallery-nav-btn" aria-label="Previous Slide"><i class="fa-solid fa-chevron-left"></i></button>
+            <span id="galleryCounter" class="gallery-counter">1 / 7</span>
+            <button id="nextSlideBtn" class="gallery-nav-btn" aria-label="Next Slide"><i class="fa-solid fa-chevron-right"></i></button>
+            <button id="openLightboxBtn" class="gallery-fullscreen-btn" title="View Fullscreen" aria-label="View Fullscreen">
+              <i class="fa-solid fa-expand"></i> <span>Fullscreen</span>
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   </section>
@@ -169,7 +305,8 @@
     <div class="container">
       <div class="section-header center">
         <span class="section-tag">Releases</span>
-        <h2 class="section-title">Pre-Built Downloads</h2>
+        <h2 class="section-title">Pre-Built Downloads &amp; Installers</h2>
+        <p class="section-desc">Download ready-to-run signed packages for your platform or grab the source code from GitHub.</p>
       </div>
 
       <div class="download-grid">
@@ -179,32 +316,37 @@
           <div class="os-icon">
             <i class="fa-brands fa-windows"></i>
           </div>
-          <h3>Windows 11</h3>
-          <span class="card-subtitle">VST3 Plugin & Standalone .exe</span>
+          <h3>Windows 11 / 10</h3>
+          <span class="card-subtitle">VST3 Plugin &amp; Standalone .exe</span>
           <ul class="spec-list">
-            <li><i class="fa-solid fa-check"></i> 64-bit VST3 Plugin</li>
-            <li><i class="fa-solid fa-check"></i> Standalone Executable</li>
+            <li><i class="fa-solid fa-check"></i> 64-bit VST3 Plugin for all DAWs</li>
+            <li><i class="fa-solid fa-check"></i> Standalone Application (.exe)</li>
+            <li><i class="fa-solid fa-check"></i> InnoSetup / MSIX Installer Available</li>
             <li><i class="fa-solid fa-check"></i> <code>OWMB-Windows-11-x64.zip</code></li>
           </ul>
           <a href="https://github.com/samplaman/owmb/releases" target="_blank" rel="noopener" class="btn btn-primary btn-full">
-            Download Windows x64
+            <i class="fa-solid fa-download"></i>
+            <span>Download Windows x64</span>
           </a>
         </div>
 
         <!-- macOS Universal Card -->
-        <div class="download-card">
+        <div class="download-card featured-card">
+          <div class="card-badge">Universal</div>
           <div class="os-icon">
             <i class="fa-brands fa-apple"></i>
           </div>
           <h3>macOS Universal</h3>
-          <span class="card-subtitle">Apple Silicon & Intel</span>
+          <span class="card-subtitle">Apple Silicon (M1/M2/M3/M4) &amp; Intel</span>
           <ul class="spec-list">
-            <li><i class="fa-solid fa-check"></i> Universal VST3 & AU</li>
-            <li><i class="fa-solid fa-check"></i> Standalone Application</li>
+            <li><i class="fa-solid fa-check"></i> Universal VST3 &amp; AU Component</li>
+            <li><i class="fa-solid fa-check"></i> Standalone Application (.app)</li>
+            <li><i class="fa-solid fa-check"></i> Apple Developer Signed &amp; Notarized</li>
             <li><i class="fa-solid fa-check"></i> <code>OWMB-macOS-Universal-Installer.pkg</code></li>
           </ul>
           <a href="https://github.com/samplaman/owmb/releases" target="_blank" rel="noopener" class="btn btn-primary btn-full">
-            Download macOS Universal (.pkg / .dmg)
+            <i class="fa-solid fa-download"></i>
+            <span>Download macOS (.pkg / .dmg)</span>
           </a>
         </div>
 
@@ -213,15 +355,17 @@
           <div class="os-icon">
             <i class="fa-brands fa-linux"></i>
           </div>
-          <h3>Linux</h3>
-          <span class="card-subtitle">VST3 Plugin & Standalone Binary</span>
+          <h3>Linux Distros</h3>
+          <span class="card-subtitle">VST3 Plugin &amp; Standalone x86_64</span>
           <ul class="spec-list">
             <li><i class="fa-solid fa-check"></i> Linux 64-bit Native VST3</li>
             <li><i class="fa-solid fa-check"></i> Standalone Executable</li>
+            <li><i class="fa-solid fa-check"></i> Ubuntu, Debian, Fedora, Arch</li>
             <li><i class="fa-solid fa-check"></i> <code>OWMB-Linux-Distros-x64.tar.gz</code></li>
           </ul>
           <a href="https://github.com/samplaman/owmb/releases" target="_blank" rel="noopener" class="btn btn-glass btn-full">
-            Download Linux x64
+            <i class="fa-solid fa-download"></i>
+            <span>Download Linux x64</span>
           </a>
         </div>
 
@@ -232,41 +376,76 @@
   <!-- Developer Build Section -->
   <section id="build" class="build-section">
     <div class="container">
-      <div class="section-header">
-        <span class="section-tag">Build</span>
-        <h2 class="section-title">Build from Source</h2>
+      <div class="section-header center">
+        <span class="section-tag">Open Source</span>
+        <h2 class="section-title">Build from Source with CMake</h2>
+        <p class="section-desc">OWMB fetches JUCE 8 automatically via CMake FetchContent. Fast, clean, and cross-platform.</p>
       </div>
 
       <div class="terminal-card">
         <div class="terminal-header">
-          <span class="terminal-title">CMake Terminal Commands</span>
-          <button id="copyTerminalBtn" class="copy-btn">Copy</button>
+          <div class="terminal-title">
+            <i class="fa-solid fa-terminal"></i> Terminal Commands
+          </div>
+          <button id="copyTerminalBtn" class="copy-btn" aria-label="Copy Terminal Commands">
+            <i class="fa-regular fa-copy"></i> Copy
+          </button>
         </div>
         <div class="terminal-body">
-<pre><code>git clone https://github.com/samplaman/owmb.git
+<pre><code id="terminalSnippet">git clone https://github.com/samplaman/owmb.git
 cd owmb
 cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build --config Release</code></pre>
+cmake --build build --config Release -j 4</code></pre>
         </div>
       </div>
     </div>
   </section>
 
+  <!-- Lightbox Modal for Fullscreen Screenshot Inspection -->
+  <div id="lightboxModal" class="lightbox-modal" aria-hidden="true" role="dialog">
+    <div class="lightbox-backdrop" id="lightboxBackdrop"></div>
+    <div class="lightbox-container">
+      <div class="lightbox-header">
+        <span class="lightbox-title" id="lightboxTitle">OWMB View</span>
+        <button id="lightboxCloseBtn" class="lightbox-close-btn" aria-label="Close Fullscreen View">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+      <div class="lightbox-image-wrapper">
+        <img id="lightboxImg" src="" alt="Fullscreen OWMB Screenshot" class="lightbox-img">
+      </div>
+      <div class="lightbox-footer">
+        <span id="lightboxCaption">View Details</span>
+        <div class="lightbox-nav-buttons">
+          <button id="lightboxPrevBtn" class="lightbox-arrow-btn" aria-label="Previous image"><i class="fa-solid fa-chevron-left"></i></button>
+          <button id="lightboxNextBtn" class="lightbox-arrow-btn" aria-label="Next image"><i class="fa-solid fa-chevron-right"></i></button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Footer -->
   <footer class="footer">
     <div class="container footer-container">
       <div class="footer-brand">
-        <a href="#" class="brand-logo">
+        <a href="#" class="brand-logo" aria-label="OWMB Home">
           <img src="owmblogo.png" alt="OWMB Logo" class="nav-logo-img">
         </a>
-        <p>OpenWav Media Browser — Open-source sample manager built with JUCE 8 & C++17.</p>
+        <p>OpenWav Media Browser — High-performance audio plugin &amp; sample manager engineered with JUCE 8 &amp; C++17.</p>
       </div>
 
       <div class="footer-links">
         <div class="link-col">
-          <h4>Links</h4>
-          <a href="https://github.com/samplaman/owmb" target="_blank" rel="noopener">GitHub Repository</a>
-          <a href="https://github.com/samplaman/owmb/releases" target="_blank" rel="noopener">Releases & Downloads</a>
+          <h4>Navigation</h4>
+          <a href="#features">Features</a>
+          <a href="#screenshots">Screenshots</a>
+          <a href="#download">Downloads</a>
+          <a href="#build">Build Guide</a>
+        </div>
+        <div class="link-col">
+          <h4>GitHub</h4>
+          <a href="https://github.com/samplaman/owmb" target="_blank" rel="noopener">Repository</a>
+          <a href="https://github.com/samplaman/owmb/releases" target="_blank" rel="noopener">Releases</a>
           <a href="https://github.com/samplaman/owmb/issues" target="_blank" rel="noopener">Issue Tracker</a>
         </div>
       </div>
@@ -274,7 +453,8 @@ cmake --build build --config Release</code></pre>
 
     <div class="footer-bottom">
       <div class="container footer-bottom-content">
-        <p>&copy; OWMB Sample Manager. Created by <a href="https://github.com/samplaman" target="_blank" rel="noopener">samplaman</a>.</p>
+        <p>&copy; OWMB OpenWav Media Browser. Created by <a href="https://github.com/samplaman" target="_blank" rel="noopener">samplaman</a>.</p>
+        <p>Licensed under MIT / JUCE 8 terms.</p>
       </div>
     </div>
   </footer>
