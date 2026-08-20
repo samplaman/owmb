@@ -23,15 +23,17 @@ function initGallery() {
   galleryState.slides = Array.from(document.querySelectorAll('.gallery-slide'));
   galleryState.total = galleryState.slides.length;
 
-  if (!galleryState.tabs.length || !galleryState.slides.length) return;
+  if (!galleryState.slides.length) return;
 
-  // Tab click listeners
-  galleryState.tabs.forEach((tab, index) => {
-    tab.addEventListener('click', (e) => {
-      e.preventDefault();
-      goToSlide(index);
+  // Tab click listeners (if tabs are present)
+  if (galleryState.tabs.length) {
+    galleryState.tabs.forEach((tab, index) => {
+      tab.addEventListener('click', (e) => {
+        e.preventDefault();
+        goToSlide(index);
+      });
     });
-  });
+  }
 
   // Next / Previous buttons
   const prevBtn = document.getElementById('prevSlideBtn');
@@ -59,20 +61,21 @@ function goToSlide(index) {
 
   galleryState.currentIndex = index;
 
-  // Update tabs
-  galleryState.tabs.forEach((tab, i) => {
-    const isActive = i === index;
-    tab.classList.toggle('active', isActive);
-    tab.setAttribute('aria-selected', isActive ? 'true' : 'false');
-  });
-
-  // Auto-scroll active tab into view horizontally on smaller screens
-  if (galleryState.tabs[index]) {
-    galleryState.tabs[index].scrollIntoView({
-      behavior: 'smooth',
-      inline: 'center',
-      block: 'nearest'
+  // Update tabs if present
+  if (galleryState.tabs.length) {
+    galleryState.tabs.forEach((tab, i) => {
+      const isActive = i === index;
+      tab.classList.toggle('active', isActive);
+      tab.setAttribute('aria-selected', isActive ? 'true' : 'false');
     });
+
+    if (galleryState.tabs[index]) {
+      galleryState.tabs[index].scrollIntoView({
+        behavior: 'smooth',
+        inline: 'center',
+        block: 'nearest'
+      });
+    }
   }
 
   // Update slides
