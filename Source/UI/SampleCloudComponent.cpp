@@ -536,6 +536,22 @@ void SampleCloudComponent::flyToCluster(int clusterIdx) {
   overlayComponent.repaint();
 }
 
+float SampleCloudComponent::getEffectiveWidth() const {
+#if JUCE_MAC
+  if (overlayComponent.isOnDesktop())
+    return static_cast<float>(overlayComponent.getWidth());
+#endif
+  return static_cast<float>(getWidth());
+}
+
+float SampleCloudComponent::getEffectiveHeight() const {
+#if JUCE_MAC
+  if (overlayComponent.isOnDesktop())
+    return static_cast<float>(overlayComponent.getHeight());
+#endif
+  return static_cast<float>(getHeight());
+}
+
 void SampleCloudComponent::paint(juce::Graphics &g) {
 #if !JUCE_MAC
   paintOverlay(g);
@@ -551,24 +567,24 @@ void SampleCloudComponent::paintOverlay(juce::Graphics &g) {
     return;
   }
 
+  const float effW = getEffectiveWidth();
+  const float effH = getEffectiveHeight();
+  const float halfW = effW * 0.5f;
+  const float halfH = effH * 0.5f;
+
 #if !JUCE_MAC
   // Draw clean high-contrast vignette on OpenGL fallback (on macOS, Metal draws this on GPU)
   bool isLightMode = OpenWavLookAndFeel::bgCard.getBrightness() > 0.5f;
-  float w = (float)getWidth();
-  float h = (float)getHeight();
   juce::Colour centerCol = isLightMode ? juce::Colours::transparentWhite
                                        : juce::Colours::transparentBlack;
   juce::Colour edgeCol = isLightMode
                              ? OpenWavLookAndFeel::bgDark.withAlpha(0.85f)
                              : juce::Colours::black.withAlpha(0.85f);
-  juce::ColourGradient vignette(centerCol, w * 0.5f, h * 0.5f, edgeCol, 0.0f,
+  juce::ColourGradient vignette(centerCol, effW * 0.5f, effH * 0.5f, edgeCol, 0.0f,
                                 0.0f, true);
   g.setGradientFill(vignette);
-  g.fillRect(getLocalBounds());
+  g.fillRect(0, 0, juce::roundToInt(effW), juce::roundToInt(effH));
 #endif
-
-  const float halfW = getWidth() * 0.5f;
-  const float halfH = getHeight() * 0.5f;
 
   // 1. Selected Node Starlight Beacon
   if (selectedNodeIndex >= 0 && selectedNodeIndex < (int)nodes.size()) {
@@ -608,7 +624,7 @@ void SampleCloudComponent::paintOverlay(juce::Graphics &g) {
     }
   }
 
-  // 3. Sci-Fi Holographic Targeting Reticle & Floating HUD Card on Hover
+  // 2. Sci-Fi Holographic Targeting Reticle & Floating HUD Card on Hover
   if (hoveredNodeIndex >= 0 && hoveredNodeIndex < (int)nodes.size()) {
     if (lastViewProjectionMatrix.mat[15] != 0.0f) {
       auto &n = nodes[hoveredNodeIndex];
@@ -667,11 +683,11 @@ void SampleCloudComponent::paintOverlay(juce::Graphics &g) {
           float cardX = sx + r + 20.0f;
           float cardY = sy - cardH * 0.5f;
 
-          if (cardX + cardW > getWidth() - 15.0f) {
+          if (cardX + cardW > effW - 15.0f) {
             cardX = sx - r - 20.0f - cardW;
           }
           if (cardY < 15.0f) cardY = 15.0f;
-          if (cardY + cardH > getHeight() - 50.0f) cardY = getHeight() - 50.0f - cardH;
+          if (cardY + cardH > effH - 50.0f) cardY = effH - 50.0f - cardH;
 
           // Holographic connecting laser line
           float attachX = (cardX > sx) ? cardX : (cardX + cardW);
@@ -721,33 +737,36 @@ void SampleCloudComponent::paintOverlay(juce::Graphics &g) {
     }
   }
 
-  // 4. Bottom Category Legend Dock
+  // 3. Bottom Category Legend Dock (Horizontally and Vertically aligned with Control Buttons)
   if (!clusters.empty()) {
     juce::Font legendFont(12.0f, juce::Font::bold);
     g.setFont(legendFont);
 
-    float padding = 16.0f;
-    float circleSize = 10.0f;
-    float startY = getHeight() - 32.0f;
+    float itemH = 32.0f;
+    float itemY = effH - 51.0f;
     float x = 20.0f + legendScrollOffset;
 
     g.saveState();
-    g.reduceClipRegion(0, getHeight() - 42, getWidth() - 310, 42);
+    g.reduceClipRegion(15, juce::roundToInt(effH - 55.0f), juce::roundToInt(effW - 280.0f), 40);
 
     for (const auto &cluster : clusters) {
       juce::String fullTag = getFullCategoryName(cluster.tag).toUpperCase();
       float textW = legendFont.getStringWidthFloat(fullTag);
+      float itemW = 14.0f + textW + 14.0f;
 
-      // Category color dot
-      g.setColour(cluster.colour.withAlpha(revealAlpha));
-      g.fillEllipse(x, startY + 10.0f - circleSize * 0.5f, circleSize, circleSize);
+      juce::Rectangle<float> itemBounds(x, itemY, itemW, itemH);
+
+      // Clean pill background & border
+      g.setColour(OpenWavLookAndFeel::bgCard.withAlpha(0.85f * revealAlpha));
+      g.fillRoundedRectangle(itemBounds, 6.0f);
+      g.setColour(OpenWavLookAndFeel::borderColour.withAlpha(0.7f * revealAlpha));
+      g.drawRoundedRectangle(itemBounds, 6.0f, 1.0f);
 
       // Category label text
-      g.setColour(OpenWavLookAndFeel::textPrimary.withAlpha(0.85f * revealAlpha));
-      g.drawText(fullTag, x + circleSize + 6.0f, startY, textW, 20.0f,
-                 juce::Justification::centredLeft);
+      g.setColour(OpenWavLookAndFeel::textPrimary.withAlpha(0.92f * revealAlpha));
+      g.drawText(fullTag, itemBounds, juce::Justification::centred);
 
-      x += circleSize + 6.0f + textW + padding;
+      x += itemW + 8.0f;
     }
 
     g.restoreState();
@@ -796,7 +815,9 @@ void SampleCloudComponent::timerCallback() {
   reticleAngle += 0.035f;
   pulseRadar = std::fmod(pulseRadar + 0.035f, 1.0f);
 
-  float aspect = (getHeight() > 0) ? (getWidth() / (float)getHeight()) : 1.0f;
+  float effW = getEffectiveWidth();
+  float effH = getEffectiveHeight();
+  float aspect = (effH > 0.0f) ? (effW / effH) : 1.0f;
   auto projectionMatrix = juce::Matrix3D<float>::fromFrustum(
       -aspect * 0.1f, aspect * 0.1f, -0.1f, 0.1f, 0.2f, 1000000.0f);
 
@@ -836,8 +857,8 @@ void SampleCloudComponent::timerCallback() {
     u.fogColor[0] = bgCard.getFloatRed();
     u.fogColor[1] = bgCard.getFloatGreen();
     u.fogColor[2] = bgCard.getFloatBlue();
-    u.viewportWidth = (float)getWidth();
-    u.viewportHeight = (float)getHeight();
+    u.viewportWidth = effW;
+    u.viewportHeight = effH;
 
     metalView->setClearColor(bgCard.getFloatRed(), bgCard.getFloatGreen(), bgCard.getFloatBlue(), 1.0f);
     metalView->updateUniforms(u);
@@ -884,7 +905,9 @@ void SampleCloudComponent::refreshView() {
     }
   }
   if (metalView && isShowing()) {
-    float aspect = (getHeight() > 0) ? (getWidth() / (float)getHeight()) : 1.0f;
+    float effW = getEffectiveWidth();
+    float effH = getEffectiveHeight();
+    float aspect = (effH > 0.0f) ? (effW / effH) : 1.0f;
     auto projectionMatrix = juce::Matrix3D<float>::fromFrustum(
         -aspect * 0.1f, aspect * 0.1f, -0.1f, 0.1f, 0.2f, 1000000.0f);
 
@@ -922,8 +945,8 @@ void SampleCloudComponent::refreshView() {
     u.fogColor[0] = bgCard.getFloatRed();
     u.fogColor[1] = bgCard.getFloatGreen();
     u.fogColor[2] = bgCard.getFloatBlue();
-    u.viewportWidth = (float)getWidth();
-    u.viewportHeight = (float)getHeight();
+    u.viewportWidth = effW;
+    u.viewportHeight = effH;
 
     metalView->setClearColor(bgCard.getFloatRed(), bgCard.getFloatGreen(), bgCard.getFloatBlue(), 1.0f);
     metalView->updateUniforms(u);
@@ -954,21 +977,25 @@ void SampleCloudComponent::mouseDown(const juce::MouseEvent &e) {
   if (e.mods.isRightButtonDown() || e.mods.isPopupMenu())
     return;
 
+  float effW = getEffectiveWidth();
+  float effH = getEffectiveHeight();
+
   // Check if a bottom category in legend was clicked
-  if (e.y > getHeight() - 42 && e.x < getWidth() - 310) {
+  if (e.y >= effH - 55.0f && e.y <= effH - 15.0f && e.x < effW - 275.0f) {
     float x = 20.0f + legendScrollOffset;
-    float startY = getHeight() - 32.0f;
+    float itemY = effH - 51.0f;
+    float itemH = 32.0f;
     juce::Font legendFont(12.0f, juce::Font::bold);
     for (size_t i = 0; i < clusters.size(); ++i) {
       juce::String fullTag = getFullCategoryName(clusters[i].tag).toUpperCase();
       float textW = legendFont.getStringWidthFloat(fullTag);
-      float itemW = 10.0f + 6.0f + textW + 16.0f;
-      juce::Rectangle<float> itemBounds(x, startY, itemW, 25.0f);
+      float itemW = 14.0f + textW + 14.0f;
+      juce::Rectangle<float> itemBounds(x, itemY, itemW, itemH);
       if (itemBounds.contains(e.position)) {
         flyToCluster(static_cast<int>(i));
         return;
       }
-      x += itemW;
+      x += itemW + 8.0f;
     }
   }
 
@@ -1040,8 +1067,8 @@ void SampleCloudComponent::mouseMove(const juce::MouseEvent &e) {
   if (nodes.empty() || lastViewProjectionMatrix.mat[15] == 0.0f)
     return;
 
-  const float halfW = getWidth() * 0.5f;
-  const float halfH = getHeight() * 0.5f;
+  const float halfW = getEffectiveWidth() * 0.5f;
+  const float halfH = getEffectiveHeight() * 0.5f;
   const float mx = e.position.x;
   const float my = e.position.y;
 
@@ -1101,17 +1128,20 @@ void SampleCloudComponent::mouseMove(const juce::MouseEvent &e) {
 
 void SampleCloudComponent::mouseWheelMove(
     const juce::MouseEvent &e, const juce::MouseWheelDetails &wheel) {
-  if (e.y > getHeight() - 40 && e.x < getWidth() - 320) {
+  float effW = getEffectiveWidth();
+  float effH = getEffectiveHeight();
+
+  if (e.y >= effH - 55.0f && e.y <= effH - 15.0f && e.x < effW - 275.0f) {
     float totalWidth = 0.0f;
     juce::Font legendFont(12.0f, juce::Font::bold);
     for (const auto &cluster : clusters) {
       juce::String fullTag = getFullCategoryName(cluster.tag).toUpperCase();
-      totalWidth += 10.0f + 6.0f +
+      totalWidth += 14.0f +
                     legendFont.getStringWidthFloat(fullTag) +
-                    16.0f;
+                    14.0f + 8.0f;
     }
 
-    float viewWidth = getWidth() - 310.0f - 20.0f;
+    float viewWidth = effW - 275.0f - 20.0f;
     float maxScroll = 0.0f;
     if (totalWidth > viewWidth)
       maxScroll = totalWidth - viewWidth;

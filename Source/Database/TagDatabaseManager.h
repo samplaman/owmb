@@ -54,7 +54,8 @@ public:
     void removeMissingFiles();
     void clearLibrary();
     void clearAllData();
-    void reTagAllItems();
+    void reTagAllItems(std::function<void(float progress, int processed, int total)> progressCallback = nullptr,
+                       std::function<void()> completionCallback = nullptr);
 
     // Listener Notifications
     void notifyIndexUpdated();

@@ -70,6 +70,8 @@ private:
 
     bool favoritesOnly { false };
     bool matchAll { false };
+    bool isAutoTagging { false };
+    double autoTagProgress { 0.0 };
 
     juce::ListenerList<TagPanelListener> listeners;
 };

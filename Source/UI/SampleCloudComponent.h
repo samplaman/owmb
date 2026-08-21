@@ -77,6 +77,8 @@ public:
     void setItems(const std::vector<MediaItem>& items);
     void selectItemById(const juce::String& itemId);
     void refreshView();
+    float getEffectiveWidth() const;
+    float getEffectiveHeight() const;
     
     void paint(juce::Graphics& g) override;
     void paintOverlay(juce::Graphics& g);

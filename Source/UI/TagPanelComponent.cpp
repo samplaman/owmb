@@ -91,7 +91,30 @@ TagPanelComponent::TagPanelComponent(TagDatabaseManager& db)
     addAndMakeVisible(addCustomTagButton);
 
     autoTagButton.onClick = [this] {
-        dbManager.reTagAllItems();
+        if (isAutoTagging)
+            return;
+
+        isAutoTagging = true;
+        autoTagProgress = 0.0;
+        autoTagButton.setEnabled(false);
+        autoTagButton.setButtonText("Tagging (0%)...");
+        repaint();
+
+        dbManager.reTagAllItems(
+            [this](float progress, int processed, int total) {
+                autoTagProgress = static_cast<double>(progress);
+                int pct = juce::roundToInt(progress * 100.0f);
+                autoTagButton.setButtonText("Tagging (" + juce::String(pct) + "%)...");
+                repaint();
+            },
+            [this] {
+                isAutoTagging = false;
+                autoTagProgress = 1.0;
+                autoTagButton.setEnabled(true);
+                autoTagButton.setButtonText("Auto-Tag Library");
+                refreshTags();
+                repaint();
+            });
     };
     addAndMakeVisible(autoTagButton);
 
@@ -118,6 +141,23 @@ void TagPanelComponent::paint(juce::Graphics& g)
     g.fillAll(OpenWavLookAndFeel::bgCard);
     g.setColour(OpenWavLookAndFeel::borderColour);
     g.drawRect(getLocalBounds().removeFromRight(1));
+
+    if (isAutoTagging)
+    {
+        auto b = autoTagButton.getBounds().toFloat();
+        float barH = 3.5f;
+        auto barBg = juce::Rectangle<float>(b.getX() + 2.0f, b.getBottom() - barH - 2.0f, b.getWidth() - 4.0f, barH);
+        auto barFill = juce::Rectangle<float>(b.getX() + 2.0f, b.getBottom() - barH - 2.0f,
+                                              std::max(2.0f, (b.getWidth() - 4.0f) * static_cast<float>(juce::jlimit(0.0, 1.0, autoTagProgress))), barH);
+
+        g.setColour(OpenWavLookAndFeel::bgDark.withAlpha(0.6f));
+        g.fillRoundedRectangle(barBg, 1.5f);
+
+        juce::ColourGradient grad(OpenWavLookAndFeel::accentCyan, barFill.getTopLeft(),
+                                  juce::Colour(0xff00e5ff), barFill.getBottomRight(), false);
+        g.setGradientFill(grad);
+        g.fillRoundedRectangle(barFill, 1.5f);
+    }
 }
 
 void TagPanelComponent::lookAndFeelChanged()

@@ -228,6 +228,13 @@ BpmControlComponent::BpmControlComponent(AudioEngine& engine)
     addAndMakeVisible(tempoLabel);
 
     setBpm(audioEngine.getEffectiveBpm(), false);
+    lookAndFeelChanged();
+}
+
+void BpmControlComponent::lookAndFeelChanged()
+{
+    tempoLabel.setColour(juce::Label::textColourId, isSynced ? OpenWavLookAndFeel::accentCyan : OpenWavLookAndFeel::textPrimary);
+    repaint();
 }
 
 void BpmControlComponent::setBpm(double bpm, bool sendNotification)
@@ -244,8 +251,7 @@ void BpmControlComponent::setHostSynced(bool synced)
     isSynced = synced;
     minusBtn.setEnabled(!synced);
     plusBtn.setEnabled(!synced);
-    tempoLabel.setColour(juce::Label::textColourId, synced ? OpenWavLookAndFeel::accentCyan : OpenWavLookAndFeel::textPrimary);
-    repaint();
+    lookAndFeelChanged();
 }
 
 void BpmControlComponent::labelTextChanged(juce::Label* label)
@@ -992,6 +998,8 @@ void WaveformTransportComponent::lookAndFeelChanged()
 {
     timeLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::accentCyan);
     sampleNameLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::textPrimary);
+    bpmControl.lookAndFeelChanged();
+    repaint();
 }
 
 void WaveformTransportComponent::transportSyncChanged(bool isSynced)

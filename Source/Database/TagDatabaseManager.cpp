@@ -352,46 +352,92 @@ void TagDatabaseManager::clearAllData()
     notifyTagsUpdated();
 }
 
-void TagDatabaseManager::reTagAllItems()
+void TagDatabaseManager::reTagAllItems(std::function<void(float progress, int processed, int total)> progressCallback,
+                                       std::function<void()> completionCallback)
 {
-    {
-        const juce::ScopedLock sl(lock);
-        for (auto& kv : itemsMap)
+    juce::Thread::launch([this, progressCallback, completionCallback]() {
+        std::vector<juce::String> itemIds;
         {
-            auto& item = kv.second;
-
-            // Preserve user-added custom tags (tags that don't start with '#')
-            std::set<juce::String> customUserTags;
-            for (const auto& t : item.tags)
+            const juce::ScopedLock sl(lock);
+            itemIds.reserve(itemsMap.size());
+            for (const auto& kv : itemsMap)
             {
-                if (!t.startsWith("#"))
-                    customUserTags.insert(t);
+                itemIds.push_back(kv.first);
             }
-
-            // Extract BPM from filename if not already set or if explicitly specified in filename
-            double fnBpm = extractBpmFromFilename(juce::File(item.filePath).getFileNameWithoutExtension());
-            if (fnBpm > 0.0)
-            {
-                item.bpm = fnBpm;
-            }
-
-            item.tags = inferTagsFromPath(item.filePath, item.durationSeconds, item.numChannels);
-            for (const auto& ct : customUserTags)
-            {
-                item.tags.insert(ct);
-            }
-
-            if (item.bpm >= 40.0 && item.bpm <= 260.0)
-            {
-                item.tags.insert("#" + juce::String(juce::roundToInt(item.bpm)) + "BPM");
-            }
-
-            sanitizeTags(item.tags);
         }
-    }
-    notifyIndexUpdated();
-    notifyTagsUpdated();
-    saveToFile();
+
+        const size_t total = itemIds.size();
+        if (total == 0)
+        {
+            juce::MessageManager::callAsync([completionCallback] {
+                if (completionCallback)
+                    completionCallback();
+            });
+            return;
+        }
+
+        size_t processed = 0;
+        const size_t chunkSize = 50;
+
+        for (size_t i = 0; i < total; ++i)
+        {
+            {
+                const juce::ScopedLock sl(lock);
+                auto it = itemsMap.find(itemIds[i]);
+                if (it != itemsMap.end())
+                {
+                    auto& item = it->second;
+
+                    // Preserve user-added custom tags (tags that don't start with '#')
+                    std::set<juce::String> customUserTags;
+                    for (const auto& t : item.tags)
+                    {
+                        if (!t.startsWith("#"))
+                            customUserTags.insert(t);
+                    }
+
+                    // Extract BPM from filename if not already set or if explicitly specified in filename
+                    double fnBpm = extractBpmFromFilename(juce::File(item.filePath).getFileNameWithoutExtension());
+                    if (fnBpm > 0.0)
+                    {
+                        item.bpm = fnBpm;
+                    }
+
+                    item.tags = inferTagsFromPath(item.filePath, item.durationSeconds, item.numChannels);
+                    for (const auto& ct : customUserTags)
+                    {
+                        item.tags.insert(ct);
+                    }
+
+                    if (item.bpm >= 40.0 && item.bpm <= 260.0)
+                    {
+                        item.tags.insert("#" + juce::String(juce::roundToInt(item.bpm)) + "BPM");
+                    }
+
+                    sanitizeTags(item.tags);
+                    item.precomputeCachedStrings();
+                }
+            }
+
+            processed++;
+
+            if (progressCallback && (processed % chunkSize == 0 || processed == total))
+            {
+                float prog = static_cast<float>(processed) / static_cast<float>(total);
+                juce::MessageManager::callAsync([progressCallback, prog, processed, total] {
+                    progressCallback(prog, static_cast<int>(processed), static_cast<int>(total));
+                });
+            }
+        }
+
+        juce::MessageManager::callAsync([this, completionCallback] {
+            notifyIndexUpdated();
+            notifyTagsUpdated();
+            saveToFile();
+            if (completionCallback)
+                completionCallback();
+        });
+    });
 }
 
 static juce::String extractKeyFromFilename(const juce::String& text);
@@ -1169,12 +1215,13 @@ void TagDatabaseManager::loadFromFile()
 void TagDatabaseManager::saveToFile()
 {
     auto* rootObj = new juce::DynamicObject();
-
     juce::Array<juce::var> itemsArray;
     juce::Array<juce::var> foldersArray;
+    juce::File dbFile;
 
     {
         const juce::ScopedLock sl(lock);
+        itemsArray.ensureStorageAllocated(static_cast<int>(itemsMap.size()));
         for (const auto& kv : itemsMap)
         {
             itemsArray.add(kv.second.toVar());
@@ -1188,14 +1235,24 @@ void TagDatabaseManager::saveToFile()
         rootObj->setProperty("isDarkMode", darkThemeActive);
         rootObj->setProperty("primaryColourHex", primaryColourHex);
         rootObj->setProperty("uiScale", static_cast<double>(uiScale));
+        dbFile = getDatabaseFile();
     }
 
     rootObj->setProperty("items", itemsArray);
     rootObj->setProperty("scanFolders", foldersArray);
 
-    auto jsonString = juce::JSON::toString(juce::var(rootObj), false);
-    auto dbFile = getDatabaseFile();
-    dbFile.replaceWithText(jsonString);
+    juce::Thread::launch([rootVar = juce::var(rootObj), dbFile]() {
+        auto jsonString = juce::JSON::toString(rootVar, false);
+        auto tempFile = dbFile.getSiblingFile(dbFile.getFileName() + ".tmp");
+        if (tempFile.replaceWithText(jsonString))
+        {
+            tempFile.moveFileTo(dbFile);
+        }
+        else
+        {
+            dbFile.replaceWithText(jsonString);
+        }
+    });
 }
 
 void TagDatabaseManager::addListener(TagDatabaseListener* listener)
