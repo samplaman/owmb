@@ -267,19 +267,8 @@ void OpenWavAudioProcessorEditor::resized() {
 
   if (mode == ViewMode::Cloud) {
     sampleCloud.setVisible(true);
-    float s = audioProcessor.getDatabaseManager().getUiScale();
-    if (s <= 0.01f) s = 1.0f;
-    if (std::abs(s - 1.0f) > 0.001f) {
-      sampleCloud.setTransform(juce::AffineTransform::scale(1.0f / s));
-      sampleCloud.setBounds(juce::Rectangle<int>(
-          area.getX(),
-          area.getY(),
-          juce::roundToInt(area.getWidth() * s),
-          juce::roundToInt(area.getHeight() * s)));
-    } else {
-      sampleCloud.setTransform(juce::AffineTransform());
-      sampleCloud.setBounds(area);
-    }
+    sampleCloud.setTransform(juce::AffineTransform());
+    sampleCloud.setBounds(area);
   } else if (mode == ViewMode::Libraries) {
     librariesComponent.setVisible(true);
     librariesComponent.setBounds(area);
