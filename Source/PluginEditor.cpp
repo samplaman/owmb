@@ -88,6 +88,11 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
   setSize(1920, 1080);
   setWantsKeyboardFocus(true);
 
+  float savedScale = audioProcessor.getDatabaseManager().getUiScale();
+  if (savedScale >= 0.70f && savedScale <= 2.0f && std::abs(savedScale - 1.0f) > 0.001f) {
+    setScaleFactor(savedScale);
+  }
+
   addChildComponent(similarityGraphPopup);
   sampleTable.onSimilarityHover = [this](const MediaItem *item,
                                          const MediaItem *target,
@@ -262,7 +267,19 @@ void OpenWavAudioProcessorEditor::resized() {
 
   if (mode == ViewMode::Cloud) {
     sampleCloud.setVisible(true);
-    sampleCloud.setBounds(area);
+    float s = audioProcessor.getDatabaseManager().getUiScale();
+    if (s <= 0.01f) s = 1.0f;
+    if (std::abs(s - 1.0f) > 0.001f) {
+      sampleCloud.setTransform(juce::AffineTransform::scale(1.0f / s));
+      sampleCloud.setBounds(juce::Rectangle<int>(
+          area.getX(),
+          area.getY(),
+          juce::roundToInt(area.getWidth() * s),
+          juce::roundToInt(area.getHeight() * s)));
+    } else {
+      sampleCloud.setTransform(juce::AffineTransform());
+      sampleCloud.setBounds(area);
+    }
   } else if (mode == ViewMode::Libraries) {
     librariesComponent.setVisible(true);
     librariesComponent.setBounds(area);
@@ -386,6 +403,26 @@ void OpenWavAudioProcessorEditor::settingsRequested() {
 
   menu.addSubMenu("Primary UI Colour", colourSubMenu);
 
+  juce::PopupMenu scaleSubMenu;
+  float curScale = audioProcessor.getDatabaseManager().getUiScale();
+  int curPercent = juce::roundToInt(curScale * 100.0f);
+
+  scaleSubMenu.addItem(30, "Increase Size (+10%)    [Cmd/Ctrl +]", curScale < 2.0f);
+  scaleSubMenu.addItem(31, "Decrease Size (-10%)    [Cmd/Ctrl -]", curScale > 0.70f);
+  scaleSubMenu.addItem(32, "Reset Size (100%)       [Cmd/Ctrl 0]", std::abs(curScale - 1.0f) >= 0.02f);
+  scaleSubMenu.addSeparator();
+
+  scaleSubMenu.addItem(40, "80% (Compact)", true, curPercent == 80);
+  scaleSubMenu.addItem(41, "90%", true, curPercent == 90);
+  scaleSubMenu.addItem(42, "100% (Default)", true, curPercent == 100);
+  scaleSubMenu.addItem(43, "110%", true, curPercent == 110);
+  scaleSubMenu.addItem(44, "125% (Large)", true, curPercent == 125);
+  scaleSubMenu.addItem(45, "150% (Extra Large)", true, curPercent == 150);
+  scaleSubMenu.addItem(46, "175%", true, curPercent == 175);
+  scaleSubMenu.addItem(47, "200% (Maximum)", true, curPercent == 200);
+
+  menu.addSubMenu("Text & UI Scaling", scaleSubMenu);
+
   menu.addSeparator();
   menu.addItem(3, "Audio / MIDI Device Settings...");
   menu.addSeparator();
@@ -475,6 +512,39 @@ void OpenWavAudioProcessorEditor::settingsRequested() {
       new ColourPickerWindow(selector, [applyColour](juce::Colour newC) {
         applyColour(newC, newC.toString());
       });
+    } else if (result == 30) // Increase (+10%)
+    {
+      applyUiScale(audioProcessor.getDatabaseManager().getUiScale() + 0.10f);
+    } else if (result == 31) // Decrease (-10%)
+    {
+      applyUiScale(audioProcessor.getDatabaseManager().getUiScale() - 0.10f);
+    } else if (result == 32) // Reset (100%)
+    {
+      applyUiScale(1.0f);
+    } else if (result == 40) // 80%
+    {
+      applyUiScale(0.80f);
+    } else if (result == 41) // 90%
+    {
+      applyUiScale(0.90f);
+    } else if (result == 42) // 100%
+    {
+      applyUiScale(1.00f);
+    } else if (result == 43) // 110%
+    {
+      applyUiScale(1.10f);
+    } else if (result == 44) // 125%
+    {
+      applyUiScale(1.25f);
+    } else if (result == 45) // 150%
+    {
+      applyUiScale(1.50f);
+    } else if (result == 46) // 175%
+    {
+      applyUiScale(1.75f);
+    } else if (result == 47) // 200%
+    {
+      applyUiScale(2.00f);
     } else if (result == 3) // Audio/MIDI Settings
     {
       if (juce::JUCEApplicationBase::isStandaloneApp()) {
@@ -712,7 +782,32 @@ void OpenWavAudioProcessorEditor::updateNativeTitleBarTheme() {
 #endif
 }
 
+void OpenWavAudioProcessorEditor::applyUiScale(float scale) {
+  float clampedScale = juce::jlimit(0.70f, 2.0f, scale);
+  clampedScale = std::round(clampedScale * 100.0f) / 100.0f;
+  audioProcessor.getDatabaseManager().setUiScale(clampedScale);
+  setScaleFactor(clampedScale);
+  resized();
+  sampleCloud.refreshView();
+  repaint();
+}
+
 bool OpenWavAudioProcessorEditor::keyPressed(const juce::KeyPress &key) {
+  if (key.getModifiers().isCommandDown()) {
+    if (key.getTextCharacter() == '+' || key.getTextCharacter() == '=' || key.getKeyCode() == juce::KeyPress::numberPadAdd) {
+      applyUiScale(audioProcessor.getDatabaseManager().getUiScale() + 0.10f);
+      return true;
+    }
+    if (key.getTextCharacter() == '-' || key.getTextCharacter() == '_' || key.getKeyCode() == juce::KeyPress::numberPadSubtract) {
+      applyUiScale(audioProcessor.getDatabaseManager().getUiScale() - 0.10f);
+      return true;
+    }
+    if (key.getTextCharacter() == '0' || key.getKeyCode() == '0' || key.getKeyCode() == juce::KeyPress::numberPad0) {
+      applyUiScale(1.0f);
+      return true;
+    }
+  }
+
   if (key.getTextCharacter() == 'l' || key.getTextCharacter() == 'L') {
     waveformTransport.toggleLoop();
     return true;

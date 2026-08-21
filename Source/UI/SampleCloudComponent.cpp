@@ -870,6 +870,68 @@ void SampleCloudComponent::resetZoomAndPan() {
   repaint();
 }
 
+void SampleCloudComponent::refreshView() {
+  resized();
+  overlayComponent.resized();
+  overlayComponent.repaint();
+  repaint();
+
+#if JUCE_MAC
+  if (auto *peer = getPeer()) {
+    if (overlayComponent.isOnDesktop()) {
+      overlayComponent.setBounds(peer->getAreaCoveredBy(*this));
+      overlayComponent.toFront(false);
+    }
+  }
+  if (metalView && isShowing()) {
+    float aspect = (getHeight() > 0) ? (getWidth() / (float)getHeight()) : 1.0f;
+    auto projectionMatrix = juce::Matrix3D<float>::fromFrustum(
+        -aspect * 0.1f, aspect * 0.1f, -0.1f, 0.1f, 0.2f, 1000000.0f);
+
+    juce::Matrix3D<float> viewMatrix;
+    viewMatrix = viewMatrix *
+                 juce::Matrix3D<float>::fromTranslation(
+                     {0.0f, 0.0f, -cameraDistance / zoomScale});
+
+    float crx = std::cos(rotX), srx = std::sin(rotX);
+    float cry = std::cos(rotY), sry = std::sin(rotY);
+    juce::Matrix3D<float> rotMatrix(cry, 0.0f, sry, 0.0f, srx * sry, crx,
+                                    -srx * cry, 0.0f, -crx * sry, srx, crx * cry,
+                                    0.0f, 0.0f, 0.0f, 0.0f, 1.0f);
+    viewMatrix = viewMatrix * rotMatrix;
+
+    viewMatrix = viewMatrix *
+                 juce::Matrix3D<float>::fromTranslation(
+                     {-cameraCenterPos.x, -cameraCenterPos.y, -cameraCenterPos.z});
+
+    lastViewProjectionMatrix = projectionMatrix * viewMatrix;
+
+    MetalUniforms u {};
+    memcpy(u.projectionMatrix, projectionMatrix.mat, sizeof(u.projectionMatrix));
+    memcpy(u.viewMatrix, viewMatrix.mat, sizeof(u.viewMatrix));
+    u.revealAlpha = revealAlpha;
+    u.time = static_cast<float>(juce::Time::getMillisecondCounterHiRes() / 1000.0);
+    bool isLightMode = OpenWavLookAndFeel::bgCard.getBrightness() > 0.5f;
+    u.isLightMode = isLightMode ? 1.0f : 0.0f;
+    float scale = 1.0f;
+    if (auto *peer = getPeer())
+      scale = (float)peer->getPlatformScaleFactor();
+    if (scale < 1.0f) scale = 1.0f;
+    u.scaleFactor = scale;
+    auto bgCard = OpenWavLookAndFeel::bgCard;
+    u.fogColor[0] = bgCard.getFloatRed();
+    u.fogColor[1] = bgCard.getFloatGreen();
+    u.fogColor[2] = bgCard.getFloatBlue();
+    u.viewportWidth = (float)getWidth();
+    u.viewportHeight = (float)getHeight();
+
+    metalView->setClearColor(bgCard.getFloatRed(), bgCard.getFloatGreen(), bgCard.getFloatBlue(), 1.0f);
+    metalView->updateUniforms(u);
+    metalView->renderNow();
+  }
+#endif
+}
+
 void SampleCloudComponent::resized() {
   auto b = getLocalBounds();
 #if JUCE_MAC

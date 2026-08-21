@@ -74,6 +74,7 @@ public:
     bool keyPressed(const juce::KeyPress& key) override;
     
     void setTagPanelWidth(int newWidth);
+    void applyUiScale(float scale);
 
 private:
     void triggerFilterUpdate();

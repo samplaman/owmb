@@ -91,6 +91,8 @@ public:
     void setDarkMode(bool useDark);
     juce::String getPrimaryColourHex() const;
     void setPrimaryColourHex(const juce::String& hex);
+    float getUiScale() const;
+    void setUiScale(float scale);
 
 private:
     void timerCallback() override;
@@ -103,6 +105,7 @@ private:
     juce::String downloadFolder;
     bool darkThemeActive = false;
     juce::String primaryColourHex;
+    float uiScale = 1.0f;
     juce::ListenerList<TagDatabaseListener> listeners;
 };
 

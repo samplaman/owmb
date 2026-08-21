@@ -1157,6 +1157,13 @@ void TagDatabaseManager::loadFromFile()
 
     if (obj->hasProperty("primaryColourHex"))
         primaryColourHex = obj->getProperty("primaryColourHex").toString();
+
+    if (obj->hasProperty("uiScale"))
+    {
+        double s = obj->getProperty("uiScale");
+        if (s >= 0.70 && s <= 2.0)
+            uiScale = static_cast<float>(s);
+    }
 }
 
 void TagDatabaseManager::saveToFile()
@@ -1180,6 +1187,7 @@ void TagDatabaseManager::saveToFile()
         rootObj->setProperty("downloadFolder", downloadFolder);
         rootObj->setProperty("isDarkMode", darkThemeActive);
         rootObj->setProperty("primaryColourHex", primaryColourHex);
+        rootObj->setProperty("uiScale", static_cast<double>(uiScale));
     }
 
     rootObj->setProperty("items", itemsArray);
@@ -1333,6 +1341,21 @@ void TagDatabaseManager::setPrimaryColourHex(const juce::String& hex)
     {
         const juce::ScopedLock sl(lock);
         primaryColourHex = hex;
+    }
+    saveToFile();
+}
+
+float TagDatabaseManager::getUiScale() const
+{
+    const juce::ScopedLock sl(lock);
+    return uiScale;
+}
+
+void TagDatabaseManager::setUiScale(float scale)
+{
+    {
+        const juce::ScopedLock sl(lock);
+        uiScale = juce::jlimit(0.70f, 2.0f, scale);
     }
     saveToFile();
 }
