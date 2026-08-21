@@ -31,8 +31,19 @@ SampleTableComponent::SampleTableComponent(TagDatabaseManager& db, AudioEngine& 
     table.setRowHeight(32);
     table.setMultipleSelectionEnabled(false);
     table.setWantsKeyboardFocus(true);
+    setOpaque(true);
+    table.setOpaque(true);
+    table.setOutlineThickness(0);
+    header.setOpaque(true);
 
-    similarityBannerLabel.setFont(juce::Font(12.0f).boldened());
+    if (auto* vp = table.getViewport())
+    {
+        vp->setOpaque(true);
+        vp->setScrollBarsShown(true, false);
+        vp->setRepaintsOnMouseActivity(false);
+    }
+
+    similarityBannerLabel.setFont(badgeFont);
     similarityBannerLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::textPrimary);
     addChildComponent(similarityBannerLabel);
 
@@ -396,7 +407,7 @@ void SampleTableComponent::paintCell(juce::Graphics& g, int rowNumber, int colum
     const auto& item = displayedItems[static_cast<size_t>(rowNumber)];
     auto bounds = juce::Rectangle<int>(0, 0, width, height).reduced(6, 0);
 
-    g.setFont(juce::Font(13.0f));
+    g.setFont(cellFont);
 
     switch (columnId)
     {
@@ -419,11 +430,10 @@ void SampleTableComponent::paintCell(juce::Graphics& g, int rowNumber, int colum
         case 2: // File Name
         {
             g.setColour(rowIsSelected ? OpenWavLookAndFeel::accentCyan : OpenWavLookAndFeel::textPrimary);
-            g.setFont(rowIsSelected ? juce::Font(13.0f).boldened() : juce::Font(13.0f));
+            g.setFont(rowIsSelected ? cellBoldFont : cellFont);
 
             if (similarityTargetId.isNotEmpty() && cachedSimilarityTargetItem.id == similarityTargetId && item.id == similarityTargetId)
             {
-                juce::Font badgeFont(10.0f, juce::Font::bold);
                 juce::String badgeText = "TARGET";
                 int badgeW = badgeFont.getStringWidth(badgeText) + 10;
                 auto targetBounds = bounds.removeFromRight(badgeW).toFloat().withHeight(16.0f);
@@ -445,30 +455,52 @@ void SampleTableComponent::paintCell(juce::Graphics& g, int rowNumber, int colum
 
         case 3: // Tags Pill Badges
         {
-            int tagX = bounds.getX();
-            int tagY = bounds.getY() + 4;
-            int tagHeight = height - 8;
+            float tagX = static_cast<float>(bounds.getX());
+            float tagY = static_cast<float>(bounds.getY() + 4);
+            float tagHeight = static_cast<float>(height - 8);
 
-            juce::Font tagFont(11.0f);
             g.setFont(tagFont);
-            for (const auto& tag : item.tags)
+            if (!item.cachedTags.empty())
             {
-                int tagWidth = tagFont.getStringWidth(tag) + 12;
-                if (tagX + tagWidth > bounds.getRight()) break;
+                for (const auto& tagInfo : item.cachedTags)
+                {
+                    float tagWidth = static_cast<float>(tagInfo.width);
+                    if (tagX + tagWidth > bounds.getRight()) break;
 
-                auto pillBounds = juce::Rectangle<float>(static_cast<float>(tagX), static_cast<float>(tagY),
-                                                         static_cast<float>(tagWidth), static_cast<float>(tagHeight));
+                    auto pillBounds = juce::Rectangle<float>(tagX, tagY, tagWidth, tagHeight);
 
-                g.setColour(OpenWavLookAndFeel::bgCard);
-                g.fillRoundedRectangle(pillBounds, 4.0f);
+                    g.setColour(OpenWavLookAndFeel::bgCard);
+                    g.fillRoundedRectangle(pillBounds, 3.0f);
 
-                g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.6f));
-                g.drawRoundedRectangle(pillBounds, 4.0f, 1.0f);
+                    g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.5f));
+                    g.drawRoundedRectangle(pillBounds, 3.0f, 1.0f);
 
-                g.setColour(OpenWavLookAndFeel::textPrimary);
-                g.drawText(tag, pillBounds, juce::Justification::centred, true);
+                    g.setColour(OpenWavLookAndFeel::textPrimary);
+                    g.drawText(tagInfo.tag, pillBounds, juce::Justification::centred, true);
 
-                tagX += tagWidth + 4;
+                    tagX += tagWidth + 4.0f;
+                }
+            }
+            else
+            {
+                for (const auto& tag : item.tags)
+                {
+                    float tagWidth = static_cast<float>(tagFont.getStringWidth(tag) + 12);
+                    if (tagX + tagWidth > bounds.getRight()) break;
+
+                    auto pillBounds = juce::Rectangle<float>(tagX, tagY, tagWidth, tagHeight);
+
+                    g.setColour(OpenWavLookAndFeel::bgCard);
+                    g.fillRoundedRectangle(pillBounds, 3.0f);
+
+                    g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.5f));
+                    g.drawRoundedRectangle(pillBounds, 3.0f, 1.0f);
+
+                    g.setColour(OpenWavLookAndFeel::textPrimary);
+                    g.drawText(tag, pillBounds, juce::Justification::centred, true);
+
+                    tagX += tagWidth + 4.0f;
+                }
             }
             break;
         }

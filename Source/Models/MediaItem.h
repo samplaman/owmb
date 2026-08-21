@@ -34,13 +34,20 @@ struct MediaItem
     double decayRatio { 0.0 };       // Decay ratio
     double crestFactor { 0.0 };      // Crest factor
 
-    // Pre-computed cached strings for high-performance zero-allocation UI paint & search
+    struct CachedTag
+    {
+        juce::String tag;
+        int width { 0 };
+    };
+
+    // Pre-computed cached strings & measured tags for high-performance zero-allocation UI paint & search
     juce::String cachedFormattedDuration;
     juce::String cachedFormattedSampleRate;
     juce::String cachedUppercaseExtension;
     juce::String cachedStarRating;
     juce::String cachedLowerFileName;
     juce::String cachedLowerFilePath;
+    std::vector<CachedTag> cachedTags;
 
     void precomputeCachedStrings()
     {
@@ -60,6 +67,14 @@ struct MediaItem
 
         cachedLowerFileName = fileName.toLowerCase();
         cachedLowerFilePath = filePath.toLowerCase();
+
+        cachedTags.clear();
+        cachedTags.reserve(tags.size());
+        juce::Font tf(11.0f);
+        for (const auto& t : tags)
+        {
+            cachedTags.push_back({ t, tf.getStringWidth(t) + 12 });
+        }
     }
 
     juce::var toVar() const

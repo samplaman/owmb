@@ -88,6 +88,12 @@ private:
     juce::Image heartInactiveImage;
     juce::Image starRatingImages[6];
 
+    // Pre-cached fonts for zero-allocation table row painting
+    juce::Font cellFont { 13.0f };
+    juce::Font cellBoldFont { juce::Font(13.0f).boldened() };
+    juce::Font tagFont { 11.0f };
+    juce::Font badgeFont { juce::Font(10.0f).boldened() };
+
     // Filter State
     juce::String currentKeyword;
     std::set<juce::String> currentSelectedTags;

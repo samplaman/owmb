@@ -826,6 +826,7 @@ MediaItem LibraryScanner::processAudioFile(const juce::File& file, juce::AudioFo
 
     // Final conflict sanitization to ensure no conflicting or improper tags exist
     TagDatabaseManager::sanitizeTags(item.tags);
+    item.precomputeCachedStrings();
 
     return item;
 }
