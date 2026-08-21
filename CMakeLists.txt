@@ -61,8 +61,8 @@ juce_add_plugin(OpenWav
     COPY_PLUGIN_AFTER_BUILD TRUE
     FORMATS ${PLUGIN_FORMATS}
     PRODUCT_NAME "OWMB"
-    ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/splashit.png"
-    ICON_SMALL "${CMAKE_CURRENT_SOURCE_DIR}/splashit.png"
+    ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/Mac/icon_512x512@2x.png"
+    ICON_SMALL "${CMAKE_CURRENT_SOURCE_DIR}/Mac/icon_32x32.png"
 )
 
 juce_generate_juce_header(OpenWav)
@@ -172,4 +172,30 @@ if (APPLE)
         "-framework QuartzCore"
         "-framework AppKit"
     )
+
+    if (TARGET OpenWav_Standalone)
+        add_custom_command(TARGET OpenWav_Standalone POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${CMAKE_CURRENT_SOURCE_DIR}/Mac/OWMB.icns"
+                "$<TARGET_FILE_DIR:OpenWav_Standalone>/../Resources/Icon.icns"
+            COMMENT "Updating macOS Standalone Icon.icns with full resolution iconset"
+        )
+    endif()
+    if (TARGET OpenWav_VST3)
+        add_custom_command(TARGET OpenWav_VST3 POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${CMAKE_CURRENT_SOURCE_DIR}/Mac/OWMB.icns"
+                "$<TARGET_FILE_DIR:OpenWav_VST3>/../Resources/Icon.icns"
+            COMMENT "Updating macOS VST3 Icon.icns with full resolution iconset"
+        )
+    endif()
+    if (TARGET OpenWav_AU)
+        add_custom_command(TARGET OpenWav_AU POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${CMAKE_CURRENT_SOURCE_DIR}/Mac/OWMB.icns"
+                "$<TARGET_FILE_DIR:OpenWav_AU>/../Resources/Icon.icns"
+            COMMENT "Updating macOS AU Icon.icns with full resolution iconset"
+        )
+    endif()
 endif()
+

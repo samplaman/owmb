@@ -69,6 +69,15 @@ else
     DIST_NAME="OWMB-macOS-Native"
 fi
 
+# 0. Convert icons in Mac/ to Apple ICNS format
+echo "==> Converting icons in Mac/ to high-resolution Apple ICNS format..."
+mkdir -p "$BUILD_DIR/OWMB.iconset"
+cp Mac/icon_*.png "$BUILD_DIR/OWMB.iconset/"
+iconutil -c icns "$BUILD_DIR/OWMB.iconset" -o "Mac/OWMB.icns"
+cp -f "Mac/OWMB.icns" "Mac/icon.icns" 2>/dev/null || true
+cp -f "Mac/OWMB.icns" "Mac/Icon.icns" 2>/dev/null || true
+rm -rf "$BUILD_DIR/OWMB.iconset"
+
 # 1. Configure CMake
 echo "==> Configuring CMake..."
 cmake -B "$BUILD_DIR" -S . -DCMAKE_BUILD_TYPE=Release "${CMAKE_EXTRA_FLAGS[@]}"
@@ -76,6 +85,25 @@ cmake -B "$BUILD_DIR" -S . -DCMAKE_BUILD_TYPE=Release "${CMAKE_EXTRA_FLAGS[@]}"
 # 2. Build
 echo "==> Compiling OpenWav (VST3, AU, Standalone)..."
 cmake --build "$BUILD_DIR" --config Release --parallel $(sysctl -n hw.ncpu 2>/dev/null || echo 4)
+
+# 2b. Embed full Apple ICNS into all built bundles
+echo "==> Embedding full Apple ICNS into build bundles..."
+for bundle in \
+    "$BUILD_DIR/OpenWav_artefacts/Release/Standalone/OWMB.app" \
+    "$BUILD_DIR/OpenWav_artefacts/Release/VST3/OWMB.vst3" \
+    "$BUILD_DIR/OpenWav_artefacts/Release/AU/OWMB.component" \
+    "$BUILD_DIR/OpenWav_artefacts/Standalone/OWMB.app" \
+    "$BUILD_DIR/OpenWav_artefacts/VST3/OWMB.vst3" \
+    "$BUILD_DIR/OpenWav_artefacts/AU/OWMB.component"; do
+    if [ -d "$bundle" ]; then
+        mkdir -p "$bundle/Contents/Resources"
+        cp -f "Mac/OWMB.icns" "$bundle/Contents/Resources/Icon.icns"
+        cp -f "Mac/OWMB.icns" "$bundle/Contents/Resources/OWMB.icns"
+        cp -f "Mac/OWMB.icns" "$bundle/Contents/Resources/icon.icns"
+        xattr -cr "$bundle" 2>/dev/null || true
+        touch "$bundle"
+    fi
+done
 
 # 3. Code Signing (if identity provided or found in Keychain)
 ENTITLEMENTS_FILE="entitlements.plist"
@@ -105,13 +133,28 @@ if [ -n "$SIGN_IDENTITY" ]; then
         "$BUILD_DIR/OpenWav_artefacts/Release/Standalone/OWMB.app"
     )
 
+    sign_bundle_with_retry() {
+        local target="$1"
+        local max_tries=5
+        for ((k=1; k<=max_tries; k++)); do
+            echo "    -> Signing bundle: $target (attempt $k/$max_tries)"
+            xattr -cr "$target" 2>/dev/null || true
+            if codesign --force --deep --options runtime --timestamp \
+                $ENTITLEMENTS_ARG \
+                --sign "$SIGN_IDENTITY" "$target"; then
+                codesign --verify --deep --strict --verbose=2 "$target"
+                return 0
+            fi
+            echo "Warning: codesign failed on $target (attempt $k). Retrying in 2s..."
+            sleep 2
+        done
+        echo "ERROR: Failed to sign $target after $max_tries attempts."
+        return 1
+    }
+
     for bundle in "${TARGET_BUNDLES[@]}"; do
         if [ -d "$bundle" ]; then
-            echo "    -> Signing bundle: $bundle"
-            codesign --force --deep --options runtime --timestamp \
-                $ENTITLEMENTS_ARG \
-                --sign "$SIGN_IDENTITY" "$bundle"
-            codesign --verify --deep --strict --verbose=2 "$bundle"
+            sign_bundle_with_retry "$bundle"
         fi
     done
     echo "==> Code signing complete!"
@@ -170,7 +213,8 @@ else
         "$DIST_NAME-Installer.pkg"
 fi
 
-# 4b. Create DMG Disk Image Installer with shortcuts
+
+# 4b. Create DMG Disk Image Installer with shortcuts and Volume Icon
 detach_existing_volumes() {
     local name="$1"
     hdiutil info 2>/dev/null | grep -E "/Volumes/${name}|/Volumes/OWMB" | awk '{print $1}' | while read -r dev; do
@@ -211,11 +255,17 @@ create_dmg_with_retry() {
     return 1
 }
 
-echo "==> Creating DMG Disk Image Installer: $DIST_NAME-Installer.dmg..."
+echo "==> Setting up DMG shortcuts & Volume Icon..."
 ln -sfn /Applications "dist/$DIST_NAME/Applications (Shortcut)"
 ln -sfn "/Library/Audio/Plug-Ins/VST3" "dist/$DIST_NAME/VST3 Plugins (Shortcut)"
 ln -sfn "/Library/Audio/Plug-Ins/Components" "dist/$DIST_NAME/AU Plugins (Shortcut)"
 
+# Set DMG custom volume icon and folder icons
+cp -f "Mac/OWMB.icns" "dist/$DIST_NAME/.VolumeIcon.icns"
+SetFile -c icnC "dist/$DIST_NAME/.VolumeIcon.icns" 2>/dev/null || true
+SetFile -a C "dist/$DIST_NAME" 2>/dev/null || true
+
+echo "==> Creating DMG Disk Image Installer: $DIST_NAME-Installer.dmg..."
 create_dmg_with_retry "OWMB Installer" "dist/$DIST_NAME" "$DIST_NAME-Installer.dmg"
 cp -f "$DIST_NAME-Installer.dmg" "$DIST_NAME.dmg" 2>/dev/null || true
 
@@ -281,3 +331,4 @@ echo "==> Build and Packaging Complete!"
 echo "    PKG Installer: $DIST_NAME-Installer.pkg"
 echo "    DMG Installer: $DIST_NAME-Installer.dmg"
 echo "    Contents in:   dist/$DIST_NAME"
+
