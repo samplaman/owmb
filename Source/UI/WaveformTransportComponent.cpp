@@ -72,9 +72,7 @@ void SlicesGridComponent::paint(juce::Graphics& g)
         double startR = sliceRatios[i];
         double endR = (i + 1 < numSlices) ? sliceRatios[i + 1] : 1.0;
 
-        bool rangeMatches = (std::abs(currentStart - startR) < 0.005 && std::abs(currentEnd - endR) < 0.005);
-        bool isExplicitlySelected = (selectedSliceIndex == i && std::abs(currentStart - startR) < 0.02);
-        bool isSelectedSlice = rangeMatches || isExplicitlySelected;
+        bool isSelectedSlice = (selectedSliceIndex == i);
         bool isHovered = (hoveredSliceIndex == i);
 
         // Draw card background
@@ -157,8 +155,8 @@ void SlicesGridComponent::paint(juce::Graphics& g)
                         if (range.getEnd() > maxVal) maxVal = range.getEnd();
                     }
 
-                    float pyMin = midY + minVal * halfH;
-                    float pyMax = midY + maxVal * halfH;
+                    float pyMin = juce::jlimit(miniWaveBounds.getY(), miniWaveBounds.getBottom(), midY + minVal * halfH);
+                    float pyMax = juce::jlimit(miniWaveBounds.getY(), miniWaveBounds.getBottom(), midY + maxVal * halfH);
 
                     if (x == 0)
                     {
@@ -653,11 +651,11 @@ void WaveformTransportComponent::paint(juce::Graphics& g)
             float lAbs = std::max(std::abs(lMin), std::abs(lMax));
             float rAbs = std::max(std::abs(rMin), std::abs(rMax));
 
-            float lHeight = (lAbs > 0.001f) ? std::max(1.0f, lAbs * halfHeight) : (lMax == 0.0f && lMin == 0.0f ? 0.0f : 1.0f);
-            float rHeight = (rAbs > 0.001f) ? std::max(1.0f, rAbs * halfHeight) : (rMax == 0.0f && rMin == 0.0f ? 0.0f : 1.0f);
+            float lHeight = (lAbs > 0.001f) ? std::min(halfHeight, std::max(1.0f, lAbs * halfHeight)) : (lMax == 0.0f && lMin == 0.0f ? 0.0f : 1.0f);
+            float rHeight = (rAbs > 0.001f) ? std::min(halfHeight, std::max(1.0f, rAbs * halfHeight)) : (rMax == 0.0f && rMin == 0.0f ? 0.0f : 1.0f);
 
-            float lTopY = centerY - lHeight;
-            float rBottomY = centerY + rHeight;
+            float lTopY = std::max(waveformRect.getY(), centerY - lHeight);
+            float rBottomY = std::min(waveformRect.getBottom(), centerY + rHeight);
 
             bool inSelection = (pixelX >= selStartX && pixelX <= selEndX);
             bool isPlayed = (pixelX <= playheadX);

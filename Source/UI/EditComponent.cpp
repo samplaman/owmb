@@ -797,7 +797,7 @@ void EditComponent::paintWaveform(juce::Graphics& g, juce::Rectangle<float> boun
             }
 
             float lAbs = std::max(std::abs(lMin), std::abs(lMax));
-            float lH = (lAbs > 0.001f) ? std::max(1.0f, lAbs * halfHeight) : 0.0f;
+            float lH = (lAbs > 0.001f) ? std::min(halfHeight, std::max(1.0f, lAbs * halfHeight)) : 0.0f;
 
             bool inSelection = (pixelX >= selStartX && pixelX <= selEndX);
 
@@ -807,7 +807,11 @@ void EditComponent::paintWaveform(juce::Graphics& g, juce::Rectangle<float> boun
                 g.setColour(OpenWavLookAndFeel::textSecondary.withAlpha(0.22f));
 
             if (lH > 0.0f)
-                g.fillRect(juce::Rectangle<float>(pixelX, centerY - lH, 1.0f, std::max(1.0f, lH * 2.0f)));
+            {
+                float topY = std::max(bounds.getY(), centerY - lH);
+                float botY = std::min(bounds.getBottom(), centerY + lH);
+                g.fillRect(juce::Rectangle<float>(pixelX, topY, 1.0f, std::max(1.0f, botY - topY)));
+            }
         }
     }
 

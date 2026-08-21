@@ -631,6 +631,20 @@ bool AudioEngine::loadFile(const juce::File& audioFile, bool autoPlay, bool isSa
         voice->buffer.setSize(numChannels, numSamples);
         reader->read(&voice->buffer, 0, numSamples, 0, true, true);
 
+        // Auto-normalize if loaded audio peaks exceed 1.0f (preventing container clipping and DAC distortion)
+        float loadMaxPeak = 0.0f;
+        for (int ch = 0; ch < numChannels; ++ch)
+        {
+            auto range = voice->buffer.findMinMax(ch, 0, numSamples);
+            float peak = std::max(std::abs(range.getStart()), std::abs(range.getEnd()));
+            if (peak > loadMaxPeak)
+                loadMaxPeak = peak;
+        }
+        if (loadMaxPeak > 1.0f)
+        {
+            voice->buffer.applyGain(1.0f / loadMaxPeak);
+        }
+
         if (loadId != currentLoadId)
             return;
 
@@ -1120,9 +1134,26 @@ void AudioEngine::rebuildWaveformPeaks()
     if (loadedVoice == nullptr || loadedVoice->buffer.getNumSamples() == 0)
         return;
 
-    const int targetNumPoints = 2000;
+    // Auto-normalize if editing caused audio peaks to exceed 1.0f (preventing container clipping and digital distortion)
+    float maxPeak = 0.0f;
     int totalSamples = loadedVoice->buffer.getNumSamples();
     int numChannels = loadedVoice->buffer.getNumChannels();
+
+    for (int ch = 0; ch < numChannels; ++ch)
+    {
+        auto range = loadedVoice->buffer.findMinMax(ch, 0, totalSamples);
+        float peak = std::max(std::abs(range.getStart()), std::abs(range.getEnd()));
+        if (peak > maxPeak)
+            maxPeak = peak;
+    }
+
+    if (maxPeak > 1.0f)
+    {
+        float scaleFactor = 1.0f / maxPeak;
+        loadedVoice->buffer.applyGain(scaleFactor);
+    }
+
+    const int targetNumPoints = 2000;
 
     WaveformPeaks peaks;
     peaks.numChannels = numChannels;
@@ -1754,6 +1785,25 @@ void AudioEngine::replaceEditedSampleInMemoryAndDisk()
 {
     if (loadedVoice == nullptr)
         return;
+
+    // Double check peak normalization before writing to disk and memory cache
+    float maxPeak = 0.0f;
+    int numChannels = loadedVoice->buffer.getNumChannels();
+    int totalSamples = loadedVoice->buffer.getNumSamples();
+
+    for (int ch = 0; ch < numChannels; ++ch)
+    {
+        auto range = loadedVoice->buffer.findMinMax(ch, 0, totalSamples);
+        float peak = std::max(std::abs(range.getStart()), std::abs(range.getEnd()));
+        if (peak > maxPeak)
+            maxPeak = peak;
+    }
+
+    if (maxPeak > 1.0f)
+    {
+        float scaleFactor = 1.0f / maxPeak;
+        loadedVoice->buffer.applyGain(scaleFactor);
+    }
 
     juce::String filePath = currentFile.getFullPathName();
     if (filePath.isNotEmpty() && currentFile.existsAsFile())
