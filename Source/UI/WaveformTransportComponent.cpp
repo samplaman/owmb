@@ -15,6 +15,36 @@ SlicesGridComponent::SlicesGridComponent(AudioEngine& engine, std::function<void
     : audioEngine(engine), onSliceDragged(onSliceDragged)
 {}
 
+juce::Rectangle<float> SlicesGridComponent::getSliceCardBounds(int index) const
+{
+    float cardWidth = 100.0f;
+    float cardGap = 8.0f;
+    float startY = 4.0f;
+    float cardHeight = std::max(10.0f, static_cast<float>(getHeight()) - 8.0f);
+    float cardX = index * (cardWidth + cardGap) + 4.0f;
+    return juce::Rectangle<float>(cardX, startY, cardWidth, cardHeight);
+}
+
+int SlicesGridComponent::getSliceIndexAt(juce::Point<float> pos) const
+{
+    int numSlices = static_cast<int>(sliceRatios.size());
+    for (int i = 0; i < numSlices; ++i)
+    {
+        if (getSliceCardBounds(i).contains(pos))
+            return i;
+    }
+    return -1;
+}
+
+void SlicesGridComponent::setSelectedSliceIndex(int index)
+{
+    if (selectedSliceIndex != index)
+    {
+        selectedSliceIndex = index;
+        repaint();
+    }
+}
+
 void SlicesGridComponent::paint(juce::Graphics& g)
 {
     g.fillAll(OpenWavLookAndFeel::bgDark);
@@ -28,44 +58,58 @@ void SlicesGridComponent::paint(juce::Graphics& g)
         return;
     }
 
-    sliceBadgeBounds.clear();
-    float cardWidth = 100.0f;
-    float cardGap = 8.0f;
-    float startY = 4.0f;
-    float cardHeight = getHeight() - 8.0f;
-
     juce::AudioBuffer<float> buffer;
     double sampleRate = 44100.0;
     bool hasBuffer = audioEngine.getAudioBufferCopy(buffer, sampleRate);
 
+    double currentStart = audioEngine.getSampleStartRatio();
+    double currentEnd = audioEngine.getSampleEndRatio();
+
     for (int i = 0; i < numSlices; ++i)
     {
-        float cardX = i * (cardWidth + cardGap) + 4.0f;
-        juce::Rectangle<float> cardRect(cardX, startY, cardWidth, cardHeight);
-        sliceBadgeBounds.push_back(cardRect);
-
-        // Draw card background
-        g.setColour(OpenWavLookAndFeel::bgHeader);
-        g.fillRoundedRectangle(cardRect, 4.0f);
+        auto cardRect = getSliceCardBounds(i);
 
         double startR = sliceRatios[i];
         double endR = (i + 1 < numSlices) ? sliceRatios[i + 1] : 1.0;
 
-        double currentStart = audioEngine.getSampleStartRatio();
-        double currentEnd = audioEngine.getSampleEndRatio();
-        bool isSelectedSlice = (std::abs(currentStart - startR) < 0.001 && std::abs(currentEnd - endR) < 0.001);
+        bool rangeMatches = (std::abs(currentStart - startR) < 0.005 && std::abs(currentEnd - endR) < 0.005);
+        bool isExplicitlySelected = (selectedSliceIndex == i && std::abs(currentStart - startR) < 0.02);
+        bool isSelectedSlice = rangeMatches || isExplicitlySelected;
+        bool isHovered = (hoveredSliceIndex == i);
 
+        // Draw card background
         if (isSelectedSlice)
         {
-            g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.15f));
-            g.fillRoundedRectangle(cardRect, 4.0f);
+            g.setColour(OpenWavLookAndFeel::bgHeader.brighter(0.08f));
+            g.fillRoundedRectangle(cardRect, 5.0f);
+
+            // Vibrant glow fill for selected state
+            g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(isHovered ? 0.25f : 0.18f));
+            g.fillRoundedRectangle(cardRect, 5.0f);
+
+            // Glowing cyan border
             g.setColour(OpenWavLookAndFeel::accentCyan);
-            g.drawRoundedRectangle(cardRect, 4.0f, 1.5f);
+            g.drawRoundedRectangle(cardRect, 5.0f, 1.8f);
+        }
+        else if (isHovered)
+        {
+            g.setColour(OpenWavLookAndFeel::bgHeader.brighter(0.06f));
+            g.fillRoundedRectangle(cardRect, 5.0f);
+
+            // Subtle cyan tint on hover
+            g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.08f));
+            g.fillRoundedRectangle(cardRect, 5.0f);
+
+            // Highlighted border on hover
+            g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.65f));
+            g.drawRoundedRectangle(cardRect, 5.0f, 1.2f);
         }
         else
         {
+            g.setColour(OpenWavLookAndFeel::bgHeader);
+            g.fillRoundedRectangle(cardRect, 5.0f);
             g.setColour(OpenWavLookAndFeel::borderColour);
-            g.drawRoundedRectangle(cardRect, 4.0f, 1.0f);
+            g.drawRoundedRectangle(cardRect, 5.0f, 1.0f);
         }
 
         // Draw a mini waveform inside the card
@@ -75,12 +119,17 @@ void SlicesGridComponent::paint(juce::Graphics& g)
 
         if (hasBuffer && buffer.getNumSamples() > 0 && totalDurationSecs > 0.0)
         {
-            g.setColour(isSelectedSlice ? OpenWavLookAndFeel::accentCyan : OpenWavLookAndFeel::textSecondary.withAlpha(0.6f));
-            
+            if (isSelectedSlice)
+                g.setColour(OpenWavLookAndFeel::accentCyan);
+            else if (isHovered)
+                g.setColour(OpenWavLookAndFeel::textPrimary);
+            else
+                g.setColour(OpenWavLookAndFeel::textSecondary.withAlpha(0.65f));
+
             int sliceStartSample = static_cast<int>(startR * buffer.getNumSamples());
             int sliceEndSample = static_cast<int>(endR * buffer.getNumSamples());
             int sliceLen = sliceEndSample - sliceStartSample;
-            
+
             if (sliceLen > 0)
             {
                 juce::Path wavePath;
@@ -99,7 +148,7 @@ void SlicesGridComponent::paint(juce::Graphics& g)
 
                     float minVal = 0.0f;
                     float maxVal = 0.0f;
-                    
+
                     int numChannels = buffer.getNumChannels();
                     for (int ch = 0; ch < numChannels; ++ch)
                     {
@@ -110,7 +159,7 @@ void SlicesGridComponent::paint(juce::Graphics& g)
 
                     float pyMin = midY + minVal * halfH;
                     float pyMax = midY + maxVal * halfH;
-                    
+
                     if (x == 0)
                     {
                         wavePath.startNewSubPath(miniWaveBounds.getX() + x, pyMin);
@@ -128,44 +177,93 @@ void SlicesGridComponent::paint(juce::Graphics& g)
 
         // Draw Card Bottom Label Area
         g.setFont(juce::Font(10.0f).boldened());
-        g.setColour(OpenWavLookAndFeel::textPrimary);
-        g.drawText("S" + juce::String(i + 1), labelRect.removeFromLeft(20.0f), juce::Justification::centredLeft, true);
+        if (isSelectedSlice)
+            g.setColour(OpenWavLookAndFeel::accentCyan);
+        else if (isHovered)
+            g.setColour(OpenWavLookAndFeel::textPrimary);
+        else
+            g.setColour(OpenWavLookAndFeel::textSecondary);
 
-        g.setFont(juce::Font(9.0f));
-        g.setColour(OpenWavLookAndFeel::textSecondary);
+        g.drawText("S" + juce::String(i + 1), labelRect.removeFromLeft(24.0f), juce::Justification::centredLeft, true);
+
+        g.setFont(juce::Font(9.0f).boldened());
+        if (isSelectedSlice)
+            g.setColour(OpenWavLookAndFeel::accentCyan.brighter(0.2f));
+        else if (isHovered)
+            g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.85f));
+        else
+            g.setColour(OpenWavLookAndFeel::textSecondary.withAlpha(0.6f));
+
         g.drawText("DRAG", labelRect, juce::Justification::centredRight, true);
     }
+}
+
+void SlicesGridComponent::mouseMove(const juce::MouseEvent& e)
+{
+    int hoverIdx = getSliceIndexAt(e.position);
+    if (hoverIdx != hoveredSliceIndex)
+    {
+        hoveredSliceIndex = hoverIdx;
+        repaint();
+    }
+    if (hoverIdx >= 0)
+        setMouseCursor(juce::MouseCursor::PointingHandCursor);
+    else
+        setMouseCursor(juce::MouseCursor::NormalCursor);
+}
+
+void SlicesGridComponent::mouseEnter(const juce::MouseEvent& e)
+{
+    mouseMove(e);
+}
+
+void SlicesGridComponent::mouseExit(const juce::MouseEvent& /*e*/)
+{
+    if (hoveredSliceIndex != -1)
+    {
+        hoveredSliceIndex = -1;
+        repaint();
+    }
+    setMouseCursor(juce::MouseCursor::NormalCursor);
 }
 
 void SlicesGridComponent::mouseDown(const juce::MouseEvent& e)
 {
     clickedSliceIndex = -1;
-    for (int i = 0; i < static_cast<int>(sliceBadgeBounds.size()); ++i)
+    int idx = getSliceIndexAt(e.position);
+    if (idx >= 0)
     {
-        if (sliceBadgeBounds[i].contains(e.position))
+        clickedSliceIndex = idx;
+        selectedSliceIndex = idx;
+
+        double startR = sliceRatios[idx];
+        double endR = (idx + 1 < static_cast<int>(sliceRatios.size())) ? sliceRatios[idx + 1] : 1.0;
+
+        if (onSliceSelected != nullptr)
         {
-            clickedSliceIndex = i;
-            
-            // Set playback selection range to this slice
-            double startR = sliceRatios[i];
-            double endR = (i + 1 < static_cast<int>(sliceRatios.size())) ? sliceRatios[i + 1] : 1.0;
+            onSliceSelected(idx, startR, endR);
+        }
+        else
+        {
             audioEngine.setSampleRange(startR, endR);
             audioEngine.setPositionRatio(startR);
             if (!audioEngine.isPlaying())
                 audioEngine.play();
-            
-            // Trigger parent component (WaveformTransportComponent) to repaint
-            if (auto* vp = getParentComponent())
-            {
-                if (auto* parentComp = vp->getParentComponent())
-                {
-                    parentComp->repaint();
-                }
-            }
-            repaint();
-            return;
+        }
+
+        repaint();
+        if (auto* vp = getParentComponent())
+        {
+            vp->repaint();
+            if (auto* parentComp = vp->getParentComponent())
+                parentComp->repaint();
         }
     }
+}
+
+void SlicesGridComponent::mouseUp(const juce::MouseEvent& /*e*/)
+{
+    clickedSliceIndex = -1;
 }
 
 void SlicesGridComponent::mouseDrag(const juce::MouseEvent& e)
@@ -183,9 +281,11 @@ void SlicesGridComponent::updateSlices(const std::vector<double>& ratios, double
 {
     sliceRatios = ratios;
     totalDurationSecs = duration;
-    sliceBadgeBounds.clear();
-    
+
     int numSlices = static_cast<int>(sliceRatios.size());
+    if (selectedSliceIndex >= numSlices)
+        selectedSliceIndex = -1;
+
     if (numSlices > 0)
     {
         float cardWidth = 100.0f;
@@ -334,6 +434,15 @@ WaveformTransportComponent::WaveformTransportComponent(AudioEngine& engine)
       bpmControl(engine),
       slicesGrid(engine, [this](int idx) { exportAndDragSlice(idx); })
 {
+    slicesGrid.onSliceSelected = [this](int idx, double startR, double endR) {
+        audioEngine.setSampleRange(startR, endR);
+        audioEngine.setPositionRatio(startR);
+        if (!audioEngine.isPlaying())
+            audioEngine.play();
+        repaint();
+        slicesGrid.repaint();
+    };
+
     audioEngine.getThumbnail().addChangeListener(this);
     audioEngine.addListener(this);
 
@@ -702,6 +811,8 @@ void WaveformTransportComponent::mouseDown(const juce::MouseEvent& e)
         dragStartRatio = currentRatio;
         audioEngine.setSampleRange(currentRatio, currentRatio);
     }
+    slicesGrid.setSelectedSliceIndex(-1);
+    slicesGrid.repaint();
     repaint();
 }
 
@@ -738,6 +849,8 @@ void WaveformTransportComponent::mouseDrag(const juce::MouseEvent& e)
         double newEnd = std::max(dragStartRatio, currentRatio);
         audioEngine.setSampleRange(newStart, newEnd);
     }
+    slicesGrid.setSelectedSliceIndex(-1);
+    slicesGrid.repaint();
     repaint();
 }
 
@@ -765,6 +878,7 @@ void WaveformTransportComponent::mouseUp(const juce::MouseEvent& /*e*/)
     }
 
     dragMode = DragMode::None;
+    slicesGrid.repaint();
     repaint();
 }
 
@@ -776,6 +890,8 @@ void WaveformTransportComponent::mouseDoubleClick(const juce::MouseEvent& /*e*/)
     // Reset selection to full sample
     audioEngine.setSampleRange(0.0, 1.0);
     audioEngine.setPositionRatio(0.0);
+    slicesGrid.setSelectedSliceIndex(-1);
+    slicesGrid.repaint();
     repaint();
 }
 
@@ -840,6 +956,7 @@ void WaveformTransportComponent::sampleLoaded(const juce::String& filePath)
     totalDurationSecs = audioEngine.getTotalLengthSeconds();
     currentPositionSecs = 0.0;
     sliceRatios.clear();
+    slicesGrid.setSelectedSliceIndex(-1);
     int vpHeight = slicesViewport.getHeight() - slicesViewport.getScrollBarThickness();
     slicesGrid.updateSlices(sliceRatios, totalDurationSecs, slicesViewport.getWidth(), vpHeight);
     repaint();
@@ -929,6 +1046,7 @@ void WaveformTransportComponent::runAutoSlice()
     std::sort(sliceRatios.begin(), sliceRatios.end());
     sliceRatios.erase(std::unique(sliceRatios.begin(), sliceRatios.end()), sliceRatios.end());
 
+    slicesGrid.setSelectedSliceIndex(-1);
     int vpHeight = slicesViewport.getHeight() - slicesViewport.getScrollBarThickness();
     slicesGrid.updateSlices(sliceRatios, totalDurationSecs, slicesViewport.getWidth(), vpHeight);
     repaint();

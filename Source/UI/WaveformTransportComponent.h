@@ -18,16 +18,28 @@ public:
 
     void paint(juce::Graphics& g) override;
     void mouseDown(const juce::MouseEvent& e) override;
+    void mouseUp(const juce::MouseEvent& e) override;
+    void mouseMove(const juce::MouseEvent& e) override;
+    void mouseEnter(const juce::MouseEvent& e) override;
+    void mouseExit(const juce::MouseEvent& e) override;
     void mouseDrag(const juce::MouseEvent& e) override;
 
     void updateSlices(const std::vector<double>& ratios, double duration, int viewportWidth, int viewportHeight);
+    void setSelectedSliceIndex(int index);
+    int getSelectedSliceIndex() const { return selectedSliceIndex; }
+
+    juce::Rectangle<float> getSliceCardBounds(int index) const;
+    int getSliceIndexAt(juce::Point<float> pos) const;
+
+    std::function<void(int, double, double)> onSliceSelected;
 
 private:
     AudioEngine& audioEngine;
     std::function<void(int)> onSliceDragged;
     std::vector<double> sliceRatios;
-    std::vector<juce::Rectangle<float>> sliceBadgeBounds;
     int clickedSliceIndex { -1 };
+    int hoveredSliceIndex { -1 };
+    int selectedSliceIndex { -1 };
     double totalDurationSecs { 0.0 };
 };
 

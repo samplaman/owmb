@@ -745,7 +745,7 @@ void AudioEngine::play()
         if (totalLen > 0.0)
         {
             currentRatio = stoppedPositionSecs / totalLen;
-            if (currentRatio < startRatio || currentRatio > sampleEndRatio - 0.01)
+            if (currentRatio < startRatio || currentRatio >= sampleEndRatio)
                 currentRatio = startRatio;
         }
 
@@ -1007,8 +1007,16 @@ void AudioEngine::setSampleRange(double startRatio, double endRatio)
     const juce::ScopedLock sl(voiceLock);
     sampleStartRatio = juce::jlimit(0.0, 1.0, startRatio);
     sampleEndRatio = juce::jlimit(0.0, 1.0, endRatio);
-    if (sampleEndRatio < sampleStartRatio + 0.01)
-        sampleEndRatio = sampleStartRatio + 0.01;
+    if (sampleEndRatio < sampleStartRatio)
+        std::swap(sampleStartRatio, sampleEndRatio);
+
+    if (sampleEndRatio - sampleStartRatio < 0.0001)
+    {
+        if (sampleStartRatio <= 0.9999)
+            sampleEndRatio = std::min(1.0, sampleStartRatio + 0.0001);
+        else
+            sampleStartRatio = std::max(0.0, sampleEndRatio - 0.0001);
+    }
 
     for (auto& v : activeVoices)
     {
