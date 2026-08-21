@@ -182,7 +182,8 @@ void OpenWavLookAndFeel::drawButtonBackground(
   g.setColour(fillColour);
   g.fillRoundedRectangle(bounds, cornerRadius);
 
-  juce::Colour border = text.contains("mute") ? (button.getToggleState() ? favoriteRed : borderColour) : (button.getToggleState() ? accentCyan : borderColour);
+  bool isMuteBtn = (text == "Mute" || text == "Unmute");
+  juce::Colour border = isMuteBtn ? (button.getToggleState() ? favoriteRed : borderColour) : (button.getToggleState() ? accentCyan : borderColour);
   float stroke = button.getToggleState() ? 1.4f : 1.0f;
   g.setColour(border);
   g.drawRoundedRectangle(bounds, cornerRadius, stroke);
@@ -281,7 +282,8 @@ void OpenWavLookAndFeel::drawButtonText(juce::Graphics &g,
 
   auto font = juce::Font(11.5f).boldened();
   g.setFont(font);
-  juce::Colour textColour = button.getButtonText().toLowerCase().contains("mute") ? (button.getToggleState() ? favoriteRed : textPrimary) : (button.getToggleState() ? accentCyan : textPrimary);
+  bool isMuteBtn = (button.getButtonText() == "Mute" || button.getButtonText() == "Unmute");
+  juce::Colour textColour = isMuteBtn ? (button.getToggleState() ? favoriteRed : textPrimary) : (button.getToggleState() ? accentCyan : textPrimary);
   g.setColour(textColour);
 
   if (svgString.isNotEmpty()) {

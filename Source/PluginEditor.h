@@ -106,11 +106,11 @@ private:
     private:
         OpenWavAudioProcessorEditor& owner;
         int dragStartX { 0 };
-        int startWidth { 240 };
+        int startWidth { 348 };
     };
 
     LeftPanelResizerBar leftPanelResizer;
-    int tagPanelWidth { 240 };
+    int tagPanelWidth { 348 };
 
     SampleTableComponent sampleTable;
     SampleCloudComponent sampleCloud;

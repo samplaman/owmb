@@ -54,6 +54,7 @@ public:
     juce::String getSelectedFormat() const { return activeFormat; }
     ViewMode getCurrentViewMode() const { return currentViewMode; }
     bool isCloudViewActive() const { return currentViewMode == ViewMode::Cloud; }
+    int getSearchEditorRight() const { return searchEditor.getRight(); }
 
     void addListener(HeaderBarListener* listener);
     void removeListener(HeaderBarListener* listener);
