@@ -58,6 +58,7 @@ public:
 
     void moveSelection(int delta);
     void selectItemById(const juce::String& itemId);
+    void lookAndFeelChanged() override;
 
     // TagDatabaseListener callbacks
     void libraryIndexUpdated() override;
@@ -72,6 +73,7 @@ private:
     void showContextMenuForRow(int rowNumber);
     void convertSample(const MediaItem& item);
     static juce::String formatDuration(double seconds);
+    void buildIconCache();
 
     TagDatabaseManager& dbManager;
     AudioEngine& audioEngine;
@@ -79,13 +81,19 @@ private:
     juce::TableListBox table;
     std::vector<MediaItem> displayedItems;
 
+    // Fast pre-rendered cached Retina icons for zero CPU drawing overhead
+    juce::Image playIconImage;
+    juce::Image pauseIconImage;
+    juce::Image heartActiveImage;
+    juce::Image heartInactiveImage;
+    juce::Image starRatingImages[6];
+
     // Filter State
     juce::String currentKeyword;
     std::set<juce::String> currentSelectedTags;
     bool currentMatchAll { false };
     juce::String currentExtFilter { "All" };
     bool currentFavOnly { false };
-
 
     juce::ListenerList<SampleTableListener> listeners;
     juce::String similarityTargetId;

@@ -47,6 +47,7 @@ SampleTableComponent::SampleTableComponent(TagDatabaseManager& db, AudioEngine& 
     addChildComponent(clearSimilarityButton);
 
     addAndMakeVisible(table);
+    buildIconCache();
     updateFilter("", {}, false, "All", false);
 }
 
@@ -54,6 +55,139 @@ SampleTableComponent::~SampleTableComponent()
 {
     dbManager.removeListener(this);
     table.setModel(nullptr);
+}
+
+void SampleTableComponent::lookAndFeelChanged()
+{
+    buildIconCache();
+    repaint();
+}
+
+void SampleTableComponent::buildIconCache()
+{
+    const float scale = 2.0f; // 2x Retina rendering for crystal clarity
+
+    // Play Icon
+    {
+        int w = 24, h = 24;
+        playIconImage = juce::Image(juce::Image::ARGB, static_cast<int>(w * scale), static_cast<int>(h * scale), true);
+        juce::Graphics g(playIconImage);
+        g.addTransform(juce::AffineTransform::scale(scale));
+        g.setColour(OpenWavLookAndFeel::textSecondary);
+        juce::Path p;
+        p.addTriangle(w * 0.38f, h * 0.28f,
+                      w * 0.38f, h * 0.72f,
+                      w * 0.68f, h * 0.50f);
+        g.fillPath(p);
+    }
+
+    // Pause Icon
+    {
+        int w = 24, h = 24;
+        pauseIconImage = juce::Image(juce::Image::ARGB, static_cast<int>(w * scale), static_cast<int>(h * scale), true);
+        juce::Graphics g(pauseIconImage);
+        g.addTransform(juce::AffineTransform::scale(scale));
+        g.setColour(OpenWavLookAndFeel::accentCyan);
+        juce::Path p;
+        p.addRectangle(w * 0.35f, h * 0.28f, 3.0f, h * 0.44f);
+        p.addRectangle(w * 0.55f, h * 0.28f, 3.0f, h * 0.44f);
+        g.fillPath(p);
+    }
+
+    // Favorite Heart Active (Solid Red)
+    {
+        int w = 18, h = 18;
+        heartActiveImage = juce::Image(juce::Image::ARGB, static_cast<int>(w * scale), static_cast<int>(h * scale), true);
+        juce::Graphics g(heartActiveImage);
+        g.addTransform(juce::AffineTransform::scale(scale));
+
+        juce::Path heart;
+        float x = 2.0f, y = 2.0f, hw = 14.0f, hh = 14.0f;
+        heart.startNewSubPath(x + hw * 0.5f, y + hh * 0.85f);
+        heart.cubicTo(x + hw * 0.1f, y + hh * 0.5f,  x,              y + hh * 0.2f,  x + hw * 0.25f, y + hh * 0.05f);
+        heart.cubicTo(x + hw * 0.45f, y - hh * 0.05f, x + hw * 0.5f,  y + hh * 0.2f,  x + hw * 0.5f,  y + hh * 0.25f);
+        heart.cubicTo(x + hw * 0.5f,  y + hh * 0.2f,  x + hw * 0.55f, y - hh * 0.05f, x + hw * 0.75f, y + hh * 0.05f);
+        heart.cubicTo(x + hw,         y + hh * 0.2f,  x + hw * 0.9f,  y + hh * 0.5f,  x + hw * 0.5f,  y + hh * 0.85f);
+        heart.closeSubPath();
+
+        g.setColour(OpenWavLookAndFeel::favoriteRed);
+        g.fillPath(heart);
+    }
+
+    // Favorite Heart Inactive (Outlined)
+    {
+        int w = 18, h = 18;
+        heartInactiveImage = juce::Image(juce::Image::ARGB, static_cast<int>(w * scale), static_cast<int>(h * scale), true);
+        juce::Graphics g(heartInactiveImage);
+        g.addTransform(juce::AffineTransform::scale(scale));
+
+        juce::Path heart;
+        float x = 2.0f, y = 2.0f, hw = 14.0f, hh = 14.0f;
+        heart.startNewSubPath(x + hw * 0.5f, y + hh * 0.85f);
+        heart.cubicTo(x + hw * 0.1f, y + hh * 0.5f,  x,              y + hh * 0.2f,  x + hw * 0.25f, y + hh * 0.05f);
+        heart.cubicTo(x + hw * 0.45f, y - hh * 0.05f, x + hw * 0.5f,  y + hh * 0.2f,  x + hw * 0.5f,  y + hh * 0.25f);
+        heart.cubicTo(x + hw * 0.5f,  y + hh * 0.2f,  x + hw * 0.55f, y - hh * 0.05f, x + hw * 0.75f, y + hh * 0.05f);
+        heart.cubicTo(x + hw,         y + hh * 0.2f,  x + hw * 0.9f,  y + hh * 0.5f,  x + hw * 0.5f,  y + hh * 0.85f);
+        heart.closeSubPath();
+
+        g.setColour(OpenWavLookAndFeel::textSecondary.withAlpha(0.35f));
+        g.strokePath(heart, juce::PathStrokeType(1.2f));
+    }
+
+    // Rating Stars (Pre-rendered rows of 5 stars for rating 0 to 5)
+    {
+        int totalW = 64;
+        int totalH = 18;
+        float starSize = 10.0f;
+        float starSpacing = 3.5f;
+
+        juce::Path baseStar;
+        for (int i = 0; i < 5; ++i)
+        {
+            float outerAngle = i * juce::MathConstants<float>::twoPi / 5.0f - juce::MathConstants<float>::halfPi;
+            float innerAngle = outerAngle + juce::MathConstants<float>::pi / 5.0f;
+            float rOuter = starSize * 0.5f;
+            float rInner = rOuter * 0.42f;
+
+            float ox = std::cos(outerAngle) * rOuter;
+            float oy = std::sin(outerAngle) * rOuter;
+            float ix = std::cos(innerAngle) * rInner;
+            float iy = std::sin(innerAngle) * rInner;
+
+            if (i == 0) baseStar.startNewSubPath(ox, oy);
+            else baseStar.lineTo(ox, oy);
+            baseStar.lineTo(ix, iy);
+        }
+        baseStar.closeSubPath();
+
+        for (int r = 0; r <= 5; ++r)
+        {
+            starRatingImages[r] = juce::Image(juce::Image::ARGB, static_cast<int>(totalW * scale), static_cast<int>(totalH * scale), true);
+            juce::Graphics g(starRatingImages[r]);
+            g.addTransform(juce::AffineTransform::scale(scale));
+
+            float cy = totalH * 0.5f;
+            float startX = 0.0f;
+
+            for (int s = 1; s <= 5; ++s)
+            {
+                float sx = startX + (s - 1) * (starSize + starSpacing) + starSize * 0.5f;
+                juce::Path currentStar = baseStar;
+                currentStar.applyTransform(juce::AffineTransform::translation(sx, cy));
+
+                if (s <= r)
+                {
+                    g.setColour(juce::Colour::fromRGB(255, 200, 45)); // Vibrant gold
+                    g.fillPath(currentStar);
+                }
+                else
+                {
+                    g.setColour(OpenWavLookAndFeel::textSecondary.withAlpha(0.25f));
+                    g.strokePath(currentStar, juce::PathStrokeType(1.0f));
+                }
+            }
+        }
+    }
 }
 
 void SampleTableComponent::paint(juce::Graphics& g)
@@ -270,23 +404,15 @@ void SampleTableComponent::paintCell(juce::Graphics& g, int rowNumber, int colum
         {
             bool isCurrentFile = (audioEngine.getCurrentFile().getFullPathName() == item.filePath);
             bool isPlaying = isCurrentFile && audioEngine.isPlaying();
-
-            g.setColour(isPlaying ? OpenWavLookAndFeel::accentCyan : OpenWavLookAndFeel::textSecondary);
-            juce::Path icon;
-            if (isPlaying)
+            const auto& img = isPlaying ? pauseIconImage : playIconImage;
+            if (img.isValid())
             {
-                // Pause icon
-                icon.addRectangle(width * 0.35f, height * 0.28f, 3.0f, height * 0.44f);
-                icon.addRectangle(width * 0.55f, height * 0.28f, 3.0f, height * 0.44f);
+                int iconW = img.getWidth() / 2;
+                int iconH = img.getHeight() / 2;
+                int x = bounds.getX() + (bounds.getWidth() - iconW) / 2;
+                int y = bounds.getY() + (bounds.getHeight() - iconH) / 2;
+                g.drawImage(img, x, y, iconW, iconH, 0, 0, img.getWidth(), img.getHeight());
             }
-            else
-            {
-                // Play triangle
-                icon.addTriangle(width * 0.38f, height * 0.28f,
-                                 width * 0.38f, height * 0.72f,
-                                 width * 0.68f, height * 0.50f);
-            }
-            g.fillPath(icon);
             break;
         }
 
@@ -377,81 +503,31 @@ void SampleTableComponent::paintCell(juce::Graphics& g, int rowNumber, int colum
             break;
         }
 
-        case 7: // Rating Stars (High-performance vector rendering)
+        case 7: // Rating Stars (Pre-rendered instantaneous cached blit)
         {
-            float totalW = static_cast<float>(bounds.getWidth());
-            float starSize = 10.0f;
-            float starSpacing = (totalW - (5.0f * starSize)) / 6.0f;
-            starSpacing = juce::jlimit(2.0f, 6.0f, starSpacing);
-            float startX = bounds.getX() + starSpacing;
-            float cy = bounds.getCentreY();
-
-            juce::Path starPath;
-            for (int i = 0; i < 5; ++i)
+            int r = juce::jlimit(0, 5, item.rating);
+            const auto& img = starRatingImages[r];
+            if (img.isValid())
             {
-                float outerAngle = i * juce::MathConstants<float>::twoPi / 5.0f - juce::MathConstants<float>::halfPi;
-                float innerAngle = outerAngle + juce::MathConstants<float>::pi / 5.0f;
-                float rOuter = starSize * 0.5f;
-                float rInner = rOuter * 0.42f;
-
-                float ox = std::cos(outerAngle) * rOuter;
-                float oy = std::sin(outerAngle) * rOuter;
-                float ix = std::cos(innerAngle) * rInner;
-                float iy = std::sin(innerAngle) * rInner;
-
-                if (i == 0) starPath.startNewSubPath(ox, oy);
-                else starPath.lineTo(ox, oy);
-                starPath.lineTo(ix, iy);
-            }
-            starPath.closeSubPath();
-
-            for (int s = 1; s <= 5; ++s)
-            {
-                float sx = startX + (s - 1) * (starSize + starSpacing) + starSize * 0.5f;
-                juce::Path currentStar = starPath;
-                currentStar.applyTransform(juce::AffineTransform::translation(sx, cy));
-
-                if (s <= item.rating)
-                {
-                    g.setColour(juce::Colour::fromRGB(255, 200, 45)); // Vibrant gold
-                    g.fillPath(currentStar);
-                }
-                else
-                {
-                    g.setColour(OpenWavLookAndFeel::textSecondary.withAlpha(0.25f));
-                    g.strokePath(currentStar, juce::PathStrokeType(1.0f));
-                }
+                int imgW = img.getWidth() / 2;
+                int imgH = img.getHeight() / 2;
+                int x = bounds.getX() + (bounds.getWidth() - imgW) / 2;
+                int y = bounds.getY() + (bounds.getHeight() - imgH) / 2;
+                g.drawImage(img, x, y, imgW, imgH, 0, 0, img.getWidth(), img.getHeight());
             }
             break;
         }
 
-        case 8: // Favorite Heart Vector Drawing
+        case 8: // Favorite Heart (Pre-rendered instantaneous cached blit)
         {
-            juce::Path heart;
-            float iconSize = 14.0f;
-            float cx = bounds.getCentreX();
-            float cy = bounds.getCentreY();
-            float x = cx - iconSize * 0.5f;
-            float y = cy - iconSize * 0.5f;
-            float w = iconSize;
-            float h = iconSize;
-
-            heart.startNewSubPath(x + w * 0.5f, y + h * 0.85f);
-            heart.cubicTo(x + w * 0.1f, y + h * 0.5f,  x,             y + h * 0.2f,  x + w * 0.25f, y + h * 0.05f);
-            heart.cubicTo(x + w * 0.45f, y - h * 0.05f, x + w * 0.5f,  y + h * 0.2f,  x + w * 0.5f,  y + h * 0.25f);
-            heart.cubicTo(x + w * 0.5f,  y + h * 0.2f,  x + w * 0.55f, y - h * 0.05f, x + w * 0.75f, y + h * 0.05f);
-            heart.cubicTo(x + w,         y + h * 0.2f,  x + w * 0.9f,  y + h * 0.5f,  x + w * 0.5f,  y + h * 0.85f);
-            heart.closeSubPath();
-
-            if (item.isFavorite)
+            const auto& img = item.isFavorite ? heartActiveImage : heartInactiveImage;
+            if (img.isValid())
             {
-                g.setColour(OpenWavLookAndFeel::favoriteRed);
-                g.fillPath(heart);
-            }
-            else
-            {
-                g.setColour(OpenWavLookAndFeel::textSecondary.withAlpha(0.35f));
-                g.strokePath(heart, juce::PathStrokeType(1.2f));
+                int imgW = img.getWidth() / 2;
+                int imgH = img.getHeight() / 2;
+                int x = bounds.getX() + (bounds.getWidth() - imgW) / 2;
+                int y = bounds.getY() + (bounds.getHeight() - imgH) / 2;
+                g.drawImage(img, x, y, imgW, imgH, 0, 0, img.getWidth(), img.getHeight());
             }
             break;
         }
@@ -649,23 +725,22 @@ void SampleTableComponent::cellClicked(int rowNumber, int columnId, const juce::
     {
         int colIndex = table.getHeader().getIndexOfColumnId(7, true);
         int colX = (colIndex >= 0) ? table.getHeader().getColumnPosition(colIndex).getX() : 0;
+        int colW = table.getHeader().getColumnWidth(7);
         float localX = static_cast<float>(e.x - colX);
 
-        float totalW = static_cast<float>(table.getHeader().getColumnWidth(7));
-        float starSize = 10.0f;
-        float starSpacing = (totalW - (5.0f * starSize)) / 6.0f;
-        starSpacing = juce::jlimit(2.0f, 6.0f, starSpacing);
-        float step = starSize + starSpacing;
-        float startX = starSpacing;
+        int imgW = 64; // width of pre-rendered 5-star row
+        float startX = (colW - imgW) * 0.5f;
+        float relX = localX - startX;
+        float step = static_cast<float>(imgW) / 5.0f;
 
         int clickedStar = 1;
-        if (localX < startX + starSize)
+        if (relX < step)
         {
             clickedStar = 1;
         }
         else
         {
-            clickedStar = static_cast<int>((localX - startX) / step) + 1;
+            clickedStar = static_cast<int>(relX / step) + 1;
             clickedStar = juce::jlimit(1, 5, clickedStar);
         }
 
