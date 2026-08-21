@@ -24,12 +24,153 @@ public:
     virtual void autoSliceToSamplerRequested(const MediaItem& /*item*/) {}
 };
 
-class SampleTableComponent : public juce::Component,
-                             public juce::TableListBoxModel,
-                             public TagDatabaseListener
+class SmoothTableListBox : public juce::TableListBox, private juce::Timer
 {
 public:
-    friend class MatchCellComponent;
+    SmoothTableListBox() = default;
+    ~SmoothTableListBox() override { stopTimer(); }
+
+    std::function<void()> onScrolled;
+
+    void mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel) override
+    {
+        if (wheel.deltaY == 0.0f && wheel.deltaX == 0.0f)
+            return;
+
+        auto* vp = getViewport();
+        if (vp == nullptr)
+        {
+            juce::TableListBox::mouseWheelMove(e, wheel);
+            return;
+        }
+
+        auto& sb = vp->getVerticalScrollBar();
+        double maxScroll = sb.getMaximumRangeLimit() - sb.getCurrentRangeSize();
+        if (maxScroll <= 0.0)
+            return;
+
+        if (wheel.isSmooth)
+        {
+            // High-precision smooth trackpad panning (preserves subpixel response and macOS native inertia)
+            double currentY = static_cast<double>(vp->getViewPositionY());
+            double deltaPixels = static_cast<double>(wheel.deltaY) * 240.0;
+            double newY = juce::jlimit(0.0, maxScroll, currentY - deltaPixels);
+
+            targetScrollY = newY;
+            currentScrollY = newY;
+            velocity = 0.0;
+
+            vp->setViewPosition(0, juce::roundToInt(newY));
+            if (onScrolled) onScrolled();
+        }
+        else
+        {
+            // Notched Mouse Wheel: Smooth kinetic spring glide with momentum
+            double currentY = static_cast<double>(vp->getViewPositionY());
+            if (!isTimerRunning())
+            {
+                currentScrollY = currentY;
+                targetScrollY = currentY;
+                velocity = 0.0;
+            }
+
+            // Continuous velocity boost & target interpolation
+            double step = static_cast<double>(wheel.deltaY) * (getRowHeight() * 3.5);
+            targetScrollY = juce::jlimit(0.0, maxScroll, targetScrollY - step);
+            velocity -= step * 0.4;
+
+            startTimerHz(60);
+        }
+    }
+
+    void smoothScrollToRow(int rowNumber)
+    {
+        auto* vp = getViewport();
+        if (vp == nullptr) return;
+
+        int rowH = getRowHeight();
+        int targetY = rowNumber * rowH;
+        int viewH = vp->getViewHeight();
+        int currentY = vp->getViewPositionY();
+
+        if (targetY < currentY)
+        {
+            targetScrollY = targetY;
+            currentScrollY = currentY;
+            startTimerHz(60);
+        }
+        else if (targetY + rowH > currentY + viewH)
+        {
+            targetScrollY = targetY + rowH - viewH;
+            currentScrollY = currentY;
+            startTimerHz(60);
+        }
+    }
+
+    void syncScrollPosition()
+    {
+        if (auto* vp = getViewport())
+        {
+            currentScrollY = vp->getViewPositionY();
+            targetScrollY = currentScrollY;
+            velocity = 0.0;
+        }
+    }
+
+private:
+    void timerCallback() override
+    {
+        auto* vp = getViewport();
+        if (vp == nullptr)
+        {
+            stopTimer();
+            return;
+        }
+
+        auto& sb = vp->getVerticalScrollBar();
+        double maxScroll = sb.getMaximumRangeLimit() - sb.getCurrentRangeSize();
+        if (maxScroll <= 0.0)
+        {
+            stopTimer();
+            return;
+        }
+
+        targetScrollY = juce::jlimit(0.0, maxScroll, targetScrollY);
+
+        double diff = targetScrollY - currentScrollY;
+        if (std::abs(diff) < 0.5 && std::abs(velocity) < 0.1)
+        {
+            currentScrollY = targetScrollY;
+            velocity = 0.0;
+            vp->setViewPosition(0, juce::roundToInt(currentScrollY));
+            stopTimer();
+            if (onScrolled) onScrolled();
+            return;
+        }
+
+        // Apply smooth critically-damped spring interpolation
+        currentScrollY += diff * 0.32;
+        currentScrollY = juce::jlimit(0.0, maxScroll, currentScrollY);
+
+        vp->setViewPosition(0, juce::roundToInt(currentScrollY));
+        if (onScrolled) onScrolled();
+    }
+
+    double currentScrollY { 0.0 };
+    double targetScrollY { 0.0 };
+    double velocity { 0.0 };
+};
+
+class SampleTableComponent : public juce::Component,
+                             public juce::TableListBoxModel,
+                             public TagDatabaseListener,
+                             public AudioEngineListener,
+                             public juce::ScrollBar::Listener
+{
+public:
+    static constexpr int InitialRenderChunk = 150;
+    static constexpr int RenderChunkIncrement = 150;
+
     SampleTableComponent(TagDatabaseManager& db, AudioEngine& engine);
     ~SampleTableComponent() override;
 
@@ -42,7 +183,7 @@ public:
                       const juce::String& extensionFilter,
                       bool favoritesOnly);
 
-    const std::vector<MediaItem>& getDisplayedItems() const { return displayedItems; }
+    const std::vector<MediaItem>& getDisplayedItems() const { return allFilteredItems; }
 
     // juce::TableListBoxModel overrides
     int getNumRows() override;
@@ -64,6 +205,14 @@ public:
     void libraryIndexUpdated() override;
     void tagsUpdated() override;
 
+    // AudioEngineListener callbacks
+    void sampleLoaded(const juce::String& filePath) override;
+    void playbackStateChanged(bool isPlaying) override;
+
+    // ScrollBar::Listener callback
+    void scrollBarMoved(juce::ScrollBar* scrollBar, double newRangeStart) override;
+    void checkAndLoadMoreRows();
+
     std::function<void(const MediaItem*, const MediaItem*, juce::Point<int>)> onSimilarityHover;
 
     void addListener(SampleTableListener* listener);
@@ -78,8 +227,13 @@ private:
     TagDatabaseManager& dbManager;
     AudioEngine& audioEngine;
 
-    juce::TableListBox table;
-    std::vector<MediaItem> displayedItems;
+    SmoothTableListBox table;
+    std::vector<MediaItem> allFilteredItems;
+    int renderedItemCount { InitialRenderChunk };
+
+    // Fast cached audio playback status for instant, zero-lookup paintCell
+    juce::String cachedCurrentFilePath;
+    bool cachedIsPlaying { false };
 
     // Fast pre-rendered cached Retina icons for zero CPU drawing overhead
     juce::Image playIconImage;
@@ -89,10 +243,10 @@ private:
     juce::Image starRatingImages[6];
 
     // Pre-cached fonts for zero-allocation table row painting
-    juce::Font cellFont { 13.0f };
-    juce::Font cellBoldFont { juce::Font(13.0f).boldened() };
-    juce::Font tagFont { 11.0f };
-    juce::Font badgeFont { juce::Font(10.0f).boldened() };
+    juce::Font cellFont { juce::FontOptions(13.0f) };
+    juce::Font cellBoldFont { juce::FontOptions(13.0f).withStyle("Bold") };
+    juce::Font tagFont { juce::FontOptions(11.0f) };
+    juce::Font badgeFont { juce::FontOptions(10.0f).withStyle("Bold") };
 
     // Filter State
     juce::String currentKeyword;

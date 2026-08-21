@@ -15,6 +15,7 @@ SampleTableComponent::SampleTableComponent(TagDatabaseManager& db, AudioEngine& 
     : dbManager(db), audioEngine(engine)
 {
     dbManager.addListener(this);
+    audioEngine.addListener(this);
 
     table.setHeader(std::make_unique<juce::TableHeaderComponent>());
     auto& header = table.getHeader();
@@ -36,11 +37,16 @@ SampleTableComponent::SampleTableComponent(TagDatabaseManager& db, AudioEngine& 
     table.setOutlineThickness(0);
     header.setOpaque(true);
 
+    table.onScrolled = [this] {
+        checkAndLoadMoreRows();
+    };
+
     if (auto* vp = table.getViewport())
     {
         vp->setOpaque(true);
         vp->setScrollBarsShown(true, false);
         vp->setRepaintsOnMouseActivity(false);
+        vp->getVerticalScrollBar().addListener(this);
     }
 
     similarityBannerLabel.setFont(badgeFont);
@@ -65,7 +71,60 @@ SampleTableComponent::SampleTableComponent(TagDatabaseManager& db, AudioEngine& 
 SampleTableComponent::~SampleTableComponent()
 {
     dbManager.removeListener(this);
+    audioEngine.removeListener(this);
+    if (auto* vp = table.getViewport())
+    {
+        vp->getVerticalScrollBar().removeListener(this);
+    }
     table.setModel(nullptr);
+}
+
+void SampleTableComponent::sampleLoaded(const juce::String& filePath)
+{
+    cachedCurrentFilePath = filePath;
+    cachedIsPlaying = audioEngine.isPlaying();
+    table.repaint();
+}
+
+void SampleTableComponent::playbackStateChanged(bool isPlaying)
+{
+    cachedIsPlaying = isPlaying;
+    table.repaint();
+}
+
+void SampleTableComponent::scrollBarMoved(juce::ScrollBar* scrollBar, double /*newRangeStart*/)
+{
+    if (auto* vp = table.getViewport())
+    {
+        if (scrollBar == &vp->getVerticalScrollBar())
+        {
+            table.syncScrollPosition();
+            checkAndLoadMoreRows();
+        }
+    }
+}
+
+void SampleTableComponent::checkAndLoadMoreRows()
+{
+    auto* vp = table.getViewport();
+    if (vp == nullptr) return;
+
+    auto& sb = vp->getVerticalScrollBar();
+    double currentPos = sb.getCurrentRangeStart();
+    double viewSize = sb.getCurrentRangeSize();
+    double maxLimit = sb.getMaximumRangeLimit();
+    double maxScroll = maxLimit - viewSize;
+
+    // Load next chunk when user scrolls near the bottom (70% of currently rendered range)
+    if (maxScroll <= 0.0 || currentPos >= maxScroll * 0.70)
+    {
+        int total = static_cast<int>(allFilteredItems.size());
+        if (renderedItemCount < total)
+        {
+            renderedItemCount = std::min(total, renderedItemCount + RenderChunkIncrement);
+            table.updateContent();
+        }
+    }
 }
 
 void SampleTableComponent::lookAndFeelChanged()
@@ -209,7 +268,6 @@ void SampleTableComponent::paint(juce::Graphics& g)
     {
         auto bannerArea = getLocalBounds().removeFromTop(30).reduced(4, 2).toFloat();
         
-        // Glassmorphic / glowing backdrop
         juce::Colour baseColor = OpenWavLookAndFeel::accentCyan;
         juce::ColourGradient grad(baseColor.withAlpha(0.25f), bannerArea.getTopLeft(), baseColor.withAlpha(0.05f), bannerArea.getBottomRight(), false);
         g.setGradientFill(grad);
@@ -237,28 +295,28 @@ void SampleTableComponent::resized()
         clearSimilarityButton.setVisible(false);
     }
 
-        table.setBounds(area);
+    table.setBounds(area);
+    
+    auto& header = table.getHeader();
+    int totalWidth = area.getWidth();
+    
+    int fixedWidths = 76; 
+    if (similarityTargetId.isNotEmpty()) fixedWidths += 80;
+    
+    int availableWidth = totalWidth - fixedWidths;
+    if (availableWidth > 100)
+    {
+        double scale = static_cast<double>(availableWidth) / 755.0;
         
-        auto& header = table.getHeader();
-        int totalWidth = area.getWidth();
-        
-        int fixedWidths = 76; 
-        if (similarityTargetId.isNotEmpty()) fixedWidths += 80;
-        
-        int availableWidth = totalWidth - fixedWidths;
-        if (availableWidth > 100)
-        {
-            double scale = static_cast<double>(availableWidth) / 755.0;
-            
-            header.setColumnWidth(2, static_cast<int>(220 * scale));
-            header.setColumnWidth(3, static_cast<int>(230 * scale));
-            header.setColumnWidth(4, static_cast<int>(70 * scale));
-            header.setColumnWidth(5, static_cast<int>(65 * scale));
-            header.setColumnWidth(6, static_cast<int>(95 * scale));
-            header.setColumnWidth(7, static_cast<int>(75 * scale));
-            if (similarityTargetId.isNotEmpty()) header.setColumnWidth(9, 80);
-        }
+        header.setColumnWidth(2, static_cast<int>(220 * scale));
+        header.setColumnWidth(3, static_cast<int>(230 * scale));
+        header.setColumnWidth(4, static_cast<int>(70 * scale));
+        header.setColumnWidth(5, static_cast<int>(65 * scale));
+        header.setColumnWidth(6, static_cast<int>(95 * scale));
+        header.setColumnWidth(7, static_cast<int>(75 * scale));
+        if (similarityTargetId.isNotEmpty()) header.setColumnWidth(9, 80);
     }
+}
 
 void SampleTableComponent::updateFilter(const juce::String& searchKeyword,
                                          const std::set<juce::String>& selectedTags,
@@ -266,7 +324,6 @@ void SampleTableComponent::updateFilter(const juce::String& searchKeyword,
                                          const juce::String& extensionFilter,
                                          bool favoritesOnly)
 {
-    // Clear similarity target if any filter inputs change
     if (currentKeyword != searchKeyword ||
         currentSelectedTags != selectedTags ||
         currentMatchAll != matchAllTags ||
@@ -282,14 +339,13 @@ void SampleTableComponent::updateFilter(const juce::String& searchKeyword,
     currentExtFilter = extensionFilter;
     currentFavOnly = favoritesOnly;
 
-    displayedItems = dbManager.getFilteredItems(currentKeyword, currentSelectedTags, currentMatchAll, currentExtFilter, currentFavOnly);
+    allFilteredItems = dbManager.getFilteredItems(currentKeyword, currentSelectedTags, currentMatchAll, currentExtFilter, currentFavOnly);
 
     if (similarityTargetId.isNotEmpty())
     {
-        // Find target item to compute distance against
         MediaItem targetItem;
         bool found = false;
-        for (const auto& item : displayedItems)
+        for (const auto& item : allFilteredItems)
         {
             if (item.id == similarityTargetId)
             {
@@ -319,16 +375,16 @@ void SampleTableComponent::updateFilter(const juce::String& searchKeyword,
             similarityBannerLabel.setText("SHOWING SIMILAR SOUNDS TO: " + similarityTargetName, juce::dontSendNotification);
 
             std::vector<MediaItem> thresholdedItems;
-            for (const auto& item : displayedItems)
+            for (const auto& item : allFilteredItems)
             {
                 if (item.id == targetItem.id || TagDatabaseManager::calculateMatchPercentage(targetItem, item) >= 60.0f)
                 {
                     thresholdedItems.push_back(item);
                 }
             }
-            displayedItems = thresholdedItems;
+            allFilteredItems = thresholdedItems;
 
-            std::sort(displayedItems.begin(), displayedItems.end(), [targetItem](const MediaItem& a, const MediaItem& b) {
+            std::sort(allFilteredItems.begin(), allFilteredItems.end(), [targetItem](const MediaItem& a, const MediaItem& b) {
                 if (a.id == targetItem.id) return true;
                 if (b.id == targetItem.id) return false;
 
@@ -341,7 +397,7 @@ void SampleTableComponent::updateFilter(const juce::String& searchKeyword,
         {
             similarityTargetId = "";
             similarityTargetName = "";
-            std::sort(displayedItems.begin(), displayedItems.end(), [](const MediaItem& a, const MediaItem& b) {
+            std::sort(allFilteredItems.begin(), allFilteredItems.end(), [](const MediaItem& a, const MediaItem& b) {
                 return a.fileName.compareIgnoreCase(b.fileName) < 0;
             });
         }
@@ -349,7 +405,7 @@ void SampleTableComponent::updateFilter(const juce::String& searchKeyword,
     else
     {
         similarityTargetName = "";
-        std::sort(displayedItems.begin(), displayedItems.end(), [](const MediaItem& a, const MediaItem& b) {
+        std::sort(allFilteredItems.begin(), allFilteredItems.end(), [](const MediaItem& a, const MediaItem& b) {
             return a.fileName.compareIgnoreCase(b.fileName) < 0;
         });
     }
@@ -365,6 +421,9 @@ void SampleTableComponent::updateFilter(const juce::String& searchKeyword,
             table.getHeader().removeColumn(9);
     }
 
+    // Reset rendered chunk to InitialRenderChunk for fast initial rendering
+    renderedItemCount = std::min(static_cast<int>(allFilteredItems.size()), InitialRenderChunk);
+
     resized();
 
     table.updateContent();
@@ -372,17 +431,17 @@ void SampleTableComponent::updateFilter(const juce::String& searchKeyword,
 
     if (similarityTargetId.isNotEmpty())
     {
-        table.scrollToEnsureRowIsOnscreen(0);
+        table.smoothScrollToRow(0);
     }
 
     listeners.call([this](SampleTableListener& l) {
-        l.displayedItemsChanged(displayedItems);
+        l.displayedItemsChanged(allFilteredItems);
     });
 }
 
 int SampleTableComponent::getNumRows()
 {
-    return static_cast<int>(displayedItems.size());
+    return std::min(renderedItemCount, static_cast<int>(allFilteredItems.size()));
 }
 
 void SampleTableComponent::paintRowBackground(juce::Graphics& g, int rowNumber, int /*width*/, int height, bool rowIsSelected)
@@ -395,17 +454,33 @@ void SampleTableComponent::paintRowBackground(juce::Graphics& g, int rowNumber, 
     }
     else
     {
-        g.fillAll(OpenWavLookAndFeel::bgCard);
+        if (rowNumber % 2 == 1)
+            g.fillAll(OpenWavLookAndFeel::bgDark.withAlpha(0.35f));
+        else
+            g.fillAll(OpenWavLookAndFeel::bgCard);
     }
 }
 
 void SampleTableComponent::paintCell(juce::Graphics& g, int rowNumber, int columnId, int width, int height, bool rowIsSelected)
 {
-    if (rowNumber < 0 || rowNumber >= static_cast<int>(displayedItems.size()))
+    if (rowNumber < 0 || rowNumber >= static_cast<int>(allFilteredItems.size()))
         return;
 
-    const auto& item = displayedItems[static_cast<size_t>(rowNumber)];
+    const auto& item = allFilteredItems[static_cast<size_t>(rowNumber)];
     auto bounds = juce::Rectangle<int>(0, 0, width, height).reduced(6, 0);
+
+    // Auto-stream more rows if user scrolls near the end of the rendered batch
+    if (rowNumber >= renderedItemCount - 25 && renderedItemCount < static_cast<int>(allFilteredItems.size()))
+    {
+        juce::MessageManager::callAsync([this]() {
+            int total = static_cast<int>(allFilteredItems.size());
+            if (renderedItemCount < total)
+            {
+                renderedItemCount = std::min(total, renderedItemCount + RenderChunkIncrement);
+                table.updateContent();
+            }
+        });
+    }
 
     g.setFont(cellFont);
 
@@ -413,8 +488,8 @@ void SampleTableComponent::paintCell(juce::Graphics& g, int rowNumber, int colum
     {
         case 1: // Play status / Icon button
         {
-            bool isCurrentFile = (audioEngine.getCurrentFile().getFullPathName() == item.filePath);
-            bool isPlaying = isCurrentFile && audioEngine.isPlaying();
+            bool isCurrentFile = (cachedCurrentFilePath == item.filePath);
+            bool isPlaying = isCurrentFile && cachedIsPlaying;
             const auto& img = isPlaying ? pauseIconImage : playIconImage;
             if (img.isValid())
             {
@@ -435,7 +510,7 @@ void SampleTableComponent::paintCell(juce::Graphics& g, int rowNumber, int colum
             if (similarityTargetId.isNotEmpty() && cachedSimilarityTargetItem.id == similarityTargetId && item.id == similarityTargetId)
             {
                 juce::String badgeText = "TARGET";
-                int badgeW = badgeFont.getStringWidth(badgeText) + 10;
+                int badgeW = juce::roundToInt(badgeFont.getStringWidthFloat(badgeText)) + 10;
                 auto targetBounds = bounds.removeFromRight(badgeW).toFloat().withHeight(16.0f);
                 targetBounds.setY((height - 16.0f) * 0.5f);
 
@@ -485,7 +560,7 @@ void SampleTableComponent::paintCell(juce::Graphics& g, int rowNumber, int colum
             {
                 for (const auto& tag : item.tags)
                 {
-                    float tagWidth = static_cast<float>(tagFont.getStringWidth(tag) + 12);
+                    float tagWidth = tagFont.getStringWidthFloat(tag) + 12.0f;
                     if (tagX + tagWidth > bounds.getRight()) break;
 
                     auto pillBounds = juce::Rectangle<float>(tagX, tagY, tagWidth, tagHeight);
@@ -564,9 +639,32 @@ void SampleTableComponent::paintCell(juce::Graphics& g, int rowNumber, int colum
             break;
         }
 
-        case 9: // Match %
+        case 9: // Match % (Zero-allocation direct paint)
         {
-            // Now handled by MatchCellComponent via refreshComponentForCell
+            if (similarityTargetId.isNotEmpty() && item.id != similarityTargetId)
+            {
+                float matchPct = TagDatabaseManager::calculateMatchPercentage(cachedSimilarityTargetItem, item);
+                float matchRatio = juce::jlimit(0.0f, 1.0f, matchPct / 100.0f);
+
+                float size = std::min(width, height) - 8.0f;
+                auto ringBounds = juce::Rectangle<float>(0, 0, size, size).withCentre(bounds.getCentre().toFloat());
+
+                g.setColour(OpenWavLookAndFeel::bgDark.withAlpha(0.6f));
+                g.drawEllipse(ringBounds, 2.0f);
+
+                if (matchRatio > 0.01f)
+                {
+                    juce::Path arc;
+                    arc.addCentredArc(ringBounds.getCentreX(), ringBounds.getCentreY(), ringBounds.getWidth() * 0.5f, ringBounds.getHeight() * 0.5f, 0.0f, 0.0f, juce::MathConstants<float>::twoPi * matchRatio, true);
+                    g.setColour(OpenWavLookAndFeel::accentCyan);
+                    g.strokePath(arc, juce::PathStrokeType(2.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+                }
+
+                juce::String pctStr = juce::String(juce::roundToInt(matchPct));
+                g.setColour(OpenWavLookAndFeel::textPrimary);
+                g.setFont(badgeFont);
+                g.drawText(pctStr, ringBounds.toNearestInt(), juce::Justification::centred, false);
+            }
             break;
         }
 
@@ -577,16 +675,15 @@ void SampleTableComponent::paintCell(juce::Graphics& g, int rowNumber, int colum
 
 juce::String SampleTableComponent::getCellTooltip(int rowNumber, int columnId)
 {
-    if (rowNumber < 0 || rowNumber >= static_cast<int>(displayedItems.size()))
+    if (rowNumber < 0 || rowNumber >= static_cast<int>(allFilteredItems.size()))
         return {};
 
     if (similarityTargetId.isNotEmpty() && cachedSimilarityTargetItem.id == similarityTargetId)
     {
-        const auto& item = displayedItems[static_cast<size_t>(rowNumber)];
+        const auto& item = allFilteredItems[static_cast<size_t>(rowNumber)];
         if (item.id == similarityTargetId)
             return "This is the target sample.";
 
-        // We only want to show the tooltip if hovering over the Match % column (column 9) or the File Name column (column 2)
         if (columnId == 9 || columnId == 2)
         {
             const auto& a = item;
@@ -618,116 +715,20 @@ juce::String SampleTableComponent::getCellTooltip(int rowNumber, int columnId)
     return {};
 }
 
-class MatchCellComponent : public juce::Component
+juce::Component* SampleTableComponent::refreshComponentForCell(int /*rowNumber*/, int /*columnId*/, bool /*isRowSelected*/, juce::Component* existingComponentToUpdate)
 {
-public:
-    MatchCellComponent(SampleTableComponent& owner, const MediaItem& i, const MediaItem& target)
-        : table(owner), item(i), targetItem(target)
-    {
-    }
-
-    void paint(juce::Graphics& g) override
-    {
-        if (item.id == targetItem.id) return;
-
-        auto bounds = getLocalBounds().reduced(6, 0);
-        float matchPct = TagDatabaseManager::calculateMatchPercentage(targetItem, item);
-        float matchRatio = juce::jlimit(0.0f, 1.0f, matchPct / 100.0f);
-
-        float size = std::min(getWidth(), getHeight()) - 8.0f;
-        auto ringBounds = juce::Rectangle<float>(0, 0, size, size).withCentre(bounds.getCentre().toFloat());
-        
-        g.setColour(OpenWavLookAndFeel::bgDark.withAlpha(0.6f));
-        g.drawEllipse(ringBounds, 3.0f);
-        
-        if (matchRatio > 0.01f)
-        {
-            juce::Path arc;
-            arc.addCentredArc(ringBounds.getCentreX(), ringBounds.getCentreY(), ringBounds.getWidth() * 0.5f, ringBounds.getHeight() * 0.5f, 0.0f, 0.0f, juce::MathConstants<float>::twoPi * matchRatio, true);
-            g.setColour(OpenWavLookAndFeel::accentCyan);
-            g.strokePath(arc, juce::PathStrokeType(3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-        }
-        
-        juce::String pctStr = juce::String(juce::roundToInt(matchPct));
-        g.setColour(OpenWavLookAndFeel::textPrimary);
-        g.setFont(juce::Font(9.0f).boldened());
-        g.drawText(pctStr, ringBounds.toNearestInt(), juce::Justification::centred, false);
-    }
-
-    void mouseEnter(const juce::MouseEvent&) override
-    {
-        if (table.onSimilarityHover)
-            table.onSimilarityHover(&item, &targetItem, getScreenPosition().translated(getWidth(), 0));
-    }
-
-    void mouseExit(const juce::MouseEvent&) override
-    {
-        if (table.onSimilarityHover)
-            table.onSimilarityHover(nullptr, nullptr, {});
-    }
-
-    void mouseDown(const juce::MouseEvent& e) override
-    {
-        forwardClick(e);
-    }
-
-    void mouseDoubleClick(const juce::MouseEvent& e) override
-    {
-        forwardClick(e);
-    }
-
-private:
-    void forwardClick(const juce::MouseEvent& e)
-    {
-        int rowNumber = -1;
-        for (int i = 0; i < (int)table.displayedItems.size(); ++i)
-        {
-            if (table.displayedItems[i].id == item.id)
-            {
-                rowNumber = i;
-                break;
-            }
-        }
-        if (rowNumber >= 0)
-        {
-            table.cellClicked(rowNumber, 9, e.getEventRelativeTo(&table));
-        }
-    }
-
-private:
-    SampleTableComponent& table;
-    MediaItem item;
-    MediaItem targetItem;
-};
-
-juce::Component* SampleTableComponent::refreshComponentForCell(int rowNumber, int columnId, bool /*isRowSelected*/, juce::Component* existingComponentToUpdate)
-{
-    if (columnId == 9 && similarityTargetId.isNotEmpty())
-    {
-        if (rowNumber >= 0 && rowNumber < static_cast<int>(displayedItems.size()))
-        {
-            const auto& item = displayedItems[static_cast<size_t>(rowNumber)];
-            if (item.id != similarityTargetId)
-            {
-                auto* comp = new MatchCellComponent(*this, item, cachedSimilarityTargetItem);
-                delete existingComponentToUpdate;
-                return comp;
-            }
-        }
-    }
-
     delete existingComponentToUpdate;
     return nullptr;
 }
 
 void SampleTableComponent::cellClicked(int rowNumber, int columnId, const juce::MouseEvent& e)
 {
-    if (rowNumber < 0 || rowNumber >= static_cast<int>(displayedItems.size()))
+    if (rowNumber < 0 || rowNumber >= static_cast<int>(allFilteredItems.size()))
         return;
 
     table.grabKeyboardFocus();
 
-    const auto& item = displayedItems[static_cast<size_t>(rowNumber)];
+    const auto& item = allFilteredItems[static_cast<size_t>(rowNumber)];
 
     if (e.mods.isPopupMenu())
     {
@@ -737,13 +738,13 @@ void SampleTableComponent::cellClicked(int rowNumber, int columnId, const juce::
 
     if (columnId == 8) // Favorite Heart Toggle (Instant O(1) update)
     {
-        bool newFav = !displayedItems[static_cast<size_t>(rowNumber)].isFavorite;
-        displayedItems[static_cast<size_t>(rowNumber)].isFavorite = newFav;
+        bool newFav = !allFilteredItems[static_cast<size_t>(rowNumber)].isFavorite;
+        allFilteredItems[static_cast<size_t>(rowNumber)].isFavorite = newFav;
         dbManager.toggleFavorite(item.id);
 
         if (currentFavOnly && !newFav)
         {
-            displayedItems.erase(displayedItems.begin() + rowNumber);
+            allFilteredItems.erase(allFilteredItems.begin() + rowNumber);
             table.updateContent();
         }
         else
@@ -760,7 +761,7 @@ void SampleTableComponent::cellClicked(int rowNumber, int columnId, const juce::
         int colW = table.getHeader().getColumnWidth(7);
         float localX = static_cast<float>(e.x - colX);
 
-        int imgW = 64; // width of pre-rendered 5-star row
+        int imgW = 64;
         float startX = (colW - imgW) * 0.5f;
         float relX = localX - startX;
         float step = static_cast<float>(imgW) / 5.0f;
@@ -776,16 +777,14 @@ void SampleTableComponent::cellClicked(int rowNumber, int columnId, const juce::
             clickedStar = juce::jlimit(1, 5, clickedStar);
         }
 
-        int newRating = (item.rating == clickedStar) ? 0 : clickedStar; // Click same star to clear rating
-        displayedItems[static_cast<size_t>(rowNumber)].rating = newRating;
-        displayedItems[static_cast<size_t>(rowNumber)].precomputeCachedStrings();
+        int newRating = (item.rating == clickedStar) ? 0 : clickedStar;
+        allFilteredItems[static_cast<size_t>(rowNumber)].rating = newRating;
+        allFilteredItems[static_cast<size_t>(rowNumber)].precomputeCachedStrings();
 
         dbManager.setRating(item.id, newRating);
         table.repaintRow(rowNumber);
         return;
     }
-
-
 
     if (table.getSelectedRow() == rowNumber)
     {
@@ -808,9 +807,9 @@ void SampleTableComponent::cellClicked(int rowNumber, int columnId, const juce::
 
 void SampleTableComponent::selectedRowsChanged(int lastRowSelected)
 {
-    if (lastRowSelected >= 0 && lastRowSelected < static_cast<int>(displayedItems.size()))
+    if (lastRowSelected >= 0 && lastRowSelected < static_cast<int>(allFilteredItems.size()))
     {
-        const auto& item = displayedItems[static_cast<size_t>(lastRowSelected)];
+        const auto& item = allFilteredItems[static_cast<size_t>(lastRowSelected)];
         juce::File fileToLoad(item.filePath);
         
         if (fileToLoad.existsAsFile())
@@ -828,16 +827,22 @@ void SampleTableComponent::selectedRowsChanged(int lastRowSelected)
 void SampleTableComponent::moveSelection(int delta)
 {
     int current = table.getSelectedRow();
-    int numRows = getNumRows();
-    if (numRows <= 0)
+    int totalItems = static_cast<int>(allFilteredItems.size());
+    if (totalItems <= 0)
         return;
 
     int nextRow = current + delta;
     if (nextRow < 0) nextRow = 0;
-    if (nextRow >= numRows) nextRow = numRows - 1;
+    if (nextRow >= totalItems) nextRow = totalItems - 1;
+
+    if (nextRow >= renderedItemCount)
+    {
+        renderedItemCount = std::min(totalItems, nextRow + RenderChunkIncrement);
+        table.updateContent();
+    }
 
     table.selectRow(nextRow);
-    table.scrollToEnsureRowIsOnscreen(nextRow);
+    table.smoothScrollToRow(nextRow);
 }
 
 void SampleTableComponent::selectItemById(const juce::String& itemId)
@@ -845,17 +850,24 @@ void SampleTableComponent::selectItemById(const juce::String& itemId)
     if (itemId.isEmpty())
         return;
 
-    for (size_t i = 0; i < displayedItems.size(); ++i)
+    for (size_t i = 0; i < allFilteredItems.size(); ++i)
     {
-        if (displayedItems[i].id == itemId)
+        if (allFilteredItems[i].id == itemId)
         {
-            table.selectRow(static_cast<int>(i));
-            table.scrollToEnsureRowIsOnscreen(static_cast<int>(i));
+            int row = static_cast<int>(i);
+            if (row >= renderedItemCount)
+            {
+                renderedItemCount = std::min(static_cast<int>(allFilteredItems.size()), row + RenderChunkIncrement);
+                table.updateContent();
+            }
 
-            juce::File fileToLoad(displayedItems[i].filePath);
+            table.selectRow(row);
+            table.smoothScrollToRow(row);
+
+            juce::File fileToLoad(allFilteredItems[i].filePath);
             if (fileToLoad.existsAsFile())
             {
-                audioEngine.setSampleBpm(displayedItems[i].bpm);
+                audioEngine.setSampleBpm(allFilteredItems[i].bpm);
                 audioEngine.loadFile(fileToLoad, true);
             }
             break;
@@ -865,10 +877,10 @@ void SampleTableComponent::selectItemById(const juce::String& itemId)
 
 void SampleTableComponent::cellDoubleClicked(int rowNumber, int /*columnId*/, const juce::MouseEvent& /*e*/)
 {
-    if (rowNumber < 0 || rowNumber >= static_cast<int>(displayedItems.size()))
+    if (rowNumber < 0 || rowNumber >= static_cast<int>(allFilteredItems.size()))
         return;
 
-    const auto& item = displayedItems[static_cast<size_t>(rowNumber)];
+    const auto& item = allFilteredItems[static_cast<size_t>(rowNumber)];
     if (audioEngine.getCurrentFile().getFullPathName() == item.filePath && audioEngine.isPlaying())
     {
         audioEngine.pause();
@@ -897,12 +909,12 @@ juce::var SampleTableComponent::getDragSourceDescription(const juce::SparseSet<i
     if (selectedRows.size() > 0)
     {
         int r = selectedRows[0];
-        if (r >= 0 && r < static_cast<int>(displayedItems.size()))
+        if (r >= 0 && r < static_cast<int>(allFilteredItems.size()))
         {
             if (juce::Desktop::getInstance().getMainMouseSource().isDragging())
             {
                 juce::StringArray files;
-                files.add(displayedItems[static_cast<size_t>(r)].filePath);
+                files.add(allFilteredItems[static_cast<size_t>(r)].filePath);
 
                 juce::MessageManager::callAsync([files] {
                     juce::DragAndDropContainer::performExternalDragDropOfFiles(files, false);
@@ -911,7 +923,7 @@ juce::var SampleTableComponent::getDragSourceDescription(const juce::SparseSet<i
 #if JUCE_LINUX
             return {};
 #else
-            return displayedItems[static_cast<size_t>(r)].filePath;
+            return allFilteredItems[static_cast<size_t>(r)].filePath;
 #endif
         }
     }
@@ -920,10 +932,10 @@ juce::var SampleTableComponent::getDragSourceDescription(const juce::SparseSet<i
 
 void SampleTableComponent::showContextMenuForRow(int rowNumber)
 {
-    if (rowNumber < 0 || rowNumber >= static_cast<int>(displayedItems.size()))
+    if (rowNumber < 0 || rowNumber >= static_cast<int>(allFilteredItems.size()))
         return;
 
-    const auto& item = displayedItems[static_cast<size_t>(rowNumber)];
+    const auto& item = allFilteredItems[static_cast<size_t>(rowNumber)];
 
     juce::PopupMenu menu;
     menu.addSectionHeader(item.fileName);
@@ -951,50 +963,31 @@ void SampleTableComponent::showContextMenuForRow(int rowNumber)
     }
 
     menu.addSeparator();
-    menu.addItem(3, "Reveal in File Explorer / Finder");
-    menu.addItem(4, "Find Similar Sounds");
-    menu.addItem(5, "Convert Format / Sample Rate...");
-    menu.addItem(6, "Auto Slice to Sampler");
+    menu.addItem(3, "Find Similar Sounds...");
 
-    menu.showMenuAsync(juce::PopupMenu::Options(), [this, item](int result) {
-        if (result == 1)
+    menu.addSeparator();
+    menu.addItem(4, "Reveal in Finder");
+    menu.addItem(5, "Convert / Export Sample...");
+    menu.addItem(6, "Add to Performance Grid (Pad)");
+    menu.addItem(7, "Auto-Slice into Performance Grid");
+
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&table),
+                       [this, item, rowNumber](int result) {
+        if (result == 1) // Toggle Favorite
         {
-            for (size_t i = 0; i < displayedItems.size(); ++i)
-            {
-                if (displayedItems[i].id == item.id)
-                {
-                    bool newFav = !displayedItems[i].isFavorite;
-                    displayedItems[i].isFavorite = newFav;
-                    if (currentFavOnly && !newFav)
-                    {
-                        displayedItems.erase(displayedItems.begin() + i);
-                        table.updateContent();
-                    }
-                    else
-                    {
-                        table.repaintRow(static_cast<int>(i));
-                    }
-                    break;
-                }
-            }
+            allFilteredItems[static_cast<size_t>(rowNumber)].isFavorite = !item.isFavorite;
             dbManager.toggleFavorite(item.id);
+            table.repaintRow(rowNumber);
         }
-        else if (result >= 10 && result <= 15)
+        else if (result >= 10 && result <= 15) // Set Rating
         {
             int newRating = result - 10;
-            for (size_t i = 0; i < displayedItems.size(); ++i)
-            {
-                if (displayedItems[i].id == item.id)
-                {
-                    displayedItems[i].rating = newRating;
-                    displayedItems[i].precomputeCachedStrings();
-                    table.repaintRow(static_cast<int>(i));
-                    break;
-                }
-            }
+            allFilteredItems[static_cast<size_t>(rowNumber)].rating = newRating;
+            allFilteredItems[static_cast<size_t>(rowNumber)].precomputeCachedStrings();
             dbManager.setRating(item.id, newRating);
+            table.repaintRow(rowNumber);
         }
-        else if (result == 2)
+        else if (result == 2) // Add Tag
         {
             auto alert = std::make_shared<juce::AlertWindow>("Add Custom Tag", "Enter a new custom tag for " + item.fileName + ":", juce::AlertWindow::QuestionIcon);
             alert->addTextEditor("tagInput", "", "Tag (e.g. Kick, #Sub, Vocal)");
@@ -1017,7 +1010,7 @@ void SampleTableComponent::showContextMenuForRow(int rowNumber)
                 }
             }));
         }
-        else if (result >= 100)
+        else if (result >= 100) // Remove Tag
         {
             int idx = result - 100;
             if (idx >= 0 && idx < static_cast<int>(item.tags.size()))
@@ -1027,21 +1020,30 @@ void SampleTableComponent::showContextMenuForRow(int rowNumber)
                 dbManager.removeTagFromItem(item.id, *it);
             }
         }
-        else if (result == 3)
-        {
-            juce::File(item.filePath).revealToUser();
-        }
-        else if (result == 4)
+        else if (result == 3) // Find Similar Sounds
         {
             similarityTargetId = item.id;
             updateFilter(currentKeyword, currentSelectedTags, currentMatchAll, currentExtFilter, currentFavOnly);
-            table.scrollToEnsureRowIsOnscreen(0);
         }
-        else if (result == 5)
+        else if (result == 4) // Reveal in Finder
+        {
+            juce::File f(item.filePath);
+            if (f.existsAsFile())
+            {
+                f.revealToUser();
+            }
+        }
+        else if (result == 5) // Convert / Export Sample
         {
             convertSample(item);
         }
-        else if (result == 6)
+        else if (result == 6) // Add to Performance Grid (Pad)
+        {
+            listeners.call([item](SampleTableListener& l) {
+                l.addToSampleMapRequested(item);
+            });
+        }
+        else if (result == 7) // Auto-Slice into Performance Grid
         {
             listeners.call([item](SampleTableListener& l) {
                 l.autoSliceToSamplerRequested(item);
@@ -1052,7 +1054,6 @@ void SampleTableComponent::showContextMenuForRow(int rowNumber)
 
 void SampleTableComponent::convertSample(const MediaItem& item)
 {
-    // 1. Get writable formats
     juce::StringArray formatNames;
     std::vector<juce::AudioFormat*> writableFormats;
     auto& formatManager = audioEngine.getFormatManager();
