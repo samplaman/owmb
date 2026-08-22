@@ -15,24 +15,23 @@
 #include <windows.h>
 
 namespace {
-    WNDPROC originalWndProc = nullptr;
-    openwav::OpenWavAudioProcessorEditor* activeEditorPtr = nullptr;
+WNDPROC originalWndProc = nullptr;
+openwav::OpenWavAudioProcessorEditor *activeEditorPtr = nullptr;
 
-    LRESULT CALLBACK NativeCloseSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
-        if (msg == WM_CLOSE) {
-            if (activeEditorPtr != nullptr) {
-                activeEditorPtr->triggerExitSequence();
-                return 0;
-            }
-        }
-        if (originalWndProc != nullptr)
-            return CallWindowProc(originalWndProc, hwnd, msg, wParam, lParam);
-        return DefWindowProc(hwnd, msg, wParam, lParam);
+LRESULT CALLBACK NativeCloseSubclassProc(HWND hwnd, UINT msg, WPARAM wParam,
+                                         LPARAM lParam) {
+  if (msg == WM_CLOSE) {
+    if (activeEditorPtr != nullptr) {
+      activeEditorPtr->triggerExitSequence();
+      return 0;
     }
+  }
+  if (originalWndProc != nullptr)
+    return CallWindowProc(originalWndProc, hwnd, msg, wParam, lParam);
+  return DefWindowProc(hwnd, msg, wParam, lParam);
 }
+} // namespace
 #endif
-
-
 
 namespace openwav {
 
@@ -48,8 +47,9 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
       recorderComponent(p.getAudioEngine(), p.getDatabaseManager()),
       waveformTransport(p.getAudioEngine()),
       scanProgressDialog(p.getLibraryScanner()),
-      editComponent(p.getAudioEngine()),
-      sampleMapComponent(p.getAudioEngine()),
+      mobileTransferDialog(p.getAudioEngine(), p.getDatabaseManager(),
+                           p.getLibraryScanner()),
+      editComponent(p.getAudioEngine()), sampleMapComponent(p.getAudioEngine()),
       performanceComponent(p.getDatabaseManager(), p.getAudioEngine()) {
   bool isDark = audioProcessor.getDatabaseManager().isDarkMode();
   juce::String savedColourHex =
@@ -89,7 +89,8 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
   setWantsKeyboardFocus(true);
 
   float savedScale = audioProcessor.getDatabaseManager().getUiScale();
-  if (savedScale >= 0.70f && savedScale <= 2.0f && std::abs(savedScale - 1.0f) > 0.001f) {
+  if (savedScale >= 0.70f && savedScale <= 2.0f &&
+      std::abs(savedScale - 1.0f) > 0.001f) {
     setScaleFactor(savedScale);
   }
 
@@ -103,10 +104,11 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
       similarityGraphPopup.hidePopup();
   };
 
-  sampleMapComponent.onLoadToPerformance = [this](const std::vector<SampleMapZone>& zones) {
-    performanceComponent.loadSlices(zones);
-    headerBar.setViewMode(ViewMode::Performance);
-  };
+  sampleMapComponent.onLoadToPerformance =
+      [this](const std::vector<SampleMapZone> &zones) {
+        performanceComponent.loadSlices(zones);
+        headerBar.setViewMode(ViewMode::Performance);
+      };
 
   sampleMapComponent.onSliceToSamplerStarted = [this] {
     performanceComponent.clearAllPads();
@@ -116,6 +118,9 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
   sendLookAndFeelChange();
 
   triggerFilterUpdate();
+
+  // Restore persisted state for Performance, Edit, SampleMap, and layout
+  restoreStateFromProcessor();
 
   // Trigger startup scan for newly added/modified audio files in existing scan
   // folders
@@ -145,6 +150,7 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
 }
 
 OpenWavAudioProcessorEditor::~OpenWavAudioProcessorEditor() {
+  saveStateToProcessor();
 #if JUCE_WINDOWS
   activeEditorPtr = nullptr;
 #endif
@@ -253,7 +259,8 @@ void OpenWavAudioProcessorEditor::resized() {
   leftPanelResizer.setBounds(area.removeFromLeft(6));
 
   auto mode = headerBar.getCurrentViewMode();
-  bool midiAllowed = (mode == ViewMode::Edit || mode == ViewMode::SampleMap || mode == ViewMode::Performance);
+  bool midiAllowed = (mode == ViewMode::Edit || mode == ViewMode::SampleMap ||
+                      mode == ViewMode::Performance);
   audioProcessor.getAudioEngine().setMidiInputEnabled(midiAllowed);
 
   sampleTable.setVisible(false);
@@ -320,9 +327,7 @@ void OpenWavAudioProcessorEditor::formatFilterChanged(
 void OpenWavAudioProcessorEditor::addFolderRequested() {
   auto chooser = std::make_shared<juce::FileChooser>(
       "Select Audio Folder to Scan...",
-      juce::File::getSpecialLocation(juce::File::userHomeDirectory),
-      "*",
-      true);
+      juce::File::getSpecialLocation(juce::File::userHomeDirectory), "*", true);
 
   chooser->launchAsync(
       juce::FileBrowserComponent::openMode |
@@ -340,17 +345,22 @@ void OpenWavAudioProcessorEditor::addFolderRequested() {
         std::vector<juce::String> foldersToScan;
 
         for (const auto &fileOrDir : results) {
-          juce::File dir = fileOrDir.isDirectory() ? fileOrDir : fileOrDir.getParentDirectory();
+          juce::File dir = fileOrDir.isDirectory()
+                               ? fileOrDir
+                               : fileOrDir.getParentDirectory();
           if (dir.exists() && dir.isDirectory()) {
             juce::String folderPath = dir.getFullPathName();
 #if JUCE_MAC
             if (access(folderPath.toRawUTF8(), R_OK | X_OK) != 0) {
               juce::String escapedPath = folderPath.replace("'", "'\\''");
-              juce::String script = "osascript -e 'do shell script \"chmod -R a+rX \\\"" + escapedPath + "\\\"\" with administrator privileges'";
+              juce::String script =
+                  "osascript -e 'do shell script \"chmod -R a+rX \\\"" +
+                  escapedPath + "\\\"\" with administrator privileges'";
               std::system(script.toRawUTF8());
             }
 #endif
-            if (std::find(foldersToScan.begin(), foldersToScan.end(), folderPath) == foldersToScan.end()) {
+            if (std::find(foldersToScan.begin(), foldersToScan.end(),
+                          folderPath) == foldersToScan.end()) {
               foldersToScan.push_back(folderPath);
               audioProcessor.getDatabaseManager().addScanFolder(folderPath);
             }
@@ -396,9 +406,12 @@ void OpenWavAudioProcessorEditor::settingsRequested() {
   float curScale = audioProcessor.getDatabaseManager().getUiScale();
   int curPercent = juce::roundToInt(curScale * 100.0f);
 
-  scaleSubMenu.addItem(30, "Increase Size (+10%)    [Cmd/Ctrl +]", curScale < 2.0f);
-  scaleSubMenu.addItem(31, "Decrease Size (-10%)    [Cmd/Ctrl -]", curScale > 0.70f);
-  scaleSubMenu.addItem(32, "Reset Size (100%)       [Cmd/Ctrl 0]", std::abs(curScale - 1.0f) >= 0.02f);
+  scaleSubMenu.addItem(30, "Increase Size (+10%)    [Cmd/Ctrl +]",
+                       curScale < 2.0f);
+  scaleSubMenu.addItem(31, "Decrease Size (-10%)    [Cmd/Ctrl -]",
+                       curScale > 0.70f);
+  scaleSubMenu.addItem(32, "Reset Size (100%)       [Cmd/Ctrl 0]",
+                       std::abs(curScale - 1.0f) >= 0.02f);
   scaleSubMenu.addSeparator();
 
   scaleSubMenu.addItem(40, "80% (Compact)", true, curPercent == 80);
@@ -412,6 +425,8 @@ void OpenWavAudioProcessorEditor::settingsRequested() {
 
   menu.addSubMenu("Text & UI Scaling", scaleSubMenu);
 
+  menu.addSeparator();
+  menu.addItem(20, "Phone Field Recorder Sync (LAN)...");
   menu.addSeparator();
   menu.addItem(3, "Audio / MIDI Device Settings...");
   menu.addSeparator();
@@ -569,6 +584,9 @@ void OpenWavAudioProcessorEditor::settingsRequested() {
               triggerFilterUpdate();
             }
           });
+    } else if (result == 20) // Phone Field Recorder Sync (LAN)
+    {
+      mobileTransferDialog.showDialog();
     } else if (result == 5) // About OWMB...
     {
       aboutDialog.showDialog();
@@ -597,13 +615,15 @@ void OpenWavAudioProcessorEditor::displayedItemsChanged(
   }
 }
 
-void OpenWavAudioProcessorEditor::addToSampleMapRequested(const MediaItem &item) {
+void OpenWavAudioProcessorEditor::addToSampleMapRequested(
+    const MediaItem &item) {
   audioProcessor.getAudioEngine().stop();
   sampleMapComponent.addSample(item);
   headerBar.setViewMode(ViewMode::SampleMap);
 }
 
-void OpenWavAudioProcessorEditor::autoSliceToSamplerRequested(const MediaItem &item) {
+void OpenWavAudioProcessorEditor::autoSliceToSamplerRequested(
+    const MediaItem &item) {
   audioProcessor.getAudioEngine().stop();
   sampleMapComponent.autoSliceToSampler(item);
   headerBar.setViewMode(ViewMode::SampleMap);
@@ -635,7 +655,9 @@ void OpenWavAudioProcessorEditor::filesDropped(const juce::StringArray &files,
 #if JUCE_MAC
       if (access(file.getFullPathName().toRawUTF8(), R_OK | X_OK) != 0) {
         juce::String escapedPath = file.getFullPathName().replace("'", "'\\''");
-        juce::String script = "osascript -e 'do shell script \"chmod -R a+rX \\\"" + escapedPath + "\\\"\" with administrator privileges'";
+        juce::String script =
+            "osascript -e 'do shell script \"chmod -R a+rX \\\"" + escapedPath +
+            "\\\"\" with administrator privileges'";
         std::system(script.toRawUTF8());
       }
 #endif
@@ -647,7 +669,9 @@ void OpenWavAudioProcessorEditor::filesDropped(const juce::StringArray &files,
 #if JUCE_MAC
       if (access(parent.toRawUTF8(), R_OK | X_OK) != 0) {
         juce::String escapedPath = parent.replace("'", "'\\''");
-        juce::String script = "osascript -e 'do shell script \"chmod -R a+rX \\\"" + escapedPath + "\\\"\" with administrator privileges'";
+        juce::String script =
+            "osascript -e 'do shell script \"chmod -R a+rX \\\"" + escapedPath +
+            "\\\"\" with administrator privileges'";
         std::system(script.toRawUTF8());
       }
 #endif
@@ -663,7 +687,8 @@ void OpenWavAudioProcessorEditor::filesDropped(const juce::StringArray &files,
 
 void OpenWavAudioProcessorEditor::viewModeChanged(ViewMode mode) {
   audioProcessor.getAudioEngine().stop();
-  bool midiAllowed = (mode == ViewMode::Edit || mode == ViewMode::SampleMap || mode == ViewMode::Performance);
+  bool midiAllowed = (mode == ViewMode::Edit || mode == ViewMode::SampleMap ||
+                      mode == ViewMode::Performance);
   audioProcessor.getAudioEngine().setMidiInputEnabled(midiAllowed);
   resized();
   if (mode == ViewMode::Cloud || mode == ViewMode::List) {
@@ -709,7 +734,8 @@ void OpenWavAudioProcessorEditor::parentHierarchyChanged() {
         if (auto hwnd = (HWND)peer->getNativeHandle()) {
           activeEditorPtr = this;
           if (originalWndProc == nullptr) {
-            originalWndProc = (WNDPROC)SetWindowLongPtr(hwnd, GWLP_WNDPROC, (LONG_PTR)NativeCloseSubclassProc);
+            originalWndProc = (WNDPROC)SetWindowLongPtr(
+                hwnd, GWLP_WNDPROC, (LONG_PTR)NativeCloseSubclassProc);
           }
         }
       }
@@ -783,15 +809,18 @@ void OpenWavAudioProcessorEditor::applyUiScale(float scale) {
 
 bool OpenWavAudioProcessorEditor::keyPressed(const juce::KeyPress &key) {
   if (key.getModifiers().isCommandDown()) {
-    if (key.getTextCharacter() == '+' || key.getTextCharacter() == '=' || key.getKeyCode() == juce::KeyPress::numberPadAdd) {
+    if (key.getTextCharacter() == '+' || key.getTextCharacter() == '=' ||
+        key.getKeyCode() == juce::KeyPress::numberPadAdd) {
       applyUiScale(audioProcessor.getDatabaseManager().getUiScale() + 0.10f);
       return true;
     }
-    if (key.getTextCharacter() == '-' || key.getTextCharacter() == '_' || key.getKeyCode() == juce::KeyPress::numberPadSubtract) {
+    if (key.getTextCharacter() == '-' || key.getTextCharacter() == '_' ||
+        key.getKeyCode() == juce::KeyPress::numberPadSubtract) {
       applyUiScale(audioProcessor.getDatabaseManager().getUiScale() - 0.10f);
       return true;
     }
-    if (key.getTextCharacter() == '0' || key.getKeyCode() == '0' || key.getKeyCode() == juce::KeyPress::numberPad0) {
+    if (key.getTextCharacter() == '0' || key.getKeyCode() == '0' ||
+        key.getKeyCode() == juce::KeyPress::numberPad0) {
       applyUiScale(1.0f);
       return true;
     }
@@ -813,4 +842,17 @@ bool OpenWavAudioProcessorEditor::keyPressed(const juce::KeyPress &key) {
   return juce::AudioProcessorEditor::keyPressed(key);
 }
 
+void OpenWavAudioProcessorEditor::saveStateToProcessor() {
+  audioProcessor.setPerformanceState(performanceComponent.getState());
+  audioProcessor.setEditState(editComponent.getState());
+  audioProcessor.setSampleMapState(sampleMapComponent.getState());
+}
+
+void OpenWavAudioProcessorEditor::restoreStateFromProcessor() {
+  performanceComponent.setState(audioProcessor.getPerformanceState());
+  editComponent.setState(audioProcessor.getEditState());
+  sampleMapComponent.setState(audioProcessor.getSampleMapState());
+}
+
 } // namespace openwav
+

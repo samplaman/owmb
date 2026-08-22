@@ -77,6 +77,7 @@ juce_add_binary_data(OpenWavAssets
 
 target_sources(OpenWav PRIVATE
     Source/Models/MediaItem.h
+    Source/Models/PluginState.h
     Source/Database/TagDatabaseManager.h
     Source/Database/TagDatabaseManager.cpp
     Source/Scanner/LibraryScanner.h
@@ -115,6 +116,11 @@ target_sources(OpenWav PRIVATE
     Source/UI/SampleMapComponent.cpp
     Source/UI/PerformanceComponent.h
     Source/UI/PerformanceComponent.cpp
+    Source/Network/MobileSyncManager.h
+    Source/Network/MobileSyncManager.cpp
+    Source/UI/StudioIcons.h
+    Source/UI/MobileTransferDialog.h
+    Source/UI/MobileTransferDialog.cpp
     Source/PluginProcessor.h
     Source/PluginProcessor.cpp
     Source/PluginEditor.h

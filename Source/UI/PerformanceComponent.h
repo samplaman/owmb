@@ -8,6 +8,7 @@
 #include "../Audio/AudioEngine.h"
 #include "../Database/TagDatabaseManager.h"
 #include "../Models/MediaItem.h"
+#include "../Models/PluginState.h"
 #include <vector>
 #include <array>
 
@@ -88,6 +89,9 @@ public:
     void clearAllPads();
     void randomizeGrid();
     void loadSlices(const std::vector<SampleMapZone>& zones);
+
+    PerformanceState getState() const;
+    void setState(const PerformanceState& state);
 
     bool keyPressed(const juce::KeyPress& key) override;
 

@@ -1349,4 +1349,74 @@ bool SampleMapComponent::keyPressed(const juce::KeyPress& key)
     return false;
 }
 
+SampleMapState SampleMapComponent::getState() const
+{
+    SampleMapState s;
+    for (const auto& z : zones)
+    {
+        SampleMapZoneState zs;
+        zs.filePath = z.filePath;
+        zs.sampleName = z.sampleName;
+        zs.rootNote = z.rootNote;
+        zs.keyLow = z.keyLow;
+        zs.keyHigh = z.keyHigh;
+        zs.velLow = z.velLow;
+        zs.velHigh = z.velHigh;
+        zs.fineTuneCents = z.fineTuneCents;
+        zs.gainDb = z.gainDb;
+        zs.attackMs = z.attackMs;
+        zs.decayMs = z.decayMs;
+        zs.sustainLevel = z.sustainLevel;
+        zs.releaseMs = z.releaseMs;
+        s.zones.push_back(zs);
+    }
+    s.globalAttackMs = globalAttackMs;
+    s.globalDecayMs = globalDecayMs;
+    s.globalSustainLevel = globalSustainLevel;
+    s.globalReleaseMs = globalReleaseMs;
+    s.samplerReverbAmount = audioEngine.getSamplerReverbAmount();
+    return s;
+}
+
+void SampleMapComponent::setState(const SampleMapState& state)
+{
+    clearAllZones();
+    for (const auto& zs : state.zones)
+    {
+        SampleMapZone z;
+        z.filePath = zs.filePath;
+        z.sampleName = zs.sampleName;
+        z.rootNote = zs.rootNote;
+        z.keyLow = zs.keyLow;
+        z.keyHigh = zs.keyHigh;
+        z.velLow = zs.velLow;
+        z.velHigh = zs.velHigh;
+        z.fineTuneCents = zs.fineTuneCents;
+        z.gainDb = zs.gainDb;
+        z.attackMs = zs.attackMs;
+        z.decayMs = zs.decayMs;
+        z.sustainLevel = zs.sustainLevel;
+        z.releaseMs = zs.releaseMs;
+        z.isSelected = false;
+        zones.push_back(z);
+    }
+
+    globalAttackMs = state.globalAttackMs;
+    globalDecayMs = state.globalDecayMs;
+    globalSustainLevel = state.globalSustainLevel;
+    globalReleaseMs = state.globalReleaseMs;
+
+    attackKnob.setValue(globalAttackMs, juce::dontSendNotification);
+    decayKnob.setValue(globalDecayMs, juce::dontSendNotification);
+    sustainKnob.setValue(globalSustainLevel, juce::dontSendNotification);
+    releaseKnob.setValue(globalReleaseMs, juce::dontSendNotification);
+
+    reverbSlider.setValue(state.samplerReverbAmount, juce::dontSendNotification);
+    audioEngine.setSamplerReverbAmount(state.samplerReverbAmount);
+
+    resized();
+    repaint();
+}
+
 } // namespace openwav
+

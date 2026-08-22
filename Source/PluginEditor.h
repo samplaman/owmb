@@ -16,6 +16,7 @@
 #include "UI/RecorderComponent.h"
 #include "UI/ScanProgressDialog.h"
 #include "UI/AboutDialog.h"
+#include "UI/MobileTransferDialog.h"
 #include "UI/SimilarityGraphPopup.h"
 #include "UI/AnalysisComponent.h"
 #include "UI/EditComponent.h"
@@ -76,6 +77,9 @@ public:
     void setTagPanelWidth(int newWidth);
     void applyUiScale(float scale);
 
+    void saveStateToProcessor();
+    void restoreStateFromProcessor();
+
 private:
     void triggerFilterUpdate();
     void updateNativeTitleBarTheme();
@@ -119,6 +123,7 @@ private:
     WaveformTransportComponent waveformTransport;
     ScanProgressDialog scanProgressDialog;
     AboutDialog aboutDialog;
+    MobileTransferDialog mobileTransferDialog;
     SimilarityGraphPopup similarityGraphPopup;
     AnalysisComponent analysisComponent;
     EditComponent editComponent;

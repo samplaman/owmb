@@ -971,7 +971,7 @@ void SampleTableComponent::showContextMenuForRow(int rowNumber)
     menu.addItem(6, "Add to Performance Grid (Pad)");
     menu.addItem(7, "Auto-Slice into Performance Grid");
 
-    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&table),
+    menu.showMenuAsync(juce::PopupMenu::Options().withMousePosition(),
                        [this, item, rowNumber](int result) {
         if (result == 1) // Toggle Favorite
         {

@@ -78,11 +78,44 @@ juce::AudioProcessorEditor* OpenWavAudioProcessor::createEditor()
 
 void OpenWavAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
 {
+    if (auto* ed = dynamic_cast<OpenWavAudioProcessorEditor*>(getActiveEditor()))
+    {
+        ed->saveStateToProcessor();
+    }
+
+    PluginFullState fullState;
+    fullState.version = 1;
+    fullState.performance = performanceState;
+    fullState.edit = editState;
+    fullState.sampleMap = sampleMapState;
+
+    juce::var stateVar = fullState.toVar();
+    juce::String jsonString = juce::JSON::toString(stateVar, false);
+    destData.replaceAll(jsonString.toRawUTF8(), jsonString.getNumBytesAsUTF8());
+
     dbManager.saveToFile();
 }
 
-void OpenWavAudioProcessor::setStateInformation(const void* /*data*/, int /*sizeInBytes*/)
+void OpenWavAudioProcessor::setStateInformation(const void* data, int sizeInBytes)
 {
+    if (data != nullptr && sizeInBytes > 0)
+    {
+        juce::String jsonString = juce::String::createStringFromData(data, sizeInBytes);
+        juce::var stateVar = juce::JSON::parse(jsonString);
+        if (stateVar.isObject())
+        {
+            auto fullState = PluginFullState::fromVar(stateVar);
+            performanceState = fullState.performance;
+            editState = fullState.edit;
+            sampleMapState = fullState.sampleMap;
+
+            if (auto* ed = dynamic_cast<OpenWavAudioProcessorEditor*>(getActiveEditor()))
+            {
+                ed->restoreStateFromProcessor();
+            }
+        }
+    }
+
     dbManager.loadFromFile();
 }
 

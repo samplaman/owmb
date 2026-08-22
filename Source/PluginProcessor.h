@@ -8,6 +8,7 @@
 #include "Database/TagDatabaseManager.h"
 #include "Scanner/LibraryScanner.h"
 #include "Audio/AudioEngine.h"
+#include "Models/PluginState.h"
 
 namespace openwav
 {
@@ -47,10 +48,26 @@ public:
     LibraryScanner& getLibraryScanner() { return libraryScanner; }
     AudioEngine& getAudioEngine() { return audioEngine; }
 
+    PerformanceState& getPerformanceState() { return performanceState; }
+    const PerformanceState& getPerformanceState() const { return performanceState; }
+    void setPerformanceState(const PerformanceState& s) { performanceState = s; }
+
+    EditComponentState& getEditState() { return editState; }
+    const EditComponentState& getEditState() const { return editState; }
+    void setEditState(const EditComponentState& s) { editState = s; }
+
+    SampleMapState& getSampleMapState() { return sampleMapState; }
+    const SampleMapState& getSampleMapState() const { return sampleMapState; }
+    void setSampleMapState(const SampleMapState& s) { sampleMapState = s; }
+
 private:
     TagDatabaseManager dbManager;
     LibraryScanner libraryScanner { dbManager };
     AudioEngine audioEngine;
+
+    PerformanceState performanceState;
+    EditComponentState editState;
+    SampleMapState sampleMapState;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(OpenWavAudioProcessor)
 };

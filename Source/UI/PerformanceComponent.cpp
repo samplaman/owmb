@@ -1148,4 +1148,99 @@ void PerformanceComponent::loadSlices(const std::vector<SampleMapZone>& zones)
     repaint();
 }
 
+PerformanceState PerformanceComponent::getState() const
+{
+    PerformanceState s;
+    for (int i = 0; i < totalPads; ++i)
+    {
+        s.pads[i].id = i;
+        s.pads[i].filePath = pads[i].file.getFullPathName();
+        s.pads[i].sampleName = pads[i].sampleName;
+        s.pads[i].colorRgba = pads[i].color.getARGB();
+        s.pads[i].pitchSemi = pads[i].pitchSemi;
+        s.pads[i].gainDb = pads[i].gainDb;
+        s.pads[i].isLooping = pads[i].isLooping;
+        s.pads[i].isOneShot = pads[i].isOneShot;
+    }
+    s.attack = static_cast<float>(attackKnob.getValue());
+    s.decay = static_cast<float>(decayKnob.getValue());
+    s.sustain = static_cast<float>(sustainKnob.getValue());
+    s.release = static_cast<float>(releaseKnob.getValue());
+    s.pitchTrack = pitchTrackButton.getToggleState();
+    s.oneShot = oneShotButton.getToggleState();
+    s.loop = loopButton.getToggleState();
+    s.currentBank = currentBank;
+    s.colVolumeDb = colVolumeDb;
+    s.colPitchSemi = colPitchSemi;
+    s.masterVolumeDb = masterVolumeDb;
+
+    int selectedId = presetSelector.getSelectedId();
+    if (selectedId > 1)
+        s.currentPresetName = presetSelector.getText();
+
+    return s;
+}
+
+void PerformanceComponent::setState(const PerformanceState& state)
+{
+    clearAllPads();
+    for (int i = 0; i < totalPads; ++i)
+    {
+        const auto& p = state.pads[i];
+        if (p.filePath.isNotEmpty())
+        {
+            juce::File f(p.filePath);
+            if (f.existsAsFile())
+            {
+                pads[i].file = f;
+                pads[i].sampleName = p.sampleName.isNotEmpty() ? p.sampleName : f.getFileNameWithoutExtension();
+                if (p.colorRgba != 0)
+                    pads[i].color = juce::Colour(p.colorRgba);
+                pads[i].pitchSemi = p.pitchSemi;
+                pads[i].gainDb = p.gainDb;
+                pads[i].isLooping = p.isLooping;
+                pads[i].isOneShot = p.isOneShot;
+            }
+        }
+    }
+
+    attackKnob.setValue(state.attack, juce::dontSendNotification);
+    decayKnob.setValue(state.decay, juce::dontSendNotification);
+    sustainKnob.setValue(state.sustain, juce::dontSendNotification);
+    releaseKnob.setValue(state.release, juce::dontSendNotification);
+
+    pitchTrackButton.setToggleState(state.pitchTrack, juce::dontSendNotification);
+    pitchTrackButton.setButtonText(state.pitchTrack ? "Pitch Track: ON" : "Pitch Track: OFF");
+
+    oneShotButton.setToggleState(state.oneShot, juce::dontSendNotification);
+    oneShotButton.setButtonText(state.oneShot ? "One Shot: ON" : "One Shot: OFF");
+
+    loopButton.setToggleState(state.loop, juce::dontSendNotification);
+    loopButton.setButtonText(state.loop ? "Loop: ON" : "Loop: OFF");
+
+    currentBank = juce::jlimit(0, 1, state.currentBank);
+    bankSelector.setSelectedId(currentBank + 1, juce::dontSendNotification);
+
+    colVolumeDb = state.colVolumeDb;
+    colPitchSemi = state.colPitchSemi;
+    masterVolumeDb = state.masterVolumeDb;
+
+    if (state.currentPresetName.isNotEmpty())
+    {
+        for (int i = 0; i < presetSelector.getNumItems(); ++i)
+        {
+            if (presetSelector.getItemText(i) == state.currentPresetName)
+            {
+                presetSelector.setSelectedItemIndex(i, juce::dontSendNotification);
+                break;
+            }
+        }
+    }
+
+    refreshAllPadWaveforms();
+    updateApcHardwareLeds();
+    repaint();
+}
+
 } // namespace openwav
+

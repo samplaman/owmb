@@ -7,6 +7,7 @@
  #include <juce_audio_formats/juce_audio_formats.h>
 #endif
 #include "../Audio/AudioEngine.h"
+#include "../Models/PluginState.h"
 
 namespace openwav
 {
@@ -19,6 +20,9 @@ class EditComponent : public juce::Component,
 public:
     explicit EditComponent(AudioEngine& engine);
     ~EditComponent() override;
+
+    EditComponentState getState() const;
+    void setState(const EditComponentState& state);
 
     void paint(juce::Graphics& g) override;
     void resized() override;

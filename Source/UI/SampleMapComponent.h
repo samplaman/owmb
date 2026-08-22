@@ -7,6 +7,7 @@
 #endif
 #include "../Audio/AudioEngine.h"
 #include "../Models/MediaItem.h"
+#include "../Models/PluginState.h"
 #include <vector>
 
 namespace openwav
@@ -78,6 +79,9 @@ public:
     void autoMapByPitch();
     void autoMapChromatic();
     void autoMapVelocityLayers();
+
+    SampleMapState getState() const;
+    void setState(const SampleMapState& state);
 
     const std::vector<SampleMapZone>& getZones() const { return zones; }
 

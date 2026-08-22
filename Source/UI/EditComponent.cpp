@@ -2110,4 +2110,98 @@ void EditComponent::exportEdited()
         });
 }
 
+EditComponentState EditComponent::getState() const
+{
+    EditComponentState s;
+    if (audioEngine.isCurrentSampleInSampler() && audioEngine.getCurrentFile().existsAsFile())
+    {
+        s.filePath = audioEngine.getCurrentFile().getFullPathName();
+        s.sampleStartRatio = audioEngine.getSampleStartRatio();
+        s.sampleEndRatio = audioEngine.getSampleEndRatio();
+        s.loopInRatio = loopInRatio;
+        s.loopOutRatio = loopOutRatio;
+        s.loopMarkersSet = loopMarkersSet;
+        s.fadeInMs = fadeInMs;
+        s.fadeOutMs = fadeOutMs;
+        s.fadeInCurveType = fadeInCurveType;
+        s.fadeOutCurveType = fadeOutCurveType;
+        s.crossfadeMs = crossfadeMs;
+        s.zoomLevel = zoomLevel;
+        s.scrollOffset = scrollOffset;
+        s.snapToZeroCrossing = snapToZeroCrossing;
+        s.isSpectralView = isSpectralView;
+        s.hasSpectralBoxSelection = hasSpectralBoxSelection;
+        s.spectralTimeStart = spectralTimeStart;
+        s.spectralTimeEnd = spectralTimeEnd;
+        s.spectralFreqLow = spectralFreqLow;
+        s.spectralFreqHigh = spectralFreqHigh;
+    }
+    return s;
+}
+
+void EditComponent::setState(const EditComponentState& state)
+{
+    if (state.filePath.isNotEmpty())
+    {
+        juce::File f(state.filePath);
+        if (f.existsAsFile())
+        {
+            if (audioEngine.getCurrentFile().getFullPathName() != state.filePath || !audioEngine.isCurrentSampleInSampler())
+            {
+                audioEngine.loadFile(f, false, true);
+            }
+            sampleNameLabel.setText(f.getFileName(), juce::dontSendNotification);
+            totalDurationSecs = audioEngine.getTotalLengthSeconds();
+            audioEngine.setSampleRange(state.sampleStartRatio, state.sampleEndRatio);
+
+            loopInRatio = state.loopInRatio;
+            loopOutRatio = state.loopOutRatio;
+            loopMarkersSet = state.loopMarkersSet;
+
+            fadeInMs = state.fadeInMs;
+            fadeInSlider.setValue(state.fadeInMs, juce::dontSendNotification);
+            fadeInMsLabel.setText(juce::String(static_cast<int>(fadeInMs)) + " ms", juce::dontSendNotification);
+
+            fadeOutMs = state.fadeOutMs;
+            fadeOutSlider.setValue(state.fadeOutMs, juce::dontSendNotification);
+            fadeOutMsLabel.setText(juce::String(static_cast<int>(fadeOutMs)) + " ms", juce::dontSendNotification);
+
+            fadeInCurveType = juce::jlimit(0, 2, state.fadeInCurveType);
+            fadeInCurveBox.setSelectedId(fadeInCurveType + 1, juce::dontSendNotification);
+
+            fadeOutCurveType = juce::jlimit(0, 2, state.fadeOutCurveType);
+            fadeOutCurveBox.setSelectedId(fadeOutCurveType + 1, juce::dontSendNotification);
+
+            crossfadeMs = state.crossfadeMs;
+            crossfadeSlider.setValue(state.crossfadeMs, juce::dontSendNotification);
+            crossfadeMsLabel.setText(juce::String(static_cast<int>(crossfadeMs)) + " ms", juce::dontSendNotification);
+
+            zoomLevel = juce::jlimit(1.0, 64.0, state.zoomLevel);
+            zoomSlider.setValue(zoomLevel, juce::dontSendNotification);
+            scrollOffset = state.scrollOffset;
+
+            snapToZeroCrossing = state.snapToZeroCrossing;
+            snapZeroCrossingButton.setToggleState(snapToZeroCrossing, juce::dontSendNotification);
+
+            isSpectralView = state.isSpectralView;
+            spectralToggleButton.setToggleState(isSpectralView, juce::dontSendNotification);
+            spectralToggleButton.setButtonText(isSpectralView ? "Spectral: ON" : "Spectral: OFF");
+
+            hasSpectralBoxSelection = state.hasSpectralBoxSelection;
+            spectralTimeStart = state.spectralTimeStart;
+            spectralTimeEnd = state.spectralTimeEnd;
+            spectralFreqLow = state.spectralFreqLow;
+            spectralFreqHigh = state.spectralFreqHigh;
+
+            updateControlVisibility();
+            spectrogramGenerated = false;
+            if (isSpectralView && totalDurationSecs > 0.0)
+                generateSpectrogram();
+
+            repaint();
+        }
+    }
+}
+
 } // namespace openwav
+
