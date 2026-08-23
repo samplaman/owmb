@@ -22,6 +22,7 @@ public:
     virtual void displayedItemsChanged(const std::vector<MediaItem>& /*items*/) {}
     virtual void addToSampleMapRequested(const MediaItem& /*item*/) {}
     virtual void autoSliceToSamplerRequested(const MediaItem& /*item*/) {}
+    virtual void editSampleRequested(const MediaItem& /*item*/) {}
 };
 
 class SmoothTableListBox : public juce::TableListBox, private juce::Timer
@@ -198,7 +199,7 @@ public:
     bool mayDragToExternalWindows() const override;
 
     void moveSelection(int delta);
-    void selectItemById(const juce::String& itemId);
+    void selectItemById(const juce::String& itemId, bool triggerPlayback = true);
     void lookAndFeelChanged() override;
 
     // TagDatabaseListener callbacks
@@ -230,6 +231,7 @@ private:
     SmoothTableListBox table;
     std::vector<MediaItem> allFilteredItems;
     int renderedItemCount { InitialRenderChunk };
+    juce::String currentSelectedItemId;
 
     // Fast cached audio playback status for instant, zero-lookup paintCell
     juce::String cachedCurrentFilePath;

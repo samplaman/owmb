@@ -32,6 +32,9 @@ public:
     virtual ~SampleCloudListener() = default;
     virtual void cloudSampleSelected(const MediaItem& item) = 0;
     virtual void cloudSampleDoubleClicked(const MediaItem& item) = 0;
+    virtual void editSampleRequested(const MediaItem& /*item*/) {}
+    virtual void addToSampleMapRequested(const MediaItem& /*item*/) {}
+    virtual void autoSliceToSamplerRequested(const MediaItem& /*item*/) {}
 };
 
 class SampleCloudComponent : public juce::Component,
@@ -128,6 +131,7 @@ private:
 
     void runLayoutAsync(std::vector<MediaItem> items);
     std::pair<std::vector<TagCluster>, std::vector<std::pair<size_t, size_t>>> calculateClusterLayoutInternal(std::vector<CloudNode>& nodesCopy);
+    void showContextMenuForNode(int nodeIndex);
 
     TagDatabaseManager& dbManager;
     AudioEngine& audioEngine;

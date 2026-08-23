@@ -32,6 +32,7 @@ public:
     virtual void loopingStateChanged(bool /*enabled*/) {}
     virtual void transportSyncChanged(bool /*isSynced*/) {}
     virtual void bpmChanged(double /*newBpm*/) {}
+    virtual void activeSliceTriggered(int /*sliceIndex*/) {}
 };
 
 struct WaveformPeaks
@@ -143,6 +144,7 @@ public:
 
     // Audio Playback Controls
     bool loadFile(const juce::File& audioFile, bool autoPlay = false, bool isSamplerSample = false);
+    bool loadAudioBuffer(const juce::String& displayName, const juce::AudioBuffer<float>& buffer, double sampleRate, int rootNote = 60, bool isSamplerSample = true);
     bool isCurrentSampleInSampler() const { return isLoadedInSampler.load(std::memory_order_relaxed); }
     void setLoadedInSampler(bool inSampler) { isLoadedInSampler.store(inSampler, std::memory_order_relaxed); }
     void preloadSampleFiles(const std::vector<juce::File>& files);
@@ -156,9 +158,11 @@ public:
     void setOneShotEnabled(bool enabled);
     bool isOneShotEnabled() const { return oneShotEnabled.load(std::memory_order_relaxed); }
     void stopZoneVoice(int triggerMidiNote);
+    void stopAllVoices();
     void play();
     void pause();
     void stop();
+    void clearMasterSample();
     void setPositionRatio(double ratio); // 0.0 - 1.0
     void setLooping(bool shouldLoop);
     bool isLooping() const { return isLoopingAtomic.load(std::memory_order_relaxed); }
@@ -183,6 +187,11 @@ public:
     bool silenceSpectralRegion(double startRatio, double endRatio, float minFreqHz, float maxFreqHz);
     bool adjustSpectralRegionGain(double startRatio, double endRatio, float minFreqHz, float maxFreqHz, float gaindB);
     bool isolateSpectralRegion(double startRatio, double endRatio, float minFreqHz, float maxFreqHz);
+    bool repairSpectralRegion(double startRatio, double endRatio, float minFreqHz, float maxFreqHz);
+    bool removeSpectralHarmonics(double startRatio, double endRatio, float fundamentalFreqHz);
+    bool denoiseSpectralRegion(double startRatio, double endRatio, float minFreqHz, float maxFreqHz, float reductionDb = 18.0f);
+    bool widenSpectralRegion(double startRatio, double endRatio, float minFreqHz, float maxFreqHz, float widthFactor = 2.0f);
+    bool saturateSpectralRegion(double startRatio, double endRatio, float minFreqHz, float maxFreqHz, float driveAmount = 0.5f);
     bool reverseSelection(double startRatio, double endRatio);
     bool deverbSelection(double startRatio, double endRatio, float amount = 0.6f);
     bool adjustGainSelection(double startRatio, double endRatio, float gaindB);
@@ -192,6 +201,11 @@ public:
     bool changeSampleSpeed(double speedMultiplier);
     bool applyFadesToBuffer(double fadeInMs, int fadeInType, double fadeOutMs, int fadeOutType);
     void rebuildWaveformPeaks();
+
+    // Non-destructive editing: snapshot original before edits, restore to revert
+    void snapshotOriginalForEditing();
+    bool restoreOriginal();
+    bool hasOriginalSnapshot() const;
 
     bool getAutoPlay() const { return autoPlayOnSelect; }
     void setAutoPlay(bool enabled) { autoPlayOnSelect = enabled; }
@@ -252,6 +266,9 @@ public:
     void playMetronomeClick(bool isAccent = false);
     void setInputParametricEq(const std::array<float, 9>& freqs, const std::array<float, 9>& gains, bool lowCut);
 
+    void triggerNoteOn(int midiNoteNumber, float velocity);
+    void triggerNoteOff(int midiNoteNumber);
+
     void addListener(AudioEngineListener* listener);
     void removeListener(AudioEngineListener* listener);
 
@@ -260,9 +277,7 @@ private:
     void drainCommandsOnAudioThread();
     void startPlaybackInternal(double startRatio);
     void stopPlaybackInternal();
-    void replaceEditedSampleInMemoryAndDisk();
-    void triggerNoteOn(int midiNoteNumber, float velocity);
-    void triggerNoteOff(int midiNoteNumber);
+    void replaceEditedSampleInMemory();
     void changeListenerCallback(juce::ChangeBroadcaster* source) override;
 
     juce::TimeSliceThread backgroundThread { "OpenWavBackgroundThread" };
@@ -275,6 +290,11 @@ private:
     std::shared_ptr<CachedSample> currentMasterSample;
     std::shared_ptr<AudioVoice> loadedVoice;
     WaveformPeaks cachedWaveformPeaks;
+
+    // Non-destructive editing: backup of original buffer before edits
+    juce::AudioBuffer<float> originalEditBuffer;
+    double originalEditSampleRate { 0.0 };
+    bool originalSnapshotValid { false };
 
     // Real-Time Audio Thread State (strictly lock-free, zero heap allocations)
     std::array<RealtimeVoiceSlot, MaxActiveVoices> voicePool;
@@ -292,7 +312,7 @@ private:
     std::atomic<double> totalDurationAtomic { 0.0 };
     std::atomic<int> numChannelsAtomic { 0 };
     std::atomic<float> gainLevelAtomic { 0.8f };
-    std::atomic<bool> isLoopingAtomic { true };
+    std::atomic<bool> isLoopingAtomic { false };
     std::atomic<double> sampleStartRatioAtomic { 0.0 };
     std::atomic<double> sampleEndRatioAtomic { 1.0 };
     std::atomic<double> stoppedPositionSecs { 0.0 };

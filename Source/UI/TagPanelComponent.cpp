@@ -131,6 +131,20 @@ void TagPanelComponent::clearAllFiltersAndSelection()
     notifySelectionChanged();
 }
 
+void TagPanelComponent::setSelectedTags(const std::vector<juce::String>& tags)
+{
+    selectedTags.clear();
+    for (const auto& t : tags)
+        selectedTags.insert(t);
+
+    for (auto* btn : tagButtons)
+    {
+        if (btn != nullptr)
+            btn->setToggleState(selectedTags.count(btn->getButtonText()) > 0, juce::dontSendNotification);
+    }
+    notifySelectionChanged();
+}
+
 TagPanelComponent::~TagPanelComponent()
 {
     dbManager.removeListener(this);

@@ -49,8 +49,7 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
       scanProgressDialog(p.getLibraryScanner()),
       mobileTransferDialog(p.getAudioEngine(), p.getDatabaseManager(),
                            p.getLibraryScanner()),
-      editComponent(p.getAudioEngine()), sampleMapComponent(p.getAudioEngine()),
-      performanceComponent(p.getDatabaseManager(), p.getAudioEngine()) {
+      editComponent(p.getAudioEngine()), sampleMapComponent(p.getAudioEngine()) {
   bool isDark = audioProcessor.getDatabaseManager().isDarkMode();
   juce::String savedColourHex =
       audioProcessor.getDatabaseManager().getPrimaryColourHex();
@@ -80,7 +79,6 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
   addChildComponent(analysisComponent);
   addChildComponent(editComponent);
   addChildComponent(sampleMapComponent);
-  addChildComponent(performanceComponent);
   addAndMakeVisible(waveformTransport);
 
   setResizable(true, true);
@@ -104,14 +102,13 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
       similarityGraphPopup.hidePopup();
   };
 
-  sampleMapComponent.onLoadToPerformance =
-      [this](const std::vector<SampleMapZone> &zones) {
-        performanceComponent.loadSlices(zones);
-        headerBar.setViewMode(ViewMode::Performance);
-      };
+  sampleMapComponent.onStateChanged = [this] {
+    waveformTransport.setNormalizeEnabled(sampleMapComponent.getZones().empty());
+    saveStateToProcessor();
+  };
 
-  sampleMapComponent.onSliceToSamplerStarted = [this] {
-    performanceComponent.clearAllPads();
+  waveformTransport.onSlicesGenerated = [this](const std::vector<double>& /*ratios*/) {
+    // Slices displayed on main transport bar; auto-mapping to sampler occurs via right-click Auto-Slice
   };
 
   // Broadcast current LookAndFeel theme and colours to all sub-components
@@ -119,8 +116,9 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
 
   triggerFilterUpdate();
 
-  // Restore persisted state for Performance, Edit, SampleMap, and layout
+  // Restore persisted state for Edit, SampleMap, and layout
   restoreStateFromProcessor();
+  waveformTransport.setNormalizeEnabled(sampleMapComponent.getZones().empty());
 
   // Trigger startup scan for newly added/modified audio files in existing scan
   // folders
@@ -147,6 +145,10 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
 
   resized();
   repaint();
+
+  juce::MessageManager::callAsync([this] {
+    grabKeyboardFocus();
+  });
 }
 
 OpenWavAudioProcessorEditor::~OpenWavAudioProcessorEditor() {
@@ -242,7 +244,6 @@ void OpenWavAudioProcessorEditor::resized() {
     analysisComponent.setVisible(false);
     editComponent.setVisible(false);
     sampleMapComponent.setVisible(false);
-    performanceComponent.setVisible(false);
     waveformTransport.setVisible(false);
     return;
   }
@@ -259,9 +260,6 @@ void OpenWavAudioProcessorEditor::resized() {
   leftPanelResizer.setBounds(area.removeFromLeft(6));
 
   auto mode = headerBar.getCurrentViewMode();
-  bool midiAllowed = (mode == ViewMode::Edit || mode == ViewMode::SampleMap ||
-                      mode == ViewMode::Performance);
-  audioProcessor.getAudioEngine().setMidiInputEnabled(midiAllowed);
 
   sampleTable.setVisible(false);
   sampleCloud.setVisible(false);
@@ -270,7 +268,6 @@ void OpenWavAudioProcessorEditor::resized() {
   analysisComponent.setVisible(false);
   editComponent.setVisible(false);
   sampleMapComponent.setVisible(false);
-  performanceComponent.setVisible(false);
 
   if (mode == ViewMode::Cloud) {
     sampleCloud.setVisible(true);
@@ -291,9 +288,6 @@ void OpenWavAudioProcessorEditor::resized() {
   } else if (mode == ViewMode::SampleMap) {
     sampleMapComponent.setVisible(true);
     sampleMapComponent.setBounds(area);
-  } else if (mode == ViewMode::Performance) {
-    performanceComponent.setVisible(true);
-    performanceComponent.setBounds(area);
   } else // ViewMode::List
   {
     sampleTable.setVisible(true);
@@ -332,7 +326,6 @@ void OpenWavAudioProcessorEditor::addFolderRequested() {
   chooser->launchAsync(
       juce::FileBrowserComponent::openMode |
           juce::FileBrowserComponent::canSelectDirectories |
-          juce::FileBrowserComponent::canSelectFiles |
           juce::FileBrowserComponent::canSelectMultipleItems,
       [this, chooser](const juce::FileChooser &fc) {
         auto results = fc.getResults();
@@ -625,8 +618,41 @@ void OpenWavAudioProcessorEditor::addToSampleMapRequested(
 void OpenWavAudioProcessorEditor::autoSliceToSamplerRequested(
     const MediaItem &item) {
   audioProcessor.getAudioEngine().stop();
-  sampleMapComponent.autoSliceToSampler(item);
-  headerBar.setViewMode(ViewMode::SampleMap);
+  juce::File sampleFile(item.filePath);
+  if (!sampleFile.existsAsFile())
+    return;
+
+  // Load the sample into the audio engine for slicing preview
+  audioProcessor.getAudioEngine().loadFile(sampleFile, false, true);
+
+  auto sliceComp = std::make_unique<SliceConfigComponent>(
+      audioProcessor.getAudioEngine(),
+      [this, item](const std::vector<double>& ratios) {
+        if (!ratios.empty()) {
+          waveformTransport.setSliceRatios(ratios);
+          sampleMapComponent.autoSliceToSampler(item, ratios);
+          headerBar.setViewMode(ViewMode::SampleMap);
+        }
+      });
+
+  juce::DialogWindow::LaunchOptions opts;
+  opts.dialogTitle = "Slice to Sample Map";
+  opts.dialogBackgroundColour = OpenWavLookAndFeel::bgDark;
+  opts.content.setOwned(sliceComp.release());
+  opts.content->setSize(620, 380);
+  opts.escapeKeyTriggersCloseButton = true;
+  opts.useNativeTitleBar = true;
+  opts.resizable = false;
+
+  opts.launchAsync();
+}
+
+void OpenWavAudioProcessorEditor::editSampleRequested(
+    const MediaItem &item) {
+  audioProcessor.getAudioEngine().loadFile(juce::File(item.filePath), false, true);
+  audioProcessor.getAudioEngine().snapshotOriginalForEditing();
+  editComponent.sampleLoaded(item.filePath);
+  headerBar.setViewMode(ViewMode::Edit);
 }
 
 bool OpenWavAudioProcessorEditor::isInterestedInFileDrag(
@@ -687,12 +713,18 @@ void OpenWavAudioProcessorEditor::filesDropped(const juce::StringArray &files,
 
 void OpenWavAudioProcessorEditor::viewModeChanged(ViewMode mode) {
   audioProcessor.getAudioEngine().stop();
-  bool midiAllowed = (mode == ViewMode::Edit || mode == ViewMode::SampleMap ||
-                      mode == ViewMode::Performance);
-  audioProcessor.getAudioEngine().setMidiInputEnabled(midiAllowed);
   resized();
   if (mode == ViewMode::Cloud || mode == ViewMode::List) {
     triggerFilterUpdate();
+  }
+  if (mode == ViewMode::Edit) {
+    auto currentFile = audioProcessor.getAudioEngine().getCurrentFile();
+    if (currentFile.existsAsFile()) {
+      editComponent.sampleLoaded(currentFile.getFullPathName());
+    }
+    // Snapshot the original buffer when entering edit view so edits are non-destructive
+    if (!audioProcessor.getAudioEngine().hasOriginalSnapshot())
+      audioProcessor.getAudioEngine().snapshotOriginalForEditing();
   }
 }
 
@@ -743,10 +775,28 @@ void OpenWavAudioProcessorEditor::parentHierarchyChanged() {
       updateNativeTitleBarTheme();
     }
   }
+
+  if (isVisible()) {
+    grabKeyboardFocus();
+  }
+}
+
+void OpenWavAudioProcessorEditor::visibilityChanged() {
+  if (isVisible()) {
+    grabKeyboardFocus();
+  }
+}
+
+void OpenWavAudioProcessorEditor::mouseDown(const juce::MouseEvent &e) {
+  grabKeyboardFocus();
+  juce::AudioProcessorEditor::mouseDown(e);
 }
 
 void OpenWavAudioProcessorEditor::cloudSampleSelected(const MediaItem &item) {
-  sampleTable.selectItemById(item.id);
+  audioProcessor.getAudioEngine().stop();
+  audioProcessor.getAudioEngine().setSampleBpm(item.bpm);
+  audioProcessor.getAudioEngine().loadFile(juce::File(item.filePath), true);
+  sampleTable.selectItemById(item.id, false);
   analysisComponent.setItem(item);
 }
 
@@ -843,15 +893,61 @@ bool OpenWavAudioProcessorEditor::keyPressed(const juce::KeyPress &key) {
 }
 
 void OpenWavAudioProcessorEditor::saveStateToProcessor() {
-  audioProcessor.setPerformanceState(performanceComponent.getState());
-  audioProcessor.setEditState(editComponent.getState());
-  audioProcessor.setSampleMapState(sampleMapComponent.getState());
+  PluginFullState s;
+  s.currentViewMode = static_cast<int>(headerBar.getCurrentViewMode());
+  s.currentLoadedFilePath = audioProcessor.getAudioEngine().getCurrentFile().getFullPathName();
+  s.transportSliceRatios = waveformTransport.getSliceRatios();
+  s.searchText = headerBar.getSearchText();
+  for (const auto& t : tagPanel.getSelectedTags())
+    s.selectedTags.push_back(t);
+  s.tagPanelWidth = tagPanelWidth;
+  s.edit = editComponent.getState();
+  s.sampleMap = sampleMapComponent.getState();
+
+  audioProcessor.setFullPluginState(s);
 }
 
 void OpenWavAudioProcessorEditor::restoreStateFromProcessor() {
-  performanceComponent.setState(audioProcessor.getPerformanceState());
-  editComponent.setState(audioProcessor.getEditState());
-  sampleMapComponent.setState(audioProcessor.getSampleMapState());
+  auto s = audioProcessor.getFullPluginState();
+
+  // 1. Restore Tag Panel width
+  if (s.tagPanelWidth >= 120 && s.tagPanelWidth <= 500) {
+    tagPanelWidth = s.tagPanelWidth;
+  }
+
+  // 2. Restore Search text and Tag filters
+  if (s.searchText.isNotEmpty() || !s.selectedTags.empty()) {
+    headerBar.setSearchText(s.searchText);
+    tagPanel.setSelectedTags(s.selectedTags);
+  }
+
+  // 3. Restore Loaded Audio File in Transport
+  if (s.currentLoadedFilePath.isNotEmpty()) {
+    juce::File f(s.currentLoadedFilePath);
+    if (f.existsAsFile()) {
+      if (audioProcessor.getAudioEngine().getCurrentFile() != f || !audioProcessor.getAudioEngine().isCurrentSampleInSampler()) {
+        audioProcessor.getAudioEngine().loadFile(f, false, true);
+      }
+    }
+  }
+
+  // 4. Restore Transport Slices
+  if (!s.transportSliceRatios.empty()) {
+    waveformTransport.setSliceRatios(s.transportSliceRatios);
+  }
+
+  // 5. Restore Sub-components state
+  editComponent.setState(s.edit);
+  sampleMapComponent.setState(s.sampleMap);
+
+  // 6. Restore View Mode
+  if (s.currentViewMode >= 0 && s.currentViewMode <= 6) {
+    auto mode = static_cast<ViewMode>(s.currentViewMode);
+    headerBar.setViewMode(mode);
+  }
+
+  resized();
+  repaint();
 }
 
 } // namespace openwav

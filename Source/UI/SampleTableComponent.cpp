@@ -83,6 +83,24 @@ void SampleTableComponent::sampleLoaded(const juce::String& filePath)
 {
     cachedCurrentFilePath = filePath;
     cachedIsPlaying = audioEngine.isPlaying();
+
+    for (size_t i = 0; i < allFilteredItems.size(); ++i)
+    {
+        if (allFilteredItems[i].filePath == filePath)
+        {
+            currentSelectedItemId = allFilteredItems[i].id;
+            int row = static_cast<int>(i);
+            if (row >= renderedItemCount)
+            {
+                renderedItemCount = std::min(static_cast<int>(allFilteredItems.size()), row + RenderChunkIncrement);
+                table.updateContent();
+            }
+            table.selectRow(row);
+            table.smoothScrollToRow(row);
+            break;
+        }
+    }
+
     table.repaint();
 }
 
@@ -429,7 +447,25 @@ void SampleTableComponent::updateFilter(const juce::String& searchKeyword,
     table.updateContent();
     table.repaint();
 
-    if (similarityTargetId.isNotEmpty())
+    if (currentSelectedItemId.isNotEmpty())
+    {
+        for (size_t i = 0; i < allFilteredItems.size(); ++i)
+        {
+            if (allFilteredItems[i].id == currentSelectedItemId)
+            {
+                int row = static_cast<int>(i);
+                if (row >= renderedItemCount)
+                {
+                    renderedItemCount = std::min(static_cast<int>(allFilteredItems.size()), row + RenderChunkIncrement);
+                    table.updateContent();
+                }
+                table.selectRow(row);
+                table.smoothScrollToRow(row);
+                break;
+            }
+        }
+    }
+    else if (similarityTargetId.isNotEmpty())
     {
         table.smoothScrollToRow(0);
     }
@@ -791,6 +827,7 @@ void SampleTableComponent::cellClicked(int rowNumber, int columnId, const juce::
         juce::File fileToLoad(item.filePath);
         if (fileToLoad.existsAsFile())
         {
+            audioEngine.stop();
             audioEngine.setSampleBpm(item.bpm);
             audioEngine.loadFile(fileToLoad, true);
         }
@@ -810,10 +847,12 @@ void SampleTableComponent::selectedRowsChanged(int lastRowSelected)
     if (lastRowSelected >= 0 && lastRowSelected < static_cast<int>(allFilteredItems.size()))
     {
         const auto& item = allFilteredItems[static_cast<size_t>(lastRowSelected)];
+        currentSelectedItemId = item.id;
         juce::File fileToLoad(item.filePath);
         
         if (fileToLoad.existsAsFile())
         {
+            audioEngine.stop();
             audioEngine.setSampleBpm(item.bpm);
             audioEngine.loadFile(fileToLoad, true);
         }
@@ -845,10 +884,12 @@ void SampleTableComponent::moveSelection(int delta)
     table.smoothScrollToRow(nextRow);
 }
 
-void SampleTableComponent::selectItemById(const juce::String& itemId)
+void SampleTableComponent::selectItemById(const juce::String& itemId, bool triggerPlayback)
 {
     if (itemId.isEmpty())
         return;
+
+    currentSelectedItemId = itemId;
 
     for (size_t i = 0; i < allFilteredItems.size(); ++i)
     {
@@ -863,12 +904,16 @@ void SampleTableComponent::selectItemById(const juce::String& itemId)
 
             table.selectRow(row);
             table.smoothScrollToRow(row);
+            table.repaint();
 
-            juce::File fileToLoad(allFilteredItems[i].filePath);
-            if (fileToLoad.existsAsFile())
+            if (triggerPlayback)
             {
-                audioEngine.setSampleBpm(allFilteredItems[i].bpm);
-                audioEngine.loadFile(fileToLoad, true);
+                juce::File fileToLoad(allFilteredItems[i].filePath);
+                if (fileToLoad.existsAsFile())
+                {
+                    audioEngine.setSampleBpm(allFilteredItems[i].bpm);
+                    audioEngine.loadFile(fileToLoad, true);
+                }
             }
             break;
         }
@@ -968,8 +1013,9 @@ void SampleTableComponent::showContextMenuForRow(int rowNumber)
     menu.addSeparator();
     menu.addItem(4, "Reveal in Finder");
     menu.addItem(5, "Convert / Export Sample...");
-    menu.addItem(6, "Add to Performance Grid (Pad)");
-    menu.addItem(7, "Auto-Slice into Performance Grid");
+    menu.addItem(6, "Add to Sample Map");
+    menu.addItem(7, "Slice to Sample Map...");
+    menu.addItem(8, "Edit Sample in Editor");
 
     menu.showMenuAsync(juce::PopupMenu::Options().withMousePosition(),
                        [this, item, rowNumber](int result) {
@@ -1037,16 +1083,22 @@ void SampleTableComponent::showContextMenuForRow(int rowNumber)
         {
             convertSample(item);
         }
-        else if (result == 6) // Add to Performance Grid (Pad)
+        else if (result == 6) // Add to Sample Map
         {
             listeners.call([item](SampleTableListener& l) {
                 l.addToSampleMapRequested(item);
             });
         }
-        else if (result == 7) // Auto-Slice into Performance Grid
+        else if (result == 7) // Slice to Sample Map
         {
             listeners.call([item](SampleTableListener& l) {
                 l.autoSliceToSamplerRequested(item);
+            });
+        }
+        else if (result == 8) // Edit Sample in Editor
+        {
+            listeners.call([item](SampleTableListener& l) {
+                l.editSampleRequested(item);
             });
         }
     });

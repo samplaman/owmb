@@ -109,6 +109,7 @@ public:
     void sampleLoaded(const juce::String& filePath) override;
     void transportSyncChanged(bool isSynced) override;
     void bpmChanged(double newBpm) override;
+    void activeSliceTriggered(int sliceIndex) override { setActiveSliceIndex(sliceIndex); }
 
     // juce::Slider::Listener callback
     void sliderValueChanged(juce::Slider* slider) override;
@@ -117,9 +118,17 @@ public:
     void toggleLoop();
     void toggleSync();
     void triggerSlice();
+    void setSliceRatios(const std::vector<double>& ratios);
+    const std::vector<double>& getSliceRatios() const { return sliceRatios; }
+    void setNormalizeEnabled(bool enabled);
+    void setActiveSliceIndex(int sliceIndex);
+    void setActiveSliceRange(double startRatio, double endRatio, int sliceIndex = -1);
+
+    std::function<void(const std::vector<double>&)> onSlicesGenerated;
 
 private:
     void runAutoSlice();
+    void openSliceConfigWindow();
     void exportAndDragSlice(int sliceIndex);
 
     AudioEngine& audioEngine;
@@ -141,6 +150,10 @@ private:
 
     double currentPositionSecs { 0.0 };
     double totalDurationSecs { 0.0 };
+
+    int activeSliceIndex { -1 };
+    double activeSliceStartRatio { 0.0 };
+    double activeSliceEndRatio { 1.0 };
 
     enum class DragMode
     {

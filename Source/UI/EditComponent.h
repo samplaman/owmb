@@ -49,7 +49,15 @@ public:
     // ScrollBar::Listener
     void scrollBarMoved(juce::ScrollBar* scrollBarThatHasMoved, double newRangeStart) override;
 
+    void loadSliceForEditing(int sliceIndex, double startRatio, double endRatio);
+    void saveChangesAndUpdateSlice();
+    bool hasAudioToEdit() const;
+
 private:
+    int activeEditingSliceIndex { -1 };
+    double activeEditingStartRatio { 0.0 };
+    double activeEditingEndRatio { 1.0 };
+    bool isSliceEditingActive { false };
     // Layout helpers
     juce::Rectangle<float> getWaveformBounds() const;
     juce::Rectangle<int> getControlPanelBounds() const;
@@ -115,6 +123,7 @@ private:
     juce::TextButton deverbButton { "Deverb" };
     juce::TextButton bakeFadesButton { "Bake Fades" };
     juce::TextButton exportButton { "Export" };
+    juce::TextButton revertOriginalButton { "Revert" };
 
     // Fine loop nudge controls
     juce::TextButton loopInNudgeLeft { "<" };
@@ -195,10 +204,15 @@ private:
 
     // Spectrogram State & Controls
     juce::TextButton spectralToggleButton { "Spectral: OFF" };
-    juce::TextButton removeSpectralElementButton { "Remove Spectral" };
-    juce::TextButton boostSpectralButton { "+6dB Spectral" };
-    juce::TextButton attenuateSpectralButton { "-6dB Spectral" };
-    juce::TextButton isolateSpectralButton { "Isolate Spectral" };
+    juce::TextButton repairSpectralButton { "Heal / Inpaint" };
+    juce::TextButton deHarmonicButton { "De-Harmonic" };
+    juce::TextButton denoiseSpectralButton { "Spectral Denoise" };
+    juce::TextButton widenSpectralButton { "Stereo Spread" };
+    juce::TextButton warmthSpectralButton { "Warmth" };
+    juce::TextButton removeSpectralElementButton { "Remove" };
+    juce::TextButton boostSpectralButton { "+6dB" };
+    juce::TextButton attenuateSpectralButton { "-6dB" };
+    juce::TextButton isolateSpectralButton { "Isolate" };
 
     bool isSpectralView { false };
     juce::Image spectrogramImage;
@@ -214,10 +228,16 @@ private:
 
     void generateSpectrogram();
     void paintSpectrogram(juce::Graphics& g, juce::Rectangle<float> bounds);
+    void repairSpectralSelection();
+    void deHarmonicSelection();
+    void denoiseSpectralSelection();
+    void widenSpectralSelection();
+    void warmthSpectralSelection();
     void removeSpectralSelection();
     void boostSpectralSelection();
     void attenuateSpectralSelection();
     void isolateSpectralSelection();
+    void restartPlaybackFromStart();
 };
 
 } // namespace openwav

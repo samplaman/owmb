@@ -14,154 +14,6 @@
 namespace openwav
 {
 
-struct PerformancePadState
-{
-    int id { 0 };
-    juce::String filePath;
-    juce::String sampleName;
-    juce::uint32 colorRgba { 0xff00c8dc };
-    float pitchSemi { 0.0f };
-    float gainDb { 0.0f };
-    bool isLooping { false };
-    bool isOneShot { true };
-
-    juce::var toVar() const
-    {
-        auto* obj = new juce::DynamicObject();
-        obj->setProperty("id", id);
-        obj->setProperty("filePath", filePath);
-        obj->setProperty("sampleName", sampleName);
-        obj->setProperty("colorRgba", static_cast<juce::int64>(colorRgba));
-        obj->setProperty("pitchSemi", pitchSemi);
-        obj->setProperty("gainDb", gainDb);
-        obj->setProperty("isLooping", isLooping);
-        obj->setProperty("isOneShot", isOneShot);
-        return juce::var(obj);
-    }
-
-    static PerformancePadState fromVar(const juce::var& v)
-    {
-        PerformancePadState p;
-        if (!v.isObject()) return p;
-        auto* obj = v.getDynamicObject();
-        if (!obj) return p;
-        p.id = static_cast<int>(obj->getProperty("id"));
-        p.filePath = obj->getProperty("filePath").toString();
-        p.sampleName = obj->getProperty("sampleName").toString();
-        if (obj->hasProperty("colorRgba"))
-            p.colorRgba = static_cast<juce::uint32>(static_cast<juce::int64>(obj->getProperty("colorRgba")));
-        p.pitchSemi = static_cast<float>(obj->getProperty("pitchSemi"));
-        p.gainDb = static_cast<float>(obj->getProperty("gainDb"));
-        p.isLooping = static_cast<bool>(obj->getProperty("isLooping"));
-        p.isOneShot = obj->hasProperty("isOneShot") ? static_cast<bool>(obj->getProperty("isOneShot")) : true;
-        return p;
-    }
-};
-
-struct PerformanceState
-{
-    std::array<PerformancePadState, 64> pads;
-    float attack { 0.005f };
-    float decay { 0.1f };
-    float sustain { 1.0f };
-    float release { 0.15f };
-    bool pitchTrack { true };
-    bool oneShot { false };
-    bool loop { false };
-    int currentBank { 0 };
-    std::array<float, 8> colVolumeDb {};
-    std::array<float, 8> colPitchSemi {};
-    float masterVolumeDb { 0.0f };
-    juce::String currentPresetName;
-
-    PerformanceState()
-    {
-        for (int i = 0; i < 64; ++i)
-        {
-            pads[i].id = i;
-        }
-        colVolumeDb.fill(0.0f);
-        colPitchSemi.fill(0.0f);
-    }
-
-    juce::var toVar() const
-    {
-        auto* obj = new juce::DynamicObject();
-        juce::Array<juce::var> padArray;
-        for (int i = 0; i < 64; ++i)
-        {
-            if (pads[i].filePath.isNotEmpty())
-            {
-                padArray.add(pads[i].toVar());
-            }
-        }
-        obj->setProperty("pads", padArray);
-        obj->setProperty("attack", attack);
-        obj->setProperty("decay", decay);
-        obj->setProperty("sustain", sustain);
-        obj->setProperty("release", release);
-        obj->setProperty("pitchTrack", pitchTrack);
-        obj->setProperty("oneShot", oneShot);
-        obj->setProperty("loop", loop);
-        obj->setProperty("currentBank", currentBank);
-        obj->setProperty("masterVolumeDb", masterVolumeDb);
-        obj->setProperty("currentPresetName", currentPresetName);
-
-        juce::Array<juce::var> colVolArray;
-        for (float v : colVolumeDb) colVolArray.add(v);
-        obj->setProperty("colVolumeDb", colVolArray);
-
-        juce::Array<juce::var> colPitchArray;
-        for (float p : colPitchSemi) colPitchArray.add(p);
-        obj->setProperty("colPitchSemi", colPitchArray);
-
-        return juce::var(obj);
-    }
-
-    static PerformanceState fromVar(const juce::var& v)
-    {
-        PerformanceState s;
-        if (!v.isObject()) return s;
-        auto* obj = v.getDynamicObject();
-        if (!obj) return s;
-
-        if (obj->hasProperty("pads") && obj->getProperty("pads").isArray())
-        {
-            for (const auto& pv : *obj->getProperty("pads").getArray())
-            {
-                auto pad = PerformancePadState::fromVar(pv);
-                if (pad.id >= 0 && pad.id < 64)
-                    s.pads[pad.id] = pad;
-            }
-        }
-
-        if (obj->hasProperty("attack")) s.attack = static_cast<float>(obj->getProperty("attack"));
-        if (obj->hasProperty("decay")) s.decay = static_cast<float>(obj->getProperty("decay"));
-        if (obj->hasProperty("sustain")) s.sustain = static_cast<float>(obj->getProperty("sustain"));
-        if (obj->hasProperty("release")) s.release = static_cast<float>(obj->getProperty("release"));
-        if (obj->hasProperty("pitchTrack")) s.pitchTrack = static_cast<bool>(obj->getProperty("pitchTrack"));
-        if (obj->hasProperty("oneShot")) s.oneShot = static_cast<bool>(obj->getProperty("oneShot"));
-        if (obj->hasProperty("loop")) s.loop = static_cast<bool>(obj->getProperty("loop"));
-        if (obj->hasProperty("currentBank")) s.currentBank = static_cast<int>(obj->getProperty("currentBank"));
-        if (obj->hasProperty("masterVolumeDb")) s.masterVolumeDb = static_cast<float>(obj->getProperty("masterVolumeDb"));
-        if (obj->hasProperty("currentPresetName")) s.currentPresetName = obj->getProperty("currentPresetName").toString();
-
-        if (obj->hasProperty("colVolumeDb") && obj->getProperty("colVolumeDb").isArray())
-        {
-            const auto& arr = *obj->getProperty("colVolumeDb").getArray();
-            for (int i = 0; i < std::min<int>(8, arr.size()); ++i)
-                s.colVolumeDb[i] = static_cast<float>(arr[i]);
-        }
-        if (obj->hasProperty("colPitchSemi") && obj->getProperty("colPitchSemi").isArray())
-        {
-            const auto& arr = *obj->getProperty("colPitchSemi").getArray();
-            for (int i = 0; i < std::min<int>(8, arr.size()); ++i)
-                s.colPitchSemi[i] = static_cast<float>(arr[i]);
-        }
-        return s;
-    }
-};
-
 struct EditComponentState
 {
     juce::String filePath;
@@ -308,6 +160,7 @@ struct SampleMapState
     float globalSustainLevel { 1.0f };
     float globalReleaseMs { 200.0f };
     float samplerReverbAmount { 0.0f };
+    bool pitchTrackingEnabled { true };
 
     juce::var toVar() const
     {
@@ -321,6 +174,7 @@ struct SampleMapState
         obj->setProperty("globalSustainLevel", globalSustainLevel);
         obj->setProperty("globalReleaseMs", globalReleaseMs);
         obj->setProperty("samplerReverbAmount", samplerReverbAmount);
+        obj->setProperty("pitchTrackingEnabled", pitchTrackingEnabled);
         return juce::var(obj);
     }
 
@@ -341,14 +195,21 @@ struct SampleMapState
         if (obj->hasProperty("globalSustainLevel")) s.globalSustainLevel = static_cast<float>(obj->getProperty("globalSustainLevel"));
         if (obj->hasProperty("globalReleaseMs")) s.globalReleaseMs = static_cast<float>(obj->getProperty("globalReleaseMs"));
         if (obj->hasProperty("samplerReverbAmount")) s.samplerReverbAmount = static_cast<float>(obj->getProperty("samplerReverbAmount"));
+        if (obj->hasProperty("pitchTrackingEnabled")) s.pitchTrackingEnabled = static_cast<bool>(obj->getProperty("pitchTrackingEnabled"));
         return s;
     }
 };
 
 struct PluginFullState
 {
-    int version { 1 };
-    PerformanceState performance;
+    int version { 2 };
+    int currentViewMode { 0 };
+    juce::String currentLoadedFilePath;
+    std::vector<double> transportSliceRatios;
+    juce::String searchText;
+    std::vector<juce::String> selectedTags;
+    int tagPanelWidth { 220 };
+
     EditComponentState edit;
     SampleMapState sampleMap;
 
@@ -356,7 +217,23 @@ struct PluginFullState
     {
         auto* obj = new juce::DynamicObject();
         obj->setProperty("version", version);
-        obj->setProperty("performance", performance.toVar());
+        obj->setProperty("currentViewMode", currentViewMode);
+        obj->setProperty("currentLoadedFilePath", currentLoadedFilePath);
+
+        juce::Array<juce::var> sliceArray;
+        for (double r : transportSliceRatios)
+            sliceArray.add(r);
+        obj->setProperty("transportSliceRatios", sliceArray);
+
+        obj->setProperty("searchText", searchText);
+
+        juce::Array<juce::var> tagArray;
+        for (const auto& t : selectedTags)
+            tagArray.add(t);
+        obj->setProperty("selectedTags", tagArray);
+
+        obj->setProperty("tagPanelWidth", tagPanelWidth);
+
         obj->setProperty("edit", edit.toVar());
         obj->setProperty("sampleMap", sampleMap.toVar());
         return juce::var(obj);
@@ -370,7 +247,29 @@ struct PluginFullState
         if (!obj) return s;
 
         s.version = static_cast<int>(obj->getProperty("version"));
-        if (obj->hasProperty("performance")) s.performance = PerformanceState::fromVar(obj->getProperty("performance"));
+        if (obj->hasProperty("currentViewMode"))
+            s.currentViewMode = static_cast<int>(obj->getProperty("currentViewMode"));
+        if (obj->hasProperty("currentLoadedFilePath"))
+            s.currentLoadedFilePath = obj->getProperty("currentLoadedFilePath").toString();
+
+        if (obj->hasProperty("transportSliceRatios") && obj->getProperty("transportSliceRatios").isArray())
+        {
+            for (const auto& r : *obj->getProperty("transportSliceRatios").getArray())
+                s.transportSliceRatios.push_back(static_cast<double>(r));
+        }
+
+        if (obj->hasProperty("searchText"))
+            s.searchText = obj->getProperty("searchText").toString();
+
+        if (obj->hasProperty("selectedTags") && obj->getProperty("selectedTags").isArray())
+        {
+            for (const auto& t : *obj->getProperty("selectedTags").getArray())
+                s.selectedTags.push_back(t.toString());
+        }
+
+        if (obj->hasProperty("tagPanelWidth"))
+            s.tagPanelWidth = static_cast<int>(obj->getProperty("tagPanelWidth"));
+
         if (obj->hasProperty("edit")) s.edit = EditComponentState::fromVar(obj->getProperty("edit"));
         if (obj->hasProperty("sampleMap")) s.sampleMap = SampleMapState::fromVar(obj->getProperty("sampleMap"));
         return s;

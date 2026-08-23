@@ -30,9 +30,6 @@ SampleMapComponent::SampleMapComponent(AudioEngine& engine)
     addAndMakeVisible(clearMapButton);
     clearMapButton.addListener(this);
 
-    addAndMakeVisible(loadToPerformanceButton);
-    loadToPerformanceButton.addListener(this);
-
     pitchTrackButton.setClickingTogglesState(true);
     bool ptEnabled = audioEngine.isPitchTrackingEnabled();
     pitchTrackButton.setToggleState(ptEnabled, juce::dontSendNotification);
@@ -171,34 +168,35 @@ void SampleMapComponent::loopingStateChanged(bool enabled)
 
 void SampleMapComponent::handleNoteOn(juce::MidiKeyboardState*, int /*midiChannel*/, int midiNoteNumber, float velocity)
 {
-    if (!audioEngine.isMidiInputEnabled())
-        return;
-
     if (midiNoteNumber >= 0 && midiNoteNumber < 128)
     {
         activeMidiNotes[static_cast<size_t>(midiNoteNumber)] = true;
         int velInt = juce::jlimit(0, 127, static_cast<int>(velocity * 127.0f));
 
+        juce::File fileToLoad;
         for (size_t i = 0; i < zones.size(); ++i)
         {
             const auto& z = zones[i];
             if (midiNoteNumber >= z.keyLow && midiNoteNumber <= z.keyHigh && velInt >= z.velLow && velInt <= z.velHigh)
             {
                 selectedZoneIndex = static_cast<int>(i);
+                selectedZoneIndices.clear();
+                selectedZoneIndices.insert(static_cast<int>(i));
 
-                juce::File fileToLoad(z.filePath);
-                if (fileToLoad.existsAsFile())
-                {
-                    audioEngine.loadFile(fileToLoad, false, true);
-                    audioEngine.playZoneVoice(fileToLoad, midiNoteNumber, z.rootNote, z.fineTuneCents, z.gainDb, velocity,
-                                              z.attackMs / 1000.0f, z.decayMs / 1000.0f, z.sustainLevel, z.releaseMs / 1000.0f,
-                                              audioEngine.isOneShotEnabled(), audioEngine.isLooping());
-                }
+                if (z.filePath.isNotEmpty())
+                    fileToLoad = juce::File(z.filePath);
                 break;
             }
         }
 
-        juce::MessageManager::callAsync([this] {
+        juce::MessageManager::callAsync([this, fileToLoad] {
+            if (fileToLoad.existsAsFile())
+            {
+                if (audioEngine.getCurrentFile() != fileToLoad)
+                {
+                    audioEngine.loadFile(fileToLoad, false, true);
+                }
+            }
             resized();
             repaint();
         });
@@ -210,7 +208,6 @@ void SampleMapComponent::handleNoteOff(juce::MidiKeyboardState*, int /*midiChann
     if (midiNoteNumber >= 0 && midiNoteNumber < 128)
     {
         activeMidiNotes[static_cast<size_t>(midiNoteNumber)] = false;
-        audioEngine.stopZoneVoice(midiNoteNumber);
         juce::MessageManager::callAsync([this] { repaint(); });
     }
 }
@@ -361,16 +358,22 @@ void SampleMapComponent::addSample(const MediaItem& item)
     SampleMapZone z;
     z.filePath = item.filePath;
     z.sampleName = item.fileName;
-    z.rootNote = (item.bpm > 0) ? 60 : parseRootNoteFromFilename(item.fileName);
-    z.keyLow = juce::jmax(0, z.rootNote - 3);
-    z.keyHigh = juce::jmin(127, z.rootNote + 3);
+    z.rootNote = 60;
+    z.keyLow = z.rootNote;
+    z.keyHigh = z.rootNote;
     z.velLow = 0;
     z.velHigh = 127;
 
     zones.push_back(z);
     selectedZoneIndex = static_cast<int>(zones.size()) - 1;
+    juce::File itemFile(item.filePath);
+    if (itemFile.existsAsFile())
+    {
+        audioEngine.loadFile(itemFile, false, true);
+    }
     resized();
     repaint();
+    if (onStateChanged) onStateChanged();
 }
 
 void SampleMapComponent::addSampleFile(const juce::File& file)
@@ -380,9 +383,9 @@ void SampleMapComponent::addSampleFile(const juce::File& file)
     SampleMapZone z;
     z.filePath = file.getFullPathName();
     z.sampleName = file.getFileName();
-    z.rootNote = parseRootNoteFromFilename(file.getFileName());
-    z.keyLow = juce::jmax(0, z.rootNote - 3);
-    z.keyHigh = juce::jmin(127, z.rootNote + 3);
+    z.rootNote = 60;
+    z.keyLow = z.rootNote;
+    z.keyHigh = z.rootNote;
     z.velLow = 0;
     z.velHigh = 127;
 
@@ -391,9 +394,111 @@ void SampleMapComponent::addSampleFile(const juce::File& file)
     audioEngine.loadFile(file, false, true);
     resized();
     repaint();
+    if (onStateChanged) onStateChanged();
 }
 
-void SampleMapComponent::autoSliceToSampler(const MediaItem& item)
+void SampleMapComponent::sliceFileToZones(const juce::File& audioFile, const juce::AudioBuffer<float>& buffer, double sampleRate, const std::vector<double>& sliceRatios)
+{
+    clearAllZones();
+
+    int numChannels = buffer.getNumChannels();
+    int numSamples = buffer.getNumSamples();
+    if (numSamples <= 0 || numChannels <= 0 || sampleRate <= 0.0) return;
+
+    int numSlices = static_cast<int>(sliceRatios.size());
+
+    juce::File tempDir = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("OWMB_Temp");
+    tempDir.createDirectory();
+
+    static int sliceCounter = 0;
+    auto timestamp = juce::Time::currentTimeMillis();
+    juce::String baseName = audioFile.getFileNameWithoutExtension();
+
+    for (int i = 0; i < numSlices; ++i)
+    {
+        double startR = sliceRatios[i];
+        double endR = (i + 1 < numSlices) ? sliceRatios[i + 1] : 1.0;
+
+        int startSample = static_cast<int>(startR * numSamples);
+        int endSample = static_cast<int>(endR * numSamples);
+        int sliceLen = endSample - startSample;
+        if (sliceLen <= 0) continue;
+
+        juce::File sliceFile = tempDir.getChildFile(baseName + "_Slice_" + juce::String(i + 1) + "_" + juce::String(timestamp) + "_" + juce::String(++sliceCounter) + ".wav");
+        sliceFile.deleteFile();
+
+        auto* rawStream = sliceFile.createOutputStream().release();
+        if (rawStream != nullptr)
+        {
+            juce::WavAudioFormat wavFormat;
+            std::unique_ptr<juce::AudioFormatWriter> writer(wavFormat.createWriterFor(rawStream, sampleRate, numChannels, 16, {}, 0));
+            if (writer != nullptr)
+            {
+                writer->writeFromAudioSampleBuffer(buffer, startSample, sliceLen);
+            }
+        }
+
+        if (sliceFile.existsAsFile() && sliceFile.getSize() > 44)
+        {
+            juce::AudioBuffer<float> sliceBuf(numChannels, sliceLen);
+            for (int ch = 0; ch < numChannels; ++ch)
+                sliceBuf.copyFrom(ch, 0, buffer, ch, startSample, sliceLen);
+
+            audioEngine.putSampleInCache(sliceFile.getFullPathName(), sampleRate, sliceBuf);
+
+            SampleMapZone z;
+            z.filePath = sliceFile.getFullPathName();
+            z.sampleName = sliceFile.getFileName();
+
+            int mappedKey = juce::jmin(127, 36 + i);
+            z.rootNote = mappedKey;
+            z.keyLow = mappedKey;
+            z.keyHigh = mappedKey;
+            z.velLow = 0;
+            z.velHigh = 127;
+            z.fineTuneCents = 0.0f;
+            z.gainDb = 0.0f;
+
+            zones.push_back(z);
+        }
+    }
+
+    if (!zones.empty())
+    {
+        selectedZoneIndex = 0;
+        selectedZoneIndices.insert(0);
+        juce::File firstSlice(zones[0].filePath);
+        if (firstSlice.existsAsFile())
+        {
+            audioEngine.loadFile(firstSlice, false, true);
+        }
+    }
+
+    resized();
+    repaint();
+    if (onStateChanged)
+        onStateChanged();
+}
+
+void SampleMapComponent::sliceLoadedSample(const std::vector<double>& sliceRatios)
+{
+    juce::AudioBuffer<float> buffer;
+    double sampleRate = 44100.0;
+    if (!audioEngine.getAudioBufferCopy(buffer, sampleRate))
+        return;
+
+    juce::File currentFile = audioEngine.getCurrentFile();
+    if (!currentFile.existsAsFile())
+    {
+        juce::File tempDir = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("OWMB_Temp");
+        tempDir.createDirectory();
+        currentFile = tempDir.getChildFile("LoadedSample.wav");
+    }
+
+    sliceFileToZones(currentFile, buffer, sampleRate, sliceRatios);
+}
+
+void SampleMapComponent::autoSliceToSampler(const MediaItem& item, const std::vector<double>& customSliceRatios)
 {
     try
     {
@@ -403,8 +508,6 @@ void SampleMapComponent::autoSliceToSampler(const MediaItem& item)
         juce::File audioFile(item.filePath);
         if (!audioFile.existsAsFile()) return;
 
-        clearAllZones();
-
         std::unique_ptr<juce::AudioFormatReader> reader(audioEngine.getFormatManager().createReaderFor(audioFile));
         if (reader == nullptr) return;
 
@@ -413,18 +516,24 @@ void SampleMapComponent::autoSliceToSampler(const MediaItem& item)
         double sampleRate = reader->sampleRate;
 
         if (numSamples <= 0 || numChannels <= 0 || sampleRate <= 0.0) return;
-        if (numSamples > 192000 * 600) return; // Limit to 10 min max to prevent memory exhaustion
+        if (numSamples > 192000 * 600) return;
 
         juce::AudioBuffer<float> buffer(numChannels, numSamples);
         reader->read(&buffer, 0, numSamples, 0, true, true);
 
+        if (!customSliceRatios.empty())
+        {
+            sliceFileToZones(audioFile, buffer, sampleRate, customSliceRatios);
+            return;
+        }
+
+        int blockSize = 256;
+        int numBlocks = numSamples / blockSize;
+
         std::vector<double> sliceRatios;
         sliceRatios.push_back(0.0);
 
-        int blockSize = 512;
-        int numBlocks = numSamples / blockSize;
-
-        if (numBlocks > 15)
+        if (numBlocks > 4)
         {
             std::vector<float> energy(numBlocks, 0.0f);
             for (int b = 0; b < numBlocks; ++b)
@@ -442,31 +551,70 @@ void SampleMapComponent::autoSliceToSampler(const MediaItem& item)
                         }
                     }
                 }
-                energy[b] = std::sqrt(sum / (blockSize * numChannels));
+                energy[b] = std::sqrt(sum / static_cast<float>(blockSize * numChannels));
             }
 
-            int windowSize = 15;
-            float multiplier = 1.6f;
-            int minDistanceBlocks = static_cast<int>(0.08 * sampleRate / blockSize);
+            std::vector<float> onset(numBlocks, 0.0f);
+            float sumOnset = 0.0f;
+            for (int b = 1; b < numBlocks; ++b)
+            {
+                float diff = energy[b] - energy[b - 1];
+                if (diff > 0.0f)
+                {
+                    onset[b] = diff;
+                    sumOnset += diff;
+                }
+            }
+
+            float meanOnset = sumOnset / static_cast<float>(numBlocks);
+            float sqDiffSum = 0.0f;
+            for (int b = 1; b < numBlocks; ++b)
+            {
+                float diff = onset[b] - meanOnset;
+                sqDiffSum += diff * diff;
+            }
+            float stdOnset = std::sqrt(sqDiffSum / static_cast<float>(numBlocks));
+
+            float threshold = std::max(0.005f, meanOnset + 0.35f * stdOnset);
+            int minDistanceBlocks = static_cast<int>(0.05 * sampleRate / static_cast<double>(blockSize));
             if (minDistanceBlocks < 1) minDistanceBlocks = 1;
             int lastOnsetBlock = -minDistanceBlocks;
 
-            for (int i = windowSize; i < numBlocks - 1; ++i)
+            struct OnsetCandidate
             {
-                float sum = 0.0f;
-                for (int w = i - windowSize; w < i; ++w)
-                    sum += energy[w];
-                float avg = sum / windowSize;
+                int blockIdx { 0 };
+                float strength { 0.0f };
+            };
+            std::vector<OnsetCandidate> candidates;
 
-                if (energy[i] > avg * multiplier && energy[i] > energy[i - 1] && energy[i] > energy[i + 1])
+            for (int b = 1; b < numBlocks - 1; ++b)
+            {
+                if (onset[b] > threshold && onset[b] >= onset[b - 1] && onset[b] >= onset[b + 1])
                 {
-                    if (i - lastOnsetBlock >= minDistanceBlocks)
+                    if (b - lastOnsetBlock >= minDistanceBlocks)
                     {
-                        double ratio = static_cast<double>(i * blockSize) / static_cast<double>(numSamples);
-                        sliceRatios.push_back(ratio);
-                        lastOnsetBlock = i;
+                        candidates.push_back({ b, onset[b] });
+                        lastOnsetBlock = b;
                     }
                 }
+            }
+
+            const size_t maxOnsets = 39; // 39 onsets + 0.0 start = max 40 slices
+            if (candidates.size() > maxOnsets)
+            {
+                std::sort(candidates.begin(), candidates.end(), [](const OnsetCandidate& a, const OnsetCandidate& b) {
+                    return a.strength > b.strength;
+                });
+                candidates.resize(maxOnsets);
+                std::sort(candidates.begin(), candidates.end(), [](const OnsetCandidate& a, const OnsetCandidate& b) {
+                    return a.blockIdx < b.blockIdx;
+                });
+            }
+
+            for (const auto& c : candidates)
+            {
+                double ratio = static_cast<double>(c.blockIdx * blockSize) / static_cast<double>(numSamples);
+                sliceRatios.push_back(ratio);
             }
         }
 
@@ -482,78 +630,7 @@ void SampleMapComponent::autoSliceToSampler(const MediaItem& item)
         std::sort(sliceRatios.begin(), sliceRatios.end());
         sliceRatios.erase(std::unique(sliceRatios.begin(), sliceRatios.end()), sliceRatios.end());
 
-        int numSlices = static_cast<int>(sliceRatios.size());
-
-        juce::File tempDir = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("OWMB_Temp");
-        tempDir.createDirectory();
-
-        static int sliceCounter = 0;
-        auto timestamp = juce::Time::currentTimeMillis();
-        juce::String baseName = audioFile.getFileNameWithoutExtension();
-
-        for (int i = 0; i < numSlices; ++i)
-        {
-            double startR = sliceRatios[i];
-            double endR = (i + 1 < numSlices) ? sliceRatios[i + 1] : 1.0;
-
-            int startSample = static_cast<int>(startR * numSamples);
-            int endSample = static_cast<int>(endR * numSamples);
-            int sliceLen = endSample - startSample;
-            if (sliceLen <= 0) continue;
-
-            juce::File sliceFile = tempDir.getChildFile(baseName + "_Slice_" + juce::String(i + 1) + "_" + juce::String(timestamp) + "_" + juce::String(++sliceCounter) + ".wav");
-            sliceFile.deleteFile();
-
-            auto* rawStream = sliceFile.createOutputStream().release();
-            if (rawStream != nullptr)
-            {
-                juce::WavAudioFormat wavFormat;
-                std::unique_ptr<juce::AudioFormatWriter> writer(wavFormat.createWriterFor(rawStream, sampleRate, numChannels, 16, {}, 0));
-                if (writer != nullptr)
-                {
-                    writer->writeFromAudioSampleBuffer(buffer, startSample, sliceLen);
-                }
-            }
-
-            if (sliceFile.existsAsFile() && sliceFile.getSize() > 44)
-            {
-                // Populate AudioEngine sampleCache directly in RAM for 0ms latency and 100% crash protection
-                juce::AudioBuffer<float> sliceBuf(numChannels, sliceLen);
-                for (int ch = 0; ch < numChannels; ++ch)
-                    sliceBuf.copyFrom(ch, 0, buffer, ch, startSample, sliceLen);
-
-                audioEngine.putSampleInCache(sliceFile.getFullPathName(), sampleRate, sliceBuf);
-
-                SampleMapZone z;
-                z.filePath = sliceFile.getFullPathName();
-                z.sampleName = sliceFile.getFileName();
-
-                int mappedKey = juce::jmin(127, 36 + i);
-                z.rootNote = mappedKey;
-                z.keyLow = mappedKey;
-                z.keyHigh = mappedKey;
-                z.velLow = 0;
-                z.velHigh = 127;
-                z.fineTuneCents = 0.0f;
-                z.gainDb = 0.0f;
-
-                zones.push_back(z);
-            }
-        }
-
-        if (!zones.empty())
-        {
-            selectedZoneIndex = 0;
-            selectedZoneIndices.insert(0);
-            juce::File firstSlice(zones[0].filePath);
-            if (firstSlice.existsAsFile())
-            {
-                audioEngine.loadFile(firstSlice, false, true);
-            }
-        }
-
-        resized();
-        repaint();
+        sliceFileToZones(audioFile, buffer, sampleRate, sliceRatios);
     }
     catch (...)
     {
@@ -604,8 +681,10 @@ void SampleMapComponent::clearAllZones()
     zones.clear();
     selectedZoneIndex = -1;
     selectedZoneIndices.clear();
+    audioEngine.clearMasterSample();
     resized();
     repaint();
+    if (onStateChanged) onStateChanged();
 }
 
 void SampleMapComponent::autoMapByPitch()
@@ -673,6 +752,7 @@ void SampleMapComponent::autoMapVelocityLayers()
     }
 
     repaint();
+    if (onStateChanged) onStateChanged();
 }
 
 // ─────────────────────────────────────────────────────────
@@ -831,7 +911,30 @@ void SampleMapComponent::mouseDown(const juce::MouseEvent& e)
     {
         auditionNote = noteNumberAtX(e.x, keybedArea);
         activeDragTarget = DragTarget::KeybedAudition;
+
+        for (size_t i = 0; i < zones.size(); ++i)
+        {
+            const auto& z = zones[i];
+            if (auditionNote >= z.keyLow && auditionNote <= z.keyHigh)
+            {
+                selectedZoneIndex = static_cast<int>(i);
+                selectedZoneIndices.clear();
+                selectedZoneIndices.insert(static_cast<int>(i));
+
+                if (z.filePath.isNotEmpty())
+                {
+                    juce::File f(z.filePath);
+                    if (f.existsAsFile() && audioEngine.getCurrentFile() != f)
+                    {
+                        audioEngine.loadFile(f, false, true);
+                    }
+                }
+                break;
+            }
+        }
+
         audioEngine.getKeyboardState().noteOn(1, auditionNote, 0.8f);
+        resized();
         repaint();
         return;
     }
@@ -881,7 +984,7 @@ void SampleMapComponent::mouseDown(const juce::MouseEvent& e)
                 juce::File fileToLoad(z.filePath);
                 if (fileToLoad.existsAsFile())
                 {
-                    audioEngine.loadFile(fileToLoad, false);
+                    audioEngine.loadFile(fileToLoad, false, true);
                 }
 
                 float zoneW = zRect.getWidth();
@@ -1101,12 +1204,24 @@ void SampleMapComponent::mouseUp(const juce::MouseEvent& /*e*/)
     {
         audioEngine.getKeyboardState().noteOff(1, auditionNote, 0.0f);
     }
+
+    bool wasDraggingZone = (activeDragTarget == DragTarget::MoveZone ||
+                            activeDragTarget == DragTarget::ResizeKeyLow ||
+                            activeDragTarget == DragTarget::ResizeKeyHigh ||
+                            activeDragTarget == DragTarget::ResizeVelLow ||
+                            activeDragTarget == DragTarget::ResizeVelHigh);
+
     activeDragTarget = DragTarget::None;
     activeDragZone = -1;
     auditionNote = -1;
     lassoRect = juce::Rectangle<float>();
     dragStartZones.clear();
     repaint();
+
+    if (wasDraggingZone && onStateChanged)
+    {
+        onStateChanged();
+    }
 }
 
 // ─────────────────────────────────────────────────────────
@@ -1129,8 +1244,6 @@ void SampleMapComponent::resized()
     autoMapVelButton.setBounds(topRow.removeFromLeft(105));
     topRow.removeFromLeft(gap);
     clearMapButton.setBounds(topRow.removeFromLeft(80));
-    topRow.removeFromLeft(gap);
-    loadToPerformanceButton.setBounds(topRow.removeFromLeft(145));
     topRow.removeFromLeft(gap);
     pitchTrackButton.setBounds(topRow.removeFromLeft(110));
     topRow.removeFromLeft(gap);
@@ -1275,6 +1388,7 @@ void SampleMapComponent::sliderValueChanged(juce::Slider* slider)
     }
 
     repaint();
+    if (onStateChanged) onStateChanged();
 }
 
 void SampleMapComponent::buttonClicked(juce::Button* button)
@@ -1298,11 +1412,6 @@ void SampleMapComponent::buttonClicked(juce::Button* button)
     else if (button == &autoMapChromaticButton) autoMapChromatic();
     else if (button == &autoMapVelButton) autoMapVelocityLayers();
     else if (button == &clearMapButton) clearAllZones();
-    else if (button == &loadToPerformanceButton)
-    {
-        if (onLoadToPerformance)
-            onLoadToPerformance(zones);
-    }
 }
 
 bool SampleMapComponent::keyPressed(const juce::KeyPress& key)
@@ -1343,6 +1452,7 @@ bool SampleMapComponent::keyPressed(const juce::KeyPress& key)
         }
         resized();
         repaint();
+        if (onStateChanged) onStateChanged();
         return true;
     }
 
@@ -1375,12 +1485,16 @@ SampleMapState SampleMapComponent::getState() const
     s.globalSustainLevel = globalSustainLevel;
     s.globalReleaseMs = globalReleaseMs;
     s.samplerReverbAmount = audioEngine.getSamplerReverbAmount();
+    s.pitchTrackingEnabled = audioEngine.isPitchTrackingEnabled();
     return s;
 }
 
 void SampleMapComponent::setState(const SampleMapState& state)
 {
-    clearAllZones();
+    zones.clear();
+    selectedZoneIndex = -1;
+    selectedZoneIndices.clear();
+
     for (const auto& zs : state.zones)
     {
         SampleMapZone z;
@@ -1413,6 +1527,21 @@ void SampleMapComponent::setState(const SampleMapState& state)
 
     reverbSlider.setValue(state.samplerReverbAmount, juce::dontSendNotification);
     audioEngine.setSamplerReverbAmount(state.samplerReverbAmount);
+
+    audioEngine.setPitchTrackingEnabled(state.pitchTrackingEnabled);
+    pitchTrackButton.setToggleState(state.pitchTrackingEnabled, juce::dontSendNotification);
+    pitchTrackButton.setButtonText(state.pitchTrackingEnabled ? "Pitch Track: ON" : "Pitch Track: OFF");
+
+    if (!zones.empty())
+    {
+        selectedZoneIndex = 0;
+        selectedZoneIndices.insert(0);
+        juce::File firstSlice(zones[0].filePath);
+        if (firstSlice.existsAsFile())
+        {
+            audioEngine.loadFile(firstSlice, false, true);
+        }
+    }
 
     resized();
     repaint();

@@ -74,7 +74,9 @@ public:
 
     void addSample(const MediaItem& item);
     void addSampleFile(const juce::File& file);
-    void autoSliceToSampler(const MediaItem& item);
+    void autoSliceToSampler(const MediaItem& item, const std::vector<double>& customSliceRatios = {});
+    void sliceLoadedSample(const std::vector<double>& sliceRatios);
+    void sliceFileToZones(const juce::File& audioFile, const juce::AudioBuffer<float>& buffer, double sampleRate, const std::vector<double>& sliceRatios);
     void clearAllZones();
     void autoMapByPitch();
     void autoMapChromatic();
@@ -85,8 +87,8 @@ public:
 
     const std::vector<SampleMapZone>& getZones() const { return zones; }
 
-    std::function<void(const std::vector<SampleMapZone>&)> onLoadToPerformance;
     std::function<void()> onSliceToSamplerStarted;
+    std::function<void()> onStateChanged;
 
 private:
     juce::Rectangle<float> getGridBounds() const;
@@ -114,7 +116,6 @@ private:
     juce::TextButton autoMapChromaticButton { "Auto Chromatic" };
     juce::TextButton autoMapVelButton { "Auto Velocity" };
     juce::TextButton clearMapButton { "Clear Map" };
-    juce::TextButton loadToPerformanceButton { "Load to Performance" };
     juce::TextButton pitchTrackButton { "Pitch Track: ON" };
     juce::TextButton oneShotButton { "One Shot: OFF" };
     juce::TextButton loopButton { "Loop: OFF" };

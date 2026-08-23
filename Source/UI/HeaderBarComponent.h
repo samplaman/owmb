@@ -19,8 +19,7 @@ enum class ViewMode
     Record,
     Analysis,
     Edit,
-    SampleMap,
-    Performance
+    SampleMap
 };
 
 class HeaderBarListener
@@ -51,6 +50,7 @@ public:
     void lookAndFeelChanged() override;
 
     juce::String getSearchText() const { return searchEditor.getText(); }
+    void setSearchText(const juce::String& text);
     juce::String getSelectedFormat() const { return activeFormat; }
     ViewMode getCurrentViewMode() const { return currentViewMode; }
     bool isCloudViewActive() const { return currentViewMode == ViewMode::Cloud; }
@@ -94,7 +94,6 @@ private:
     juce::TextButton btnAnalysisView { "Analysis" };
     juce::TextButton btnEditView { "Edit" };
     juce::TextButton btnSampleMapView { "Sample Map" };
-    juce::TextButton btnPerformanceView { "Performance" };
 
     juce::String activeFormat { "All" };
     ViewMode currentViewMode { ViewMode::List };

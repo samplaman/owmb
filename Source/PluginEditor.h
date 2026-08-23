@@ -21,7 +21,7 @@
 #include "UI/AnalysisComponent.h"
 #include "UI/EditComponent.h"
 #include "UI/SampleMapComponent.h"
-#include "UI/PerformanceComponent.h"
+#include "UI/SliceConfigComponent.h"
 
 namespace openwav
 {
@@ -62,6 +62,7 @@ public:
     void displayedItemsChanged(const std::vector<MediaItem>& items) override;
     void addToSampleMapRequested(const MediaItem& item) override;
     void autoSliceToSamplerRequested(const MediaItem& item) override;
+    void editSampleRequested(const MediaItem& item) override;
 
     // SampleCloudListener Callbacks
     void cloudSampleSelected(const MediaItem& item) override;
@@ -71,7 +72,9 @@ public:
     bool isInterestedInFileDrag(const juce::StringArray& files) override;
     void filesDropped(const juce::StringArray& files, int x, int y) override;
 
+    void visibilityChanged() override;
     void parentHierarchyChanged() override;
+    void mouseDown(const juce::MouseEvent& e) override;
     bool keyPressed(const juce::KeyPress& key) override;
     
     void setTagPanelWidth(int newWidth);
@@ -128,7 +131,6 @@ private:
     AnalysisComponent analysisComponent;
     EditComponent editComponent;
     SampleMapComponent sampleMapComponent;
-    PerformanceComponent performanceComponent;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(OpenWavAudioProcessorEditor)
 };

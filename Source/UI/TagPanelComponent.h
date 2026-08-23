@@ -32,6 +32,7 @@ public:
     void refreshTags();
     void refreshFolders();
     void clearAllFiltersAndSelection();
+    void setSelectedTags(const std::vector<juce::String>& tags);
     const std::set<juce::String>& getSelectedTags() const { return selectedTags; }
     bool getMatchAllTags() const { return matchAll; }
     bool getFavoritesOnly() const { return favoritesOnly; }

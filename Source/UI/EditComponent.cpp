@@ -63,21 +63,44 @@ EditComponent::EditComponent(AudioEngine& engine)
         if (isSpectralView && !spectrogramGenerated)
             generateSpectrogram();
         updateControlVisibility();
+        resized();
         repaint();
     };
     addAndMakeVisible(spectralToggleButton);
 
-    removeSpectralElementButton.onClick = [this] {
-        removeSpectralSelection();
-    };
+    repairSpectralButton.setTooltip("Smoothly heal / interpolate corrupted spectral region from adjacent audio frames");
+    repairSpectralButton.onClick = [this] { repairSpectralSelection(); };
+    addAndMakeVisible(repairSpectralButton);
+
+    deHarmonicButton.setTooltip("Notch out fundamental frequency and first 4 integer harmonics across the selection (De-Hum / De-Whistle)");
+    deHarmonicButton.onClick = [this] { deHarmonicSelection(); };
+    addAndMakeVisible(deHarmonicButton);
+
+    denoiseSpectralButton.setTooltip("Suppress noise floor in selected time-frequency zone");
+    denoiseSpectralButton.onClick = [this] { denoiseSpectralSelection(); };
+    addAndMakeVisible(denoiseSpectralButton);
+
+    widenSpectralButton.setTooltip("Enhance stereo side-channel spatial width in selected frequency band");
+    widenSpectralButton.onClick = [this] { widenSpectralSelection(); };
+    addAndMakeVisible(widenSpectralButton);
+
+    warmthSpectralButton.setTooltip("Add pleasant analog harmonic warmth to selected frequency band");
+    warmthSpectralButton.onClick = [this] { warmthSpectralSelection(); };
+    addAndMakeVisible(warmthSpectralButton);
+
+    removeSpectralElementButton.setTooltip("Notch out / silence the selected frequency box");
+    removeSpectralElementButton.onClick = [this] { removeSpectralSelection(); };
     addAndMakeVisible(removeSpectralElementButton);
 
+    boostSpectralButton.setTooltip("Boost selected spectral box by +6dB");
     boostSpectralButton.onClick = [this] { boostSpectralSelection(); };
     addAndMakeVisible(boostSpectralButton);
 
+    attenuateSpectralButton.setTooltip("Attenuate selected spectral box by -6dB");
     attenuateSpectralButton.onClick = [this] { attenuateSpectralSelection(); };
     addAndMakeVisible(attenuateSpectralButton);
 
+    isolateSpectralButton.setTooltip("Isolate only the selected spectral region via bandpass filtering");
     isolateSpectralButton.onClick = [this] { isolateSpectralSelection(); };
     addAndMakeVisible(isolateSpectralButton);
 
@@ -91,25 +114,48 @@ EditComponent::EditComponent(AudioEngine& engine)
     normalizeButton.onClick = [this] { normalizeAudioPeak(); };
     addAndMakeVisible(normalizeButton);
 
-    gainBoostButton.onClick = [this] { audioEngine.adjustGainSelection(audioEngine.getSampleStartRatio(), audioEngine.getSampleEndRatio(), 3.0f); };
+    gainBoostButton.onClick = [this] {
+        audioEngine.adjustGainSelection(audioEngine.getSampleStartRatio(), audioEngine.getSampleEndRatio(), 3.0f);
+        restartPlaybackFromStart();
+    };
     addAndMakeVisible(gainBoostButton);
 
-    gainCutButton.onClick = [this] { audioEngine.adjustGainSelection(audioEngine.getSampleStartRatio(), audioEngine.getSampleEndRatio(), -3.0f); };
+    gainCutButton.onClick = [this] {
+        audioEngine.adjustGainSelection(audioEngine.getSampleStartRatio(), audioEngine.getSampleEndRatio(), -3.0f);
+        restartPlaybackFromStart();
+    };
     addAndMakeVisible(gainCutButton);
 
-    autoTrimButton.onClick = [this] { audioEngine.autoTrimSilence(); };
+    autoTrimButton.onClick = [this] {
+        audioEngine.autoTrimSilence();
+        restartPlaybackFromStart();
+    };
     addAndMakeVisible(autoTrimButton);
 
-    hpFilterButton.onClick = [this] { audioEngine.applyHighPassFilter(audioEngine.getSampleStartRatio(), audioEngine.getSampleEndRatio(), 80.0f); };
+    hpFilterButton.onClick = [this] {
+        audioEngine.applyHighPassFilter(audioEngine.getSampleStartRatio(), audioEngine.getSampleEndRatio(), 80.0f);
+        restartPlaybackFromStart();
+    };
     addAndMakeVisible(hpFilterButton);
 
-    invertPhaseButton.onClick = [this] { audioEngine.invertPhaseSelection(audioEngine.getSampleStartRatio(), audioEngine.getSampleEndRatio()); };
+    invertPhaseButton.onClick = [this] {
+        audioEngine.invertPhaseSelection(audioEngine.getSampleStartRatio(), audioEngine.getSampleEndRatio());
+        restartPlaybackFromStart();
+    };
     addAndMakeVisible(invertPhaseButton);
 
-    speed2xButton.onClick = [this] { audioEngine.changeSampleSpeed(2.0); };
+    speed2xButton.onClick = [this] {
+        audioEngine.changeSampleSpeed(2.0);
+        totalDurationSecs = audioEngine.getTotalLengthSeconds();
+        restartPlaybackFromStart();
+    };
     addAndMakeVisible(speed2xButton);
 
-    speedHalfButton.onClick = [this] { audioEngine.changeSampleSpeed(0.5); };
+    speedHalfButton.onClick = [this] {
+        audioEngine.changeSampleSpeed(0.5);
+        totalDurationSecs = audioEngine.getTotalLengthSeconds();
+        restartPlaybackFromStart();
+    };
     addAndMakeVisible(speedHalfButton);
 
     deverbButton.onClick = [this] { deverbSelectedRegion(); };
@@ -145,6 +191,28 @@ EditComponent::EditComponent(AudioEngine& engine)
 
     exportButton.onClick = [this] { exportEdited(); };
     addAndMakeVisible(exportButton);
+
+    revertOriginalButton.onClick = [this] {
+        if (audioEngine.restoreOriginal())
+        {
+            currentPositionSecs = 0.0;
+            loopInRatio = 0.0;
+            loopOutRatio = 1.0;
+            loopMarkersSet = false;
+            zoomLevel = 1.0;
+            scrollOffset = 0.0;
+            zoomSlider.setValue(1.0, juce::dontSendNotification);
+            totalDurationSecs = audioEngine.getTotalLengthSeconds();
+            hasSpectralBoxSelection = false;
+            spectrogramGenerated = false;
+            if (isSpectralView)
+                generateSpectrogram();
+            updateControlVisibility();
+            repaint();
+            restartPlaybackFromStart();
+        }
+    };
+    addAndMakeVisible(revertOriginalButton);
 
     setWantsKeyboardFocus(true);
 
@@ -349,36 +417,48 @@ juce::Rectangle<int> EditComponent::getControlPanelBounds() const
 
 void EditComponent::updateControlVisibility()
 {
-    bool hasSamplerSample = (totalDurationSecs > 0.0 && audioEngine.isCurrentSampleInSampler());
+    bool hasSamplerSample = hasAudioToEdit();
+    bool showWaveformTools = (hasSamplerSample && !isSpectralView);
+    bool showSpectralTools = (hasSamplerSample && isSpectralView);
 
     playPauseButton.setVisible(hasSamplerSample);
     stopButton.setVisible(hasSamplerSample);
     playSelButton.setVisible(hasSamplerSample);
     loopToggleButton.setVisible(hasSamplerSample);
-    cropButton.setVisible(hasSamplerSample);
-    resetSelectionButton.setVisible(hasSamplerSample);
-    selectAllButton.setVisible(hasSamplerSample);
-    deselectAllButton.setVisible(hasSamplerSample);
-    snapZeroCrossingButton.setVisible(hasSamplerSample);
-    silenceButton.setVisible(hasSamplerSample);
-    reverseButton.setVisible(hasSamplerSample);
-    normalizeButton.setVisible(hasSamplerSample);
-    gainBoostButton.setVisible(hasSamplerSample);
-    gainCutButton.setVisible(hasSamplerSample);
-    autoTrimButton.setVisible(hasSamplerSample);
-    hpFilterButton.setVisible(hasSamplerSample);
-    invertPhaseButton.setVisible(hasSamplerSample);
-    speed2xButton.setVisible(hasSamplerSample);
-    speedHalfButton.setVisible(hasSamplerSample);
-    deverbButton.setVisible(hasSamplerSample);
-    bakeFadesButton.setVisible(hasSamplerSample);
-    exportButton.setVisible(hasSamplerSample);
     spectralToggleButton.setVisible(hasSamplerSample);
-    bool showSpectralTools = (hasSamplerSample && isSpectralView && hasSpectralBoxSelection);
+
+    // Waveform / Time-Domain Tools
+    cropButton.setVisible(showWaveformTools);
+    resetSelectionButton.setVisible(showWaveformTools);
+    selectAllButton.setVisible(showWaveformTools);
+    deselectAllButton.setVisible(showWaveformTools);
+    snapZeroCrossingButton.setVisible(showWaveformTools);
+    silenceButton.setVisible(showWaveformTools);
+    reverseButton.setVisible(showWaveformTools);
+    normalizeButton.setVisible(showWaveformTools);
+    gainBoostButton.setVisible(showWaveformTools);
+    gainCutButton.setVisible(showWaveformTools);
+    autoTrimButton.setVisible(showWaveformTools);
+    hpFilterButton.setVisible(showWaveformTools);
+    invertPhaseButton.setVisible(showWaveformTools);
+    speed2xButton.setVisible(showWaveformTools);
+    speedHalfButton.setVisible(showWaveformTools);
+    deverbButton.setVisible(showWaveformTools);
+    bakeFadesButton.setVisible(hasSamplerSample);
+
+    // Spectral Tools (visible whenever in Spectral mode)
+    repairSpectralButton.setVisible(showSpectralTools);
+    deHarmonicButton.setVisible(showSpectralTools);
+    denoiseSpectralButton.setVisible(showSpectralTools);
+    widenSpectralButton.setVisible(showSpectralTools && audioEngine.getNumChannels() >= 2);
+    warmthSpectralButton.setVisible(showSpectralTools);
     removeSpectralElementButton.setVisible(showSpectralTools);
     boostSpectralButton.setVisible(showSpectralTools);
     attenuateSpectralButton.setVisible(showSpectralTools);
     isolateSpectralButton.setVisible(showSpectralTools);
+
+    exportButton.setVisible(hasSamplerSample);
+    revertOriginalButton.setVisible(hasSamplerSample && audioEngine.hasOriginalSnapshot());
     loopInNudgeLeft.setVisible(hasSamplerSample);
     loopInNudgeRight.setVisible(hasSamplerSample);
     loopOutNudgeLeft.setVisible(hasSamplerSample);
@@ -422,7 +502,7 @@ void EditComponent::resized()
 
     int gap = 5;
 
-    // Row 1: Transport, Sample Name, Zoom & Export
+    // Row 1: Transport, Spectral Toggle, Sample Name, Zoom & Export
     playPauseButton.setBounds(row1.removeFromLeft(68));
     row1.removeFromLeft(gap);
     stopButton.setBounds(row1.removeFromLeft(60));
@@ -432,19 +512,14 @@ void EditComponent::resized()
     loopToggleButton.setBounds(row1.removeFromLeft(65));
     row1.removeFromLeft(gap);
     spectralToggleButton.setBounds(row1.removeFromLeft(95));
-    row1.removeFromLeft(gap);
-    removeSpectralElementButton.setBounds(row1.removeFromLeft(125));
-    row1.removeFromLeft(gap);
-    boostSpectralButton.setBounds(row1.removeFromLeft(105));
-    row1.removeFromLeft(gap);
-    attenuateSpectralButton.setBounds(row1.removeFromLeft(105));
-    row1.removeFromLeft(gap);
-    isolateSpectralButton.setBounds(row1.removeFromLeft(110));
     row1.removeFromLeft(12);
-    sampleNameLabel.setBounds(row1.removeFromLeft(180));
+
+    sampleNameLabel.setBounds(row1.removeFromLeft(200));
 
     // Right side of Row 1: Zoom & Export
     exportButton.setBounds(row1.removeFromRight(90));
+    row1.removeFromRight(gap);
+    revertOriginalButton.setBounds(row1.removeFromRight(80));
     row1.removeFromRight(gap);
     zoomInButton.setBounds(row1.removeFromRight(26));
     row1.removeFromRight(2);
@@ -454,41 +529,69 @@ void EditComponent::resized()
     row1.removeFromRight(gap);
     zoomLabel.setBounds(row1.removeFromRight(40));
 
-    // Row 2: Range & DSP Action Tools
-    selectAllButton.setBounds(row2.removeFromLeft(88));
-    row2.removeFromLeft(gap);
-    deselectAllButton.setBounds(row2.removeFromLeft(98));
-    row2.removeFromLeft(gap);
-    cropButton.setBounds(row2.removeFromLeft(60));
-    row2.removeFromLeft(gap);
-    resetSelectionButton.setBounds(row2.removeFromLeft(64));
-    row2.removeFromLeft(gap);
-    snapZeroCrossingButton.setBounds(row2.removeFromLeft(84));
-    row2.removeFromLeft(10); // Gap to DSP tools
+    // Row 2: Action Tools (Spectral suite when in spectral mode, DSP suite in waveform mode)
+    if (isSpectralView)
+    {
+        repairSpectralButton.setBounds(row2.removeFromLeft(96));
+        row2.removeFromLeft(gap);
+        deHarmonicButton.setBounds(row2.removeFromLeft(96));
+        row2.removeFromLeft(gap);
+        denoiseSpectralButton.setBounds(row2.removeFromLeft(110));
+        row2.removeFromLeft(gap);
+        if (audioEngine.getNumChannels() >= 2)
+        {
+            widenSpectralButton.setBounds(row2.removeFromLeft(96));
+            row2.removeFromLeft(gap);
+        }
+        warmthSpectralButton.setBounds(row2.removeFromLeft(72));
+        row2.removeFromLeft(gap);
+        removeSpectralElementButton.setBounds(row2.removeFromLeft(68));
+        row2.removeFromLeft(gap);
+        boostSpectralButton.setBounds(row2.removeFromLeft(52));
+        row2.removeFromLeft(gap);
+        attenuateSpectralButton.setBounds(row2.removeFromLeft(52));
+        row2.removeFromLeft(gap);
+        isolateSpectralButton.setBounds(row2.removeFromLeft(64));
+        row2.removeFromLeft(gap);
+        bakeFadesButton.setBounds(row2.removeFromLeft(88));
+    }
+    else
+    {
+        selectAllButton.setBounds(row2.removeFromLeft(88));
+        row2.removeFromLeft(gap);
+        deselectAllButton.setBounds(row2.removeFromLeft(98));
+        row2.removeFromLeft(gap);
+        cropButton.setBounds(row2.removeFromLeft(60));
+        row2.removeFromLeft(gap);
+        resetSelectionButton.setBounds(row2.removeFromLeft(64));
+        row2.removeFromLeft(gap);
+        snapZeroCrossingButton.setBounds(row2.removeFromLeft(84));
+        row2.removeFromLeft(10); // Gap to DSP tools
 
-    silenceButton.setBounds(row2.removeFromLeft(70));
-    row2.removeFromLeft(gap);
-    reverseButton.setBounds(row2.removeFromLeft(74));
-    row2.removeFromLeft(gap);
-    normalizeButton.setBounds(row2.removeFromLeft(86));
-    row2.removeFromLeft(gap);
-    gainBoostButton.setBounds(row2.removeFromLeft(54));
-    row2.removeFromLeft(gap);
-    gainCutButton.setBounds(row2.removeFromLeft(54));
-    row2.removeFromLeft(gap);
-    autoTrimButton.setBounds(row2.removeFromLeft(84));
-    row2.removeFromLeft(gap);
-    hpFilterButton.setBounds(row2.removeFromLeft(72));
-    row2.removeFromLeft(gap);
-    invertPhaseButton.setBounds(row2.removeFromLeft(96));
-    row2.removeFromLeft(gap);
-    speed2xButton.setBounds(row2.removeFromLeft(76));
-    row2.removeFromLeft(gap);
-    speedHalfButton.setBounds(row2.removeFromLeft(86));
-    row2.removeFromLeft(gap);
-    deverbButton.setBounds(row2.removeFromLeft(72));
-    row2.removeFromLeft(gap);
-    bakeFadesButton.setBounds(row2.removeFromLeft(88));
+        silenceButton.setBounds(row2.removeFromLeft(70));
+        row2.removeFromLeft(gap);
+        reverseButton.setBounds(row2.removeFromLeft(74));
+        row2.removeFromLeft(gap);
+        normalizeButton.setBounds(row2.removeFromLeft(86));
+        row2.removeFromLeft(gap);
+        gainBoostButton.setBounds(row2.removeFromLeft(54));
+        row2.removeFromLeft(gap);
+        gainCutButton.setBounds(row2.removeFromLeft(54));
+        row2.removeFromLeft(gap);
+        autoTrimButton.setBounds(row2.removeFromLeft(84));
+        row2.removeFromLeft(gap);
+        hpFilterButton.setBounds(row2.removeFromLeft(72));
+        row2.removeFromLeft(gap);
+        invertPhaseButton.setBounds(row2.removeFromLeft(96));
+        row2.removeFromLeft(gap);
+        speed2xButton.setBounds(row2.removeFromLeft(76));
+        row2.removeFromLeft(gap);
+        speedHalfButton.setBounds(row2.removeFromLeft(86));
+        row2.removeFromLeft(gap);
+        deverbButton.setBounds(row2.removeFromLeft(72));
+        row2.removeFromLeft(gap);
+        bakeFadesButton.setBounds(row2.removeFromLeft(88));
+    }
 
     area.removeFromTop(8); // Gap
 
@@ -597,16 +700,26 @@ void EditComponent::resized()
 // ─────────────────────────────────────────────────────────
 float EditComponent::ratioToX(double ratio, juce::Rectangle<float> bounds) const
 {
-    double visibleStart = scrollOffset;
-    double visibleEnd = scrollOffset + 1.0 / zoomLevel;
-    double normalised = (ratio - visibleStart) / (visibleEnd - visibleStart);
+    double sliceStart = isSliceEditingActive ? activeEditingStartRatio : 0.0;
+    double sliceEnd = isSliceEditingActive ? activeEditingEndRatio : 1.0;
+    if (sliceEnd <= sliceStart) { sliceStart = 0.0; sliceEnd = 1.0; }
+
+    double visibleStart = sliceStart + scrollOffset * (sliceEnd - sliceStart);
+    double visibleEnd = sliceStart + (scrollOffset + 1.0 / zoomLevel) * (sliceEnd - sliceStart);
+
+    double normalised = (visibleEnd > visibleStart) ? (ratio - visibleStart) / (visibleEnd - visibleStart) : 0.0;
     return bounds.getX() + static_cast<float>(normalised) * bounds.getWidth();
 }
 
 double EditComponent::xToRatio(float x, juce::Rectangle<float> bounds) const
 {
-    double visibleStart = scrollOffset;
-    double visibleEnd = scrollOffset + 1.0 / zoomLevel;
+    double sliceStart = isSliceEditingActive ? activeEditingStartRatio : 0.0;
+    double sliceEnd = isSliceEditingActive ? activeEditingEndRatio : 1.0;
+    if (sliceEnd <= sliceStart) { sliceStart = 0.0; sliceEnd = 1.0; }
+
+    double visibleStart = sliceStart + scrollOffset * (sliceEnd - sliceStart);
+    double visibleEnd = sliceStart + (scrollOffset + 1.0 / zoomLevel) * (sliceEnd - sliceStart);
+
     double normalised = static_cast<double>(x - bounds.getX()) / bounds.getWidth();
     return visibleStart + normalised * (visibleEnd - visibleStart);
 }
@@ -642,16 +755,21 @@ static juce::String formatTime(double seconds)
 
 // ─────────────────────────────────────────────────────────
 //  Paint
+bool EditComponent::hasAudioToEdit() const
+{
+    return isSliceEditingActive || totalDurationSecs > 0.0 || audioEngine.getTotalLengthSeconds() > 0.0 || audioEngine.isCurrentSampleInSampler();
+}
+
 // ─────────────────────────────────────────────────────────
 void EditComponent::paint(juce::Graphics& g)
 {
     g.fillAll(OpenWavLookAndFeel::bgDark);
 
-    if (totalDurationSecs <= 0.0 || !audioEngine.isCurrentSampleInSampler())
+    if (!hasAudioToEdit())
     {
         g.setColour(OpenWavLookAndFeel::textSecondary.withAlpha(0.5f));
         g.setFont(juce::Font(20.0f));
-        g.drawText("No sample loaded into sampler", getLocalBounds(), juce::Justification::centred);
+        g.drawText("No sample loaded into editor", getLocalBounds(), juce::Justification::centred);
         return;
     }
 
@@ -699,8 +817,12 @@ void EditComponent::paint(juce::Graphics& g)
 // ─────────────────────────────────────────────────────────
 void EditComponent::paintWaveform(juce::Graphics& g, juce::Rectangle<float> bounds) const
 {
-    double visibleStart = scrollOffset;
-    double visibleEnd = scrollOffset + 1.0 / zoomLevel;
+    double sliceStart = isSliceEditingActive ? activeEditingStartRatio : 0.0;
+    double sliceEnd = isSliceEditingActive ? activeEditingEndRatio : 1.0;
+    if (sliceEnd <= sliceStart) { sliceStart = 0.0; sliceEnd = 1.0; }
+
+    double visibleStart = sliceStart + scrollOffset * (sliceEnd - sliceStart);
+    double visibleEnd = sliceStart + (scrollOffset + 1.0 / zoomLevel) * (sliceEnd - sliceStart);
 
     double startRatio = audioEngine.getSampleStartRatio();
     double endRatio = audioEngine.getSampleEndRatio();
@@ -1324,11 +1446,16 @@ void EditComponent::paintSpectrogram(juce::Graphics& g, juce::Rectangle<float> b
     }
 }
 
-void EditComponent::removeSpectralSelection()
+void EditComponent::repairSpectralSelection()
 {
-    if (totalDurationSecs <= 0.0 || !hasSpectralBoxSelection) return;
+    if (totalDurationSecs <= 0.0) return;
 
-    if (audioEngine.silenceSpectralRegion(spectralTimeStart, spectralTimeEnd, spectralFreqLow, spectralFreqHigh))
+    double startR = hasSpectralBoxSelection ? spectralTimeStart : audioEngine.getSampleStartRatio();
+    double endR = hasSpectralBoxSelection ? spectralTimeEnd : audioEngine.getSampleEndRatio();
+    float lowF = hasSpectralBoxSelection ? spectralFreqLow : 20.0f;
+    float highF = hasSpectralBoxSelection ? spectralFreqHigh : 20000.0f;
+
+    if (audioEngine.repairSpectralRegion(startR, endR, lowF, highF))
     {
         hasSpectralBoxSelection = false;
         spectrogramGenerated = false;
@@ -1336,42 +1463,163 @@ void EditComponent::removeSpectralSelection()
             generateSpectrogram();
         updateControlVisibility();
         repaint();
+        restartPlaybackFromStart();
+    }
+}
+
+void EditComponent::deHarmonicSelection()
+{
+    if (totalDurationSecs <= 0.0) return;
+
+    double startR = hasSpectralBoxSelection ? spectralTimeStart : audioEngine.getSampleStartRatio();
+    double endR = hasSpectralBoxSelection ? spectralTimeEnd : audioEngine.getSampleEndRatio();
+    float lowF = hasSpectralBoxSelection ? spectralFreqLow : 50.0f;
+    float highF = hasSpectralBoxSelection ? spectralFreqHigh : 200.0f;
+    float f0 = std::sqrt(lowF * highF);
+
+    if (audioEngine.removeSpectralHarmonics(startR, endR, f0))
+    {
+        hasSpectralBoxSelection = false;
+        spectrogramGenerated = false;
+        if (isSpectralView)
+            generateSpectrogram();
+        updateControlVisibility();
+        repaint();
+        restartPlaybackFromStart();
+    }
+}
+
+void EditComponent::denoiseSpectralSelection()
+{
+    if (totalDurationSecs <= 0.0) return;
+
+    double startR = hasSpectralBoxSelection ? spectralTimeStart : audioEngine.getSampleStartRatio();
+    double endR = hasSpectralBoxSelection ? spectralTimeEnd : audioEngine.getSampleEndRatio();
+    float lowF = hasSpectralBoxSelection ? spectralFreqLow : 20.0f;
+    float highF = hasSpectralBoxSelection ? spectralFreqHigh : 20000.0f;
+
+    if (audioEngine.denoiseSpectralRegion(startR, endR, lowF, highF, 18.0f))
+    {
+        spectrogramGenerated = false;
+        if (isSpectralView)
+            generateSpectrogram();
+        updateControlVisibility();
+        repaint();
+        restartPlaybackFromStart();
+    }
+}
+
+void EditComponent::widenSpectralSelection()
+{
+    if (totalDurationSecs <= 0.0) return;
+
+    double startR = hasSpectralBoxSelection ? spectralTimeStart : audioEngine.getSampleStartRatio();
+    double endR = hasSpectralBoxSelection ? spectralTimeEnd : audioEngine.getSampleEndRatio();
+    float lowF = hasSpectralBoxSelection ? spectralFreqLow : 200.0f;
+    float highF = hasSpectralBoxSelection ? spectralFreqHigh : 16000.0f;
+
+    if (audioEngine.widenSpectralRegion(startR, endR, lowF, highF, 2.0f))
+    {
+        spectrogramGenerated = false;
+        if (isSpectralView)
+            generateSpectrogram();
+        updateControlVisibility();
+        repaint();
+        restartPlaybackFromStart();
+    }
+}
+
+void EditComponent::warmthSpectralSelection()
+{
+    if (totalDurationSecs <= 0.0) return;
+
+    double startR = hasSpectralBoxSelection ? spectralTimeStart : audioEngine.getSampleStartRatio();
+    double endR = hasSpectralBoxSelection ? spectralTimeEnd : audioEngine.getSampleEndRatio();
+    float lowF = hasSpectralBoxSelection ? spectralFreqLow : 100.0f;
+    float highF = hasSpectralBoxSelection ? spectralFreqHigh : 12000.0f;
+
+    if (audioEngine.saturateSpectralRegion(startR, endR, lowF, highF, 0.6f))
+    {
+        spectrogramGenerated = false;
+        if (isSpectralView)
+            generateSpectrogram();
+        updateControlVisibility();
+        repaint();
+        restartPlaybackFromStart();
+    }
+}
+
+void EditComponent::removeSpectralSelection()
+{
+    if (totalDurationSecs <= 0.0) return;
+
+    double startR = hasSpectralBoxSelection ? spectralTimeStart : audioEngine.getSampleStartRatio();
+    double endR = hasSpectralBoxSelection ? spectralTimeEnd : audioEngine.getSampleEndRatio();
+    float lowF = hasSpectralBoxSelection ? spectralFreqLow : 20.0f;
+    float highF = hasSpectralBoxSelection ? spectralFreqHigh : 20000.0f;
+
+    if (audioEngine.silenceSpectralRegion(startR, endR, lowF, highF))
+    {
+        hasSpectralBoxSelection = false;
+        spectrogramGenerated = false;
+        if (isSpectralView)
+            generateSpectrogram();
+        updateControlVisibility();
+        repaint();
+        restartPlaybackFromStart();
     }
 }
 
 void EditComponent::boostSpectralSelection()
 {
-    if (totalDurationSecs <= 0.0 || !hasSpectralBoxSelection) return;
+    if (totalDurationSecs <= 0.0) return;
 
-    if (audioEngine.adjustSpectralRegionGain(spectralTimeStart, spectralTimeEnd, spectralFreqLow, spectralFreqHigh, 6.0f))
+    double startR = hasSpectralBoxSelection ? spectralTimeStart : audioEngine.getSampleStartRatio();
+    double endR = hasSpectralBoxSelection ? spectralTimeEnd : audioEngine.getSampleEndRatio();
+    float lowF = hasSpectralBoxSelection ? spectralFreqLow : 20.0f;
+    float highF = hasSpectralBoxSelection ? spectralFreqHigh : 20000.0f;
+
+    if (audioEngine.adjustSpectralRegionGain(startR, endR, lowF, highF, 6.0f))
     {
         spectrogramGenerated = false;
         if (isSpectralView)
             generateSpectrogram();
         updateControlVisibility();
         repaint();
+        restartPlaybackFromStart();
     }
 }
 
 void EditComponent::attenuateSpectralSelection()
 {
-    if (totalDurationSecs <= 0.0 || !hasSpectralBoxSelection) return;
+    if (totalDurationSecs <= 0.0) return;
 
-    if (audioEngine.adjustSpectralRegionGain(spectralTimeStart, spectralTimeEnd, spectralFreqLow, spectralFreqHigh, -6.0f))
+    double startR = hasSpectralBoxSelection ? spectralTimeStart : audioEngine.getSampleStartRatio();
+    double endR = hasSpectralBoxSelection ? spectralTimeEnd : audioEngine.getSampleEndRatio();
+    float lowF = hasSpectralBoxSelection ? spectralFreqLow : 20.0f;
+    float highF = hasSpectralBoxSelection ? spectralFreqHigh : 20000.0f;
+
+    if (audioEngine.adjustSpectralRegionGain(startR, endR, lowF, highF, -6.0f))
     {
         spectrogramGenerated = false;
         if (isSpectralView)
             generateSpectrogram();
         updateControlVisibility();
         repaint();
+        restartPlaybackFromStart();
     }
 }
 
 void EditComponent::isolateSpectralSelection()
 {
-    if (totalDurationSecs <= 0.0 || !hasSpectralBoxSelection) return;
+    if (totalDurationSecs <= 0.0) return;
 
-    if (audioEngine.isolateSpectralRegion(spectralTimeStart, spectralTimeEnd, spectralFreqLow, spectralFreqHigh))
+    double startR = hasSpectralBoxSelection ? spectralTimeStart : audioEngine.getSampleStartRatio();
+    double endR = hasSpectralBoxSelection ? spectralTimeEnd : audioEngine.getSampleEndRatio();
+    float lowF = hasSpectralBoxSelection ? spectralFreqLow : 20.0f;
+    float highF = hasSpectralBoxSelection ? spectralFreqHigh : 20000.0f;
+
+    if (audioEngine.isolateSpectralRegion(startR, endR, lowF, highF))
     {
         hasSpectralBoxSelection = false;
         spectrogramGenerated = false;
@@ -1379,6 +1627,7 @@ void EditComponent::isolateSpectralSelection()
             generateSpectrogram();
         updateControlVisibility();
         repaint();
+        restartPlaybackFromStart();
     }
 }
 
@@ -1442,7 +1691,7 @@ void EditComponent::deselectAllRegion()
 
 void EditComponent::cropToSelection()
 {
-    if (totalDurationSecs <= 0.0 || !audioEngine.isCurrentSampleInSampler()) return;
+    if (!hasAudioToEdit()) return;
 
     double startR = audioEngine.getSampleStartRatio();
     double endR = audioEngine.getSampleEndRatio();
@@ -1457,13 +1706,15 @@ void EditComponent::cropToSelection()
         zoomLevel = 1.0;
         scrollOffset = 0.0;
         zoomSlider.setValue(1.0, juce::dontSendNotification);
+        totalDurationSecs = audioEngine.getTotalLengthSeconds();
         repaint();
+        restartPlaybackFromStart();
     }
 }
 
 void EditComponent::resetSelection()
 {
-    if (totalDurationSecs <= 0.0 || !audioEngine.isCurrentSampleInSampler()) return;
+    if (!hasAudioToEdit()) return;
 
     audioEngine.setSampleRange(0.0, 1.0);
     loopInRatio = 0.0;
@@ -1474,59 +1725,62 @@ void EditComponent::resetSelection()
 
 void EditComponent::silenceSelectedRegion()
 {
-    if (totalDurationSecs <= 0.0 || !audioEngine.isCurrentSampleInSampler()) return;
+    if (!hasAudioToEdit()) return;
 
     double startR = audioEngine.getSampleStartRatio();
     double endR = audioEngine.getSampleEndRatio();
     audioEngine.silenceSelection(startR, endR);
     repaint();
+    restartPlaybackFromStart();
 }
 
 void EditComponent::reverseSelectedRegion()
 {
-    if (totalDurationSecs <= 0.0 || !audioEngine.isCurrentSampleInSampler()) return;
+    if (!hasAudioToEdit()) return;
 
     double startR = audioEngine.getSampleStartRatio();
     double endR = audioEngine.getSampleEndRatio();
     audioEngine.reverseSelection(startR, endR);
     repaint();
+    restartPlaybackFromStart();
 }
 
 void EditComponent::normalizeAudioPeak()
 {
-    if (totalDurationSecs <= 0.0 || !audioEngine.isCurrentSampleInSampler()) return;
+    if (!hasAudioToEdit()) return;
 
     audioEngine.normalizeLoadedSample();
     repaint();
+    restartPlaybackFromStart();
 }
 
 void EditComponent::deverbSelectedRegion()
 {
-    if (totalDurationSecs <= 0.0 || !audioEngine.isCurrentSampleInSampler()) return;
+    if (!hasAudioToEdit()) return;
 
     double startR = audioEngine.getSampleStartRatio();
     double endR = audioEngine.getSampleEndRatio();
-    if (audioEngine.deverbSelection(startR, endR, 0.88f))
+    if (audioEngine.deverbSelection(startR, endR, 0.75f))
     {
-        audioEngine.setPositionRatio(startR);
-        audioEngine.play();
         repaint();
+        restartPlaybackFromStart();
     }
 }
 
 void EditComponent::bakeFadesIntoBuffer()
 {
-    if (totalDurationSecs <= 0.0 || !audioEngine.isCurrentSampleInSampler()) return;
+    if (!hasAudioToEdit()) return;
 
     audioEngine.applyFadesToBuffer(fadeInMs, fadeInCurveType, fadeOutMs, fadeOutCurveType);
     fadeInSlider.setValue(0.0);
     fadeOutSlider.setValue(0.0);
     repaint();
+    restartPlaybackFromStart();
 }
 
 void EditComponent::playSelectionOnly()
 {
-    if (totalDurationSecs <= 0.0 || !audioEngine.isCurrentSampleInSampler()) return;
+    if (!hasAudioToEdit()) return;
 
     double startR = audioEngine.getSampleStartRatio();
     audioEngine.setPositionRatio(startR);
@@ -1725,6 +1979,10 @@ void EditComponent::mouseDown(const juce::MouseEvent& e)
         }
     }
 
+    // Left-click moves transport position ratio immediately
+    audioEngine.setPositionRatio(clickRatio);
+    currentPositionSecs = clickRatio * totalDurationSecs;
+
     // Start/End markers
     if (std::abs(e.position.x - startX) <= threshold)
     {
@@ -1739,7 +1997,6 @@ void EditComponent::mouseDown(const juce::MouseEvent& e)
         dragTarget = DragTarget::SelectingRange;
         dragStartRatio = clickRatio;
         if (snapToZeroCrossing) clickRatio = findNearestZeroCrossing(clickRatio);
-        audioEngine.setSampleRange(clickRatio, clickRatio);
     }
     repaint();
 }
@@ -1920,9 +2177,30 @@ void EditComponent::mouseWheelMove(const juce::MouseEvent& e, const juce::MouseW
 // ─────────────────────────────────────────────────────────
 void EditComponent::visibilityChanged()
 {
-    if (isVisible() && audioEngine.isCurrentSampleInSampler())
+    if (isVisible())
     {
-        totalDurationSecs = audioEngine.getTotalLengthSeconds();
+        // Auto-load whatever sample is currently in the engine for editing
+        if (audioEngine.getTotalLengthSeconds() > 0.0)
+        {
+            if (!audioEngine.isCurrentSampleInSampler())
+                audioEngine.setLoadedInSampler(true);
+
+            if (totalDurationSecs <= 0.0)
+                totalDurationSecs = audioEngine.getTotalLengthSeconds();
+
+            auto currentFile = audioEngine.getCurrentFile();
+            if (currentFile.existsAsFile())
+                sampleNameLabel.setText(currentFile.getFileName(), juce::dontSendNotification);
+
+            // Snapshot for non-destructive editing if not already done
+            if (!audioEngine.hasOriginalSnapshot())
+                audioEngine.snapshotOriginalForEditing();
+        }
+        else if (totalDurationSecs <= 0.0)
+        {
+            totalDurationSecs = audioEngine.getTotalLengthSeconds();
+        }
+
         spectrogramGenerated = false;
         hasSpectralBoxSelection = false;
         if (isSpectralView)
@@ -1932,10 +2210,55 @@ void EditComponent::visibilityChanged()
     }
 }
 
+void EditComponent::loadSliceForEditing(int sliceIndex, double startRatio, double endRatio)
+{
+    activeEditingSliceIndex = sliceIndex;
+    activeEditingStartRatio = startRatio;
+    activeEditingEndRatio = endRatio;
+    isSliceEditingActive = true;
+
+    juce::AudioBuffer<float> masterBuf;
+    double sampleRate = 44100.0;
+    if (audioEngine.getAudioBufferCopy(masterBuf, sampleRate) && masterBuf.getNumSamples() > 0)
+    {
+        int totalSamples = masterBuf.getNumSamples();
+        int sStart = juce::jlimit(0, totalSamples - 1, static_cast<int>(startRatio * totalSamples));
+        int sEnd = juce::jlimit(sStart + 1, totalSamples, static_cast<int>(endRatio * totalSamples));
+        int sliceLen = sEnd - sStart;
+
+        if (sliceLen > 0)
+        {
+            juce::AudioBuffer<float> sliceBuf(masterBuf.getNumChannels(), sliceLen);
+            for (int ch = 0; ch < masterBuf.getNumChannels(); ++ch)
+                sliceBuf.copyFrom(ch, 0, masterBuf, ch, sStart, sliceLen);
+
+            juce::String sliceName = "Slice #" + juce::String(sliceIndex + 1);
+            audioEngine.loadAudioBuffer(sliceName, sliceBuf, sampleRate, 60, true);
+
+            totalDurationSecs = static_cast<double>(sliceLen) / sampleRate;
+            currentPositionSecs = 0.0;
+            loopInRatio = 0.0;
+            loopOutRatio = 1.0;
+            loopMarkersSet = false;
+            zoomLevel = 1.0;
+            scrollOffset = 0.0;
+            zoomSlider.setValue(1.0, juce::dontSendNotification);
+            updateControlVisibility();
+            repaint();
+        }
+    }
+}
+
+void EditComponent::saveChangesAndUpdateSlice()
+{
+    isSliceEditingActive = false;
+    activeEditingSliceIndex = -1;
+}
+
 void EditComponent::playbackStateChanged(bool isPlaying)
 {
     playPauseButton.setButtonText(isPlaying ? "Pause" : "Play");
-    if (audioEngine.isCurrentSampleInSampler())
+    if (hasAudioToEdit())
     {
         currentPositionSecs = audioEngine.getCurrentPositionSeconds();
         totalDurationSecs = audioEngine.getTotalLengthSeconds();
@@ -1950,7 +2273,9 @@ void EditComponent::playbackStateChanged(bool isPlaying)
 
 void EditComponent::sampleLoaded(const juce::String& filePath)
 {
-    if (!audioEngine.isCurrentSampleInSampler())
+    juce::File f(filePath);
+
+    if (f.getFullPathName().isEmpty() || !f.existsAsFile())
     {
         sampleNameLabel.setText("", juce::dontSendNotification);
         totalDurationSecs = 0.0;
@@ -1966,13 +2291,15 @@ void EditComponent::sampleLoaded(const juce::String& filePath)
         return;
     }
 
-    juce::File f(filePath);
     bool isSameFile = (f == audioEngine.getCurrentFile());
+
+    isSliceEditingActive = false;
+    activeEditingSliceIndex = -1;
 
     sampleNameLabel.setText(f.getFileName(), juce::dontSendNotification);
     totalDurationSecs = audioEngine.getTotalLengthSeconds();
 
-    if (!isSameFile)
+    if (!isSameFile || !audioEngine.hasOriginalSnapshot())
     {
         currentPositionSecs = 0.0;
         loopInRatio = 0.0;
@@ -1981,6 +2308,9 @@ void EditComponent::sampleLoaded(const juce::String& filePath)
         zoomLevel = 1.0;
         scrollOffset = 0.0;
         zoomSlider.setValue(1.0, juce::dontSendNotification);
+
+        // Snapshot the original buffer for non-destructive editing
+        audioEngine.snapshotOriginalForEditing();
     }
 
     hasSpectralBoxSelection = false;
@@ -1995,11 +2325,17 @@ void EditComponent::sampleLoaded(const juce::String& filePath)
 
 void EditComponent::timerCallback()
 {
-    if (audioEngine.isPlaying() && audioEngine.isCurrentSampleInSampler())
+    if (hasAudioToEdit())
     {
-        currentPositionSecs = audioEngine.getCurrentPositionSeconds();
-        totalDurationSecs = audioEngine.getTotalLengthSeconds();
-        repaint();
+        double newPos = audioEngine.getCurrentPositionSeconds();
+        double newDur = audioEngine.getTotalLengthSeconds();
+        bool needsRepaint = audioEngine.isPlaying() || std::abs(newPos - currentPositionSecs) > 0.0001;
+
+        currentPositionSecs = newPos;
+        totalDurationSecs = newDur;
+
+        if (needsRepaint)
+            repaint();
     }
 }
 
@@ -2033,6 +2369,15 @@ void EditComponent::applyFadeToBuffer(juce::AudioBuffer<float>& buffer, double s
         for (int ch = 0; ch < numChannels; ++ch)
             buffer.setSample(ch, sampleIdx, buffer.getSample(ch, sampleIdx) * gain);
     }
+}
+
+void EditComponent::restartPlaybackFromStart()
+{
+    audioEngine.stop();
+    currentPositionSecs = 0.0;
+    audioEngine.setPositionRatio(0.0);
+    audioEngine.play();
+    repaint();
 }
 
 void EditComponent::exportEdited()

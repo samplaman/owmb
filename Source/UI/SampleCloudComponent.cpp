@@ -974,8 +974,19 @@ void SampleCloudComponent::resized() {
 }
 
 void SampleCloudComponent::mouseDown(const juce::MouseEvent &e) {
-  if (e.mods.isRightButtonDown() || e.mods.isPopupMenu())
+  if (e.mods.isRightButtonDown() || e.mods.isPopupMenu()) {
+    if (hoveredNodeIndex >= 0 && hoveredNodeIndex < static_cast<int>(nodes.size())) {
+      selectedNodeIndex = hoveredNodeIndex;
+      targetCameraCenterPos = nodes[selectedNodeIndex].targetPos;
+      listeners.call([&](SampleCloudListener &l) {
+        l.cloudSampleSelected(nodes[selectedNodeIndex].item);
+      });
+      overlayComponent.repaint();
+      repaint();
+      showContextMenuForNode(selectedNodeIndex);
+    }
     return;
+  }
 
   float effW = getEffectiveWidth();
   float effH = getEffectiveHeight();
@@ -1264,6 +1275,107 @@ SampleCloudComponent::getColourForTag(const juce::String &tag) const {
   uint32_t hash = static_cast<uint32_t>(tag.hashCode());
   float hue = (hash % 360) / 360.0f;
   return juce::Colour::fromHSV(hue, 0.65f, 0.85f, 1.0f);
+}
+
+void SampleCloudComponent::showContextMenuForNode(int nodeIndex) {
+  if (nodeIndex < 0 || nodeIndex >= static_cast<int>(nodes.size()))
+    return;
+
+  const auto item = nodes[static_cast<size_t>(nodeIndex)].item;
+
+  juce::PopupMenu menu;
+  menu.addSectionHeader(item.fileName);
+  menu.addItem(1, item.isFavorite ? "Remove from Favorites" : "Add to Favorites");
+
+  juce::PopupMenu ratingMenu;
+  for (int r = 0; r <= 5; ++r) {
+    ratingMenu.addItem(10 + r, (r == 0) ? "No Rating" : juce::String(r) + " Stars", true, r == item.rating);
+  }
+  menu.addSubMenu("Set Rating", ratingMenu);
+
+  menu.addSeparator();
+  menu.addItem(2, "Add Custom Tag...");
+
+  juce::PopupMenu removeTagMenu;
+  int tagIdx = 100;
+  for (const auto &tag : item.tags) {
+    removeTagMenu.addItem(tagIdx++, "Remove " + tag);
+  }
+  if (!item.tags.empty()) {
+    menu.addSubMenu("Remove Tag", removeTagMenu);
+  }
+
+  menu.addSeparator();
+  menu.addItem(4, "Reveal in Finder");
+  menu.addItem(6, "Add to Sample Map");
+  menu.addItem(7, "Slice to Sample Map...");
+  menu.addItem(8, "Edit Sample in Editor");
+
+  menu.showMenuAsync(
+      juce::PopupMenu::Options().withMousePosition(),
+      [this, item, nodeIndex](int result) {
+        if (result == 1) {
+          if (nodeIndex < static_cast<int>(nodes.size())) {
+            nodes[static_cast<size_t>(nodeIndex)].item.isFavorite = !item.isFavorite;
+          }
+          dbManager.toggleFavorite(item.id);
+          overlayComponent.repaint();
+          repaint();
+        } else if (result >= 10 && result <= 15) {
+          int newRating = result - 10;
+          if (nodeIndex < static_cast<int>(nodes.size())) {
+            nodes[static_cast<size_t>(nodeIndex)].item.rating = newRating;
+          }
+          dbManager.setRating(item.id, newRating);
+          overlayComponent.repaint();
+          repaint();
+        } else if (result == 2) {
+          auto alert = std::make_shared<juce::AlertWindow>(
+              "Add Custom Tag", "Enter a new custom tag for " + item.fileName + ":",
+              juce::AlertWindow::QuestionIcon);
+          alert->addTextEditor("tagInput", "", "Tag (e.g. Kick, #Sub, Vocal)");
+          if (auto *ed = alert->getTextEditor("tagInput")) {
+            ed->setJustification(juce::Justification::centredLeft);
+            ed->setIndents(4, 0);
+          }
+          alert->addButton("Add Tag", 1, juce::KeyPress(juce::KeyPress::returnKey));
+          alert->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+
+          alert->enterModalState(
+              true, juce::ModalCallbackFunction::create([this, alert, item](int btnResult) {
+                if (btnResult == 1) {
+                  auto newTag = alert->getTextEditorContents("tagInput").trim();
+                  if (newTag.isNotEmpty()) {
+                    dbManager.addTagToItem(item.id, newTag);
+                  }
+                }
+              }));
+        } else if (result >= 100) {
+          int idx = result - 100;
+          if (idx >= 0 && idx < static_cast<int>(item.tags.size())) {
+            auto it = item.tags.begin();
+            std::advance(it, idx);
+            dbManager.removeTagFromItem(item.id, *it);
+          }
+        } else if (result == 4) {
+          juce::File f(item.filePath);
+          if (f.existsAsFile()) {
+            f.revealToUser();
+          }
+        } else if (result == 6) {
+          listeners.call([item](SampleCloudListener &l) {
+            l.addToSampleMapRequested(item);
+          });
+        } else if (result == 7) {
+          listeners.call([item](SampleCloudListener &l) {
+            l.autoSliceToSamplerRequested(item);
+          });
+        } else if (result == 8) {
+          listeners.call([item](SampleCloudListener &l) {
+            l.editSampleRequested(item);
+          });
+        }
+      });
 }
 
 // ==============================================================================

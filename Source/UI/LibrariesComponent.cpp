@@ -526,8 +526,7 @@ LibrariesComponent::LibrariesComponent(TagDatabaseManager& db, LibraryScanner& s
             true
         );
         chooser->launchAsync(juce::FileBrowserComponent::openMode |
-                             juce::FileBrowserComponent::canSelectDirectories |
-                             juce::FileBrowserComponent::canSelectFiles,
+                             juce::FileBrowserComponent::canSelectDirectories,
             [this, chooser](const juce::FileChooser& fc) {
                 auto result = fc.getResult();
                 if (result == juce::File() && !fc.getResults().isEmpty())

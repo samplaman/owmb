@@ -13,11 +13,15 @@
 namespace openwav
 {
 
-class OpenWavAudioProcessor : public juce::AudioProcessor
+class OpenWavAudioProcessor : public juce::AudioProcessor,
+                               public juce::MidiKeyboardState::Listener
 {
 public:
     OpenWavAudioProcessor();
     ~OpenWavAudioProcessor() override;
+
+    void handleNoteOn(juce::MidiKeyboardState* state, int midiChannel, int midiNoteNumber, float velocity) override;
+    void handleNoteOff(juce::MidiKeyboardState* state, int midiChannel, int midiNoteNumber, float velocity) override;
 
     void prepareToPlay(double sampleRate, int samplesPerBlock) override;
     void releaseResources() override;
@@ -48,24 +52,22 @@ public:
     LibraryScanner& getLibraryScanner() { return libraryScanner; }
     AudioEngine& getAudioEngine() { return audioEngine; }
 
-    PerformanceState& getPerformanceState() { return performanceState; }
-    const PerformanceState& getPerformanceState() const { return performanceState; }
-    void setPerformanceState(const PerformanceState& s) { performanceState = s; }
+    EditComponentState getEditState() const;
+    void setEditState(const EditComponentState& s);
 
-    EditComponentState& getEditState() { return editState; }
-    const EditComponentState& getEditState() const { return editState; }
-    void setEditState(const EditComponentState& s) { editState = s; }
+    SampleMapState getSampleMapState() const;
+    void setSampleMapState(const SampleMapState& s);
 
-    SampleMapState& getSampleMapState() { return sampleMapState; }
-    const SampleMapState& getSampleMapState() const { return sampleMapState; }
-    void setSampleMapState(const SampleMapState& s) { sampleMapState = s; }
+    PluginFullState getFullPluginState() const;
+    void setFullPluginState(const PluginFullState& s);
 
 private:
     TagDatabaseManager dbManager;
     LibraryScanner libraryScanner { dbManager };
     AudioEngine audioEngine;
 
-    PerformanceState performanceState;
+    mutable juce::CriticalSection stateLock;
+    PluginFullState fullPluginState;
     EditComponentState editState;
     SampleMapState sampleMapState;
 

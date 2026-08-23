@@ -1,5 +1,6 @@
 #include "WaveformTransportComponent.h"
 #include "OpenWavLookAndFeel.h"
+#include "SliceConfigComponent.h"
 #if JUCE_WINDOWS
  #ifndef NOMINMAX
   #define NOMINMAX
@@ -51,12 +52,7 @@ void SlicesGridComponent::paint(juce::Graphics& g)
 
     int numSlices = static_cast<int>(sliceRatios.size());
     if (numSlices == 0)
-    {
-        g.setFont(juce::Font(13.0f));
-        g.setColour(OpenWavLookAndFeel::textSecondary);
-        g.drawText("No slices. Click the 'Slice' button to automatically chop this sample.", getLocalBounds(), juce::Justification::centred, true);
         return;
-    }
 
     juce::AudioBuffer<float> buffer;
     double sampleRate = 44100.0;
@@ -433,6 +429,7 @@ WaveformTransportComponent::WaveformTransportComponent(AudioEngine& engine)
       slicesGrid(engine, [this](int idx) { exportAndDragSlice(idx); })
 {
     slicesGrid.onSliceSelected = [this](int idx, double startR, double endR) {
+        setActiveSliceIndex(idx);
         audioEngine.setSampleRange(startR, endR);
         audioEngine.setPositionRatio(startR);
         if (!audioEngine.isPlaying())
@@ -474,7 +471,7 @@ WaveformTransportComponent::WaveformTransportComponent(AudioEngine& engine)
     addAndMakeVisible(autoPlayButton);
 
     // AutoSlice Button
-    autoSliceButton.onClick = [this] { runAutoSlice(); };
+    autoSliceButton.onClick = [this] { openSliceConfigWindow(); };
     addAndMakeVisible(autoSliceButton);
 
     // Normalize Button
@@ -555,9 +552,12 @@ void WaveformTransportComponent::paint(juce::Graphics& g)
     area.removeFromTop(32); // Space for top buttons and sample name
     area.removeFromTop(8);  // Spacing gap
 
-    // Reserve 92px for Slices section at bottom
-    auto slicesBounds = area.removeFromBottom(92);
-    area.removeFromBottom(8); // Gap between waveform and slices section
+    // Only reserve space for Slices section when slices exist
+    if (!sliceRatios.empty())
+    {
+        area.removeFromBottom(92);
+        area.removeFromBottom(8); // Gap between waveform and slices section
+    }
 
     auto trackBounds = area.toFloat();
 
@@ -565,10 +565,15 @@ void WaveformTransportComponent::paint(juce::Graphics& g)
     g.setColour(OpenWavLookAndFeel::bgDark);
     g.fillRoundedRectangle(trackBounds, 6.0f);
     g.setColour(OpenWavLookAndFeel::borderColour);
-    g.drawRoundedRectangle(trackBounds, 6.0f, 1.0f);
+    double dur = totalDurationSecs;
+    if (dur <= 0.0)
+        dur = audioEngine.getTotalLengthSeconds();
+    if (dur <= 0.0 && audioEngine.getThumbnail().getTotalLength() > 0.0)
+        dur = audioEngine.getThumbnail().getTotalLength();
 
-    if (totalDurationSecs > 0.0)
+    if (dur > 0.0)
     {
+        totalDurationSecs = dur;
         auto waveformRect = trackBounds.reduced(8.0f, 8.0f);
         float totalWidth = waveformRect.getWidth();
 
@@ -577,12 +582,6 @@ void WaveformTransportComponent::paint(juce::Graphics& g)
 
         float progressRatio = juce::jlimit(0.0f, 1.0f, static_cast<float>(currentPositionSecs / totalDurationSecs));
         float playheadX = waveformRect.getX() + totalWidth * progressRatio;
-
-        double startRatio = audioEngine.getSampleStartRatio();
-        double endRatio = audioEngine.getSampleEndRatio();
-
-        float selStartX = waveformRect.getX() + totalWidth * startRatio;
-        float selEndX = waveformRect.getX() + totalWidth * endRatio;
 
         auto& thumbnail = audioEngine.getThumbnail();
         int numChannels = audioEngine.getNumChannels();
@@ -657,56 +656,17 @@ void WaveformTransportComponent::paint(juce::Graphics& g)
             float lTopY = std::max(waveformRect.getY(), centerY - lHeight);
             float rBottomY = std::min(waveformRect.getBottom(), centerY + rHeight);
 
-            bool inSelection = (pixelX >= selStartX && pixelX <= selEndX);
             bool isPlayed = (pixelX <= playheadX);
 
-            if (inSelection)
-            {
-                if (isPlayed)
-                    g.setColour(OpenWavLookAndFeel::accentCyan);
-                else
-                    g.setColour(OpenWavLookAndFeel::textPrimary.withAlpha(0.85f));
-            }
+            if (isPlayed)
+                g.setColour(OpenWavLookAndFeel::accentCyan);
             else
-            {
-                g.setColour(OpenWavLookAndFeel::textSecondary.withAlpha(0.22f));
-            }
+                g.setColour(OpenWavLookAndFeel::textPrimary.withAlpha(0.85f));
 
             if (lHeight > 0.0f)
                 g.fillRect(juce::Rectangle<float>(pixelX, lTopY, 1.0f, std::max(1.0f, centerY - lTopY)));
             if (rHeight > 0.0f)
                 g.fillRect(juce::Rectangle<float>(pixelX, centerY, 1.0f, std::max(1.0f, rBottomY - centerY)));
-        }
-
-        // Draw darker overlay for the non-selected sections
-        g.setColour(juce::Colours::black.withAlpha(0.40f));
-        if (selStartX > waveformRect.getX())
-        {
-            g.fillRect(waveformRect.getX(), waveformRect.getY(), selStartX - waveformRect.getX(), waveformRect.getHeight());
-        }
-        if (selEndX < waveformRect.getRight())
-        {
-            g.fillRect(selEndX, waveformRect.getY(), waveformRect.getRight() - selEndX, waveformRect.getHeight());
-        }
-
-        // Draw Selection Range Boundary Handles & Lines
-        g.setColour(OpenWavLookAndFeel::accentCyan);
-
-        // Start handle line & top badge
-        g.drawVerticalLine(static_cast<int>(selStartX), waveformRect.getY(), waveformRect.getBottom());
-        g.fillRoundedRectangle(selStartX - 4.0f, waveformRect.getY() - 2.0f, 8.0f, 8.0f, 2.0f);
-
-        // End handle line & top badge
-        g.drawVerticalLine(static_cast<int>(selEndX), waveformRect.getY(), waveformRect.getBottom());
-        g.fillRoundedRectangle(selEndX - 4.0f, waveformRect.getY() - 2.0f, 8.0f, 8.0f, 2.0f);
-
-        // Draw slice divider lines on main waveform
-        for (size_t i = 1; i < sliceRatios.size(); ++i)
-        {
-            float sliceStartX = waveformRect.getX() + totalWidth * sliceRatios[i];
-            g.setColour(OpenWavLookAndFeel::borderColour.withAlpha(0.7f));
-            float dashLengths[] = { 4.0f, 4.0f };
-            g.drawDashedLine(juce::Line<float>(sliceStartX, waveformRect.getY(), sliceStartX, waveformRect.getBottom()), dashLengths, 2, 1.0f);
         }
 
         // Draw Playhead Line & Glowing Playhead Knob
@@ -764,11 +724,18 @@ void WaveformTransportComponent::resized()
     sampleNameLabel.setBounds(topRow.withHeight(28));
 
     area.removeFromTop(8); // Spacing gap
-    auto slicesBounds = area.removeFromBottom(92);
-    slicesViewport.setBounds(slicesBounds);
 
-    int vpHeight = slicesBounds.getHeight() - slicesViewport.getScrollBarThickness();
-    slicesGrid.updateSlices(sliceRatios, totalDurationSecs, slicesViewport.getWidth(), vpHeight);
+    bool hasSlices = !sliceRatios.empty();
+    slicesViewport.setVisible(hasSlices);
+
+    if (hasSlices)
+    {
+        auto slicesBounds = area.removeFromBottom(92);
+        slicesViewport.setBounds(slicesBounds);
+
+        int vpHeight = slicesBounds.getHeight() - slicesViewport.getScrollBarThickness();
+        slicesGrid.updateSlices(sliceRatios, totalDurationSecs, slicesViewport.getWidth(), vpHeight);
+    }
 }
 
 void WaveformTransportComponent::mouseDown(const juce::MouseEvent& e)
@@ -779,6 +746,11 @@ void WaveformTransportComponent::mouseDown(const juce::MouseEvent& e)
     auto area = getLocalBounds().reduced(12, 8);
     area.removeFromTop(32);
     area.removeFromTop(8);
+    if (!sliceRatios.empty())
+    {
+        area.removeFromBottom(92);
+        area.removeFromBottom(8);
+    }
     auto waveformBounds = area.toFloat();
 
     if (!waveformBounds.contains(e.position.x, e.position.y))
@@ -787,30 +759,7 @@ void WaveformTransportComponent::mouseDown(const juce::MouseEvent& e)
     float mouseXRatio = (e.position.x - waveformBounds.getX()) / waveformBounds.getWidth();
     double currentRatio = juce::jlimit(0.0, 1.0, static_cast<double>(mouseXRatio));
 
-    double startRatio = audioEngine.getSampleStartRatio();
-    double endRatio = audioEngine.getSampleEndRatio();
-
-    float startX = waveformBounds.getX() + waveformBounds.getWidth() * startRatio;
-    float endX = waveformBounds.getX() + waveformBounds.getWidth() * endRatio;
-
-    const float clickThreshold = 12.0f; // 12 pixel click zone for handles
-
-    if (std::abs(e.position.x - startX) <= clickThreshold)
-    {
-        dragMode = DragMode::DraggingStart;
-    }
-    else if (std::abs(e.position.x - endX) <= clickThreshold)
-    {
-        dragMode = DragMode::DraggingEnd;
-    }
-    else
-    {
-        dragMode = DragMode::SelectingRange;
-        dragStartRatio = currentRatio;
-        audioEngine.setSampleRange(currentRatio, currentRatio);
-    }
-    slicesGrid.setSelectedSliceIndex(-1);
-    slicesGrid.repaint();
+    audioEngine.setPositionRatio(currentRatio);
     repaint();
 }
 
@@ -819,64 +768,25 @@ void WaveformTransportComponent::mouseDrag(const juce::MouseEvent& e)
     if (totalDurationSecs <= 0.0)
         return;
 
-    if (dragMode == DragMode::None)
-        return;
-
     auto area = getLocalBounds().reduced(12, 8);
     area.removeFromTop(32);
     area.removeFromTop(8);
+    if (!sliceRatios.empty())
+    {
+        area.removeFromBottom(92);
+        area.removeFromBottom(8);
+    }
     auto waveformBounds = area.toFloat();
 
     float mouseXRatio = (e.position.x - waveformBounds.getX()) / waveformBounds.getWidth();
     double currentRatio = juce::jlimit(0.0, 1.0, static_cast<double>(mouseXRatio));
 
-    double startRatio = audioEngine.getSampleStartRatio();
-    double endRatio = audioEngine.getSampleEndRatio();
-
-    if (dragMode == DragMode::DraggingStart)
-    {
-        audioEngine.setSampleRange(currentRatio, endRatio);
-    }
-    else if (dragMode == DragMode::DraggingEnd)
-    {
-        audioEngine.setSampleRange(startRatio, currentRatio);
-    }
-    else if (dragMode == DragMode::SelectingRange)
-    {
-        double newStart = std::min(dragStartRatio, currentRatio);
-        double newEnd = std::max(dragStartRatio, currentRatio);
-        audioEngine.setSampleRange(newStart, newEnd);
-    }
-    slicesGrid.setSelectedSliceIndex(-1);
-    slicesGrid.repaint();
+    audioEngine.setPositionRatio(currentRatio);
     repaint();
 }
 
 void WaveformTransportComponent::mouseUp(const juce::MouseEvent& /*e*/)
 {
-    if (dragMode == DragMode::SelectingRange)
-    {
-        double startRatio = audioEngine.getSampleStartRatio();
-        double endRatio = audioEngine.getSampleEndRatio();
-        if (endRatio - startRatio < 0.01)
-        {
-            // Reset selection to full, and seek to click position
-            audioEngine.setSampleRange(0.0, 1.0);
-            audioEngine.setPositionRatio(startRatio);
-        }
-        else
-        {
-            // Snap playhead to the selection start
-            audioEngine.setPositionRatio(startRatio);
-        }
-    }
-    else if (dragMode == DragMode::DraggingStart)
-    {
-        audioEngine.setPositionRatio(audioEngine.getSampleStartRatio());
-    }
-
-    dragMode = DragMode::None;
-    slicesGrid.repaint();
     repaint();
 }
 
@@ -930,33 +840,42 @@ void WaveformTransportComponent::timerCallback()
         }
     }
 
-    if (audioEngine.isPlaying())
-    {
-        currentPositionSecs = audioEngine.getCurrentPositionSeconds();
-        totalDurationSecs = audioEngine.getTotalLengthSeconds();
+    // Always sync position from audioEngine so both transports stay in sync
+    double newPos = audioEngine.getCurrentPositionSeconds();
+    double newDur = audioEngine.getTotalLengthSeconds();
+    bool needsRepaint = audioEngine.isPlaying() || std::abs(newPos - currentPositionSecs) > 0.0001;
 
-        int curMins = static_cast<int>(currentPositionSecs) / 60;
-        int curSecs = static_cast<int>(currentPositionSecs) % 60;
-        int totMins = static_cast<int>(totalDurationSecs) / 60;
-        int totSecs = static_cast<int>(totalDurationSecs) % 60;
+    currentPositionSecs = newPos;
+    totalDurationSecs = newDur;
 
-        juce::String timeStr = juce::String::formatted("%02d:%02d / %02d:%02d", curMins, curSecs, totMins, totSecs);
-        timeLabel.setText(timeStr, juce::dontSendNotification);
+    int curMins = static_cast<int>(currentPositionSecs) / 60;
+    int curSecs = static_cast<int>(currentPositionSecs) % 60;
+    int totMins = static_cast<int>(totalDurationSecs) / 60;
+    int totSecs = static_cast<int>(totalDurationSecs) % 60;
 
+    juce::String timeStr = juce::String::formatted("%02d:%02d / %02d:%02d", curMins, curSecs, totMins, totSecs);
+    timeLabel.setText(timeStr, juce::dontSendNotification);
+
+    if (needsRepaint)
         repaint();
-    }
 }
 
 void WaveformTransportComponent::sampleLoaded(const juce::String& filePath)
 {
     juce::File f(filePath);
-    sampleNameLabel.setText(f.getFileName(), juce::dontSendNotification);
-    totalDurationSecs = audioEngine.getTotalLengthSeconds();
-    currentPositionSecs = 0.0;
+
+    if (f.existsAsFile())
+    {
+        sampleNameLabel.setText(f.getFileName(), juce::dontSendNotification);
+    }
+
+    // Always clear slices on sample change
     sliceRatios.clear();
     slicesGrid.setSelectedSliceIndex(-1);
-    int vpHeight = slicesViewport.getHeight() - slicesViewport.getScrollBarThickness();
-    slicesGrid.updateSlices(sliceRatios, totalDurationSecs, slicesViewport.getWidth(), vpHeight);
+    audioEngine.setSampleRange(0.0, 1.0);
+
+    totalDurationSecs = audioEngine.getTotalLengthSeconds();
+    resized();
     repaint();
 }
 
@@ -968,6 +887,76 @@ void WaveformTransportComponent::sliderValueChanged(juce::Slider* slider)
     }
 }
 
+void WaveformTransportComponent::setSliceRatios(const std::vector<double>& ratios)
+{
+    sliceRatios = ratios;
+    slicesGrid.setSelectedSliceIndex(-1);
+    resized();
+    repaint();
+}
+
+void WaveformTransportComponent::setNormalizeEnabled(bool enabled)
+{
+    normalizeButton.setEnabled(enabled);
+}
+
+void WaveformTransportComponent::setActiveSliceIndex(int sliceIndex)
+{
+    if (sliceIndex < 0)
+    {
+        activeSliceIndex = -1;
+        activeSliceStartRatio = 0.0;
+        activeSliceEndRatio = 1.0;
+    }
+    else
+    {
+        activeSliceIndex = sliceIndex;
+        if (!sliceRatios.empty() && sliceIndex < static_cast<int>(sliceRatios.size()))
+        {
+            activeSliceStartRatio = sliceRatios[sliceIndex];
+            activeSliceEndRatio = (sliceIndex + 1 < static_cast<int>(sliceRatios.size())) ? sliceRatios[sliceIndex + 1] : 1.0;
+        }
+        else
+        {
+            activeSliceStartRatio = 0.0;
+            activeSliceEndRatio = 1.0;
+        }
+    }
+    slicesGrid.setSelectedSliceIndex(activeSliceIndex);
+    repaint();
+}
+
+void WaveformTransportComponent::setActiveSliceRange(double startRatio, double endRatio, int sliceIndex)
+{
+    activeSliceIndex = sliceIndex;
+    activeSliceStartRatio = juce::jlimit(0.0, 1.0, startRatio);
+    activeSliceEndRatio = juce::jlimit(activeSliceStartRatio, 1.0, endRatio);
+    slicesGrid.setSelectedSliceIndex(activeSliceIndex);
+    repaint();
+}
+
+void WaveformTransportComponent::openSliceConfigWindow()
+{
+    auto sliceComp = std::make_unique<SliceConfigComponent>(audioEngine, [this](const std::vector<double>& ratios) {
+        setSliceRatios(ratios);
+        if (onSlicesGenerated)
+        {
+            onSlicesGenerated(ratios);
+        }
+    });
+
+    juce::DialogWindow::LaunchOptions opts;
+    opts.dialogTitle = "Auto-Slice Configuration";
+    opts.dialogBackgroundColour = OpenWavLookAndFeel::bgDark;
+    opts.content.setOwned(sliceComp.release());
+    opts.content->setSize(620, 380);
+    opts.escapeKeyTriggersCloseButton = true;
+    opts.useNativeTitleBar = true;
+    opts.resizable = false;
+
+    opts.launchAsync();
+}
+
 void WaveformTransportComponent::runAutoSlice()
 {
     juce::AudioBuffer<float> buffer;
@@ -975,63 +964,109 @@ void WaveformTransportComponent::runAutoSlice()
     if (!audioEngine.getAudioBufferCopy(buffer, sampleRate))
         return;
 
-    sliceRatios.clear();
-    sliceRatios.push_back(0.0); // Always start at 0.0
-
     int numChannels = buffer.getNumChannels();
     int numSamples = buffer.getNumSamples();
     if (numSamples <= 0 || numChannels <= 0)
     {
+        sliceRatios.clear();
+        sliceRatios.push_back(0.0);
         int vpHeight = slicesViewport.getHeight() - slicesViewport.getScrollBarThickness();
         slicesGrid.updateSlices(sliceRatios, totalDurationSecs, slicesViewport.getWidth(), vpHeight);
         repaint();
         return;
     }
 
-    // 512 sample blocks (~11.6ms)
-    int blockSize = 512;
+    int blockSize = 256;
     int numBlocks = numSamples / blockSize;
 
-    std::vector<float> energy(numBlocks, 0.0f);
-    for (int b = 0; b < numBlocks; ++b)
+    sliceRatios.clear();
+    sliceRatios.push_back(0.0);
+
+    if (numBlocks > 4)
     {
-        float sum = 0.0f;
-        for (int ch = 0; ch < numChannels; ++ch)
+        std::vector<float> energy(numBlocks, 0.0f);
+        for (int b = 0; b < numBlocks; ++b)
         {
-            for (int s = 0; s < blockSize; ++s)
+            float sum = 0.0f;
+            for (int ch = 0; ch < numChannels; ++ch)
             {
-                float val = buffer.getSample(ch, b * blockSize + s);
-                sum += val * val;
+                for (int s = 0; s < blockSize; ++s)
+                {
+                    int idx = b * blockSize + s;
+                    if (idx < numSamples)
+                    {
+                        float val = buffer.getSample(ch, idx);
+                        sum += val * val;
+                    }
+                }
+            }
+            energy[b] = std::sqrt(sum / static_cast<float>(blockSize * numChannels));
+        }
+
+        std::vector<float> onset(numBlocks, 0.0f);
+        float sumOnset = 0.0f;
+        for (int b = 1; b < numBlocks; ++b)
+        {
+            float diff = energy[b] - energy[b - 1];
+            if (diff > 0.0f)
+            {
+                onset[b] = diff;
+                sumOnset += diff;
             }
         }
-        energy[b] = std::sqrt(sum / (blockSize * numChannels));
-    }
 
-    // Onset detection using a moving threshold
-    int windowSize = 15;
-    float multiplier = 1.6f;
-    int minDistanceBlocks = static_cast<int>(0.08 * sampleRate / blockSize);
-    int lastOnsetBlock = -minDistanceBlocks;
-
-    for (int i = windowSize; i < numBlocks - 1; ++i)
-    {
-        float sum = 0.0f;
-        for (int w = i - windowSize; w < i; ++w)
-            sum += energy[w];
-        float avg = sum / windowSize;
-
-        if (energy[i] > avg * multiplier && energy[i] > energy[i - 1] && energy[i] > energy[i + 1])
+        float meanOnset = sumOnset / static_cast<float>(numBlocks);
+        float sqDiffSum = 0.0f;
+        for (int b = 1; b < numBlocks; ++b)
         {
-            if (i - lastOnsetBlock >= minDistanceBlocks)
+            float diff = onset[b] - meanOnset;
+            sqDiffSum += diff * diff;
+        }
+        float stdOnset = std::sqrt(sqDiffSum / static_cast<float>(numBlocks));
+
+        float threshold = std::max(0.005f, meanOnset + 0.35f * stdOnset);
+        int minDistanceBlocks = static_cast<int>(0.05 * sampleRate / static_cast<double>(blockSize));
+        if (minDistanceBlocks < 1) minDistanceBlocks = 1;
+        int lastOnsetBlock = -minDistanceBlocks;
+
+        struct OnsetCandidate
+        {
+            int blockIdx { 0 };
+            float strength { 0.0f };
+        };
+        std::vector<OnsetCandidate> candidates;
+
+        for (int b = 1; b < numBlocks - 1; ++b)
+        {
+            if (onset[b] > threshold && onset[b] >= onset[b - 1] && onset[b] >= onset[b + 1])
             {
-                double ratio = static_cast<double>(i * blockSize) / static_cast<double>(numSamples);
-                sliceRatios.push_back(ratio);
-                lastOnsetBlock = i;
+                if (b - lastOnsetBlock >= minDistanceBlocks)
+                {
+                    candidates.push_back({ b, onset[b] });
+                    lastOnsetBlock = b;
+                }
             }
+        }
+
+        const size_t maxOnsets = 39; // 39 onsets + 0.0 start = max 40 slices
+        if (candidates.size() > maxOnsets)
+        {
+            std::sort(candidates.begin(), candidates.end(), [](const OnsetCandidate& a, const OnsetCandidate& b) {
+                return a.strength > b.strength;
+            });
+            candidates.resize(maxOnsets);
+            std::sort(candidates.begin(), candidates.end(), [](const OnsetCandidate& a, const OnsetCandidate& b) {
+                return a.blockIdx < b.blockIdx;
+            });
+        }
+
+        for (const auto& c : candidates)
+        {
+            double ratio = static_cast<double>(c.blockIdx * blockSize) / static_cast<double>(numSamples);
+            sliceRatios.push_back(ratio);
         }
     }
 
-    // Fallback if no transients found (equal division to 8 slices)
     if (sliceRatios.size() <= 1)
     {
         sliceRatios.clear();
@@ -1048,6 +1083,9 @@ void WaveformTransportComponent::runAutoSlice()
     int vpHeight = slicesViewport.getHeight() - slicesViewport.getScrollBarThickness();
     slicesGrid.updateSlices(sliceRatios, totalDurationSecs, slicesViewport.getWidth(), vpHeight);
     repaint();
+
+    if (onSlicesGenerated)
+        onSlicesGenerated(sliceRatios);
 }
 
 void WaveformTransportComponent::exportAndDragSlice(int sliceIndex)
