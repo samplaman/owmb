@@ -89,6 +89,7 @@ public:
     void saveSampleMapToFile();
     void loadSampleMapFromFile();
     bool loadSampleMapFile(const juce::File& file);
+    void exportSampleMapToZip();
 
     SampleMapState getState() const;
     void setState(const SampleMapState& state);
@@ -128,6 +129,7 @@ private:
     juce::TextButton clearMapButton { "Clear Map" };
     juce::TextButton saveMapButton { "Save Map" };
     juce::TextButton loadMapButton { "Load Map" };
+    juce::TextButton exportZipButton { "Export ZIP" };
     juce::TextButton roundRobinButton { "RR: Cycle" };
     juce::TextButton pitchTrackButton { "Pitch Track: ON" };
     juce::TextButton oneShotButton { "One Shot: OFF" };

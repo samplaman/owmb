@@ -181,19 +181,38 @@ struct SampleMapZoneState
     {
         SampleMapZoneState z;
         z.filePath = xml.getStringAttribute("filePath");
-        if (baseDir.exists() && !juce::File(z.filePath).existsAsFile())
+        juce::String relPath = xml.getStringAttribute("relativePath");
+        juce::String sampleName = xml.getStringAttribute("sampleName");
+
+        if (baseDir.exists())
         {
-            auto relFile = baseDir.getChildFile(xml.getStringAttribute("relativePath", z.filePath));
-            if (relFile.existsAsFile())
-                z.filePath = relFile.getFullPathName();
-            else
+            if (relPath.isNotEmpty() && baseDir.getChildFile(relPath).existsAsFile())
             {
-                auto directRel = baseDir.getChildFile(juce::File(z.filePath).getFileName());
-                if (directRel.existsAsFile())
-                    z.filePath = directRel.getFullPathName();
+                z.filePath = baseDir.getChildFile(relPath).getFullPathName();
+            }
+            else if (z.filePath.isNotEmpty() && baseDir.getChildFile(z.filePath).existsAsFile())
+            {
+                z.filePath = baseDir.getChildFile(z.filePath).getFullPathName();
+            }
+            else if (z.filePath.isNotEmpty() && baseDir.getChildFile("Samples").getChildFile(juce::File(z.filePath).getFileName()).existsAsFile())
+            {
+                z.filePath = baseDir.getChildFile("Samples").getChildFile(juce::File(z.filePath).getFileName()).getFullPathName();
+            }
+            else if (z.filePath.isNotEmpty() && baseDir.getChildFile(juce::File(z.filePath).getFileName()).existsAsFile())
+            {
+                z.filePath = baseDir.getChildFile(juce::File(z.filePath).getFileName()).getFullPathName();
+            }
+            else if (sampleName.isNotEmpty() && baseDir.getChildFile("Samples").getChildFile(sampleName).existsAsFile())
+            {
+                z.filePath = baseDir.getChildFile("Samples").getChildFile(sampleName).getFullPathName();
+            }
+            else if (sampleName.isNotEmpty() && baseDir.getChildFile(sampleName).existsAsFile())
+            {
+                z.filePath = baseDir.getChildFile(sampleName).getFullPathName();
             }
         }
-        z.sampleName = xml.getStringAttribute("sampleName", juce::File(z.filePath).getFileName());
+
+        z.sampleName = sampleName.isNotEmpty() ? sampleName : juce::File(z.filePath).getFileName();
         z.rootNote = xml.getIntAttribute("rootNote", 60);
         z.keyLow = xml.getIntAttribute("keyLow", 48);
         z.keyHigh = xml.getIntAttribute("keyHigh", 72);

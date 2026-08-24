@@ -39,6 +39,10 @@ SampleMapComponent::SampleMapComponent(AudioEngine& engine)
     addAndMakeVisible(loadMapButton);
     loadMapButton.addListener(this);
 
+    addAndMakeVisible(exportZipButton);
+    exportZipButton.addListener(this);
+    exportZipButton.setTooltip("Export complete sample map and audio samples as a .zip bundle");
+
     roundRobinButton.setClickingTogglesState(false);
     roundRobinButton.setButtonText(roundRobinMode == 0 ? "RR: Cycle" : (roundRobinMode == 1 ? "RR: Random" : "RR: OFF"));
     roundRobinButton.onClick = [this] {
@@ -289,7 +293,8 @@ bool SampleMapComponent::isInterestedInFileDrag(const juce::StringArray& files)
             file.hasFileExtension("flac") || file.hasFileExtension("aiff") ||
             file.hasFileExtension("aif") || file.hasFileExtension("aifc") ||
             file.hasFileExtension("ogg") || file.hasFileExtension("xml") ||
-            file.hasFileExtension("samplemap") || file.hasFileExtension("owmap"))
+            file.hasFileExtension("samplemap") || file.hasFileExtension("owmap") ||
+            file.hasFileExtension("zip"))
             return true;
     }
     return false;
@@ -302,7 +307,7 @@ void SampleMapComponent::filesDropped(const juce::StringArray& files, int /*x*/,
         juce::File file(f);
         if (file.existsAsFile())
         {
-            if (file.hasFileExtension("xml") || file.hasFileExtension("samplemap") || file.hasFileExtension("owmap"))
+            if (file.hasFileExtension("xml") || file.hasFileExtension("samplemap") || file.hasFileExtension("owmap") || file.hasFileExtension("zip"))
             {
                 if (loadSampleMapFile(file))
                     return;
@@ -325,7 +330,7 @@ void SampleMapComponent::itemDropped(const juce::DragAndDropTarget::SourceDetail
         juce::File file(description);
         if (file.existsAsFile())
         {
-            if (file.hasFileExtension("xml") || file.hasFileExtension("samplemap") || file.hasFileExtension("owmap"))
+            if (file.hasFileExtension("xml") || file.hasFileExtension("samplemap") || file.hasFileExtension("owmap") || file.hasFileExtension("zip"))
             {
                 if (loadSampleMapFile(file))
                     return;
@@ -911,7 +916,7 @@ void SampleMapComponent::loadSampleMapFromFile()
     auto chooser = std::make_shared<juce::FileChooser>(
         "Load Sample Map",
         juce::File::getSpecialLocation(juce::File::userDocumentsDirectory),
-        "*.xml;*.samplemap;*.owmap");
+        "*.xml;*.samplemap;*.owmap;*.zip");
 
     chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
                          [this, chooser](const juce::FileChooser& fc) {
@@ -928,6 +933,42 @@ bool SampleMapComponent::loadSampleMapFile(const juce::File& file)
     if (!file.existsAsFile())
         return false;
 
+    if (file.hasFileExtension("zip"))
+    {
+        juce::File importBaseDir = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+                                        .getChildFile("OpenWav")
+                                        .getChildFile("ImportedMaps")
+                                        .getChildFile(file.getFileNameWithoutExtension());
+        importBaseDir.createDirectory();
+
+        juce::ZipFile zip(file);
+        if (zip.getNumEntries() == 0)
+            return false;
+
+        for (int i = 0; i < zip.getNumEntries(); ++i)
+        {
+            zip.uncompressEntry(i, importBaseDir, true);
+        }
+
+        juce::Array<juce::File> xmlFiles;
+        importBaseDir.findChildFiles(xmlFiles, juce::File::findFiles, true, "*.xml;*.samplemap;*.owmap");
+        if (xmlFiles.isEmpty())
+            return false;
+
+        juce::File chosenXml = xmlFiles.getFirst();
+        for (const auto& xf : xmlFiles)
+        {
+            if (xf.getFileName().equalsIgnoreCase("SampleMap.xml") ||
+                xf.getFileNameWithoutExtension().equalsIgnoreCase(file.getFileNameWithoutExtension()))
+            {
+                chosenXml = xf;
+                break;
+            }
+        }
+
+        return loadSampleMapFile(chosenXml);
+    }
+
     auto newState = SampleMapState::loadFromFile(file);
     if (newState.zones.empty() && !file.loadFileAsString().containsIgnoreCase("<SampleMap"))
         return false;
@@ -936,6 +977,205 @@ bool SampleMapComponent::loadSampleMapFile(const juce::File& file)
     if (onStateChanged)
         onStateChanged();
     return true;
+}
+
+void SampleMapComponent::exportSampleMapToZip()
+{
+    if (zones.empty())
+    {
+        juce::AlertWindow::showMessageBoxAsync(
+            juce::AlertWindow::WarningIcon,
+            "Export Sample Map",
+            "There are no sample zones mapped to export. Please map or slice some samples first.");
+        return;
+    }
+
+    juce::String defaultBundleName = "MySampleMapBundle.zip";
+    if (!zones.empty() && zones[0].sampleName.isNotEmpty())
+    {
+        auto base = juce::File::createLegalFileName(juce::File(zones[0].sampleName).getFileNameWithoutExtension());
+        if (base.isNotEmpty())
+            defaultBundleName = base + "_Bundle.zip";
+    }
+
+    auto chooser = std::make_shared<juce::FileChooser>(
+        "Export Sample Map Bundle (.zip)",
+        juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile(defaultBundleName),
+        "*.zip");
+
+    chooser->launchAsync(juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles | juce::FileBrowserComponent::warnAboutOverwriting,
+                         [this, chooser](const juce::FileChooser& fc) {
+        auto targetZip = fc.getResult();
+        if (targetZip == juce::File())
+            return;
+
+        if (!targetZip.hasFileExtension("zip"))
+            targetZip = targetZip.withFileExtension("zip");
+
+        auto capturedZones = this->zones;
+        auto capturedState = getState();
+        AudioEngine* enginePtr = &this->audioEngine;
+        juce::Component::SafePointer<SampleMapComponent> safeThis(this);
+
+        juce::Thread::launch([safeThis, enginePtr, targetZip, capturedZones, capturedState]() mutable {
+            juce::File tempDir = juce::File::getSpecialLocation(juce::File::tempDirectory)
+                                     .getChildFile("OWMB_ZipExport_" + juce::String(juce::Time::currentTimeMillis()));
+            tempDir.createDirectory();
+            juce::File samplesDir = tempDir.getChildFile("Samples");
+            samplesDir.createDirectory();
+
+            SampleMapState exportState = capturedState;
+            exportState.zones.clear();
+
+            std::set<juce::String> usedNames;
+
+            for (size_t i = 0; i < capturedZones.size(); ++i)
+            {
+                const auto& z = capturedZones[i];
+
+                juce::String rawName = juce::File(z.filePath).getFileName();
+                if (rawName.isEmpty())
+                    rawName = z.sampleName;
+                if (rawName.isEmpty())
+                    rawName = "Zone_" + juce::String(i + 1);
+
+                if (!rawName.endsWithIgnoreCase(".wav"))
+                {
+                    rawName = juce::File(rawName).getFileNameWithoutExtension() + ".wav";
+                }
+                rawName = juce::File::createLegalFileName(rawName);
+
+                juce::String uniqueName = rawName;
+                int dup = 1;
+                while (usedNames.count(uniqueName.toLowerCase()) > 0)
+                {
+                    uniqueName = juce::File(rawName).getFileNameWithoutExtension() + "_" + juce::String(++dup) + ".wav";
+                }
+                usedNames.insert(uniqueName.toLowerCase());
+
+                juce::File targetWav = samplesDir.getChildFile(uniqueName);
+
+                // Retrieve audio data (from engine cache, disk file, or loaded master buffer)
+                juce::AudioBuffer<float> zoneBuffer;
+                double sampleRate = 44100.0;
+                bool gotBuffer = enginePtr->getCachedSampleCopy(z.filePath, zoneBuffer, sampleRate);
+
+                if (!gotBuffer)
+                {
+                    juce::File srcFile(z.filePath);
+                    if (srcFile.existsAsFile())
+                    {
+                        std::unique_ptr<juce::AudioFormatReader> reader(enginePtr->getFormatManager().createReaderFor(srcFile));
+                        if (reader != nullptr && reader->lengthInSamples > 0 && reader->numChannels > 0)
+                        {
+                            sampleRate = (reader->sampleRate > 0.0) ? reader->sampleRate : 44100.0;
+                            zoneBuffer.setSize(static_cast<int>(reader->numChannels), static_cast<int>(reader->lengthInSamples));
+                            reader->read(&zoneBuffer, 0, static_cast<int>(reader->lengthInSamples), 0, true, true);
+                            gotBuffer = true;
+                        }
+                    }
+                }
+
+                if (!gotBuffer && enginePtr->getCurrentFile().getFullPathName() == z.filePath)
+                {
+                    gotBuffer = enginePtr->getAudioBufferCopy(zoneBuffer, sampleRate);
+                }
+
+                if (gotBuffer && zoneBuffer.getNumSamples() > 0)
+                {
+                    targetWav.deleteFile();
+                    auto* outStream = targetWav.createOutputStream().release();
+                    if (outStream != nullptr)
+                    {
+                        juce::WavAudioFormat wavFormat;
+                        std::unique_ptr<juce::AudioFormatWriter> writer(wavFormat.createWriterFor(outStream, sampleRate, zoneBuffer.getNumChannels(), 24, {}, 0));
+                        if (writer != nullptr)
+                        {
+                            writer->writeFromAudioSampleBuffer(zoneBuffer, 0, zoneBuffer.getNumSamples());
+                        }
+                    }
+                }
+                else if (juce::File(z.filePath).existsAsFile())
+                {
+                    juce::File(z.filePath).copyFileTo(targetWav);
+                }
+
+                SampleMapZoneState zoneState;
+                zoneState.filePath = "Samples/" + uniqueName;
+                zoneState.sampleName = uniqueName;
+                zoneState.rootNote = z.rootNote;
+                zoneState.keyLow = z.keyLow;
+                zoneState.keyHigh = z.keyHigh;
+                zoneState.velLow = z.velLow;
+                zoneState.velHigh = z.velHigh;
+                zoneState.roundRobinIndex = z.roundRobinIndex;
+                zoneState.fineTuneCents = z.fineTuneCents;
+                zoneState.gainDb = z.gainDb;
+                zoneState.attackMs = z.attackMs;
+                zoneState.decayMs = z.decayMs;
+                zoneState.sustainLevel = z.sustainLevel;
+                zoneState.releaseMs = z.releaseMs;
+                exportState.zones.push_back(zoneState);
+            }
+
+            juce::File xmlFile = tempDir.getChildFile("SampleMap.xml");
+            exportState.saveToFile(xmlFile);
+
+            // Also create a named xml corresponding to the zip name
+            juce::String bundleBase = targetZip.getFileNameWithoutExtension();
+            if (bundleBase != "SampleMap")
+            {
+                juce::File namedXml = tempDir.getChildFile(bundleBase + ".xml");
+                exportState.saveToFile(namedXml);
+            }
+
+            // Build the zip archive
+            juce::ZipFile::Builder zipBuilder;
+            zipBuilder.addFile(xmlFile, 9, "SampleMap.xml");
+            if (bundleBase != "SampleMap")
+            {
+                juce::File namedXml = tempDir.getChildFile(bundleBase + ".xml");
+                if (namedXml.existsAsFile())
+                    zipBuilder.addFile(namedXml, 9, bundleBase + ".xml");
+            }
+
+            juce::Array<juce::File> sampleFiles;
+            samplesDir.findChildFiles(sampleFiles, juce::File::findFiles, false);
+            for (const auto& sf : sampleFiles)
+            {
+                zipBuilder.addFile(sf, 9, "Samples/" + sf.getFileName());
+            }
+
+            targetZip.deleteFile();
+            bool success = false;
+            auto* zipOut = targetZip.createOutputStream().release();
+            if (zipOut != nullptr)
+            {
+                success = zipBuilder.writeToStream(*zipOut, nullptr);
+                delete zipOut;
+            }
+
+            tempDir.deleteRecursively();
+
+            int numExported = static_cast<int>(capturedZones.size());
+            juce::MessageManager::callAsync([safeThis, success, targetZip, numExported] {
+                if (success && targetZip.existsAsFile())
+                {
+                    juce::AlertWindow::showMessageBoxAsync(
+                        juce::AlertWindow::InfoIcon,
+                        "Export Successful",
+                        "Successfully exported " + juce::String(numExported) + " sample zone(s) and map definition to:\n" + targetZip.getFullPathName());
+                }
+                else
+                {
+                    juce::AlertWindow::showMessageBoxAsync(
+                        juce::AlertWindow::WarningIcon,
+                        "Export Failed",
+                        "Failed to write zip archive to:\n" + targetZip.getFullPathName());
+                }
+            });
+        });
+    });
 }
 
 // ─────────────────────────────────────────────────────────
@@ -1491,6 +1731,8 @@ void SampleMapComponent::resized()
     topRow.removeFromLeft(gap);
     loadMapButton.setBounds(topRow.removeFromLeft(68));
     topRow.removeFromLeft(gap);
+    exportZipButton.setBounds(topRow.removeFromLeft(80));
+    topRow.removeFromLeft(gap);
     roundRobinButton.setBounds(topRow.removeFromLeft(82));
     topRow.removeFromLeft(gap);
     pitchTrackButton.setBounds(topRow.removeFromLeft(92));
@@ -1666,6 +1908,7 @@ void SampleMapComponent::buttonClicked(juce::Button* button)
     else if (button == &clearMapButton) clearAllZones();
     else if (button == &saveMapButton) saveSampleMapToFile();
     else if (button == &loadMapButton) loadSampleMapFromFile();
+    else if (button == &exportZipButton) exportSampleMapToZip();
 }
 
 bool SampleMapComponent::keyPressed(const juce::KeyPress& key)
@@ -1794,6 +2037,21 @@ void SampleMapComponent::setState(const SampleMapState& state)
 
     if (!zones.empty())
     {
+        std::vector<juce::File> filesToPreload;
+        for (const auto& z : zones)
+        {
+            if (z.filePath.isNotEmpty())
+            {
+                juce::File f(z.filePath);
+                if (f.existsAsFile())
+                    filesToPreload.push_back(f);
+            }
+        }
+        if (!filesToPreload.empty())
+        {
+            audioEngine.preloadSampleFiles(filesToPreload);
+        }
+
         selectedZoneIndex = 0;
         selectedZoneIndices.insert(0);
         juce::File firstSlice(zones[0].filePath);

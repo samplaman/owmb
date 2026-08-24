@@ -774,12 +774,6 @@ void AudioEngine::preloadSampleFiles(const std::vector<juce::File>& files)
 
             juce::String filePath = file.getFullPathName();
 
-            {
-                const juce::ScopedLock sl(cacheLock);
-                if (sampleCache.find(filePath) != sampleCache.end())
-                    continue;
-            }
-
             std::unique_ptr<juce::AudioFormatReader> reader(formatManager.createReaderFor(file));
             if (reader != nullptr && reader->lengthInSamples > 0 && reader->numChannels > 0)
             {
@@ -807,6 +801,19 @@ void AudioEngine::putSampleInCache(const juce::String& filePath, double sampleRa
     cached->buffer.makeCopyOf(buf);
     cached->rootNote = 60;
     sampleCache[filePath] = cached;
+}
+
+bool AudioEngine::getCachedSampleCopy(const juce::String& filePath, juce::AudioBuffer<float>& destBuffer, double& sampleRate) const
+{
+    const juce::ScopedLock sl(cacheLock);
+    auto it = sampleCache.find(filePath);
+    if (it != sampleCache.end() && it->second != nullptr && it->second->buffer.getNumSamples() > 0)
+    {
+        destBuffer.makeCopyOf(it->second->buffer);
+        sampleRate = it->second->sampleRate;
+        return true;
+    }
+    return false;
 }
 
 void AudioEngine::playZoneVoice(const juce::File& file, int triggerMidiNote, int rootNote, float fineTuneCents, float gainDb, float velocity,
