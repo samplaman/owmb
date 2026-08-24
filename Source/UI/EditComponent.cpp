@@ -2327,9 +2327,24 @@ void EditComponent::timerCallback()
 {
     if (hasAudioToEdit())
     {
+        bool isPlaying = audioEngine.isPlaying();
+        juce::String expectedPlayBtnText = isPlaying ? "Pause" : "Play";
+        if (playPauseButton.getButtonText() != expectedPlayBtnText)
+        {
+            playPauseButton.setButtonText(expectedPlayBtnText);
+            repaint();
+        }
+
+        bool isLooping = audioEngine.isLooping();
+        if (loopToggleButton.getToggleState() != isLooping)
+        {
+            loopToggleButton.setToggleState(isLooping, juce::dontSendNotification);
+            repaint();
+        }
+
         double newPos = audioEngine.getCurrentPositionSeconds();
         double newDur = audioEngine.getTotalLengthSeconds();
-        bool needsRepaint = audioEngine.isPlaying() || std::abs(newPos - currentPositionSecs) > 0.0001;
+        bool needsRepaint = isPlaying || std::abs(newPos - currentPositionSecs) > 0.0001;
 
         currentPositionSecs = newPos;
         totalDurationSecs = newDur;
@@ -2337,6 +2352,12 @@ void EditComponent::timerCallback()
         if (needsRepaint)
             repaint();
     }
+}
+
+void EditComponent::loopingStateChanged(bool enabled)
+{
+    loopToggleButton.setToggleState(enabled, juce::dontSendNotification);
+    repaint();
 }
 
 // ─────────────────────────────────────────────────────────

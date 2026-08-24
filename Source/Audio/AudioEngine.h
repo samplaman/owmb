@@ -129,7 +129,7 @@ struct EngineCommand
     std::shared_ptr<CachedSample> sampleData;
 };
 
-class AudioEngine : public juce::ChangeListener
+class AudioEngine : public juce::ChangeListener, public juce::Timer
 {
 public:
     static constexpr int MaxActiveVoices = 32;
@@ -137,6 +137,8 @@ public:
 
     AudioEngine();
     ~AudioEngine() override;
+
+    void timerCallback() override;
 
     void prepareToPlay(double sampleRate, int samplesPerBlock);
     void releaseResources();
@@ -367,6 +369,7 @@ private:
     std::map<juce::String, std::shared_ptr<CachedSample>> sampleCache;
 
     juce::ListenerList<AudioEngineListener> listeners;
+    bool lastNotifiedPlayingState { false };
 };
 
 } // namespace openwav

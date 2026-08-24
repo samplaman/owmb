@@ -103,7 +103,6 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
   };
 
   sampleMapComponent.onStateChanged = [this] {
-    waveformTransport.setNormalizeEnabled(sampleMapComponent.getZones().empty());
     saveStateToProcessor();
   };
 
@@ -118,7 +117,6 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
 
   // Restore persisted state for Edit, SampleMap, and layout
   restoreStateFromProcessor();
-  waveformTransport.setNormalizeEnabled(sampleMapComponent.getZones().empty());
 
   // Trigger startup scan for newly added/modified audio files in existing scan
   // folders

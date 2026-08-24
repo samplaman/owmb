@@ -42,6 +42,7 @@ public:
     void playbackStateChanged(bool isPlaying) override;
     void playbackPositionChanged(double currentSeconds, double totalSeconds) override {}
     void sampleLoaded(const juce::String& filePath) override;
+    void loopingStateChanged(bool enabled) override;
 
     // Timer
     void timerCallback() override;

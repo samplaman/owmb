@@ -232,6 +232,7 @@ private:
     std::vector<MediaItem> allFilteredItems;
     int renderedItemCount { InitialRenderChunk };
     juce::String currentSelectedItemId;
+    bool shouldAutoPlayOnSelection { true };
 
     // Fast cached audio playback status for instant, zero-lookup paintCell
     juce::String cachedCurrentFilePath;

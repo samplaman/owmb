@@ -95,7 +95,10 @@ void SampleTableComponent::sampleLoaded(const juce::String& filePath)
                 renderedItemCount = std::min(static_cast<int>(allFilteredItems.size()), row + RenderChunkIncrement);
                 table.updateContent();
             }
+            bool prevAutoPlay = shouldAutoPlayOnSelection;
+            shouldAutoPlayOnSelection = false;
             table.selectRow(row);
+            shouldAutoPlayOnSelection = prevAutoPlay;
             table.smoothScrollToRow(row);
             break;
         }
@@ -459,7 +462,22 @@ void SampleTableComponent::updateFilter(const juce::String& searchKeyword,
                     renderedItemCount = std::min(static_cast<int>(allFilteredItems.size()), row + RenderChunkIncrement);
                     table.updateContent();
                 }
+                int prevSelectedRow = table.getSelectedRow();
+                bool prevAutoPlay = shouldAutoPlayOnSelection;
+                shouldAutoPlayOnSelection = false;
                 table.selectRow(row);
+                shouldAutoPlayOnSelection = prevAutoPlay;
+
+                if (prevSelectedRow == row)
+                {
+                    juce::File fileToLoad(allFilteredItems[i].filePath);
+                    if (fileToLoad.existsAsFile())
+                    {
+                        audioEngine.setSampleBpm(allFilteredItems[i].bpm);
+                        audioEngine.loadFile(fileToLoad, false);
+                    }
+                }
+
                 table.smoothScrollToRow(row);
                 break;
             }
@@ -525,7 +543,7 @@ void SampleTableComponent::paintCell(juce::Graphics& g, int rowNumber, int colum
         case 1: // Play status / Icon button
         {
             bool isCurrentFile = (cachedCurrentFilePath == item.filePath);
-            bool isPlaying = isCurrentFile && cachedIsPlaying;
+            bool isPlaying = isCurrentFile && audioEngine.isPlaying();
             const auto& img = isPlaying ? pauseIconImage : playIconImage;
             if (img.isValid())
             {
@@ -854,7 +872,7 @@ void SampleTableComponent::selectedRowsChanged(int lastRowSelected)
         {
             audioEngine.stop();
             audioEngine.setSampleBpm(item.bpm);
-            audioEngine.loadFile(fileToLoad, true);
+            audioEngine.loadFile(fileToLoad, shouldAutoPlayOnSelection);
         }
 
         listeners.call([item](SampleTableListener& l) {
@@ -902,19 +920,25 @@ void SampleTableComponent::selectItemById(const juce::String& itemId, bool trigg
                 table.updateContent();
             }
 
+            int prevSelectedRow = table.getSelectedRow();
+            bool prevAutoPlay = shouldAutoPlayOnSelection;
+            shouldAutoPlayOnSelection = triggerPlayback;
             table.selectRow(row);
-            table.smoothScrollToRow(row);
-            table.repaint();
+            shouldAutoPlayOnSelection = prevAutoPlay;
 
-            if (triggerPlayback)
+            if (prevSelectedRow == row)
             {
                 juce::File fileToLoad(allFilteredItems[i].filePath);
                 if (fileToLoad.existsAsFile())
                 {
+                    audioEngine.stop();
                     audioEngine.setSampleBpm(allFilteredItems[i].bpm);
-                    audioEngine.loadFile(fileToLoad, true);
+                    audioEngine.loadFile(fileToLoad, triggerPlayback);
                 }
             }
+
+            table.smoothScrollToRow(row);
+            table.repaint();
             break;
         }
     }

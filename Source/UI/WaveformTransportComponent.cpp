@@ -474,18 +474,7 @@ WaveformTransportComponent::WaveformTransportComponent(AudioEngine& engine)
     autoSliceButton.onClick = [this] { openSliceConfigWindow(); };
     addAndMakeVisible(autoSliceButton);
 
-    // Normalize Button
-    normalizeButton.onClick = [this] {
-        if (audioEngine.normalizeLoadedSample())
-        {
-            int vpHeight = slicesViewport.getHeight() - slicesViewport.getScrollBarThickness();
-            slicesGrid.updateSlices(sliceRatios, totalDurationSecs, slicesViewport.getWidth(), vpHeight);
-            repaint();
-        }
-    };
-    addAndMakeVisible(normalizeButton);
-
-    // Host Sync Button (placed after Normalize along with BPM)
+    // Host Sync Button (placed after AutoSlice along with BPM)
     syncButton.setClickingTogglesState(true);
     syncButton.setToggleState(audioEngine.isHostSyncEnabled(), juce::dontSendNotification);
     syncButton.setTooltip("Toggle Host DAW Sync vs Independent Transport");
@@ -703,12 +692,9 @@ void WaveformTransportComponent::resized()
     topRow.removeFromLeft(5);
 
     autoSliceButton.setBounds(topRow.removeFromLeft(74).withHeight(28));
-    topRow.removeFromLeft(5);
-
-    normalizeButton.setBounds(topRow.removeFromLeft(84).withHeight(28));
     topRow.removeFromLeft(8);
 
-    // Sync button and BPM control placed directly after Normalize button
+    // Sync button and BPM control placed directly after AutoSlice button
     syncButton.setBounds(topRow.removeFromLeft(68).withHeight(28));
     topRow.removeFromLeft(5);
 
@@ -840,10 +826,25 @@ void WaveformTransportComponent::timerCallback()
         }
     }
 
+    bool isPlaying = audioEngine.isPlaying();
+    juce::String expectedPlayBtnText = isPlaying ? "Pause" : "Play";
+    if (playPauseButton.getButtonText() != expectedPlayBtnText)
+    {
+        playPauseButton.setButtonText(expectedPlayBtnText);
+        repaint();
+    }
+
+    bool isLooping = audioEngine.isLooping();
+    if (loopButton.getToggleState() != isLooping)
+    {
+        loopButton.setToggleState(isLooping, juce::dontSendNotification);
+        repaint();
+    }
+
     // Always sync position from audioEngine so both transports stay in sync
     double newPos = audioEngine.getCurrentPositionSeconds();
     double newDur = audioEngine.getTotalLengthSeconds();
-    bool needsRepaint = audioEngine.isPlaying() || std::abs(newPos - currentPositionSecs) > 0.0001;
+    bool needsRepaint = isPlaying || std::abs(newPos - currentPositionSecs) > 0.0001;
 
     currentPositionSecs = newPos;
     totalDurationSecs = newDur;
@@ -893,11 +894,6 @@ void WaveformTransportComponent::setSliceRatios(const std::vector<double>& ratio
     slicesGrid.setSelectedSliceIndex(-1);
     resized();
     repaint();
-}
-
-void WaveformTransportComponent::setNormalizeEnabled(bool enabled)
-{
-    normalizeButton.setEnabled(enabled);
 }
 
 void WaveformTransportComponent::setActiveSliceIndex(int sliceIndex)
@@ -1169,6 +1165,12 @@ void WaveformTransportComponent::bpmChanged(double newBpm)
     {
         bpmControl.setBpm(newBpm, false);
     }
+}
+
+void WaveformTransportComponent::loopingStateChanged(bool enabled)
+{
+    loopButton.setToggleState(enabled, juce::dontSendNotification);
+    repaint();
 }
 
 void WaveformTransportComponent::togglePlay()

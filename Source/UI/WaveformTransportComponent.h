@@ -109,6 +109,7 @@ public:
     void sampleLoaded(const juce::String& filePath) override;
     void transportSyncChanged(bool isSynced) override;
     void bpmChanged(double newBpm) override;
+    void loopingStateChanged(bool enabled) override;
     void activeSliceTriggered(int sliceIndex) override { setActiveSliceIndex(sliceIndex); }
 
     // juce::Slider::Listener callback
@@ -120,7 +121,6 @@ public:
     void triggerSlice();
     void setSliceRatios(const std::vector<double>& ratios);
     const std::vector<double>& getSliceRatios() const { return sliceRatios; }
-    void setNormalizeEnabled(bool enabled);
     void setActiveSliceIndex(int sliceIndex);
     void setActiveSliceRange(double startRatio, double endRatio, int sliceIndex = -1);
 
@@ -138,7 +138,6 @@ private:
     juce::TextButton loopButton { "Loop" };
     juce::TextButton autoPlayButton { "Auto" };
     juce::TextButton autoSliceButton { "Slice" };
-    juce::TextButton normalizeButton { "Normalize" };
     juce::TextButton syncButton { "SYNC" };
     BpmControlComponent bpmControl;
 

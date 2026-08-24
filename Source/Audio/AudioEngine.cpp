@@ -79,10 +79,12 @@ AudioEngine::AudioEngine()
     recordingBuffer.clear();
 
     backgroundThread.startThread(juce::Thread::Priority::high);
+    startTimerHz(30);
 }
 
 AudioEngine::~AudioEngine()
 {
+    stopTimer();
     stop();
     stopRecording();
     currentLoadId++;
@@ -90,6 +92,18 @@ AudioEngine::~AudioEngine()
     thumbnailCache.clear();
     backgroundThread.signalThreadShouldExit();
     backgroundThread.stopThread(100);
+}
+
+void AudioEngine::timerCallback()
+{
+    bool currentlyPlaying = isPlayingAtomic.load(std::memory_order_relaxed);
+    if (currentlyPlaying != lastNotifiedPlayingState)
+    {
+        lastNotifiedPlayingState = currentlyPlaying;
+        listeners.call([currentlyPlaying](AudioEngineListener& l) {
+            l.playbackStateChanged(currentlyPlaying);
+        });
+    }
 }
 
 void AudioEngine::prepareToPlay(double sampleRate, int /*samplesPerBlock*/)
@@ -629,25 +643,47 @@ void AudioEngine::processNextAudioBlock(juce::AudioBuffer<float>& outputBuffer, 
         int startSample = static_cast<int>(slot.startRatio * voiceLength);
         int endSample = static_cast<int>(slot.endRatio * voiceLength);
         if (endSample <= startSample) endSample = voiceLength;
+        int loopLen = endSample - startSample;
+
+        // Smooth crossfade length (up to 50ms) to ensure seamless, click-free loop wrap-around
+        int xfadeLen = 0;
+        if (slot.isLooping && loopLen >= 64)
+        {
+            double sr = engineSampleRateAtomic.load(std::memory_order_relaxed);
+            if (sr <= 0.0) sr = 44100.0;
+            int desiredXfade = static_cast<int>(0.050 * sr); // 50ms
+            xfadeLen = std::min(desiredXfade, loopLen / 4);
+        }
 
         if (pos < startSample) pos = startSample;
 
         bool hasAdsr = !slot.isMetronome;
 
+        auto getInterpolatedSample = [&](int ch, double readPos) -> float {
+            if (readPos < 0.0) readPos = 0.0;
+            if (readPos >= voiceLength - 1)
+                return voiceBuf.getSample(ch, voiceLength - 1);
+            int i1 = static_cast<int>(readPos);
+            int i2 = std::min(i1 + 1, voiceLength - 1);
+            float f = static_cast<float>(readPos - i1);
+            float v1 = voiceBuf.getSample(ch, i1);
+            float v2 = voiceBuf.getSample(ch, i2);
+            return v1 + f * (v2 - v1);
+        };
+
         for (int i = 0; i < numSamples; ++i)
         {
             float envVal = hasAdsr ? slot.adsr.getNextSample() : 1.0f;
             float voiceVol = globalGain * slot.gain * envVal;
-
-            int idx = static_cast<int>(pos);
             bool adsrActive = hasAdsr ? slot.adsr.isActive() : true;
 
-            if (idx >= endSample || idx >= voiceLength || !adsrActive)
+            if (pos >= endSample || !adsrActive)
             {
-                if (slot.isLooping && endSample > startSample && adsrActive)
+                if (slot.isLooping && loopLen > 0 && adsrActive)
                 {
-                    pos = startSample;
-                    idx = startSample;
+                    double overshoot = pos - endSample;
+                    pos = startSample + xfadeLen + overshoot;
+                    if (pos >= endSample) pos = startSample;
                 }
                 else
                 {
@@ -656,16 +692,37 @@ void AudioEngine::processNextAudioBlock(juce::AudioBuffer<float>& outputBuffer, 
                 }
             }
 
-            int nextIdx = std::min(idx + 1, voiceLength - 1);
-            float frac = static_cast<float>(pos - idx);
+            double curPos = pos;
+            if (curPos >= voiceLength) curPos = voiceLength - 1;
 
-            for (int ch = 0; ch < outChannels; ++ch)
+            if (slot.isLooping && xfadeLen > 0 && curPos >= (endSample - xfadeLen))
             {
-                int srcCh = std::min(ch, voiceChannels - 1);
-                float s1 = voiceBuf.getSample(srcCh, idx);
-                float s2 = voiceBuf.getSample(srcCh, nextIdx);
-                float sampleVal = (s1 + frac * (s2 - s1)) * voiceVol;
-                outputBuffer.addSample(ch, i, sampleVal);
+                double delta = curPos - (endSample - xfadeLen);
+                double t = juce::jlimit(0.0, 1.0, delta / static_cast<double>(xfadeLen));
+                float theta = static_cast<float>(t * juce::MathConstants<double>::halfPi);
+                float wOut = std::cos(theta);
+                float wIn = std::sin(theta);
+
+                double inPos = startSample + delta;
+                if (inPos >= voiceLength) inPos = voiceLength - 1;
+
+                for (int ch = 0; ch < outChannels; ++ch)
+                {
+                    int srcCh = std::min(ch, voiceChannels - 1);
+                    float sOut = getInterpolatedSample(srcCh, curPos);
+                    float sIn = getInterpolatedSample(srcCh, inPos);
+                    float sampleVal = (sOut * wOut + sIn * wIn) * voiceVol;
+                    outputBuffer.addSample(ch, i, sampleVal);
+                }
+            }
+            else
+            {
+                for (int ch = 0; ch < outChannels; ++ch)
+                {
+                    int srcCh = std::min(ch, voiceChannels - 1);
+                    float sampleVal = getInterpolatedSample(srcCh, curPos) * voiceVol;
+                    outputBuffer.addSample(ch, i, sampleVal);
+                }
             }
 
             pos += ratio;
@@ -1123,6 +1180,7 @@ void AudioEngine::play()
     listeners.call([](AudioEngineListener& l) {
         l.playbackStateChanged(true);
     });
+    lastNotifiedPlayingState = true;
 }
 
 void AudioEngine::pause()
@@ -1131,6 +1189,7 @@ void AudioEngine::pause()
     cmd.type = EngineCommandType::Pause;
     pushCommand(cmd);
 
+    lastNotifiedPlayingState = false;
     listeners.call([](AudioEngineListener& l) { l.playbackStateChanged(false); });
 }
 
@@ -1144,6 +1203,7 @@ void AudioEngine::stop()
     cmd.type = EngineCommandType::Stop;
     pushCommand(cmd);
 
+    lastNotifiedPlayingState = false;
     listeners.call([](AudioEngineListener& l) { l.playbackStateChanged(false); });
 }
 
