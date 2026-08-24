@@ -27,8 +27,20 @@ SampleMapComponent::SampleMapComponent(AudioEngine& engine)
     addAndMakeVisible(autoMapVelButton);
     autoMapVelButton.addListener(this);
 
+    addAndMakeVisible(autoMapRRButton);
+    autoMapRRButton.addListener(this);
+
     addAndMakeVisible(clearMapButton);
     clearMapButton.addListener(this);
+
+    roundRobinButton.setClickingTogglesState(false);
+    roundRobinButton.setButtonText(roundRobinMode == 0 ? "RR: Cycle" : (roundRobinMode == 1 ? "RR: Random" : "RR: OFF"));
+    roundRobinButton.onClick = [this] {
+        roundRobinMode = (roundRobinMode + 1) % 3;
+        roundRobinButton.setButtonText(roundRobinMode == 0 ? "RR: Cycle" : (roundRobinMode == 1 ? "RR: Random" : "RR: OFF"));
+        if (onStateChanged) onStateChanged();
+    };
+    addAndMakeVisible(roundRobinButton);
 
     pitchTrackButton.setClickingTogglesState(true);
     bool ptEnabled = audioEngine.isPitchTrackingEnabled();
@@ -90,6 +102,7 @@ SampleMapComponent::SampleMapComponent(AudioEngine& engine)
     setupSlider(keyHighSlider, keyHighTitle, "Key High:", 0.0, 127.0, 1.0, 84.0);
     setupSlider(velLowSlider, velLowTitle, "Vel Low:", 0.0, 127.0, 1.0, 0.0);
     setupSlider(velHighSlider, velHighTitle, "Vel High:", 0.0, 127.0, 1.0, 127.0);
+    setupSlider(rrSlider, rrTitle, "Round Robin:", 1.0, 8.0, 1.0, 1.0);
     setupSlider(tuneSlider, tuneTitle, "Fine Tune:", -100.0, 100.0, 1.0, 0.0);
     setupSlider(gainSlider, gainTitle, "Gain (dB):", -24.0, 12.0, 0.5, 0.0);
 
@@ -120,6 +133,8 @@ SampleMapComponent::SampleMapComponent(AudioEngine& engine)
     setupKnob(sustainKnob, sustainLabel, "Sustain", 0.0, 1.0, 0.01, 1.0);
     setupKnob(releaseKnob, releaseLabel, "Release", 0.0, 5000.0, 1.0, 200.0);
 
+    activeNoteVelocities.fill(-1);
+
     lookAndFeelChanged();
 }
 
@@ -130,6 +145,7 @@ void SampleMapComponent::lookAndFeelChanged()
 
 SampleMapComponent::~SampleMapComponent()
 {
+    stopTimer();
     audioEngine.getKeyboardState().removeListener(this);
     audioEngine.removeListener(this);
 }
@@ -172,6 +188,16 @@ void SampleMapComponent::handleNoteOn(juce::MidiKeyboardState*, int /*midiChanne
     {
         activeMidiNotes[static_cast<size_t>(midiNoteNumber)] = true;
         int velInt = juce::jlimit(0, 127, static_cast<int>(velocity * 127.0f));
+        activeNoteVelocities[static_cast<size_t>(midiNoteNumber)] = velInt;
+
+        uint32_t now = juce::Time::getMillisecondCounter();
+        recentHitDots.erase(
+            std::remove_if(recentHitDots.begin(), recentHitDots.end(), [midiNoteNumber](const HitDot& d) {
+                return d.note == midiNoteNumber;
+            }),
+            recentHitDots.end()
+        );
+        recentHitDots.push_back({ midiNoteNumber, velInt, now });
 
         juce::File fileToLoad;
         for (size_t i = 0; i < zones.size(); ++i)
@@ -190,6 +216,9 @@ void SampleMapComponent::handleNoteOn(juce::MidiKeyboardState*, int /*midiChanne
         }
 
         juce::MessageManager::callAsync([this, fileToLoad] {
+            if (!isTimerRunning())
+                startTimerHz(30);
+
             if (fileToLoad.existsAsFile())
             {
                 if (audioEngine.getCurrentFile() != fileToLoad)
@@ -208,8 +237,41 @@ void SampleMapComponent::handleNoteOff(juce::MidiKeyboardState*, int /*midiChann
     if (midiNoteNumber >= 0 && midiNoteNumber < 128)
     {
         activeMidiNotes[static_cast<size_t>(midiNoteNumber)] = false;
-        juce::MessageManager::callAsync([this] { repaint(); });
+        activeNoteVelocities[static_cast<size_t>(midiNoteNumber)] = -1;
+        juce::MessageManager::callAsync([this] {
+            if (!isTimerRunning())
+                startTimerHz(30);
+            repaint();
+        });
     }
+}
+
+void SampleMapComponent::timerCallback()
+{
+    uint32_t now = juce::Time::getMillisecondCounter();
+    bool hasHeld = false;
+    for (int note = 0; note < 128; ++note)
+    {
+        if (activeNoteVelocities[static_cast<size_t>(note)] >= 0)
+        {
+            hasHeld = true;
+            break;
+        }
+    }
+
+    recentHitDots.erase(
+        std::remove_if(recentHitDots.begin(), recentHitDots.end(), [now, this](const HitDot& dot) {
+            bool isHeld = (dot.note >= 0 && dot.note < 128 && activeNoteVelocities[static_cast<size_t>(dot.note)] >= 0);
+            return !isHeld && (now - dot.timestampMs > 1200);
+        }),
+        recentHitDots.end()
+    );
+
+    if (recentHitDots.empty() && !hasHeld)
+    {
+        stopTimer();
+    }
+    repaint();
 }
 
 bool SampleMapComponent::isInterestedInFileDrag(const juce::StringArray& files)
@@ -350,6 +412,18 @@ int SampleMapComponent::parseRootNoteFromFilename(const juce::String& filename) 
     return 60; // Default C4
 }
 
+static int parseRoundRobinFromFilename(const juce::String& filename)
+{
+    std::string name = filename.toStdString();
+    std::regex rrRegex("(?i)(?:_|-|\\s)(?:rr|take|r)([1-9][0-9]?)");
+    std::smatch match;
+    if (std::regex_search(name, match, rrRegex))
+    {
+        return std::stoi(match[1].str());
+    }
+    return 1;
+}
+
 // ─────────────────────────────────────────────────────────
 //  Zone Actions & Operations
 // ─────────────────────────────────────────────────────────
@@ -358,11 +432,12 @@ void SampleMapComponent::addSample(const MediaItem& item)
     SampleMapZone z;
     z.filePath = item.filePath;
     z.sampleName = item.fileName;
-    z.rootNote = 60;
+    z.rootNote = parseRootNoteFromFilename(item.fileName);
     z.keyLow = z.rootNote;
     z.keyHigh = z.rootNote;
     z.velLow = 0;
     z.velHigh = 127;
+    z.roundRobinIndex = parseRoundRobinFromFilename(item.fileName);
 
     zones.push_back(z);
     selectedZoneIndex = static_cast<int>(zones.size()) - 1;
@@ -383,11 +458,12 @@ void SampleMapComponent::addSampleFile(const juce::File& file)
     SampleMapZone z;
     z.filePath = file.getFullPathName();
     z.sampleName = file.getFileName();
-    z.rootNote = 60;
+    z.rootNote = parseRootNoteFromFilename(file.getFileName());
     z.keyLow = z.rootNote;
     z.keyHigh = z.rootNote;
     z.velLow = 0;
     z.velHigh = 127;
+    z.roundRobinIndex = parseRoundRobinFromFilename(file.getFileName());
 
     zones.push_back(z);
     selectedZoneIndex = static_cast<int>(zones.size()) - 1;
@@ -732,25 +808,62 @@ void SampleMapComponent::autoMapVelocityLayers()
 {
     if (zones.empty()) return;
 
-    // Group zones by rootNote and split velocity ranges evenly
-    std::map<int, std::vector<int>> rootGroups;
+    // Group zones that share the same key span or rootNote
+    std::map<std::pair<int, int>, std::vector<int>> keyGroups;
     for (size_t i = 0; i < zones.size(); ++i)
     {
-        rootGroups[zones[i].rootNote].push_back(static_cast<int>(i));
+        keyGroups[{ zones[i].keyLow, zones[i].keyHigh }].push_back(static_cast<int>(i));
     }
 
-    for (const auto& [root, indices] : rootGroups)
+    for (const auto& [keyRange, indices] : keyGroups)
     {
+        if (indices.size() <= 1) continue;
+
         int numLayers = static_cast<int>(indices.size());
         int velStep = 128 / numLayers;
         for (int l = 0; l < numLayers; ++l)
         {
-            int idx = indices[l];
+            int idx = indices[static_cast<size_t>(l)];
             zones[idx].velLow = l * velStep;
             zones[idx].velHigh = (l == numLayers - 1) ? 127 : ((l + 1) * velStep - 1);
         }
     }
 
+    resized();
+    repaint();
+    if (onStateChanged) onStateChanged();
+}
+
+void SampleMapComponent::autoMapRoundRobin()
+{
+    if (zones.empty()) return;
+
+    // Group zones that share the same key span (keyLow, keyHigh)
+    std::map<std::pair<int, int>, std::vector<int>> keyGroups;
+    for (size_t i = 0; i < zones.size(); ++i)
+    {
+        keyGroups[{ zones[i].keyLow, zones[i].keyHigh }].push_back(static_cast<int>(i));
+    }
+
+    for (const auto& [keyRange, indices] : keyGroups)
+    {
+        // Further sub-group by velocity tier
+        std::map<std::pair<int, int>, std::vector<int>> velGroups;
+        for (int idx : indices)
+        {
+            velGroups[{ zones[idx].velLow, zones[idx].velHigh }].push_back(idx);
+        }
+
+        for (const auto& [velRange, rrIndices] : velGroups)
+        {
+            for (size_t rr = 0; rr < rrIndices.size(); ++rr)
+            {
+                zones[rrIndices[rr]].roundRobinIndex = static_cast<int>(rr + 1);
+            }
+        }
+    }
+
+    resized();
     repaint();
     if (onStateChanged) onStateChanged();
 }
@@ -798,11 +911,15 @@ void SampleMapComponent::paintZoneGrid(juce::Graphics& g, juce::Rectangle<float>
         g.setColour(OpenWavLookAndFeel::borderColour.withAlpha(0.15f));
     }
 
-    // Velocity grid lines (25%, 50%, 75%)
+    // Velocity grid lines and labels (0, 32, 64, 96, 127)
+    g.setFont(juce::Font(9.0f));
     for (int vel : { 32, 64, 96 })
     {
         float y = yForVelocity(vel, inner);
+        g.setColour(OpenWavLookAndFeel::borderColour.withAlpha(0.2f));
         g.drawHorizontalLine(static_cast<int>(y), inner.getX(), inner.getRight());
+        g.setColour(OpenWavLookAndFeel::textSecondary.withAlpha(0.45f));
+        g.drawText("v" + juce::String(vel), inner.getRight() - 24.0f, y - 10.0f, 22.0f, 10.0f, juce::Justification::right);
     }
 
     // Draw mapped zones
@@ -817,10 +934,14 @@ void SampleMapComponent::paintZoneGrid(juce::Graphics& g, juce::Rectangle<float>
         juce::Rectangle<float> zRect(x1, y1, std::max(6.0f, x2 - x1), std::max(6.0f, y2 - y1));
 
         bool isSelected = isZoneSelected(static_cast<int>(i));
-        juce::Colour zoneCol = isSelected ? OpenWavLookAndFeel::accentCyan : OpenWavLookAndFeel::accentCyan.withAlpha(0.6f);
+        
+        // Base color with slight hue shift for different Round Robin layers
+        float hueShift = (z.roundRobinIndex > 1) ? (0.07f * (z.roundRobinIndex - 1)) : 0.0f;
+        juce::Colour baseAccent = OpenWavLookAndFeel::accentCyan.withRotatedHue(hueShift);
+        juce::Colour zoneCol = isSelected ? baseAccent : baseAccent.withAlpha(0.65f);
 
         // Zone background fill
-        g.setColour(zoneCol.withAlpha(isSelected ? 0.25f : 0.15f));
+        g.setColour(zoneCol.withAlpha(isSelected ? 0.28f : 0.16f));
         g.fillRoundedRectangle(zRect, 4.0f);
 
         // Zone border
@@ -846,10 +967,59 @@ void SampleMapComponent::paintZoneGrid(juce::Graphics& g, juce::Rectangle<float>
             g.fillRect(juce::Rectangle<float>(zRect.getCentreX() - handleSize * 0.5f, zRect.getBottom() - 2.0f, handleSize, 4.0f));
         }
 
-        // Zone text label
+        // Zone text label & badges
         g.setColour(OpenWavLookAndFeel::textPrimary);
         g.setFont(juce::Font(10.0f).boldened());
-        g.drawText(z.sampleName, zRect.reduced(4.0f, 2.0f), juce::Justification::centred, true);
+
+        juce::String labelText = z.sampleName;
+        juce::String tag;
+        if (z.roundRobinIndex > 1) tag += "RR" + juce::String(z.roundRobinIndex);
+        if (z.velLow > 0 || z.velHigh < 127)
+        {
+            if (tag.isNotEmpty()) tag += " ";
+            tag += "v:" + juce::String(z.velLow) + "-" + juce::String(z.velHigh);
+        }
+        if (tag.isNotEmpty() && zRect.getHeight() > 24.0f)
+            labelText += " [" + tag + "]";
+
+        g.drawText(labelText, zRect.reduced(4.0f, 2.0f), juce::Justification::centred, true);
+    }
+
+    // ── Velocity Recorded Hit Dots ──
+    uint32_t nowTime = juce::Time::getMillisecondCounter();
+    for (const auto& dot : recentHitDots)
+    {
+        if (dot.note < 0 || dot.note > 127) continue;
+
+        bool isHeld = (activeNoteVelocities[static_cast<size_t>(dot.note)] >= 0);
+        float alpha = 1.0f;
+        if (!isHeld)
+        {
+            float ageMs = static_cast<float>(nowTime - dot.timestampMs);
+            alpha = juce::jlimit(0.0f, 1.0f, 1.0f - (ageMs / 1200.0f));
+        }
+
+        if (alpha <= 0.01f) continue;
+
+        float dotX = xForNoteNumber(dot.note, inner) + (xForNoteNumber(dot.note + 1, inner) - xForNoteNumber(dot.note, inner)) * 0.5f;
+        float dotY = yForVelocity(dot.vel, inner);
+
+        // Outer ambient glow
+        g.setColour(juce::Colours::white.withAlpha(0.22f * alpha));
+        g.fillEllipse(dotX - 9.0f, dotY - 9.0f, 18.0f, 18.0f);
+
+        // Middle halo
+        g.setColour(juce::Colours::white.withAlpha(0.55f * alpha));
+        g.fillEllipse(dotX - 5.5f, dotY - 5.5f, 11.0f, 11.0f);
+
+        // Core bright white dot
+        g.setColour(juce::Colours::white.withAlpha(0.98f * alpha));
+        g.fillEllipse(dotX - 3.0f, dotY - 3.0f, 6.0f, 6.0f);
+
+        // Little velocity label badge beside dot
+        g.setFont(juce::Font(9.0f).boldened());
+        g.setColour(juce::Colours::white.withAlpha(0.9f * alpha));
+        g.drawText("v" + juce::String(dot.vel), dotX + 6.0f, dotY - 7.0f, 32.0f, 14.0f, juce::Justification::left);
     }
 
     // Rubber-band lasso selection box
@@ -1233,23 +1403,28 @@ void SampleMapComponent::resized()
 
     // ── Single Top Toolbar ──
     auto topRow = area.removeFromTop(28);
-    int gap = 6;
+    int gap = 5;
 
-    addSampleButton.setBounds(topRow.removeFromLeft(95));
+    addSampleButton.setBounds(topRow.removeFromLeft(82));
     topRow.removeFromLeft(gap);
-    autoMapPitchButton.setBounds(topRow.removeFromLeft(90));
+    autoMapPitchButton.setBounds(topRow.removeFromLeft(78));
     topRow.removeFromLeft(gap);
-    autoMapChromaticButton.setBounds(topRow.removeFromLeft(115));
+    autoMapChromaticButton.setBounds(topRow.removeFromLeft(95));
     topRow.removeFromLeft(gap);
-    autoMapVelButton.setBounds(topRow.removeFromLeft(105));
+    autoMapVelButton.setBounds(topRow.removeFromLeft(88));
     topRow.removeFromLeft(gap);
-    clearMapButton.setBounds(topRow.removeFromLeft(80));
+    autoMapRRButton.setBounds(topRow.removeFromLeft(70));
     topRow.removeFromLeft(gap);
-    pitchTrackButton.setBounds(topRow.removeFromLeft(110));
+    clearMapButton.setBounds(topRow.removeFromLeft(70));
     topRow.removeFromLeft(gap);
-    oneShotButton.setBounds(topRow.removeFromLeft(105));
+    roundRobinButton.setBounds(topRow.removeFromLeft(88));
     topRow.removeFromLeft(gap);
-    loopButton.setBounds(topRow.removeFromLeft(85));
+    pitchTrackButton.setBounds(topRow.removeFromLeft(98));
+    topRow.removeFromLeft(gap);
+    oneShotButton.setBounds(topRow.removeFromLeft(95));
+    topRow.removeFromLeft(gap);
+    loopButton.setBounds(topRow.removeFromLeft(75));
+
     attackKnob.setVisible(false);
     attackLabel.setVisible(false);
     decayKnob.setVisible(false);
@@ -1288,6 +1463,7 @@ void SampleMapComponent::resized()
         setupRow(keyHighTitle, keyHighSlider, z.keyHigh);
         setupRow(velLowTitle, velLowSlider, z.velLow);
         setupRow(velHighTitle, velHighSlider, z.velHigh);
+        setupRow(rrTitle, rrSlider, z.roundRobinIndex);
         setupRow(tuneTitle, tuneSlider, z.fineTuneCents);
         setupRow(gainTitle, gainSlider, z.gainDb);
 
@@ -1377,6 +1553,7 @@ void SampleMapComponent::sliderValueChanged(juce::Slider* slider)
     else if (slider == &keyHighSlider) z.keyHigh = juce::jmax(z.keyLow, static_cast<int>(keyHighSlider.getValue()));
     else if (slider == &velLowSlider) z.velLow = juce::jmin(z.velHigh, static_cast<int>(velLowSlider.getValue()));
     else if (slider == &velHighSlider) z.velHigh = juce::jmax(z.velLow, static_cast<int>(velHighSlider.getValue()));
+    else if (slider == &rrSlider) z.roundRobinIndex = static_cast<int>(rrSlider.getValue());
     else if (slider == &tuneSlider) z.fineTuneCents = static_cast<float>(tuneSlider.getValue());
     else if (slider == &gainSlider) z.gainDb = static_cast<float>(gainSlider.getValue());
     else if (slider == &reverbSlider)
@@ -1411,6 +1588,7 @@ void SampleMapComponent::buttonClicked(juce::Button* button)
     else if (button == &autoMapPitchButton) autoMapByPitch();
     else if (button == &autoMapChromaticButton) autoMapChromatic();
     else if (button == &autoMapVelButton) autoMapVelocityLayers();
+    else if (button == &autoMapRRButton) autoMapRoundRobin();
     else if (button == &clearMapButton) clearAllZones();
 }
 
@@ -1472,6 +1650,7 @@ SampleMapState SampleMapComponent::getState() const
         zs.keyHigh = z.keyHigh;
         zs.velLow = z.velLow;
         zs.velHigh = z.velHigh;
+        zs.roundRobinIndex = z.roundRobinIndex;
         zs.fineTuneCents = z.fineTuneCents;
         zs.gainDb = z.gainDb;
         zs.attackMs = z.attackMs;
@@ -1486,6 +1665,7 @@ SampleMapState SampleMapComponent::getState() const
     s.globalReleaseMs = globalReleaseMs;
     s.samplerReverbAmount = audioEngine.getSamplerReverbAmount();
     s.pitchTrackingEnabled = audioEngine.isPitchTrackingEnabled();
+    s.roundRobinMode = roundRobinMode;
     return s;
 }
 
@@ -1505,6 +1685,7 @@ void SampleMapComponent::setState(const SampleMapState& state)
         z.keyHigh = zs.keyHigh;
         z.velLow = zs.velLow;
         z.velHigh = zs.velHigh;
+        z.roundRobinIndex = zs.roundRobinIndex;
         z.fineTuneCents = zs.fineTuneCents;
         z.gainDb = zs.gainDb;
         z.attackMs = zs.attackMs;
@@ -1531,6 +1712,9 @@ void SampleMapComponent::setState(const SampleMapState& state)
     audioEngine.setPitchTrackingEnabled(state.pitchTrackingEnabled);
     pitchTrackButton.setToggleState(state.pitchTrackingEnabled, juce::dontSendNotification);
     pitchTrackButton.setButtonText(state.pitchTrackingEnabled ? "Pitch Track: ON" : "Pitch Track: OFF");
+
+    roundRobinMode = state.roundRobinMode;
+    roundRobinButton.setButtonText(roundRobinMode == 0 ? "RR: Cycle" : (roundRobinMode == 1 ? "RR: Random" : "RR: OFF"));
 
     if (!zones.empty())
     {

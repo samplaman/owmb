@@ -71,6 +71,9 @@ private:
     EditComponentState editState;
     SampleMapState sampleMapState;
 
+    std::map<int, int> noteRoundRobinCounters;
+    std::map<int, int> lastRandomZoneIndex;
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(OpenWavAudioProcessor)
 };
 

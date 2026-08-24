@@ -941,46 +941,70 @@ bool AudioEngine::loadFile(const juce::File& audioFile, bool autoPlay, bool isSa
         if (loadId != currentLoadId.load(std::memory_order_relaxed))
             return;
 
-        std::unique_ptr<juce::AudioFormatReader> reader(formatManager.createReaderFor(audioFile));
-        if (reader == nullptr || loadId != currentLoadId.load(std::memory_order_relaxed))
-            return;
+        juce::String filePath = audioFile.getFullPathName();
+        std::shared_ptr<CachedSample> sampleData;
+        double fileSampleRate = 44100.0;
+        int numSamples = 0;
+        int numChannels = 0;
 
-        double fileSampleRate = reader->sampleRate;
-        int64_t numSamples64 = reader->lengthInSamples;
-        int numChannels = static_cast<int>(reader->numChannels);
-
-        if (numSamples64 <= 0 || numSamples64 > 0x7FFFFFFF || numChannels <= 0)
-            return;
-
-        int numSamples = static_cast<int>(numSamples64);
-
-        int rootNoteVal = 60;
-
-        if (loadId != currentLoadId.load(std::memory_order_relaxed))
-            return;
-
-        auto sampleData = std::make_shared<CachedSample>();
-        sampleData->sampleRate = fileSampleRate;
-        sampleData->rootNote = rootNoteVal;
-        sampleData->buffer.setSize(numChannels, numSamples);
-        reader->read(&sampleData->buffer, 0, numSamples, 0, true, true);
-
-        // Auto-normalize if loaded audio peaks exceed 1.0f
-        float loadMaxPeak = 0.0f;
-        for (int ch = 0; ch < numChannels; ++ch)
         {
-            auto range = sampleData->buffer.findMinMax(ch, 0, numSamples);
-            float peak = std::max(std::abs(range.getStart()), std::abs(range.getEnd()));
-            if (peak > loadMaxPeak)
-                loadMaxPeak = peak;
-        }
-        if (loadMaxPeak > 1.0f)
-        {
-            sampleData->buffer.applyGain(1.0f / loadMaxPeak);
+            const juce::ScopedLock sl(cacheLock);
+            auto it = sampleCache.find(filePath);
+            if (it != sampleCache.end() && it->second != nullptr && it->second->buffer.getNumSamples() > 0)
+            {
+                sampleData = it->second;
+                fileSampleRate = sampleData->sampleRate;
+                numSamples = sampleData->buffer.getNumSamples();
+                numChannels = sampleData->buffer.getNumChannels();
+            }
         }
 
-        if (loadId != currentLoadId.load(std::memory_order_relaxed))
-            return;
+        if (sampleData == nullptr)
+        {
+            std::unique_ptr<juce::AudioFormatReader> reader(formatManager.createReaderFor(audioFile));
+            if (reader == nullptr || loadId != currentLoadId.load(std::memory_order_relaxed))
+                return;
+
+            fileSampleRate = (reader->sampleRate > 0.0) ? reader->sampleRate : 44100.0;
+            int64_t numSamples64 = reader->lengthInSamples;
+            numChannels = static_cast<int>(reader->numChannels);
+
+            if (numSamples64 <= 0 || numSamples64 > 0x7FFFFFFF || numChannels <= 0)
+                return;
+
+            numSamples = static_cast<int>(numSamples64);
+            int rootNoteVal = getRootNoteFromWavSmplHeader(audioFile);
+            if (rootNoteVal < 0 || rootNoteVal > 127) rootNoteVal = 60;
+
+            if (loadId != currentLoadId.load(std::memory_order_relaxed))
+                return;
+
+            sampleData = std::make_shared<CachedSample>();
+            sampleData->sampleRate = fileSampleRate;
+            sampleData->rootNote = rootNoteVal;
+            sampleData->buffer.setSize(numChannels, numSamples);
+            reader->read(&sampleData->buffer, 0, numSamples, 0, true, true);
+
+            // Auto-normalize if loaded audio peaks exceed 1.0f
+            float loadMaxPeak = 0.0f;
+            for (int ch = 0; ch < numChannels; ++ch)
+            {
+                auto range = sampleData->buffer.findMinMax(ch, 0, numSamples);
+                float peak = std::max(std::abs(range.getStart()), std::abs(range.getEnd()));
+                if (peak > loadMaxPeak)
+                    loadMaxPeak = peak;
+            }
+            if (loadMaxPeak > 1.0f)
+            {
+                sampleData->buffer.applyGain(1.0f / loadMaxPeak);
+            }
+
+            {
+                const juce::ScopedLock sl(cacheLock);
+                if (sampleCache.size() > 200) sampleCache.clear();
+                sampleCache[filePath] = sampleData;
+            }
+        }
 
         // Precompute waveform peaks in background
         WaveformPeaks peaks;
@@ -2396,6 +2420,13 @@ void AudioEngine::replaceEditedSampleInMemory()
     newSampleData->buffer.makeCopyOf(loadedVoice->buffer);
 
     currentMasterSample = newSampleData;
+
+    juce::String currentPath = currentFile.getFullPathName();
+    if (currentPath.isNotEmpty())
+    {
+        const juce::ScopedLock sl(cacheLock);
+        sampleCache[currentPath] = newSampleData;
+    }
 
     numChannelsAtomic.store(numChannels, std::memory_order_relaxed);
     double engineSr = engineSampleRateAtomic.load(std::memory_order_relaxed);

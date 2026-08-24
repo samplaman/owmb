@@ -103,6 +103,7 @@ struct SampleMapZoneState
     int keyHigh { 72 };
     int velLow { 0 };
     int velHigh { 127 };
+    int roundRobinIndex { 1 };
     float fineTuneCents { 0.0f };
     float gainDb { 0.0f };
     float attackMs { 5.0f };
@@ -120,6 +121,7 @@ struct SampleMapZoneState
         obj->setProperty("keyHigh", keyHigh);
         obj->setProperty("velLow", velLow);
         obj->setProperty("velHigh", velHigh);
+        obj->setProperty("roundRobinIndex", roundRobinIndex);
         obj->setProperty("fineTuneCents", fineTuneCents);
         obj->setProperty("gainDb", gainDb);
         obj->setProperty("attackMs", attackMs);
@@ -142,6 +144,10 @@ struct SampleMapZoneState
         z.keyHigh = static_cast<int>(obj->getProperty("keyHigh"));
         z.velLow = static_cast<int>(obj->getProperty("velLow"));
         z.velHigh = static_cast<int>(obj->getProperty("velHigh"));
+        if (obj->hasProperty("roundRobinIndex"))
+            z.roundRobinIndex = static_cast<int>(obj->getProperty("roundRobinIndex"));
+        else
+            z.roundRobinIndex = 1;
         z.fineTuneCents = static_cast<float>(obj->getProperty("fineTuneCents"));
         z.gainDb = static_cast<float>(obj->getProperty("gainDb"));
         z.attackMs = static_cast<float>(obj->getProperty("attackMs"));
@@ -161,6 +167,7 @@ struct SampleMapState
     float globalReleaseMs { 200.0f };
     float samplerReverbAmount { 0.0f };
     bool pitchTrackingEnabled { true };
+    int roundRobinMode { 0 }; // 0 = Cycle, 1 = Random, 2 = Off
 
     juce::var toVar() const
     {
@@ -175,6 +182,7 @@ struct SampleMapState
         obj->setProperty("globalReleaseMs", globalReleaseMs);
         obj->setProperty("samplerReverbAmount", samplerReverbAmount);
         obj->setProperty("pitchTrackingEnabled", pitchTrackingEnabled);
+        obj->setProperty("roundRobinMode", roundRobinMode);
         return juce::var(obj);
     }
 
@@ -196,6 +204,7 @@ struct SampleMapState
         if (obj->hasProperty("globalReleaseMs")) s.globalReleaseMs = static_cast<float>(obj->getProperty("globalReleaseMs"));
         if (obj->hasProperty("samplerReverbAmount")) s.samplerReverbAmount = static_cast<float>(obj->getProperty("samplerReverbAmount"));
         if (obj->hasProperty("pitchTrackingEnabled")) s.pitchTrackingEnabled = static_cast<bool>(obj->getProperty("pitchTrackingEnabled"));
+        if (obj->hasProperty("roundRobinMode")) s.roundRobinMode = static_cast<int>(obj->getProperty("roundRobinMode"));
         return s;
     }
 };

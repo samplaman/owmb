@@ -22,6 +22,7 @@ struct SampleMapZone
     int keyHigh { 72 };   // C5
     int velLow { 0 };     // 0-127
     int velHigh { 127 };
+    int roundRobinIndex { 1 }; // 1 to 8
     float fineTuneCents { 0.0f }; // -100 to +100 cents
     float gainDb { 0.0f };        // -24 to +12 dB
     float attackMs { 5.0f };      // 0 to 2000 ms
@@ -37,11 +38,14 @@ class SampleMapComponent : public juce::Component,
                            public juce::MidiKeyboardState::Listener,
                            public juce::FileDragAndDropTarget,
                            public juce::DragAndDropTarget,
-                           public AudioEngineListener
+                           public AudioEngineListener,
+                           public juce::Timer
 {
 public:
     explicit SampleMapComponent(AudioEngine& engine);
     ~SampleMapComponent() override;
+
+    void timerCallback() override;
 
     void sampleLoaded(const juce::String& filePath) override;
     void pitchTrackingStateChanged(bool enabled) override;
@@ -81,6 +85,7 @@ public:
     void autoMapByPitch();
     void autoMapChromatic();
     void autoMapVelocityLayers();
+    void autoMapRoundRobin();
 
     SampleMapState getState() const;
     void setState(const SampleMapState& state);
@@ -109,13 +114,16 @@ private:
     AudioEngine& audioEngine;
     std::vector<SampleMapZone> zones;
     int selectedZoneIndex { -1 };
+    int roundRobinMode { 0 }; // 0 = Cycle, 1 = Random, 2 = Off
 
     // Action Toolbar
     juce::TextButton addSampleButton { "Add Sample" };
     juce::TextButton autoMapPitchButton { "Auto Pitch" };
     juce::TextButton autoMapChromaticButton { "Auto Chromatic" };
     juce::TextButton autoMapVelButton { "Auto Velocity" };
+    juce::TextButton autoMapRRButton { "Auto RR" };
     juce::TextButton clearMapButton { "Clear Map" };
+    juce::TextButton roundRobinButton { "RR: Cycle" };
     juce::TextButton pitchTrackButton { "Pitch Track: ON" };
     juce::TextButton oneShotButton { "One Shot: OFF" };
     juce::TextButton loopButton { "Loop: OFF" };
@@ -148,6 +156,8 @@ private:
     juce::Slider velLowSlider;
     juce::Label velHighTitle { {}, "Vel High:" };
     juce::Slider velHighSlider;
+    juce::Label rrTitle { {}, "Round Robin:" };
+    juce::Slider rrSlider;
     juce::Label tuneTitle { {}, "Fine Tune:" };
     juce::Slider tuneSlider;
     juce::Label gainTitle { {}, "Gain (dB):" };
@@ -179,10 +189,19 @@ private:
         KeybedAudition,
         BoxSelect
     };
+    struct HitDot
+    {
+        int note { -1 };
+        int vel { 100 };
+        uint32_t timestampMs { 0 };
+    };
+
     DragTarget activeDragTarget { DragTarget::None };
     int activeDragZone { -1 };
     int auditionNote { -1 };
     std::array<bool, 128> activeMidiNotes {};
+    std::array<int, 128> activeNoteVelocities {};
+    std::vector<HitDot> recentHitDots;
 
     std::set<int> selectedZoneIndices;
     juce::Rectangle<float> lassoRect;
