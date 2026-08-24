@@ -33,6 +33,12 @@ SampleMapComponent::SampleMapComponent(AudioEngine& engine)
     addAndMakeVisible(clearMapButton);
     clearMapButton.addListener(this);
 
+    addAndMakeVisible(saveMapButton);
+    saveMapButton.addListener(this);
+
+    addAndMakeVisible(loadMapButton);
+    loadMapButton.addListener(this);
+
     roundRobinButton.setClickingTogglesState(false);
     roundRobinButton.setButtonText(roundRobinMode == 0 ? "RR: Cycle" : (roundRobinMode == 1 ? "RR: Random" : "RR: OFF"));
     roundRobinButton.onClick = [this] {
@@ -282,7 +288,8 @@ bool SampleMapComponent::isInterestedInFileDrag(const juce::StringArray& files)
         if (file.hasFileExtension("wav") || file.hasFileExtension("mp3") ||
             file.hasFileExtension("flac") || file.hasFileExtension("aiff") ||
             file.hasFileExtension("aif") || file.hasFileExtension("aifc") ||
-            file.hasFileExtension("ogg"))
+            file.hasFileExtension("ogg") || file.hasFileExtension("xml") ||
+            file.hasFileExtension("samplemap") || file.hasFileExtension("owmap"))
             return true;
     }
     return false;
@@ -295,6 +302,11 @@ void SampleMapComponent::filesDropped(const juce::StringArray& files, int /*x*/,
         juce::File file(f);
         if (file.existsAsFile())
         {
+            if (file.hasFileExtension("xml") || file.hasFileExtension("samplemap") || file.hasFileExtension("owmap"))
+            {
+                if (loadSampleMapFile(file))
+                    return;
+            }
             addSampleFile(file);
         }
     }
@@ -313,6 +325,11 @@ void SampleMapComponent::itemDropped(const juce::DragAndDropTarget::SourceDetail
         juce::File file(description);
         if (file.existsAsFile())
         {
+            if (file.hasFileExtension("xml") || file.hasFileExtension("samplemap") || file.hasFileExtension("owmap"))
+            {
+                if (loadSampleMapFile(file))
+                    return;
+            }
             addSampleFile(file);
         }
     }
@@ -868,6 +885,59 @@ void SampleMapComponent::autoMapRoundRobin()
     if (onStateChanged) onStateChanged();
 }
 
+void SampleMapComponent::saveSampleMapToFile()
+{
+    auto chooser = std::make_shared<juce::FileChooser>(
+        "Save Sample Map",
+        juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile("MySampleMap.xml"),
+        "*.xml;*.samplemap;*.owmap");
+
+    chooser->launchAsync(juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles | juce::FileBrowserComponent::warnAboutOverwriting,
+                         [this, chooser](const juce::FileChooser& fc) {
+        auto result = fc.getResult();
+        if (result == juce::File())
+            return;
+
+        if (result.getFileExtension().isEmpty())
+            result = result.withFileExtension("xml");
+
+        auto currentState = getState();
+        currentState.saveToFile(result);
+    });
+}
+
+void SampleMapComponent::loadSampleMapFromFile()
+{
+    auto chooser = std::make_shared<juce::FileChooser>(
+        "Load Sample Map",
+        juce::File::getSpecialLocation(juce::File::userDocumentsDirectory),
+        "*.xml;*.samplemap;*.owmap");
+
+    chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                         [this, chooser](const juce::FileChooser& fc) {
+        auto result = fc.getResult();
+        if (result.existsAsFile())
+        {
+            loadSampleMapFile(result);
+        }
+    });
+}
+
+bool SampleMapComponent::loadSampleMapFile(const juce::File& file)
+{
+    if (!file.existsAsFile())
+        return false;
+
+    auto newState = SampleMapState::loadFromFile(file);
+    if (newState.zones.empty() && !file.loadFileAsString().containsIgnoreCase("<SampleMap"))
+        return false;
+
+    setState(newState);
+    if (onStateChanged)
+        onStateChanged();
+    return true;
+}
+
 // ─────────────────────────────────────────────────────────
 //  Paint
 // ─────────────────────────────────────────────────────────
@@ -1405,25 +1475,29 @@ void SampleMapComponent::resized()
     auto topRow = area.removeFromTop(28);
     int gap = 5;
 
-    addSampleButton.setBounds(topRow.removeFromLeft(82));
+    addSampleButton.setBounds(topRow.removeFromLeft(78));
     topRow.removeFromLeft(gap);
-    autoMapPitchButton.setBounds(topRow.removeFromLeft(78));
+    autoMapPitchButton.setBounds(topRow.removeFromLeft(72));
     topRow.removeFromLeft(gap);
-    autoMapChromaticButton.setBounds(topRow.removeFromLeft(95));
+    autoMapChromaticButton.setBounds(topRow.removeFromLeft(88));
     topRow.removeFromLeft(gap);
-    autoMapVelButton.setBounds(topRow.removeFromLeft(88));
+    autoMapVelButton.setBounds(topRow.removeFromLeft(82));
     topRow.removeFromLeft(gap);
-    autoMapRRButton.setBounds(topRow.removeFromLeft(70));
+    autoMapRRButton.setBounds(topRow.removeFromLeft(66));
     topRow.removeFromLeft(gap);
-    clearMapButton.setBounds(topRow.removeFromLeft(70));
+    clearMapButton.setBounds(topRow.removeFromLeft(66));
     topRow.removeFromLeft(gap);
-    roundRobinButton.setBounds(topRow.removeFromLeft(88));
+    saveMapButton.setBounds(topRow.removeFromLeft(68));
     topRow.removeFromLeft(gap);
-    pitchTrackButton.setBounds(topRow.removeFromLeft(98));
+    loadMapButton.setBounds(topRow.removeFromLeft(68));
     topRow.removeFromLeft(gap);
-    oneShotButton.setBounds(topRow.removeFromLeft(95));
+    roundRobinButton.setBounds(topRow.removeFromLeft(82));
     topRow.removeFromLeft(gap);
-    loopButton.setBounds(topRow.removeFromLeft(75));
+    pitchTrackButton.setBounds(topRow.removeFromLeft(92));
+    topRow.removeFromLeft(gap);
+    oneShotButton.setBounds(topRow.removeFromLeft(88));
+    topRow.removeFromLeft(gap);
+    loopButton.setBounds(topRow.removeFromLeft(70));
 
     attackKnob.setVisible(false);
     attackLabel.setVisible(false);
@@ -1590,6 +1664,8 @@ void SampleMapComponent::buttonClicked(juce::Button* button)
     else if (button == &autoMapVelButton) autoMapVelocityLayers();
     else if (button == &autoMapRRButton) autoMapRoundRobin();
     else if (button == &clearMapButton) clearAllZones();
+    else if (button == &saveMapButton) saveSampleMapToFile();
+    else if (button == &loadMapButton) loadSampleMapFromFile();
 }
 
 bool SampleMapComponent::keyPressed(const juce::KeyPress& key)

@@ -156,6 +156,58 @@ struct SampleMapZoneState
         z.releaseMs = static_cast<float>(obj->getProperty("releaseMs"));
         return z;
     }
+
+    std::unique_ptr<juce::XmlElement> toXml() const
+    {
+        auto xml = std::make_unique<juce::XmlElement>("Zone");
+        xml->setAttribute("filePath", filePath);
+        xml->setAttribute("sampleName", sampleName);
+        xml->setAttribute("rootNote", rootNote);
+        xml->setAttribute("keyLow", keyLow);
+        xml->setAttribute("keyHigh", keyHigh);
+        xml->setAttribute("velLow", velLow);
+        xml->setAttribute("velHigh", velHigh);
+        xml->setAttribute("roundRobinIndex", roundRobinIndex);
+        xml->setAttribute("fineTuneCents", static_cast<double>(fineTuneCents));
+        xml->setAttribute("gainDb", static_cast<double>(gainDb));
+        xml->setAttribute("attackMs", static_cast<double>(attackMs));
+        xml->setAttribute("decayMs", static_cast<double>(decayMs));
+        xml->setAttribute("sustainLevel", static_cast<double>(sustainLevel));
+        xml->setAttribute("releaseMs", static_cast<double>(releaseMs));
+        return xml;
+    }
+
+    static SampleMapZoneState fromXml(const juce::XmlElement& xml, const juce::File& baseDir = {})
+    {
+        SampleMapZoneState z;
+        z.filePath = xml.getStringAttribute("filePath");
+        if (baseDir.exists() && !juce::File(z.filePath).existsAsFile())
+        {
+            auto relFile = baseDir.getChildFile(xml.getStringAttribute("relativePath", z.filePath));
+            if (relFile.existsAsFile())
+                z.filePath = relFile.getFullPathName();
+            else
+            {
+                auto directRel = baseDir.getChildFile(juce::File(z.filePath).getFileName());
+                if (directRel.existsAsFile())
+                    z.filePath = directRel.getFullPathName();
+            }
+        }
+        z.sampleName = xml.getStringAttribute("sampleName", juce::File(z.filePath).getFileName());
+        z.rootNote = xml.getIntAttribute("rootNote", 60);
+        z.keyLow = xml.getIntAttribute("keyLow", 48);
+        z.keyHigh = xml.getIntAttribute("keyHigh", 72);
+        z.velLow = xml.getIntAttribute("velLow", 0);
+        z.velHigh = xml.getIntAttribute("velHigh", 127);
+        z.roundRobinIndex = xml.getIntAttribute("roundRobinIndex", 1);
+        z.fineTuneCents = static_cast<float>(xml.getDoubleAttribute("fineTuneCents", 0.0));
+        z.gainDb = static_cast<float>(xml.getDoubleAttribute("gainDb", 0.0));
+        z.attackMs = static_cast<float>(xml.getDoubleAttribute("attackMs", 5.0));
+        z.decayMs = static_cast<float>(xml.getDoubleAttribute("decayMs", 100.0));
+        z.sustainLevel = static_cast<float>(xml.getDoubleAttribute("sustainLevel", 1.0));
+        z.releaseMs = static_cast<float>(xml.getDoubleAttribute("releaseMs", 200.0));
+        return z;
+    }
 };
 
 struct SampleMapState
@@ -206,6 +258,72 @@ struct SampleMapState
         if (obj->hasProperty("pitchTrackingEnabled")) s.pitchTrackingEnabled = static_cast<bool>(obj->getProperty("pitchTrackingEnabled"));
         if (obj->hasProperty("roundRobinMode")) s.roundRobinMode = static_cast<int>(obj->getProperty("roundRobinMode"));
         return s;
+    }
+
+    std::unique_ptr<juce::XmlElement> toXml(const juce::File& targetFile = {}) const
+    {
+        auto xml = std::make_unique<juce::XmlElement>("SampleMap");
+        xml->setAttribute("version", "1.0");
+        xml->setAttribute("globalAttackMs", static_cast<double>(globalAttackMs));
+        xml->setAttribute("globalDecayMs", static_cast<double>(globalDecayMs));
+        xml->setAttribute("globalSustainLevel", static_cast<double>(globalSustainLevel));
+        xml->setAttribute("globalReleaseMs", static_cast<double>(globalReleaseMs));
+        xml->setAttribute("samplerReverbAmount", static_cast<double>(samplerReverbAmount));
+        xml->setAttribute("pitchTrackingEnabled", pitchTrackingEnabled ? 1 : 0);
+        xml->setAttribute("roundRobinMode", roundRobinMode);
+
+        auto baseDir = targetFile.getParentDirectory();
+        for (const auto& z : zones)
+        {
+            auto zXml = z.toXml();
+            if (baseDir.exists())
+            {
+                juce::File zFile(z.filePath);
+                zXml->setAttribute("relativePath", zFile.getRelativePathFrom(baseDir));
+            }
+            xml->addChildElement(zXml.release());
+        }
+        return xml;
+    }
+
+    static SampleMapState fromXml(const juce::XmlElement& xml, const juce::File& sourceFile = {})
+    {
+        SampleMapState s;
+        if (!xml.hasTagName("SampleMap") && !xml.hasTagName("samplemap") && !xml.hasTagName("OpenWavSampleMap"))
+            return s;
+
+        s.globalAttackMs = static_cast<float>(xml.getDoubleAttribute("globalAttackMs", 5.0));
+        s.globalDecayMs = static_cast<float>(xml.getDoubleAttribute("decayMs", 100.0));
+        s.globalSustainLevel = static_cast<float>(xml.getDoubleAttribute("globalSustainLevel", 1.0));
+        s.globalReleaseMs = static_cast<float>(xml.getDoubleAttribute("globalReleaseMs", 200.0));
+        s.samplerReverbAmount = static_cast<float>(xml.getDoubleAttribute("samplerReverbAmount", 0.0));
+        s.pitchTrackingEnabled = xml.getBoolAttribute("pitchTrackingEnabled", true);
+        s.roundRobinMode = xml.getIntAttribute("roundRobinMode", 0);
+
+        auto baseDir = sourceFile.getParentDirectory();
+        for (auto* child : xml.getChildIterator())
+        {
+            if (child->hasTagName("Zone") || child->hasTagName("zone"))
+            {
+                s.zones.push_back(SampleMapZoneState::fromXml(*child, baseDir));
+            }
+        }
+        return s;
+    }
+
+    bool saveToFile(const juce::File& file) const
+    {
+        auto xml = toXml(file);
+        if (xml == nullptr) return false;
+        return xml->writeTo(file);
+    }
+
+    static SampleMapState loadFromFile(const juce::File& file)
+    {
+        if (!file.existsAsFile()) return {};
+        auto xml = juce::XmlDocument::parse(file);
+        if (xml == nullptr) return {};
+        return fromXml(*xml, file);
     }
 };
 

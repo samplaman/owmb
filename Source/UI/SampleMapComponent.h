@@ -86,6 +86,9 @@ public:
     void autoMapChromatic();
     void autoMapVelocityLayers();
     void autoMapRoundRobin();
+    void saveSampleMapToFile();
+    void loadSampleMapFromFile();
+    bool loadSampleMapFile(const juce::File& file);
 
     SampleMapState getState() const;
     void setState(const SampleMapState& state);
@@ -123,6 +126,8 @@ private:
     juce::TextButton autoMapVelButton { "Auto Velocity" };
     juce::TextButton autoMapRRButton { "Auto RR" };
     juce::TextButton clearMapButton { "Clear Map" };
+    juce::TextButton saveMapButton { "Save Map" };
+    juce::TextButton loadMapButton { "Load Map" };
     juce::TextButton roundRobinButton { "RR: Cycle" };
     juce::TextButton pitchTrackButton { "Pitch Track: ON" };
     juce::TextButton oneShotButton { "One Shot: OFF" };
