@@ -21,35 +21,55 @@ static int getRootNoteFromWavSmplHeader(const juce::File& file)
             if (stream.read(riffHead, 4) < 4 || std::memcmp(riffHead, "RIFF", 4) != 0)
                 return -1;
 
-            stream.skipNextBytes(4); // Skip size
+            stream.skipNextBytes(4); // Skip RIFF size
 
             char waveHead[4];
             if (stream.read(waveHead, 4) < 4 || std::memcmp(waveHead, "WAVE", 4) != 0)
                 return -1;
 
-            while (!stream.isExhausted())
+            int safetyCounter = 0;
+            while (!stream.isExhausted() && ++safetyCounter < 500)
             {
                 char chunkID[4];
                 if (stream.read(chunkID, 4) < 4)
                     break;
 
-                int64_t chunkSize = (uint32_t)stream.readInt();
+                uint8_t sizeBytes[4];
+                if (stream.read(sizeBytes, 4) < 4)
+                    break;
+
+                uint32_t chunkSize = static_cast<uint32_t>(sizeBytes[0]) |
+                                    (static_cast<uint32_t>(sizeBytes[1]) << 8) |
+                                    (static_cast<uint32_t>(sizeBytes[2]) << 16) |
+                                    (static_cast<uint32_t>(sizeBytes[3]) << 24);
 
                 if (std::memcmp(chunkID, "smpl", 4) == 0)
                 {
                     if (chunkSize >= 16)
                     {
                         stream.skipNextBytes(12);
-                        int32_t rootNote = stream.readInt();
-                        if (rootNote >= 0 && rootNote <= 127)
-                            return rootNote;
+                        if (stream.read(sizeBytes, 4) == 4)
+                        {
+                            int32_t rootNote = static_cast<int32_t>(
+                                static_cast<uint32_t>(sizeBytes[0]) |
+                                (static_cast<uint32_t>(sizeBytes[1]) << 8) |
+                                (static_cast<uint32_t>(sizeBytes[2]) << 16) |
+                                (static_cast<uint32_t>(sizeBytes[3]) << 24));
+                            if (rootNote >= 0 && rootNote <= 127)
+                                return rootNote;
+                        }
                     }
                     break;
                 }
                 else
                 {
-                    int64_t bytesToSkip = (chunkSize + 1) & ~1;
+                    int64_t bytesToSkip = (static_cast<int64_t>(chunkSize) + 1) & ~1;
+                    if (bytesToSkip <= 0)
+                        break;
+                    auto prevPos = stream.getPosition();
                     stream.skipNextBytes(bytesToSkip);
+                    if (stream.getPosition() <= prevPos)
+                        break;
                 }
             }
         }
@@ -773,6 +793,15 @@ void AudioEngine::preloadSampleFiles(const std::vector<juce::File>& files)
             if (!file.existsAsFile()) continue;
 
             juce::String filePath = file.getFullPathName();
+
+            {
+                const juce::ScopedLock sl(cacheLock);
+                auto it = sampleCache.find(filePath);
+                if (it != sampleCache.end() && it->second != nullptr && it->second->buffer.getNumSamples() > 0)
+                {
+                    continue;
+                }
+            }
 
             std::unique_ptr<juce::AudioFormatReader> reader(formatManager.createReaderFor(file));
             if (reader != nullptr && reader->lengthInSamples > 0 && reader->numChannels > 0)

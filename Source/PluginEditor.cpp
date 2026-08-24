@@ -641,6 +641,7 @@ void OpenWavAudioProcessorEditor::autoSliceToSamplerRequested(
   opts.escapeKeyTriggersCloseButton = true;
   opts.useNativeTitleBar = true;
   opts.resizable = false;
+  opts.componentToCentreAround = this;
 
   opts.launchAsync();
 }

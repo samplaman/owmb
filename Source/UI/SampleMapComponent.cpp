@@ -18,6 +18,11 @@ SampleMapComponent::SampleMapComponent(AudioEngine& engine)
     addAndMakeVisible(addSampleButton);
     addSampleButton.addListener(this);
 
+    addAndMakeVisible(deleteSelectedButton);
+    deleteSelectedButton.addListener(this);
+    deleteSelectedButton.setTooltip("Delete selected sample zones (or press Delete/Backspace)");
+    deleteSelectedButton.setColour(juce::TextButton::textColourOffId, OpenWavLookAndFeel::favoriteRed.brighter(0.2f));
+
     addAndMakeVisible(autoMapPitchButton);
     autoMapPitchButton.addListener(this);
 
@@ -121,6 +126,13 @@ SampleMapComponent::SampleMapComponent(AudioEngine& engine)
     setupSlider(sustainSlider, sustainTitle, "Sustain (%):", 0.0, 1.0, 0.01, 1.0);
     setupSlider(releaseSlider, releaseTitle, "Release (ms):", 0.0, 5000.0, 1.0, 200.0);
     setupSlider(reverbSlider, reverbTitle, "Reverb (%):", 0.0, 100.0, 1.0, 0.0);
+
+    inspectorDeleteButton.setColour(juce::TextButton::buttonColourId, OpenWavLookAndFeel::favoriteRed.darker(0.3f));
+    inspectorDeleteButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
+    inspectorDeleteButton.onClick = [this] {
+        deleteSelectedZones();
+    };
+    addChildComponent(inspectorDeleteButton);
 
     // ── ADSR Rotary Knobs (Top Bar beside Clear Map) ──
     auto setupKnob = [this](juce::Slider& s, juce::Label& lbl, const juce::String& text, double minV, double maxV, double stepV, double defV) {
@@ -399,36 +411,42 @@ juce::String SampleMapComponent::midiNoteToName(int noteNum) const
 
 int SampleMapComponent::parseRootNoteFromFilename(const juce::String& filename) const
 {
-    // Search for note patterns e.g. C3, F#2, Db4, A-1
-    std::string name = filename.toStdString();
-    std::regex noteRegex("([A-Ga-g])(#|b|s)?(-?[0-9])");
-    std::smatch match;
-
-    if (std::regex_search(name, match, noteRegex))
+    try
     {
-        std::string noteStr = match[1].str();
-        std::string accStr = match[2].str();
-        std::string octStr = match[3].str();
+        // Search for note patterns e.g. C3, F#2, Db4, A-1
+        std::string name = filename.toStdString();
+        std::regex noteRegex("([A-Ga-g])(#|b|s)?(-?[0-9]+)");
+        std::smatch match;
 
-        char noteChar = std::toupper(noteStr[0]);
-        int baseNote = 0;
-        switch (noteChar)
+        if (std::regex_search(name, match, noteRegex))
         {
-            case 'C': baseNote = 0; break;
-            case 'D': baseNote = 2; break;
-            case 'E': baseNote = 4; break;
-            case 'F': baseNote = 5; break;
-            case 'G': baseNote = 7; break;
-            case 'A': baseNote = 9; break;
-            case 'B': baseNote = 11; break;
+            std::string noteStr = match[1].str();
+            std::string accStr = match[2].str();
+            std::string octStr = match[3].str();
+
+            char noteChar = static_cast<char>(std::toupper(static_cast<unsigned char>(noteStr[0])));
+            int baseNote = 0;
+            switch (noteChar)
+            {
+                case 'C': baseNote = 0; break;
+                case 'D': baseNote = 2; break;
+                case 'E': baseNote = 4; break;
+                case 'F': baseNote = 5; break;
+                case 'G': baseNote = 7; break;
+                case 'A': baseNote = 9; break;
+                case 'B': baseNote = 11; break;
+            }
+
+            if (accStr == "#" || accStr == "s") baseNote += 1;
+            else if (accStr == "b") baseNote -= 1;
+
+            int octave = std::stoi(octStr);
+            int midiNote = (octave + 1) * 12 + baseNote;
+            return juce::jlimit(0, 127, midiNote);
         }
-
-        if (accStr == "#" || accStr == "s") baseNote += 1;
-        else if (accStr == "b") baseNote -= 1;
-
-        int octave = std::stoi(octStr);
-        int midiNote = (octave + 1) * 12 + baseNote;
-        return juce::jlimit(0, 127, midiNote);
+    }
+    catch (...)
+    {
     }
 
     return 60; // Default C4
@@ -436,12 +454,18 @@ int SampleMapComponent::parseRootNoteFromFilename(const juce::String& filename) 
 
 static int parseRoundRobinFromFilename(const juce::String& filename)
 {
-    std::string name = filename.toStdString();
-    std::regex rrRegex("(?i)(?:_|-|\\s)(?:rr|take|r)([1-9][0-9]?)");
-    std::smatch match;
-    if (std::regex_search(name, match, rrRegex))
+    try
     {
-        return std::stoi(match[1].str());
+        std::string name = filename.toStdString();
+        std::regex rrRegex("(?:_|-|\\s)(?:rr|take|r)([1-9][0-9]?)", std::regex_constants::icase);
+        std::smatch match;
+        if (std::regex_search(name, match, rrRegex))
+        {
+            return std::stoi(match[1].str());
+        }
+    }
+    catch (...)
+    {
     }
     return 1;
 }
@@ -463,6 +487,9 @@ void SampleMapComponent::addSample(const MediaItem& item)
 
     zones.push_back(z);
     selectedZoneIndex = static_cast<int>(zones.size()) - 1;
+    selectedZoneIndices.clear();
+    selectedZoneIndices.insert(selectedZoneIndex);
+
     juce::File itemFile(item.filePath);
     if (itemFile.existsAsFile())
     {
@@ -489,6 +516,9 @@ void SampleMapComponent::addSampleFile(const juce::File& file)
 
     zones.push_back(z);
     selectedZoneIndex = static_cast<int>(zones.size()) - 1;
+    selectedZoneIndices.clear();
+    selectedZoneIndices.insert(selectedZoneIndex);
+
     audioEngine.loadFile(file, false, true);
     resized();
     repaint();
@@ -533,6 +563,11 @@ void SampleMapComponent::sliceFileToZones(const juce::File& audioFile, const juc
             if (writer != nullptr)
             {
                 writer->writeFromAudioSampleBuffer(buffer, startSample, sliceLen);
+                writer.reset(); // Flush and close file handle immediately
+            }
+            else
+            {
+                delete rawStream;
             }
         }
 
@@ -774,6 +809,53 @@ void SampleMapComponent::deselectAllZones()
     repaint();
 }
 
+void SampleMapComponent::deleteSelectedZones()
+{
+    if (selectedZoneIndices.empty())
+    {
+        if (selectedZoneIndex >= 0 && selectedZoneIndex < static_cast<int>(zones.size()))
+        {
+            selectedZoneIndices.insert(selectedZoneIndex);
+        }
+        else
+        {
+            return;
+        }
+    }
+
+    std::vector<SampleMapZone> remainingZones;
+    for (int i = 0; i < static_cast<int>(zones.size()); ++i)
+    {
+        if (selectedZoneIndices.count(i) == 0)
+        {
+            remainingZones.push_back(zones[i]);
+        }
+    }
+
+    zones = std::move(remainingZones);
+    selectedZoneIndices.clear();
+
+    if (zones.empty())
+    {
+        selectedZoneIndex = -1;
+        audioEngine.clearMasterSample();
+    }
+    else
+    {
+        selectedZoneIndex = juce::jlimit(0, static_cast<int>(zones.size()) - 1, selectedZoneIndex);
+        selectedZoneIndices.insert(selectedZoneIndex);
+        juce::File f(zones[selectedZoneIndex].filePath);
+        if (f.existsAsFile())
+        {
+            audioEngine.loadFile(f, false, true);
+        }
+    }
+
+    resized();
+    repaint();
+    if (onStateChanged) onStateChanged();
+}
+
 void SampleMapComponent::clearAllZones()
 {
     zones.clear();
@@ -805,7 +887,21 @@ void SampleMapComponent::autoMapByPitch()
         zones[i].keyHigh = juce::jmax(zones[i].keyLow, zones[i].keyHigh);
     }
 
+    if (selectedZoneIndex >= 0 && selectedZoneIndex < static_cast<int>(zones.size()))
+    {
+        audioEngine.getKeyboardState().noteOn(1, zones[selectedZoneIndex].rootNote, 0.8f);
+    }
+    else if (!zones.empty())
+    {
+        selectedZoneIndex = 0;
+        selectedZoneIndices.clear();
+        selectedZoneIndices.insert(0);
+        audioEngine.getKeyboardState().noteOn(1, zones[0].rootNote, 0.8f);
+    }
+
+    resized();
     repaint();
+    if (onStateChanged) onStateChanged();
 }
 
 void SampleMapComponent::autoMapChromatic()
@@ -823,7 +919,21 @@ void SampleMapComponent::autoMapChromatic()
         currentKey = juce::jmin(127, currentKey + 1);
     }
 
+    if (selectedZoneIndex >= 0 && selectedZoneIndex < static_cast<int>(zones.size()))
+    {
+        audioEngine.getKeyboardState().noteOn(1, zones[selectedZoneIndex].rootNote, 0.8f);
+    }
+    else if (!zones.empty())
+    {
+        selectedZoneIndex = 0;
+        selectedZoneIndices.clear();
+        selectedZoneIndices.insert(0);
+        audioEngine.getKeyboardState().noteOn(1, zones[0].rootNote, 0.8f);
+    }
+
+    resized();
     repaint();
+    if (onStateChanged) onStateChanged();
 }
 
 void SampleMapComponent::autoMapVelocityLayers()
@@ -1437,6 +1547,44 @@ void SampleMapComponent::mouseDown(const juce::MouseEvent& e)
 
             if (zRect.expanded(edgeThreshold).contains(e.position))
             {
+                if (e.mods.isPopupMenu())
+                {
+                    if (!isZoneSelected(i) && !isMulti)
+                    {
+                        selectZone(i, false);
+                    }
+                    juce::PopupMenu menu;
+                    menu.addItem(1, "Delete Selected Zone(s)");
+                    menu.addSeparator();
+                    menu.addItem(2, "Auto Pitch Map");
+                    menu.addItem(3, "Auto Chromatic Map");
+                    menu.addItem(4, "Reveal in Finder");
+
+                    menu.showMenuAsync(juce::PopupMenu::Options().withMousePosition(), [this, z](int result) {
+                        if (result == 1)
+                        {
+                            deleteSelectedZones();
+                        }
+                        else if (result == 2)
+                        {
+                            autoMapByPitch();
+                        }
+                        else if (result == 3)
+                        {
+                            autoMapChromatic();
+                        }
+                        else if (result == 4)
+                        {
+                            juce::File f(z.filePath);
+                            if (f.existsAsFile())
+                            {
+                                f.revealToUser();
+                            }
+                        }
+                    });
+                    return;
+                }
+
                 if (isMulti)
                 {
                     if (isZoneSelected(i))
@@ -1466,6 +1614,8 @@ void SampleMapComponent::mouseDown(const juce::MouseEvent& e)
                 {
                     audioEngine.loadFile(fileToLoad, false, true);
                 }
+                auditionNote = z.rootNote;
+                audioEngine.getKeyboardState().noteOn(1, auditionNote, 0.8f);
 
                 float zoneW = zRect.getWidth();
                 float effectiveEdgeThreshold = (zoneW < 24.0f) ? std::min(3.0f, zoneW * 0.25f) : edgeThreshold;
@@ -1717,29 +1867,31 @@ void SampleMapComponent::resized()
 
     addSampleButton.setBounds(topRow.removeFromLeft(78));
     topRow.removeFromLeft(gap);
-    autoMapPitchButton.setBounds(topRow.removeFromLeft(72));
+    deleteSelectedButton.setBounds(topRow.removeFromLeft(96));
     topRow.removeFromLeft(gap);
-    autoMapChromaticButton.setBounds(topRow.removeFromLeft(88));
+    autoMapPitchButton.setBounds(topRow.removeFromLeft(70));
     topRow.removeFromLeft(gap);
-    autoMapVelButton.setBounds(topRow.removeFromLeft(82));
+    autoMapChromaticButton.setBounds(topRow.removeFromLeft(84));
     topRow.removeFromLeft(gap);
-    autoMapRRButton.setBounds(topRow.removeFromLeft(66));
+    autoMapVelButton.setBounds(topRow.removeFromLeft(78));
     topRow.removeFromLeft(gap);
-    clearMapButton.setBounds(topRow.removeFromLeft(66));
+    autoMapRRButton.setBounds(topRow.removeFromLeft(64));
     topRow.removeFromLeft(gap);
-    saveMapButton.setBounds(topRow.removeFromLeft(68));
+    clearMapButton.setBounds(topRow.removeFromLeft(64));
     topRow.removeFromLeft(gap);
-    loadMapButton.setBounds(topRow.removeFromLeft(68));
+    saveMapButton.setBounds(topRow.removeFromLeft(66));
     topRow.removeFromLeft(gap);
-    exportZipButton.setBounds(topRow.removeFromLeft(80));
+    loadMapButton.setBounds(topRow.removeFromLeft(66));
     topRow.removeFromLeft(gap);
-    roundRobinButton.setBounds(topRow.removeFromLeft(82));
+    exportZipButton.setBounds(topRow.removeFromLeft(78));
     topRow.removeFromLeft(gap);
-    pitchTrackButton.setBounds(topRow.removeFromLeft(92));
+    roundRobinButton.setBounds(topRow.removeFromLeft(78));
     topRow.removeFromLeft(gap);
-    oneShotButton.setBounds(topRow.removeFromLeft(88));
+    pitchTrackButton.setBounds(topRow.removeFromLeft(88));
     topRow.removeFromLeft(gap);
-    loopButton.setBounds(topRow.removeFromLeft(70));
+    oneShotButton.setBounds(topRow.removeFromLeft(84));
+    topRow.removeFromLeft(gap);
+    loopButton.setBounds(topRow.removeFromLeft(66));
 
     attackKnob.setVisible(false);
     attackLabel.setVisible(false);
@@ -1789,9 +1941,14 @@ void SampleMapComponent::resized()
         setupRow(sustainTitle, sustainSlider, z.sustainLevel);
         setupRow(releaseTitle, releaseSlider, z.releaseMs);
         setupRow(reverbTitle, reverbSlider, audioEngine.getSamplerReverbAmount() * 100.0f);
+
+        inspectorArea.removeFromTop(8);
+        inspectorDeleteButton.setVisible(true);
+        inspectorDeleteButton.setBounds(inspectorArea.removeFromTop(24).toNearestInt());
     }
     else
     {
+        inspectorDeleteButton.setVisible(false);
         sampleNameValue.setText("No Zone Selected", juce::dontSendNotification);
         sampleNameValue.setBounds(inspectorArea.removeFromTop(rowH).toNearestInt());
     }
@@ -1891,16 +2048,26 @@ void SampleMapComponent::buttonClicked(juce::Button* button)
         auto chooser = std::make_shared<juce::FileChooser>(
             "Select Audio Samples to Map",
             juce::File::getSpecialLocation(juce::File::userDesktopDirectory),
-            "*.wav;*.mp3;*.flac;*.aiff;*.aif;*.aifc;*.ogg");
+            "*.wav;*.mp3;*.flac;*.ogg;*.aif;*.aiff;*.aifc;*.WAV;*.MP3;*.FLAC;*.OGG;*.AIF;*.AIFF;*.AIFC",
+            true);
 
-        chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectMultipleItems, [this, chooser](const juce::FileChooser& fc) {
+        chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles | juce::FileBrowserComponent::canSelectMultipleItems, [this, chooser](const juce::FileChooser& fc) {
             auto results = fc.getResults();
+            if (results.isEmpty())
+            {
+                auto single = fc.getResult();
+                if (single.existsAsFile())
+                    results.add(single);
+            }
+            if (results.isEmpty()) return;
+
             for (const auto& file : results)
             {
                 addSampleFile(file);
             }
         });
     }
+    else if (button == &deleteSelectedButton) deleteSelectedZones();
     else if (button == &autoMapPitchButton) autoMapByPitch();
     else if (button == &autoMapChromaticButton) autoMapChromatic();
     else if (button == &autoMapVelButton) autoMapVelocityLayers();
@@ -1913,6 +2080,15 @@ void SampleMapComponent::buttonClicked(juce::Button* button)
 
 bool SampleMapComponent::keyPressed(const juce::KeyPress& key)
 {
+    if (key == juce::KeyPress::deleteKey || key == juce::KeyPress::backspaceKey)
+    {
+        if (!selectedZoneIndices.empty() || selectedZoneIndex >= 0)
+        {
+            deleteSelectedZones();
+            return true;
+        }
+    }
+
     if (selectedZoneIndices.empty())
         return false;
 

@@ -73,11 +73,15 @@ SliceConfigComponent::SliceConfigComponent(AudioEngine& engine, std::function<vo
     applyButton.setColour(juce::TextButton::buttonColourId, OpenWavLookAndFeel::accentCyan.darker(0.3f));
     applyButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
     applyButton.onClick = [this] {
-        if (onApplyCallback)
-        {
-            onApplyCallback(previewSliceRatios);
-        }
+        auto cb = onApplyCallback;
+        auto ratios = previewSliceRatios;
         closeWindow();
+        if (cb)
+        {
+            juce::MessageManager::callAsync([cb, ratios]() {
+                cb(ratios);
+            });
+        }
     };
 
     addAndMakeVisible(cancelButton);

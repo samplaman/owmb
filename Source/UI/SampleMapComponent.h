@@ -81,6 +81,7 @@ public:
     void autoSliceToSampler(const MediaItem& item, const std::vector<double>& customSliceRatios = {});
     void sliceLoadedSample(const std::vector<double>& sliceRatios);
     void sliceFileToZones(const juce::File& audioFile, const juce::AudioBuffer<float>& buffer, double sampleRate, const std::vector<double>& sliceRatios);
+    void deleteSelectedZones();
     void clearAllZones();
     void autoMapByPitch();
     void autoMapChromatic();
@@ -122,6 +123,7 @@ private:
 
     // Action Toolbar
     juce::TextButton addSampleButton { "Add Sample" };
+    juce::TextButton deleteSelectedButton { "Delete Selected" };
     juce::TextButton autoMapPitchButton { "Auto Pitch" };
     juce::TextButton autoMapChromaticButton { "Auto Chromatic" };
     juce::TextButton autoMapVelButton { "Auto Velocity" };
@@ -134,6 +136,8 @@ private:
     juce::TextButton pitchTrackButton { "Pitch Track: ON" };
     juce::TextButton oneShotButton { "One Shot: OFF" };
     juce::TextButton loopButton { "Loop: OFF" };
+
+    juce::TextButton inspectorDeleteButton { "Delete Selected Zone" };
 
     // ADSR Envelope Rotary Knobs (Top Bar beside Clear Map)
     juce::Label attackLabel { {}, "Attack" };
