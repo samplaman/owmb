@@ -125,7 +125,6 @@ SampleMapComponent::SampleMapComponent(AudioEngine& engine)
     setupSlider(decaySlider, decayTitle, "Decay (ms):", 0.0, 2000.0, 1.0, 100.0);
     setupSlider(sustainSlider, sustainTitle, "Sustain (%):", 0.0, 1.0, 0.01, 1.0);
     setupSlider(releaseSlider, releaseTitle, "Release (ms):", 0.0, 5000.0, 1.0, 200.0);
-    setupSlider(reverbSlider, reverbTitle, "Reverb (%):", 0.0, 100.0, 1.0, 0.0);
 
     inspectorDeleteButton.setColour(juce::TextButton::buttonColourId, OpenWavLookAndFeel::favoriteRed.darker(0.3f));
     inspectorDeleteButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
@@ -306,6 +305,7 @@ bool SampleMapComponent::isInterestedInFileDrag(const juce::StringArray& files)
             file.hasFileExtension("aif") || file.hasFileExtension("aifc") ||
             file.hasFileExtension("ogg") || file.hasFileExtension("xml") ||
             file.hasFileExtension("samplemap") || file.hasFileExtension("owmap") ||
+            file.hasFileExtension("dspreset") || file.hasFileExtension("dslibrary") ||
             file.hasFileExtension("zip"))
             return true;
     }
@@ -319,7 +319,9 @@ void SampleMapComponent::filesDropped(const juce::StringArray& files, int /*x*/,
         juce::File file(f);
         if (file.existsAsFile())
         {
-            if (file.hasFileExtension("xml") || file.hasFileExtension("samplemap") || file.hasFileExtension("owmap") || file.hasFileExtension("zip"))
+            if (file.hasFileExtension("xml") || file.hasFileExtension("samplemap") ||
+                file.hasFileExtension("owmap") || file.hasFileExtension("dspreset") ||
+                file.hasFileExtension("dslibrary") || file.hasFileExtension("zip"))
             {
                 if (loadSampleMapFile(file))
                     return;
@@ -342,7 +344,9 @@ void SampleMapComponent::itemDropped(const juce::DragAndDropTarget::SourceDetail
         juce::File file(description);
         if (file.existsAsFile())
         {
-            if (file.hasFileExtension("xml") || file.hasFileExtension("samplemap") || file.hasFileExtension("owmap") || file.hasFileExtension("zip"))
+            if (file.hasFileExtension("xml") || file.hasFileExtension("samplemap") ||
+                file.hasFileExtension("owmap") || file.hasFileExtension("dspreset") ||
+                file.hasFileExtension("dslibrary") || file.hasFileExtension("zip"))
             {
                 if (loadSampleMapFile(file))
                     return;
@@ -1026,7 +1030,7 @@ void SampleMapComponent::loadSampleMapFromFile()
     auto chooser = std::make_shared<juce::FileChooser>(
         "Load Sample Map",
         juce::File::getSpecialLocation(juce::File::userDocumentsDirectory),
-        "*.xml;*.samplemap;*.owmap;*.zip");
+        "*.xml;*.samplemap;*.owmap;*.dspreset;*.dslibrary;*.zip");
 
     chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
                          [this, chooser](const juce::FileChooser& fc) {
@@ -1043,7 +1047,7 @@ bool SampleMapComponent::loadSampleMapFile(const juce::File& file)
     if (!file.existsAsFile())
         return false;
 
-    if (file.hasFileExtension("zip"))
+    if (file.hasFileExtension("zip") || file.hasFileExtension("dslibrary"))
     {
         juce::File importBaseDir = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
                                         .getChildFile("OpenWav")
@@ -1060,27 +1064,61 @@ bool SampleMapComponent::loadSampleMapFile(const juce::File& file)
             zip.uncompressEntry(i, importBaseDir, true);
         }
 
-        juce::Array<juce::File> xmlFiles;
-        importBaseDir.findChildFiles(xmlFiles, juce::File::findFiles, true, "*.xml;*.samplemap;*.owmap");
-        if (xmlFiles.isEmpty())
+        juce::Array<juce::File> presetFiles;
+        importBaseDir.findChildFiles(presetFiles, juce::File::findFiles, true, "*.dspreset;*.xml;*.samplemap;*.owmap");
+        if (presetFiles.isEmpty())
             return false;
 
-        juce::File chosenXml = xmlFiles.getFirst();
-        for (const auto& xf : xmlFiles)
+        juce::File chosenPreset = presetFiles.getFirst();
+        juce::String baseName = file.getFileNameWithoutExtension();
+
+        bool foundMatch = false;
+        for (const auto& xf : presetFiles)
         {
-            if (xf.getFileName().equalsIgnoreCase("SampleMap.xml") ||
-                xf.getFileNameWithoutExtension().equalsIgnoreCase(file.getFileNameWithoutExtension()))
+            if (xf.hasFileExtension("dspreset") && xf.getFileNameWithoutExtension().equalsIgnoreCase(baseName))
             {
-                chosenXml = xf;
+                chosenPreset = xf;
+                foundMatch = true;
                 break;
             }
         }
 
-        return loadSampleMapFile(chosenXml);
+        if (!foundMatch)
+        {
+            for (const auto& xf : presetFiles)
+            {
+                if (xf.hasFileExtension("dspreset"))
+                {
+                    auto n = xf.getFileNameWithoutExtension();
+                    if (n.containsIgnoreCase(baseName) || n.containsIgnoreCase("main") || n.containsIgnoreCase("default"))
+                    {
+                        chosenPreset = xf;
+                        foundMatch = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (!foundMatch)
+        {
+            for (const auto& xf : presetFiles)
+            {
+                if (xf.hasFileExtension("dspreset"))
+                {
+                    chosenPreset = xf;
+                    break;
+                }
+            }
+        }
+
+        return loadSampleMapFile(chosenPreset);
     }
 
     auto newState = SampleMapState::loadFromFile(file);
-    if (newState.zones.empty() && !file.loadFileAsString().containsIgnoreCase("<SampleMap"))
+    if (newState.zones.empty() &&
+        !file.loadFileAsString().containsIgnoreCase("<SampleMap") &&
+        !file.loadFileAsString().containsIgnoreCase("<DecentSampler"))
         return false;
 
     setState(newState);
@@ -1940,7 +1978,6 @@ void SampleMapComponent::resized()
         setupRow(decayTitle, decaySlider, z.decayMs);
         setupRow(sustainTitle, sustainSlider, z.sustainLevel);
         setupRow(releaseTitle, releaseSlider, z.releaseMs);
-        setupRow(reverbTitle, reverbSlider, audioEngine.getSamplerReverbAmount() * 100.0f);
 
         inspectorArea.removeFromTop(8);
         inspectorDeleteButton.setVisible(true);
@@ -2029,13 +2066,6 @@ void SampleMapComponent::sliderValueChanged(juce::Slider* slider)
     else if (slider == &rrSlider) z.roundRobinIndex = static_cast<int>(rrSlider.getValue());
     else if (slider == &tuneSlider) z.fineTuneCents = static_cast<float>(tuneSlider.getValue());
     else if (slider == &gainSlider) z.gainDb = static_cast<float>(gainSlider.getValue());
-    else if (slider == &reverbSlider)
-    {
-        float val = static_cast<float>(reverbSlider.getValue() / 100.0f);
-        audioEngine.setSamplerReverbAmount(val);
-        repaint();
-        return;
-    }
 
     repaint();
     if (onStateChanged) onStateChanged();
@@ -2161,6 +2191,9 @@ SampleMapState SampleMapComponent::getState() const
     s.samplerReverbAmount = audioEngine.getSamplerReverbAmount();
     s.pitchTrackingEnabled = audioEngine.isPitchTrackingEnabled();
     s.roundRobinMode = roundRobinMode;
+    s.customUi = customUiState;
+    s.uiControls = customUiControls;
+    s.instrumentName = instrumentName;
     return s;
 }
 
@@ -2169,6 +2202,10 @@ void SampleMapComponent::setState(const SampleMapState& state)
     zones.clear();
     selectedZoneIndex = -1;
     selectedZoneIndices.clear();
+
+    customUiState = state.customUi;
+    customUiControls = state.uiControls;
+    instrumentName = state.instrumentName;
 
     for (const auto& zs : state.zones)
     {
@@ -2201,7 +2238,6 @@ void SampleMapComponent::setState(const SampleMapState& state)
     sustainKnob.setValue(globalSustainLevel, juce::dontSendNotification);
     releaseKnob.setValue(globalReleaseMs, juce::dontSendNotification);
 
-    reverbSlider.setValue(state.samplerReverbAmount, juce::dontSendNotification);
     audioEngine.setSamplerReverbAmount(state.samplerReverbAmount);
 
     audioEngine.setPitchTrackingEnabled(state.pitchTrackingEnabled);

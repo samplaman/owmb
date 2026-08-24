@@ -60,7 +60,7 @@ HeaderBarComponent::HeaderBarComponent(TagDatabaseManager& db, LibraryScanner& s
 
     btnAll.setToggleState(true, juce::dontSendNotification);
 
-    // View Switcher (List vs Cloud vs Library vs Record vs Analysis vs Edit vs Sample Map)
+    // View Switcher (List vs Cloud vs Library vs Record vs Analysis vs Edit vs Sample Map vs Play)
     btnListView.onClick = [this] { setViewMode(ViewMode::List); };
     btnCloudView.onClick = [this] { setViewMode(ViewMode::Cloud); };
     btnLibrariesView.onClick = [this] { setViewMode(ViewMode::Libraries); };
@@ -68,6 +68,7 @@ HeaderBarComponent::HeaderBarComponent(TagDatabaseManager& db, LibraryScanner& s
     btnAnalysisView.onClick = [this] { setViewMode(ViewMode::Analysis); };
     btnEditView.onClick = [this] { setViewMode(ViewMode::Edit); };
     btnSampleMapView.onClick = [this] { setViewMode(ViewMode::SampleMap); };
+    btnPlayView.onClick = [this] { setViewMode(ViewMode::Play); };
     addAndMakeVisible(btnListView);
     addAndMakeVisible(btnCloudView);
     addAndMakeVisible(btnLibrariesView);
@@ -75,6 +76,7 @@ HeaderBarComponent::HeaderBarComponent(TagDatabaseManager& db, LibraryScanner& s
     addAndMakeVisible(btnAnalysisView);
     addAndMakeVisible(btnEditView);
     addAndMakeVisible(btnSampleMapView);
+    addAndMakeVisible(btnPlayView);
     btnListView.setToggleState(true, juce::dontSendNotification);
 }
 
@@ -114,39 +116,41 @@ void HeaderBarComponent::resized()
     area.removeFromLeft(20);
 
     // 3. Dynamic Search Editor
-    int searchWidth = juce::jlimit(130, 180, (area.getWidth() - 1050) / 2 + 130);
+    int searchWidth = juce::jlimit(110, 160, (area.getWidth() - 1100) / 2 + 110);
     searchEditor.setBounds(area.removeFromLeft(searchWidth).withHeight(btnHeight));
-    area.removeFromLeft(10);
+    area.removeFromLeft(8);
 
     // 4. Format Filter Buttons (.WAV, .MP3, .FLAC, .OGG, .AIFF)
-    btnAll.setBounds(area.removeFromLeft(54).withHeight(btnHeight));
+    btnAll.setBounds(area.removeFromLeft(48).withHeight(btnHeight));
     area.removeFromLeft(gap);
-    btnWav.setBounds(area.removeFromLeft(64).withHeight(btnHeight));
+    btnWav.setBounds(area.removeFromLeft(58).withHeight(btnHeight));
     area.removeFromLeft(gap);
-    btnMp3.setBounds(area.removeFromLeft(64).withHeight(btnHeight));
+    btnMp3.setBounds(area.removeFromLeft(58).withHeight(btnHeight));
     area.removeFromLeft(gap);
-    btnFlac.setBounds(area.removeFromLeft(70).withHeight(btnHeight));
+    btnFlac.setBounds(area.removeFromLeft(64).withHeight(btnHeight));
     area.removeFromLeft(gap);
-    btnOgg.setBounds(area.removeFromLeft(64).withHeight(btnHeight));
+    btnOgg.setBounds(area.removeFromLeft(58).withHeight(btnHeight));
     area.removeFromLeft(gap);
-    btnAiff.setBounds(area.removeFromLeft(70).withHeight(btnHeight));
+    btnAiff.setBounds(area.removeFromLeft(64).withHeight(btnHeight));
 
-    area.removeFromLeft(10);
+    area.removeFromLeft(8);
 
-    // 5. View Mode Toggle (List, Cloud, Library, Record, Analysis, Edit, Sample Map)
-    btnListView.setBounds(area.removeFromLeft(62).withHeight(btnHeight));
+    // 5. View Mode Toggle (List, Cloud, Library, Record, Analysis, Edit, Sample Map, Play)
+    btnListView.setBounds(area.removeFromLeft(56).withHeight(btnHeight));
     area.removeFromLeft(gap);
-    btnCloudView.setBounds(area.removeFromLeft(72).withHeight(btnHeight));
+    btnCloudView.setBounds(area.removeFromLeft(64).withHeight(btnHeight));
     area.removeFromLeft(gap);
-    btnLibrariesView.setBounds(area.removeFromLeft(82).withHeight(btnHeight));
+    btnLibrariesView.setBounds(area.removeFromLeft(72).withHeight(btnHeight));
     area.removeFromLeft(gap);
-    btnRecordView.setBounds(area.removeFromLeft(78).withHeight(btnHeight));
+    btnRecordView.setBounds(area.removeFromLeft(68).withHeight(btnHeight));
     area.removeFromLeft(gap);
-    btnAnalysisView.setBounds(area.removeFromLeft(88).withHeight(btnHeight));
+    btnAnalysisView.setBounds(area.removeFromLeft(76).withHeight(btnHeight));
     area.removeFromLeft(gap);
-    btnEditView.setBounds(area.removeFromLeft(62).withHeight(btnHeight));
+    btnEditView.setBounds(area.removeFromLeft(56).withHeight(btnHeight));
     area.removeFromLeft(gap);
-    btnSampleMapView.setBounds(area.removeFromLeft(106).withHeight(btnHeight));
+    btnSampleMapView.setBounds(area.removeFromLeft(96).withHeight(btnHeight));
+    area.removeFromLeft(gap);
+    btnPlayView.setBounds(area.removeFromLeft(62).withHeight(btnHeight));
 }
 
 void HeaderBarComponent::textEditorTextChanged(juce::TextEditor& editor)
@@ -196,6 +200,7 @@ void HeaderBarComponent::setViewMode(ViewMode mode)
     btnAnalysisView.setToggleState(mode == ViewMode::Analysis, juce::dontSendNotification);
     btnEditView.setToggleState(mode == ViewMode::Edit, juce::dontSendNotification);
     btnSampleMapView.setToggleState(mode == ViewMode::SampleMap, juce::dontSendNotification);
+    btnPlayView.setToggleState(mode == ViewMode::Play, juce::dontSendNotification);
 
     listeners.call([mode](HeaderBarListener& l) {
         l.viewModeChanged(mode);

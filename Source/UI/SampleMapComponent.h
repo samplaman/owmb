@@ -118,6 +118,9 @@ private:
 
     AudioEngine& audioEngine;
     std::vector<SampleMapZone> zones;
+    DecentSamplerUiState customUiState;
+    std::vector<DecentSamplerUiControl> customUiControls;
+    juce::String instrumentName;
     int selectedZoneIndex { -1 };
     int roundRobinMode { 0 }; // 0 = Cycle, 1 = Random, 2 = Off
 
@@ -181,8 +184,6 @@ private:
     juce::Slider sustainSlider;
     juce::Label releaseTitle { {}, "Release (ms):" };
     juce::Slider releaseSlider;
-    juce::Label reverbTitle { {}, "Reverb (%):" };
-    juce::Slider reverbSlider;
 
     bool isZoneSelected(int index) const { return selectedZoneIndices.count(index) > 0; }
     void selectZone(int index, bool addToSelection = false);

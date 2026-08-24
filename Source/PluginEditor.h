@@ -22,6 +22,7 @@
 #include "UI/EditComponent.h"
 #include "UI/SampleMapComponent.h"
 #include "UI/SliceConfigComponent.h"
+#include "UI/PlayComponent.h"
 
 namespace openwav
 {
@@ -131,6 +132,7 @@ private:
     AnalysisComponent analysisComponent;
     EditComponent editComponent;
     SampleMapComponent sampleMapComponent;
+    PlayComponent playComponent;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(OpenWavAudioProcessorEditor)
 };

@@ -6,6 +6,7 @@
  #include <juce_audio_basics/juce_audio_basics.h>
  #include <juce_audio_formats/juce_audio_formats.h>
  #include <juce_audio_utils/juce_audio_utils.h>
+ #include <juce_dsp/juce_dsp.h>
 #endif
 #include <atomic>
 #include <future>
@@ -62,6 +63,8 @@ struct AudioVoice
     double bufferSampleRate { 0.0 };
     bool isZoneVoice { false };
     bool isOneShot { false };
+    int groupIndex { 0 };
+    float pan { 0.0f };
 };
 
 struct CachedSample
@@ -90,6 +93,8 @@ struct RealtimeVoiceSlot
     bool isZoneVoice { false };
     bool isOneShot { false };
     bool isMetronome { false };
+    int groupIndex { 0 };
+    float pan { 0.0f };
 };
 
 enum class EngineCommandType : int
@@ -116,12 +121,14 @@ struct EngineCommand
     EngineCommandType type { EngineCommandType::None };
     int intVal1 { 0 };
     int intVal2 { 0 };
+    int intVal3 { 0 };
     float floatVal1 { 0.0f };
     float floatVal2 { 0.0f };
     float floatVal3 { 0.0f };
     float floatVal4 { 0.0f };
     float floatVal5 { 0.0f };
     float floatVal6 { 0.0f };
+    float floatVal7 { 0.0f };
     double doubleVal1 { 0.0 };
     double doubleVal2 { 1.0 };
     bool boolVal1 { false };
@@ -134,6 +141,7 @@ class AudioEngine : public juce::ChangeListener, public juce::Timer
 public:
     static constexpr int MaxActiveVoices = 32;
     static constexpr int CommandQueueCapacity = 256;
+    static constexpr int MaxGroups = 32;
 
     AudioEngine();
     ~AudioEngine() override;
@@ -153,9 +161,96 @@ public:
     void putSampleInCache(const juce::String& filePath, double sampleRate, const juce::AudioBuffer<float>& buf);
     bool getCachedSampleCopy(const juce::String& filePath, juce::AudioBuffer<float>& destBuffer, double& sampleRate) const;
     void playZoneVoice(const juce::File& file, int triggerMidiNote, int rootNote, float fineTuneCents, float gainDb, float velocity = 1.0f,
-                       float attackSec = 0.005f, float decaySec = 0.1f, float sustainLevel = 1.0f, float releaseSec = 0.2f, bool isOneShot = false, bool isLooping = false);
+                       float attackSec = 0.005f, float decaySec = 0.1f, float sustainLevel = 1.0f, float releaseSec = 0.2f, bool isOneShot = false, bool isLooping = false,
+                       int groupIndex = 0, float pan = 0.0f);
+
+    // Algorithmic Reverb
     void setSamplerReverbAmount(float amount) { samplerReverbAmount.store(juce::jlimit(0.0f, 1.0f, amount), std::memory_order_relaxed); }
     float getSamplerReverbAmount() const { return samplerReverbAmount.load(std::memory_order_relaxed); }
+
+    // Impulse Response (IR) Convolution Reverb
+    void loadImpulseResponseFile(const juce::File& irFile);
+    void setSamplerIrReverbAmount(float wet) { irReverbAmount.store(juce::jlimit(0.0f, 1.0f, wet), std::memory_order_relaxed); }
+    float getSamplerIrReverbAmount() const { return irReverbAmount.load(std::memory_order_relaxed); }
+    void setSamplerIrReverbDryLevel(float dry) { irReverbDryLevel.store(juce::jlimit(0.0f, 1.0f, dry), std::memory_order_relaxed); }
+    float getSamplerIrReverbDryLevel() const { return irReverbDryLevel.load(std::memory_order_relaxed); }
+
+    // Delay
+    void setSamplerDelay(float timeMs, float feedback, float wet)
+    {
+        samplerDelayTimeMs.store(juce::jlimit(1.0f, 2000.0f, timeMs), std::memory_order_relaxed);
+        samplerDelayFeedback.store(juce::jlimit(0.0f, 0.95f, feedback), std::memory_order_relaxed);
+        samplerDelayWetLevel.store(juce::jlimit(0.0f, 1.0f, wet), std::memory_order_relaxed);
+    }
+    void setSamplerDelayTimeMs(float ms) { samplerDelayTimeMs.store(juce::jlimit(1.0f, 2000.0f, ms), std::memory_order_relaxed); }
+    float getSamplerDelayTimeMs() const { return samplerDelayTimeMs.load(std::memory_order_relaxed); }
+    void setSamplerDelayFeedback(float fb) { samplerDelayFeedback.store(juce::jlimit(0.0f, 0.95f, fb), std::memory_order_relaxed); }
+    float getSamplerDelayFeedback() const { return samplerDelayFeedback.load(std::memory_order_relaxed); }
+    void setSamplerDelayWetLevel(float wet) { samplerDelayWetLevel.store(juce::jlimit(0.0f, 1.0f, wet), std::memory_order_relaxed); }
+    float getSamplerDelayWetLevel() const { return samplerDelayWetLevel.load(std::memory_order_relaxed); }
+
+    // Chorus
+    void setSamplerChorus(float rateHz, float depth, float wet)
+    {
+        samplerChorusRate.store(juce::jlimit(0.1f, 20.0f, rateHz), std::memory_order_relaxed);
+        samplerChorusDepth.store(juce::jlimit(0.0f, 1.0f, depth), std::memory_order_relaxed);
+        samplerChorusWet.store(juce::jlimit(0.0f, 1.0f, wet), std::memory_order_relaxed);
+    }
+    void setSamplerChorusRate(float rateHz) { samplerChorusRate.store(juce::jlimit(0.1f, 20.0f, rateHz), std::memory_order_relaxed); }
+    float getSamplerChorusRate() const { return samplerChorusRate.load(std::memory_order_relaxed); }
+    void setSamplerChorusDepth(float depth) { samplerChorusDepth.store(juce::jlimit(0.0f, 1.0f, depth), std::memory_order_relaxed); }
+    float getSamplerChorusDepth() const { return samplerChorusDepth.load(std::memory_order_relaxed); }
+    void setSamplerChorusWet(float wet) { samplerChorusWet.store(juce::jlimit(0.0f, 1.0f, wet), std::memory_order_relaxed); }
+    float getSamplerChorusWet() const { return samplerChorusWet.load(std::memory_order_relaxed); }
+
+    // LFO Modulation Controls
+    void setLfoFrequency(float hz) { lfoFrequency.store(juce::jlimit(0.01f, 50.0f, hz), std::memory_order_relaxed); }
+    float getLfoFrequency() const { return lfoFrequency.load(std::memory_order_relaxed); }
+    void setLfoAmount(float amt) { lfoAmount.store(juce::jlimit(0.0f, 1.0f, amt), std::memory_order_relaxed); }
+    float getLfoAmount() const { return lfoAmount.load(std::memory_order_relaxed); }
+    void setLfoShape(int shape) { lfoShape.store(juce::jlimit(0, 4, shape), std::memory_order_relaxed); }
+    int getLfoShape() const { return lfoShape.load(std::memory_order_relaxed); }
+    void setLfoTarget(int target) { lfoTarget.store(juce::jlimit(0, 3, target), std::memory_order_relaxed); }
+    int getLfoTarget() const { return lfoTarget.load(std::memory_order_relaxed); }
+    void setLfoShapeByName(const juce::String& shape);
+    void setLfoTargetByName(const juce::String& target);
+    void setLfoTargetName(const juce::String& name) { lfoTargetName = name; }
+    juce::String getLfoTargetName() const { return lfoTargetName; }
+    float getCurrentLfoOutput() const { return currentLfoOutput.load(std::memory_order_relaxed); }
+
+    // MIDI CC & Real-time Mod Controls
+    void setMidiModWheel(float amount) { midiModWheelAmount.store(juce::jlimit(0.0f, 1.0f, amount), std::memory_order_relaxed); }
+    float getMidiModWheel() const { return midiModWheelAmount.load(std::memory_order_relaxed); }
+    void setMidiExpression(float amount) { midiExpressionAmount.store(juce::jlimit(0.0f, 1.0f, amount), std::memory_order_relaxed); }
+    float getMidiExpression() const { return midiExpressionAmount.load(std::memory_order_relaxed); }
+    void setPitchBendSemis(float semitones) { midiPitchBendSemis.store(juce::jlimit(-24.0f, 24.0f, semitones), std::memory_order_relaxed); }
+    float getPitchBendSemis() const { return midiPitchBendSemis.load(std::memory_order_relaxed); }
+
+    // Group Controls
+    void setGroupVolumeDb(int groupIdx, float gainDb);
+    float getGroupVolumeDb(int groupIdx) const;
+    void setGroupPan(int groupIdx, float pan);
+    float getGroupPan(int groupIdx) const;
+    void setGroupTuningCents(int groupIdx, float cents);
+    float getGroupTuningCents(int groupIdx) const;
+    void setGroupMuted(int groupIdx, bool muted);
+    bool getGroupMuted(int groupIdx) const;
+    void resetAllGroups();
+
+    void setSamplerLowpassCutoff(float cutoffHz) { samplerLowpassCutoff.store(juce::jlimit(20.0f, 22000.0f, cutoffHz), std::memory_order_relaxed); }
+    float getSamplerLowpassCutoff() const { return samplerLowpassCutoff.load(std::memory_order_relaxed); }
+
+    void setSamplerHighpassCutoff(float cutoffHz) { samplerHighpassCutoff.store(juce::jlimit(10.0f, 20000.0f, cutoffHz), std::memory_order_relaxed); }
+    float getSamplerHighpassCutoff() const { return samplerHighpassCutoff.load(std::memory_order_relaxed); }
+
+    void setSamplerTone(float tone) {
+        float tNorm = juce::jlimit(0.0f, 1.0f, tone);
+        samplerTone.store(tNorm, std::memory_order_relaxed);
+        float cutoff = 300.0f * std::pow(22000.0f / 300.0f, tNorm);
+        setSamplerLowpassCutoff(cutoff);
+    }
+    float getSamplerTone() const { return samplerTone.load(std::memory_order_relaxed); }
+
     void setPitchTrackingEnabled(bool enabled);
     bool isPitchTrackingEnabled() const { return pitchTrackingEnabled.load(std::memory_order_relaxed); }
     void setOneShotEnabled(bool enabled);
@@ -347,14 +442,61 @@ private:
     juce::Reverb reverbDSP;
     juce::Reverb::Parameters reverbParams;
     std::atomic<float> samplerReverbAmount { 0.0f };
+    std::atomic<float> samplerLowpassCutoff { 22000.0f };
+    std::atomic<float> samplerHighpassCutoff { 10.0f };
+    std::atomic<float> samplerTone { 1.0f };
     std::atomic<bool> pitchTrackingEnabled { true };
     std::atomic<bool> oneShotEnabled { false };
     std::atomic<bool> isLoadedInSampler { false };
+
+    // IR Convolution Reverb
+    juce::dsp::Convolution irConvolution;
+    juce::AudioBuffer<float> irProcessBuffer;
+    std::atomic<float> irReverbAmount { 0.0f };
+    std::atomic<float> irReverbDryLevel { 1.0f };
+    std::atomic<bool> irLoaded { false };
+    juce::String currentLoadedIrPath;
+    int reverbTailSamplesRemaining { 0 };
+
+    // Delay & Chorus
+    juce::AudioBuffer<float> delayBuffer;
+    int delayBufferWritePos { 0 };
+    std::atomic<float> samplerDelayTimeMs { 250.0f };
+    std::atomic<float> samplerDelayFeedback { 0.0f };
+    std::atomic<float> samplerDelayWetLevel { 0.0f };
+
+    std::atomic<float> samplerChorusRate { 1.0f };
+    std::atomic<float> samplerChorusDepth { 0.0f };
+    std::atomic<float> samplerChorusWet { 0.0f };
+    double chorusPhase { 0.0 };
+
+    // LFO Modulation State
+    std::atomic<float> lfoFrequency { 1.0f };
+    std::atomic<float> lfoAmount { 0.0f };
+    std::atomic<int> lfoShape { 0 };
+    std::atomic<int> lfoTarget { 0 };
+    std::atomic<float> currentLfoOutput { 0.0f };
+    juce::String lfoTargetName { "cutoff" };
+    std::atomic<float> midiModWheelAmount { 0.0f };
+    std::atomic<float> midiExpressionAmount { 1.0f };
+    std::atomic<float> midiPitchBendSemis { 0.0f };
+    double lfoPhase { 0.0 };
+    float lastRandomLfoVal { 0.0f };
+    double lastRandomLfoPhase { 0.0 };
+
+    // Group Real-Time States
+    std::array<std::atomic<float>, MaxGroups> groupVolumesDb;
+    std::array<std::atomic<float>, MaxGroups> groupPans;
+    std::array<std::atomic<float>, MaxGroups> groupTuningsCents;
+    std::array<std::atomic<bool>, MaxGroups> groupMutes;
 
     struct BiquadState
     {
         float x1 { 0.0f }, x2 { 0.0f }, y1 { 0.0f }, y2 { 0.0f };
     };
+
+    BiquadState samplerLpState[2];
+    BiquadState samplerHpState[2];
 
     std::array<std::atomic<float>, 9> eqFreqs;
     std::array<std::atomic<float>, 9> eqGains;

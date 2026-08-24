@@ -19,7 +19,8 @@ enum class ViewMode
     Record,
     Analysis,
     Edit,
-    SampleMap
+    SampleMap,
+    Play
 };
 
 class HeaderBarListener
@@ -94,6 +95,7 @@ private:
     juce::TextButton btnAnalysisView { "Analysis" };
     juce::TextButton btnEditView { "Edit" };
     juce::TextButton btnSampleMapView { "Sample Map" };
+    juce::TextButton btnPlayView { "Play" };
 
     juce::String activeFormat { "All" };
     ViewMode currentViewMode { ViewMode::List };

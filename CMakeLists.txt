@@ -116,6 +116,10 @@ target_sources(OpenWav PRIVATE
     Source/UI/SampleMapComponent.cpp
     Source/UI/SliceConfigComponent.h
     Source/UI/SliceConfigComponent.cpp
+    Source/UI/DecentSamplerCanvasComponent.h
+    Source/UI/DecentSamplerCanvasComponent.cpp
+    Source/UI/PlayComponent.h
+    Source/UI/PlayComponent.cpp
     Source/Network/MobileSyncManager.h
     Source/Network/MobileSyncManager.cpp
     Source/UI/StudioIcons.h

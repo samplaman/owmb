@@ -49,7 +49,8 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
       scanProgressDialog(p.getLibraryScanner()),
       mobileTransferDialog(p.getAudioEngine(), p.getDatabaseManager(),
                            p.getLibraryScanner()),
-      editComponent(p.getAudioEngine()), sampleMapComponent(p.getAudioEngine()) {
+      editComponent(p.getAudioEngine()), sampleMapComponent(p.getAudioEngine()),
+      playComponent(p.getAudioEngine()) {
   bool isDark = audioProcessor.getDatabaseManager().isDarkMode();
   juce::String savedColourHex =
       audioProcessor.getDatabaseManager().getPrimaryColourHex();
@@ -79,6 +80,7 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
   addChildComponent(analysisComponent);
   addChildComponent(editComponent);
   addChildComponent(sampleMapComponent);
+  addChildComponent(playComponent);
   addAndMakeVisible(waveformTransport);
 
   setResizable(true, true);
@@ -103,7 +105,22 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
   };
 
   sampleMapComponent.onStateChanged = [this] {
+    playComponent.setState(sampleMapComponent.getState());
     saveStateToProcessor();
+  };
+
+  playComponent.onStateChanged = [this](const SampleMapState& s) {
+    sampleMapComponent.setState(s);
+    saveStateToProcessor();
+  };
+
+  playComponent.onOpenSampleMapRequested = [this] {
+    headerBar.setViewMode(ViewMode::SampleMap);
+  };
+
+  playComponent.onLoadPresetRequested = [this] {
+    sampleMapComponent.loadSampleMapFromFile();
+    playComponent.setState(sampleMapComponent.getState());
   };
 
   waveformTransport.onSlicesGenerated = [this](const std::vector<double>& /*ratios*/) {
@@ -242,6 +259,7 @@ void OpenWavAudioProcessorEditor::resized() {
     analysisComponent.setVisible(false);
     editComponent.setVisible(false);
     sampleMapComponent.setVisible(false);
+    playComponent.setVisible(false);
     waveformTransport.setVisible(false);
     return;
   }
@@ -266,6 +284,7 @@ void OpenWavAudioProcessorEditor::resized() {
   analysisComponent.setVisible(false);
   editComponent.setVisible(false);
   sampleMapComponent.setVisible(false);
+  playComponent.setVisible(false);
 
   if (mode == ViewMode::Cloud) {
     sampleCloud.setVisible(true);
@@ -286,6 +305,9 @@ void OpenWavAudioProcessorEditor::resized() {
   } else if (mode == ViewMode::SampleMap) {
     sampleMapComponent.setVisible(true);
     sampleMapComponent.setBounds(area);
+  } else if (mode == ViewMode::Play) {
+    playComponent.setVisible(true);
+    playComponent.setBounds(area);
   } else // ViewMode::List
   {
     sampleTable.setVisible(true);
@@ -716,6 +738,9 @@ void OpenWavAudioProcessorEditor::viewModeChanged(ViewMode mode) {
   if (mode == ViewMode::Cloud || mode == ViewMode::List) {
     triggerFilterUpdate();
   }
+  if (mode == ViewMode::Play) {
+    playComponent.setState(sampleMapComponent.getState());
+  }
   if (mode == ViewMode::Edit) {
     auto currentFile = audioProcessor.getAudioEngine().getCurrentFile();
     if (currentFile.existsAsFile()) {
@@ -938,9 +963,10 @@ void OpenWavAudioProcessorEditor::restoreStateFromProcessor() {
   // 5. Restore Sub-components state
   editComponent.setState(s.edit);
   sampleMapComponent.setState(s.sampleMap);
+  playComponent.setState(s.sampleMap);
 
   // 6. Restore View Mode
-  if (s.currentViewMode >= 0 && s.currentViewMode <= 6) {
+  if (s.currentViewMode >= 0 && s.currentViewMode <= 7) {
     auto mode = static_cast<ViewMode>(s.currentViewMode);
     headerBar.setViewMode(mode);
   }
