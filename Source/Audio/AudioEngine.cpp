@@ -100,6 +100,8 @@ AudioEngine::AudioEngine()
 
     delayBuffer.setSize(2, 96000, false, true, false);
     delayBuffer.clear();
+    chorusBuffer.setSize(2, 9600, false, true, false);
+    chorusBuffer.clear();
 
     resetAllGroups();
 
@@ -142,6 +144,11 @@ void AudioEngine::prepareToPlay(double sampleRate, int samplesPerBlock)
 
         delayBuffer.setSize(2, static_cast<int>(sampleRate * 2.5), false, true, false);
         delayBuffer.clear();
+        delayBufferWritePos = 0;
+
+        chorusBuffer.setSize(2, static_cast<int>(sampleRate * 0.1), false, true, false);
+        chorusBuffer.clear();
+        chorusBufferWritePos = 0;
 
         irProcessBuffer.setSize(2, samplesPerBlock > 0 ? samplesPerBlock : 512, false, true, false);
         irProcessBuffer.clear();
@@ -281,7 +288,17 @@ void AudioEngine::drainCommandsOnAudioThread()
 
                     auto& slot = voicePool[targetSlot];
                     slot.sample = cmd.sampleData;
-                    slot.readPosition = 0.0;
+                    slot.sampleStartOffset = cmd.int64Val1;
+                    slot.sampleEndOffset = cmd.int64Val2;
+                    slot.loopStartOffset = cmd.int64Val3;
+                    slot.loopEndOffset = cmd.int64Val4;
+
+                    int voiceLen = cmd.sampleData->buffer.getNumSamples();
+                    int64_t startPos = cmd.int64Val1;
+                    if (startPos < 0) startPos = 0;
+                    if (startPos >= voiceLen) startPos = 0;
+
+                    slot.readPosition = static_cast<double>(startPos);
                     slot.startRatio = 0.0;
                     slot.endRatio = 1.0;
                     slot.isLooping = cmd.boolVal1;
@@ -307,10 +324,10 @@ void AudioEngine::drainCommandsOnAudioThread()
                     slot.gain = cmd.floatVal2;
 
                     juce::ADSR::Parameters adsrParams;
-                    adsrParams.attack = cmd.floatVal3;
-                    adsrParams.decay = cmd.floatVal4;
-                    adsrParams.sustain = cmd.floatVal5;
-                    adsrParams.release = cmd.floatVal6;
+                    adsrParams.attack = juce::jmax(0.001f, cmd.floatVal3);
+                    adsrParams.decay = juce::jmax(0.001f, cmd.floatVal4);
+                    adsrParams.sustain = juce::jlimit(0.0f, 1.0f, cmd.floatVal5);
+                    adsrParams.release = juce::jmax(0.001f, cmd.floatVal6);
                     slot.adsr.setSampleRate(engineSr);
                     slot.adsr.setParameters(adsrParams);
                     slot.adsr.noteOn();
@@ -452,10 +469,10 @@ void AudioEngine::startPlaybackInternal(double startRatio)
     slot.gain = 1.0f;
 
     juce::ADSR::Parameters defaultAdsr;
-    defaultAdsr.attack = 0.005f;
-    defaultAdsr.decay = 0.1f;
-    defaultAdsr.sustain = 1.0f;
-    defaultAdsr.release = 0.05f;
+    defaultAdsr.attack = samplerAttackSec.load(std::memory_order_relaxed);
+    defaultAdsr.decay = samplerDecaySec.load(std::memory_order_relaxed);
+    defaultAdsr.sustain = samplerSustainLevel.load(std::memory_order_relaxed);
+    defaultAdsr.release = samplerReleaseSec.load(std::memory_order_relaxed);
     slot.adsr.setSampleRate(engineSr);
     slot.adsr.setParameters(defaultAdsr);
     slot.adsr.noteOn();
@@ -713,9 +730,10 @@ void AudioEngine::processNextAudioBlock(juce::AudioBuffer<float>& outputBuffer, 
     float lfoOut = lfoVal * lfoAmt;
     currentLfoOutput.store(lfoOut, std::memory_order_relaxed);
 
-    float lfoPitchOffsetSemis = (lfoTgt == 0) ? (lfoOut * 2.0f) : 0.0f;
-    float lfoVolMul = (lfoTgt == 1) ? juce::jlimit(0.0f, 2.0f, 1.0f + lfoOut * 0.9f) : 1.0f;
-    float lfoPanOffset = (lfoTgt == 2) ? (lfoOut * 0.8f) : 0.0f;
+    // LFO is stored in currentLfoOutput for control/parameter modulation. It does not corrupt audio playback directly.
+    float lfoPitchOffsetSemis = 0.0f;
+    float lfoVolMul = 1.0f;
+    float lfoPanOffset = 0.0f;
 
     bool ptEnabled = pitchTrackingEnabled.load(std::memory_order_relaxed);
 
@@ -732,7 +750,7 @@ void AudioEngine::processNextAudioBlock(juce::AudioBuffer<float>& outputBuffer, 
         int voiceChannels = voiceBuf.getNumChannels();
         int voiceLength = voiceBuf.getNumSamples();
         if (voiceChannels == 0 || voiceLength == 0)
-            {
+        {
             slot.active = false;
             continue;
         }
@@ -746,18 +764,38 @@ void AudioEngine::processNextAudioBlock(juce::AudioBuffer<float>& outputBuffer, 
         {
             float grpTune = groupTuningsCents[grpIdx].load(std::memory_order_relaxed);
             float netFineTune = slot.fineTuneCents + grpTune;
-            double semitoneDiff = (ptEnabled ? (slot.triggerMidiNote - slot.rootNote) : 0.0) + pitchBend + (netFineTune / 100.0) + lfoPitchOffsetSemis;
+            double semitoneDiff = (ptEnabled ? (slot.triggerMidiNote - slot.rootNote) : 0.0) + pitchBend + (netFineTune / 100.0);
             double srRatio = (slot.bufferSampleRate > 0.0 && engineSr > 0.0) ? (slot.bufferSampleRate / engineSr) : 1.0;
             ratio = srRatio * std::pow(2.0, semitoneDiff / 12.0);
         }
-        else if (lfoTgt == 0 && std::abs(lfoPitchOffsetSemis) > 0.0001f)
+
+        int startSample = 0;
+        int endSample = voiceLength;
+
+        if (slot.isZoneVoice && (slot.sampleStartOffset > 0 || slot.sampleEndOffset > 0))
         {
-            ratio = baseRatio * std::pow(2.0, lfoPitchOffsetSemis / 12.0);
+            startSample = static_cast<int>(juce::jlimit<int64_t>(0, voiceLength - 1, slot.sampleStartOffset));
+            if (slot.sampleEndOffset > slot.sampleStartOffset && slot.sampleEndOffset <= voiceLength)
+                endSample = static_cast<int>(slot.sampleEndOffset);
+            else
+                endSample = voiceLength;
+        }
+        else
+        {
+            startSample = static_cast<int>(slot.startRatio * voiceLength);
+            endSample = static_cast<int>(slot.endRatio * voiceLength);
+            if (endSample <= startSample) endSample = voiceLength;
         }
 
-        int startSample = static_cast<int>(slot.startRatio * voiceLength);
-        int endSample = static_cast<int>(slot.endRatio * voiceLength);
-        if (endSample <= startSample) endSample = voiceLength;
+        if (slot.isLooping)
+        {
+            if (slot.loopEndOffset > slot.loopStartOffset && slot.loopEndOffset <= voiceLength)
+            {
+                startSample = static_cast<int>(slot.loopStartOffset);
+                endSample = static_cast<int>(slot.loopEndOffset);
+            }
+        }
+
         int loopLen = endSample - startSample;
 
         // Smooth crossfade length (up to 50ms) to ensure seamless, click-free loop wrap-around
@@ -776,7 +814,7 @@ void AudioEngine::processNextAudioBlock(juce::AudioBuffer<float>& outputBuffer, 
         float grpGainMul = std::pow(10.0f, grpGainDb / 20.0f);
 
         float grpPan = slot.isZoneVoice ? groupPans[grpIdx].load(std::memory_order_relaxed) : 0.0f;
-        float netPan = juce::jlimit(-1.0f, 1.0f, slot.pan + grpPan + lfoPanOffset);
+        float netPan = juce::jlimit(-1.0f, 1.0f, slot.pan + grpPan);
         float panAngle = (netPan + 1.0f) * 0.25f * juce::MathConstants<float>::pi;
         float leftPanGain = std::cos(panAngle);
         float rightPanGain = std::sin(panAngle);
@@ -981,35 +1019,83 @@ void AudioEngine::processNextAudioBlock(juce::AudioBuffer<float>& outputBuffer, 
         }
     }
 
+    // Manage effects tail: keep effects processing for ~4s after voices stop
+    if (hasActiveVoices)
+    {
+        reverbTailSamplesRemaining = static_cast<int>(engineSr * 4.0);
+    }
+    bool processEffectsTail = hasActiveVoices || reverbTailSamplesRemaining > 0;
+    if (!hasActiveVoices && reverbTailSamplesRemaining > 0)
+    {
+        reverbTailSamplesRemaining -= numSamples;
+    }
+
     // 7. Process Chorus Effect
     float chWet = samplerChorusWet.load(std::memory_order_relaxed);
     float chDepth = samplerChorusDepth.load(std::memory_order_relaxed);
-    if (chWet > 0.001f && chDepth > 0.001f && hasActiveVoices && outputBuffer.getNumChannels() >= 2 && delayBuffer.getNumSamples() > 1000)
+    if (chWet > 0.001f && processEffectsTail && chorusBuffer.getNumSamples() > 500)
     {
         float chRate = samplerChorusRate.load(std::memory_order_relaxed);
-        int dLen = delayBuffer.getNumSamples();
+        int cLen = chorusBuffer.getNumSamples();
         double phaseInc = (static_cast<double>(chRate) / engineSr);
+        int numChans = std::min(2, outputBuffer.getNumChannels());
+        float effDepth = (chDepth > 0.001f) ? chDepth : 0.5f;
 
         for (int s = 0; s < numSamples; ++s)
         {
             chorusPhase = std::fmod(chorusPhase + phaseInc, 1.0);
+            if (chorusPhase < 0.0) chorusPhase += 1.0;
+
+            // Stereo modulation: Left uses sine, Right uses cosine (90 deg quadrature phase offset)
             float modL = static_cast<float>(std::sin(2.0 * juce::MathConstants<double>::pi * chorusPhase));
             float modR = static_cast<float>(std::cos(2.0 * juce::MathConstants<double>::pi * chorusPhase));
 
-            float delaySamplesL = (0.015f + 0.005f * modL * chDepth) * static_cast<float>(engineSr);
-            float delaySamplesR = (0.018f + 0.005f * modR * chDepth) * static_cast<float>(engineSr);
+            // Delay time between ~12ms and ~28ms
+            float delaySecL = 0.018f + 0.007f * modL * effDepth;
+            float delaySecR = 0.022f + 0.007f * modR * effDepth;
 
-            int rIdxL = (delayBufferWritePos - static_cast<int>(delaySamplesL) + dLen) % dLen;
-            int rIdxR = (delayBufferWritePos - static_cast<int>(delaySamplesR) + dLen) % dLen;
+            float delaySamplesL = delaySecL * static_cast<float>(engineSr);
+            float delaySamplesR = delaySecR * static_cast<float>(engineSr);
 
-            float chSampleL = delayBuffer.getSample(0, rIdxL);
-            float chSampleR = delayBuffer.getSample(1, rIdxR);
+            // Write dry input samples to chorus ring buffer first
+            for (int ch = 0; ch < numChans; ++ch)
+            {
+                chorusBuffer.setSample(ch, chorusBufferWritePos, outputBuffer.getSample(ch, s));
+            }
+            if (numChans == 1 && chorusBuffer.getNumChannels() >= 2)
+            {
+                chorusBuffer.setSample(1, chorusBufferWritePos, outputBuffer.getSample(0, s));
+            }
+
+            // Read interpolated samples from chorus buffer
+            auto readInterpolated = [&](int ch, float delaySmp) -> float {
+                int srcCh = std::min(ch, chorusBuffer.getNumChannels() - 1);
+                float rPos = static_cast<float>(chorusBufferWritePos) - delaySmp;
+                while (rPos < 0.0f) rPos += static_cast<float>(cLen);
+                while (rPos >= static_cast<float>(cLen)) rPos -= static_cast<float>(cLen);
+
+                int idx0 = static_cast<int>(rPos);
+                int idx1 = (idx0 + 1) % cLen;
+                float frac = rPos - static_cast<float>(idx0);
+
+                float s0 = chorusBuffer.getSample(srcCh, idx0);
+                float s1 = chorusBuffer.getSample(srcCh, idx1);
+                return s0 + frac * (s1 - s0);
+            };
+
+            float chSampleL = readInterpolated(0, delaySamplesL);
+            float chSampleR = readInterpolated(1, delaySamplesR);
 
             float* outL = outputBuffer.getWritePointer(0);
-            float* outR = outputBuffer.getWritePointer(1);
+            outL[s] = outL[s] * (1.0f - chWet * 0.4f) + chSampleL * chWet;
 
-            outL[s] = outL[s] * (1.0f - chWet * 0.5f) + chSampleL * chWet;
-            outR[s] = outR[s] * (1.0f - chWet * 0.5f) + chSampleR * chWet;
+            if (numChans >= 2)
+            {
+                float* outR = outputBuffer.getWritePointer(1);
+                outR[s] = outR[s] * (1.0f - chWet * 0.4f) + chSampleR * chWet;
+            }
+
+            chorusBufferWritePos = (chorusBufferWritePos + 1) % cLen;
         }
     }
 
@@ -1017,41 +1103,34 @@ void AudioEngine::processNextAudioBlock(juce::AudioBuffer<float>& outputBuffer, 
     float delWet = samplerDelayWetLevel.load(std::memory_order_relaxed);
     float delFb = samplerDelayFeedback.load(std::memory_order_relaxed);
     float delTime = samplerDelayTimeMs.load(std::memory_order_relaxed);
-    if ((delWet > 0.001f || chWet > 0.001f) && delayBuffer.getNumSamples() > 1000)
+    if ((delWet > 0.001f || delFb > 0.001f) && processEffectsTail && delayBuffer.getNumSamples() > 1000)
     {
         int dLen = delayBuffer.getNumSamples();
         int delSamples = juce::jlimit(1, dLen - 1, static_cast<int>((delTime / 1000.0f) * engineSr));
+        int numChans = std::min(2, outputBuffer.getNumChannels());
 
         for (int s = 0; s < numSamples; ++s)
         {
             int readIdx = (delayBufferWritePos - delSamples + dLen) % dLen;
 
-            for (int ch = 0; ch < std::min(2, outputBuffer.getNumChannels()); ++ch)
+            for (int ch = 0; ch < numChans; ++ch)
             {
                 float inSmp = outputBuffer.getSample(ch, s);
                 float delayedSmp = delayBuffer.getSample(ch, readIdx);
 
-                delayBuffer.setSample(ch, delayBufferWritePos, inSmp + delayedSmp * delFb);
+                // Soft clip / tame feedback to prevent explosion
+                float nextBufferVal = inSmp + std::tanh(delayedSmp * delFb);
+                delayBuffer.setSample(ch, delayBufferWritePos, nextBufferVal);
 
                 if (delWet > 0.001f)
                 {
-                    outputBuffer.setSample(ch, s, inSmp * (1.0f - delWet * 0.3f) + delayedSmp * delWet);
+                    float outSmp = inSmp * (1.0f - delWet * 0.25f) + delayedSmp * delWet;
+                    outputBuffer.setSample(ch, s, outSmp);
                 }
             }
 
             delayBufferWritePos = (delayBufferWritePos + 1) % dLen;
         }
-    }
-
-    // Manage reverb tail: keep effects processing for ~3s after voices stop
-    if (hasActiveVoices)
-    {
-        reverbTailSamplesRemaining = static_cast<int>(engineSr * 3.0);
-    }
-    bool processEffectsTail = hasActiveVoices || reverbTailSamplesRemaining > 0;
-    if (!hasActiveVoices && reverbTailSamplesRemaining > 0)
-    {
-        reverbTailSamplesRemaining -= numSamples;
     }
 
     // 9. Process Algorithmic Reverb DSP on Sampler output
@@ -1202,11 +1281,24 @@ void AudioEngine::loadImpulseResponseFile(const juce::File& irFile)
 
 void AudioEngine::preloadSampleFiles(const std::vector<juce::File>& files)
 {
-    std::thread([this, files]() {
-        for (const auto& file : files)
+    std::vector<juce::File> uniqueFiles;
+    for (const auto& file : files)
+    {
+        if (!file.existsAsFile()) continue;
+        auto path = file.getFullPathName();
+        if (std::find_if(uniqueFiles.begin(), uniqueFiles.end(), [&](const juce::File& u) {
+            return u.getFullPathName() == path;
+        }) == uniqueFiles.end())
         {
-            if (!file.existsAsFile()) continue;
+            uniqueFiles.push_back(file);
+        }
+    }
 
+    if (uniqueFiles.empty()) return;
+
+    std::thread([this, uniqueFiles]() {
+        for (const auto& file : uniqueFiles)
+        {
             juce::String filePath = file.getFullPathName();
 
             {
@@ -1229,7 +1321,6 @@ void AudioEngine::preloadSampleFiles(const std::vector<juce::File>& files)
                 reader->read(&cached->buffer, 0, static_cast<int>(reader->lengthInSamples), 0, true, true);
 
                 const juce::ScopedLock sl(cacheLock);
-                if (sampleCache.size() > 200) sampleCache.clear();
                 sampleCache[filePath] = cached;
             }
         }
@@ -1239,7 +1330,6 @@ void AudioEngine::preloadSampleFiles(const std::vector<juce::File>& files)
 void AudioEngine::putSampleInCache(const juce::String& filePath, double sampleRate, const juce::AudioBuffer<float>& buf)
 {
     const juce::ScopedLock sl(cacheLock);
-    if (sampleCache.size() > 200) sampleCache.clear();
     auto cached = std::make_shared<CachedSample>();
     cached->sampleRate = sampleRate;
     cached->buffer.makeCopyOf(buf);
@@ -1261,8 +1351,9 @@ bool AudioEngine::getCachedSampleCopy(const juce::String& filePath, juce::AudioB
 }
 
 void AudioEngine::playZoneVoice(const juce::File& file, int triggerMidiNote, int rootNote, float fineTuneCents, float gainDb, float velocity,
-                               float attackSec, float decaySec, float sustainLevel, float releaseSec, bool isOneShot, bool isLooping,
-                               int groupIndex, float pan)
+                                float attackSec, float decaySec, float sustainLevel, float releaseSec, bool isOneShot, bool isLooping,
+                                int groupIndex, float pan,
+                                int64_t sampleStart, int64_t sampleEnd, int64_t loopStart, int64_t loopEnd)
 {
     juce::String filePath = file.getFullPathName();
     if (filePath.isEmpty()) return;
@@ -1292,7 +1383,6 @@ void AudioEngine::playZoneVoice(const juce::File& file, int triggerMidiNote, int
         reader->read(&cached->buffer, 0, static_cast<int>(reader->lengthInSamples), 0, true, true);
 
         const juce::ScopedLock sl(cacheLock);
-        if (sampleCache.size() > 200) sampleCache.clear();
         sampleCache[filePath] = cached;
     }
 
@@ -1311,6 +1401,10 @@ void AudioEngine::playZoneVoice(const juce::File& file, int triggerMidiNote, int
     cmd.floatVal5 = sustainLevel;
     cmd.floatVal6 = releaseSec;
     cmd.floatVal7 = pan;
+    cmd.int64Val1 = sampleStart;
+    cmd.int64Val2 = sampleEnd;
+    cmd.int64Val3 = loopStart;
+    cmd.int64Val4 = loopEnd;
     cmd.boolVal1 = isLooping;
     cmd.boolVal2 = isOneShot || oneShotEnabled.load(std::memory_order_relaxed);
     pushCommand(cmd);

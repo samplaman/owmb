@@ -57,6 +57,22 @@ SampleMapComponent::SampleMapComponent(AudioEngine& engine)
     };
     addAndMakeVisible(roundRobinButton);
 
+    rrFilterComboBox.setColour(juce::ComboBox::backgroundColourId, juce::Colour(0xFF262930));
+    rrFilterComboBox.setColour(juce::ComboBox::textColourId, juce::Colours::white);
+    rrFilterComboBox.setColour(juce::ComboBox::outlineColourId, juce::Colour(0xFF3E4450));
+    rrFilterComboBox.setColour(juce::ComboBox::arrowColourId, OpenWavLookAndFeel::accentCyan);
+    rrFilterComboBox.setTooltip("Filter visible sample zones by Round Robin group / layer");
+    rrFilterComboBox.onChange = [this] {
+        int id = rrFilterComboBox.getSelectedId();
+        if (id <= 1)
+            selectedRRFilter = 0; // All RR Groups
+        else
+            selectedRRFilter = id - 1; // 1-based RR index
+        repaint();
+    };
+    addAndMakeVisible(rrFilterComboBox);
+    updateRRFilterOptions();
+
     pitchTrackButton.setClickingTogglesState(true);
     bool ptEnabled = audioEngine.isPitchTrackingEnabled();
     pitchTrackButton.setToggleState(ptEnabled, juce::dontSendNotification);
@@ -220,7 +236,6 @@ void SampleMapComponent::handleNoteOn(juce::MidiKeyboardState*, int /*midiChanne
         );
         recentHitDots.push_back({ midiNoteNumber, velInt, now });
 
-        juce::File fileToLoad;
         for (size_t i = 0; i < zones.size(); ++i)
         {
             const auto& z = zones[i];
@@ -229,24 +244,14 @@ void SampleMapComponent::handleNoteOn(juce::MidiKeyboardState*, int /*midiChanne
                 selectedZoneIndex = static_cast<int>(i);
                 selectedZoneIndices.clear();
                 selectedZoneIndices.insert(static_cast<int>(i));
-
-                if (z.filePath.isNotEmpty())
-                    fileToLoad = juce::File(z.filePath);
                 break;
             }
         }
 
-        juce::MessageManager::callAsync([this, fileToLoad] {
+        juce::MessageManager::callAsync([this] {
             if (!isTimerRunning())
                 startTimerHz(30);
 
-            if (fileToLoad.existsAsFile())
-            {
-                if (audioEngine.getCurrentFile() != fileToLoad)
-                {
-                    audioEngine.loadFile(fileToLoad, false, true);
-                }
-            }
             resized();
             repaint();
         });
@@ -516,9 +521,13 @@ void SampleMapComponent::addSampleFile(const juce::File& file)
     z.keyHigh = z.rootNote;
     z.velLow = 0;
     z.velHigh = 127;
-    z.roundRobinIndex = parseRoundRobinFromFilename(file.getFileName());
+    int parsedRR = parseRoundRobinFromFilename(file.getFileName());
+    if (parsedRR <= 1 && selectedRRFilter > 0)
+        parsedRR = selectedRRFilter;
+    z.roundRobinIndex = parsedRR;
 
     zones.push_back(z);
+    updateRRFilterOptions();
     selectedZoneIndex = static_cast<int>(zones.size()) - 1;
     selectedZoneIndices.clear();
     selectedZoneIndices.insert(selectedZoneIndex);
@@ -855,6 +864,7 @@ void SampleMapComponent::deleteSelectedZones()
         }
     }
 
+    updateRRFilterOptions();
     resized();
     repaint();
     if (onStateChanged) onStateChanged();
@@ -865,7 +875,14 @@ void SampleMapComponent::clearAllZones()
     zones.clear();
     selectedZoneIndex = -1;
     selectedZoneIndices.clear();
+    baseState = SampleMapState();
+    customUiState = DecentSamplerUiState();
+    customUiControls.clear();
+    instrumentName = "";
     audioEngine.clearMasterSample();
+    audioEngine.stopAllVoices();
+    audioEngine.resetAllGroups();
+    updateRRFilterOptions();
     resized();
     repaint();
     if (onStateChanged) onStateChanged();
@@ -999,6 +1016,7 @@ void SampleMapComponent::autoMapRoundRobin()
         }
     }
 
+    updateRRFilterOptions();
     resized();
     repaint();
     if (onStateChanged) onStateChanged();
@@ -1115,11 +1133,27 @@ bool SampleMapComponent::loadSampleMapFile(const juce::File& file)
         return loadSampleMapFile(chosenPreset);
     }
 
+    auto validation = SampleMapState::validateDecentSamplerXml(file);
+    if (!validation.isValid)
+    {
+        juce::AlertWindow::showMessageBoxAsync(
+            juce::AlertWindow::WarningIcon,
+            "Invalid Preset XML",
+            "Could not parse " + file.getFileName() + ":\n" + validation.errorMessage);
+        return false;
+    }
+
     auto newState = SampleMapState::loadFromFile(file);
-    if (newState.zones.empty() &&
+    if (newState.zones.empty() && !validation.hasUi &&
         !file.loadFileAsString().containsIgnoreCase("<SampleMap") &&
         !file.loadFileAsString().containsIgnoreCase("<DecentSampler"))
+    {
+        juce::AlertWindow::showMessageBoxAsync(
+            juce::AlertWindow::WarningIcon,
+            "Empty Preset",
+            "No sample zones found in " + file.getFileName());
         return false;
+    }
 
     setState(newState);
     if (onStateChanged)
@@ -1383,6 +1417,8 @@ void SampleMapComponent::paintZoneGrid(juce::Graphics& g, juce::Rectangle<float>
     // Draw mapped zones
     for (size_t i = 0; i < zones.size(); ++i)
     {
+        if (!isZoneVisible(static_cast<int>(i)))
+            continue;
         const auto& z = zones[i];
         float x1 = xForNoteNumber(z.keyLow, inner);
         float x2 = xForNoteNumber(z.keyHigh + 1, inner);
@@ -1575,6 +1611,8 @@ void SampleMapComponent::mouseDown(const juce::MouseEvent& e)
 
         for (int i = static_cast<int>(zones.size()) - 1; i >= 0; --i)
         {
+            if (!isZoneVisible(i))
+                continue;
             const auto& z = zones[i];
             float x1 = xForNoteNumber(z.keyLow, inner);
             float x2 = xForNoteNumber(z.keyHigh + 1, inner);
@@ -1705,6 +1743,8 @@ void SampleMapComponent::mouseMove(const juce::MouseEvent& e)
 
     for (int i = static_cast<int>(zones.size()) - 1; i >= 0; --i)
     {
+        if (!isZoneVisible(i))
+            continue;
         const auto& z = zones[i];
         float x1 = xForNoteNumber(z.keyLow, inner);
         float x2 = xForNoteNumber(z.keyHigh + 1, inner);
@@ -1925,6 +1965,8 @@ void SampleMapComponent::resized()
     topRow.removeFromLeft(gap);
     roundRobinButton.setBounds(topRow.removeFromLeft(78));
     topRow.removeFromLeft(gap);
+    rrFilterComboBox.setBounds(topRow.removeFromLeft(110));
+    topRow.removeFromLeft(gap);
     pitchTrackButton.setBounds(topRow.removeFromLeft(88));
     topRow.removeFromLeft(gap);
     oneShotButton.setBounds(topRow.removeFromLeft(84));
@@ -2063,7 +2105,11 @@ void SampleMapComponent::sliderValueChanged(juce::Slider* slider)
     else if (slider == &keyHighSlider) z.keyHigh = juce::jmax(z.keyLow, static_cast<int>(keyHighSlider.getValue()));
     else if (slider == &velLowSlider) z.velLow = juce::jmin(z.velHigh, static_cast<int>(velLowSlider.getValue()));
     else if (slider == &velHighSlider) z.velHigh = juce::jmax(z.velLow, static_cast<int>(velHighSlider.getValue()));
-    else if (slider == &rrSlider) z.roundRobinIndex = static_cast<int>(rrSlider.getValue());
+    else if (slider == &rrSlider)
+    {
+        z.roundRobinIndex = static_cast<int>(rrSlider.getValue());
+        updateRRFilterOptions();
+    }
     else if (slider == &tuneSlider) z.fineTuneCents = static_cast<float>(tuneSlider.getValue());
     else if (slider == &gainSlider) z.gainDb = static_cast<float>(gainSlider.getValue());
 
@@ -2164,7 +2210,8 @@ bool SampleMapComponent::keyPressed(const juce::KeyPress& key)
 
 SampleMapState SampleMapComponent::getState() const
 {
-    SampleMapState s;
+    SampleMapState s = baseState;
+    s.zones.clear();
     for (const auto& z : zones)
     {
         SampleMapZoneState zs;
@@ -2189,6 +2236,12 @@ SampleMapState SampleMapComponent::getState() const
     s.globalSustainLevel = globalSustainLevel;
     s.globalReleaseMs = globalReleaseMs;
     s.samplerReverbAmount = audioEngine.getSamplerReverbAmount();
+    s.delayTimeMs = audioEngine.getSamplerDelayTimeMs();
+    s.delayFeedback = audioEngine.getSamplerDelayFeedback();
+    s.delayWetLevel = audioEngine.getSamplerDelayWetLevel();
+    s.chorusRateHz = audioEngine.getSamplerChorusRate();
+    s.chorusDepth = audioEngine.getSamplerChorusDepth();
+    s.chorusWetLevel = audioEngine.getSamplerChorusWet();
     s.pitchTrackingEnabled = audioEngine.isPitchTrackingEnabled();
     s.roundRobinMode = roundRobinMode;
     s.customUi = customUiState;
@@ -2199,6 +2252,7 @@ SampleMapState SampleMapComponent::getState() const
 
 void SampleMapComponent::setState(const SampleMapState& state)
 {
+    baseState = state;
     zones.clear();
     selectedZoneIndex = -1;
     selectedZoneIndices.clear();
@@ -2239,6 +2293,8 @@ void SampleMapComponent::setState(const SampleMapState& state)
     releaseKnob.setValue(globalReleaseMs, juce::dontSendNotification);
 
     audioEngine.setSamplerReverbAmount(state.samplerReverbAmount);
+    audioEngine.setSamplerDelay(state.delayTimeMs, state.delayFeedback, state.delayWetLevel);
+    audioEngine.setSamplerChorus(state.chorusRateHz, state.chorusDepth, state.chorusWetLevel);
 
     audioEngine.setPitchTrackingEnabled(state.pitchTrackingEnabled);
     pitchTrackButton.setToggleState(state.pitchTrackingEnabled, juce::dontSendNotification);
@@ -2246,6 +2302,11 @@ void SampleMapComponent::setState(const SampleMapState& state)
 
     roundRobinMode = state.roundRobinMode;
     roundRobinButton.setButtonText(roundRobinMode == 0 ? "RR: Cycle" : (roundRobinMode == 1 ? "RR: Random" : "RR: OFF"));
+
+    int maxRR = 1;
+    for (const auto& z : zones)
+        maxRR = std::max(maxRR, z.roundRobinIndex);
+    rrSlider.setRange(1, std::max(8, maxRR), 1);
 
     if (!zones.empty())
     {
@@ -2273,8 +2334,53 @@ void SampleMapComponent::setState(const SampleMapState& state)
         }
     }
 
+    updateRRFilterOptions();
     resized();
     repaint();
+}
+
+void SampleMapComponent::updateRRFilterOptions()
+{
+    int currentSelectedId = rrFilterComboBox.getSelectedId();
+    rrFilterComboBox.clear(juce::dontSendNotification);
+    rrFilterComboBox.addItem("All RR Groups", 1);
+
+    std::map<int, int> rrCounts;
+    for (const auto& z : zones)
+    {
+        int rr = std::max(1, z.roundRobinIndex);
+        rrCounts[rr]++;
+    }
+
+    if (rrCounts.empty())
+    {
+        rrCounts[1] = 0;
+    }
+
+    for (const auto& pair : rrCounts)
+    {
+        juce::String name = "RR " + juce::String(pair.first);
+        if (pair.second > 0)
+            name += " (" + juce::String(pair.second) + ")";
+        rrFilterComboBox.addItem(name, pair.first + 1);
+    }
+
+    if (selectedRRFilter > 0 && rrCounts.find(selectedRRFilter) != rrCounts.end())
+        rrFilterComboBox.setSelectedId(selectedRRFilter + 1, juce::dontSendNotification);
+    else
+    {
+        selectedRRFilter = 0;
+        rrFilterComboBox.setSelectedId(1, juce::dontSendNotification);
+    }
+}
+
+bool SampleMapComponent::isZoneVisible(int zoneIndex) const
+{
+    if (zoneIndex < 0 || zoneIndex >= static_cast<int>(zones.size()))
+        return false;
+    if (selectedRRFilter <= 0)
+        return true;
+    return zones[zoneIndex].roundRobinIndex == selectedRRFilter;
 }
 
 } // namespace openwav

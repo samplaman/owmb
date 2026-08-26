@@ -117,6 +117,7 @@ private:
     void paintZoneGrid(juce::Graphics& g, juce::Rectangle<float> area) const;
 
     AudioEngine& audioEngine;
+    SampleMapState baseState;
     std::vector<SampleMapZone> zones;
     DecentSamplerUiState customUiState;
     std::vector<DecentSamplerUiControl> customUiControls;
@@ -136,6 +137,10 @@ private:
     juce::TextButton loadMapButton { "Load Map" };
     juce::TextButton exportZipButton { "Export ZIP" };
     juce::TextButton roundRobinButton { "RR: Cycle" };
+    juce::ComboBox rrFilterComboBox;
+    int selectedRRFilter { 0 }; // 0 = All RR Groups, 1 = RR 1, 2 = RR 2, ...
+    void updateRRFilterOptions();
+    bool isZoneVisible(int zoneIndex) const;
     juce::TextButton pitchTrackButton { "Pitch Track: ON" };
     juce::TextButton oneShotButton { "One Shot: OFF" };
     juce::TextButton loopButton { "Loop: OFF" };

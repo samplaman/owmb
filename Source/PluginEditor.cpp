@@ -123,6 +123,11 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
     playComponent.setState(sampleMapComponent.getState());
   };
 
+  playComponent.onUnloadPresetRequested = [this] {
+    sampleMapComponent.clearAllZones();
+    saveStateToProcessor();
+  };
+
   waveformTransport.onSlicesGenerated = [this](const std::vector<double>& /*ratios*/) {
     // Slices displayed on main transport bar; auto-mapping to sampler occurs via right-click Auto-Slice
   };

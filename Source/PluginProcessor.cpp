@@ -9,10 +9,12 @@ OpenWavAudioProcessor::OpenWavAudioProcessor()
                      .withInput("Input", juce::AudioChannelSet::stereo(), false)
                      .withOutput("Output", juce::AudioChannelSet::stereo(), true))
 {
+    audioEngine.getKeyboardState().addListener(this);
 }
 
 OpenWavAudioProcessor::~OpenWavAudioProcessor()
 {
+    audioEngine.getKeyboardState().removeListener(this);
 }
 
 EditComponentState OpenWavAudioProcessor::getEditState() const
@@ -66,6 +68,7 @@ void OpenWavAudioProcessor::setSampleMapState(const SampleMapState& s)
         }
     }
 
+    audioEngine.resetAllGroups();
     for (const auto& g : s.groups)
     {
         audioEngine.setGroupVolumeDb(g.index, g.volumeDb);
@@ -111,6 +114,7 @@ void OpenWavAudioProcessor::setFullPluginState(const PluginFullState& s)
     audioEngine.setSamplerLowpassCutoff(s.sampleMap.masterFilterCutoffHz);
     audioEngine.setSamplerHighpassCutoff(s.sampleMap.masterHighpassHz);
 
+    audioEngine.resetAllGroups();
     for (const auto& g : s.sampleMap.groups)
     {
         audioEngine.setGroupVolumeDb(g.index, g.volumeDb);
@@ -134,7 +138,7 @@ void OpenWavAudioProcessor::handleNoteOn(juce::MidiKeyboardState*, int /*midiCha
     if (midiNoteNumber < 0 || midiNoteNumber > 127)
         return;
 
-    int velInt = juce::jlimit(0, 127, static_cast<int>(velocity * 127.0f));
+    int velInt = juce::jlimit(1, 127, static_cast<int>(std::round(velocity * 127.0f)));
 
     SampleMapState currentSampleMap;
     {
@@ -149,8 +153,10 @@ void OpenWavAudioProcessor::handleNoteOn(juce::MidiKeyboardState*, int /*midiCha
     std::vector<const SampleMapZoneState*> matchingZones;
     for (const auto& z : currentSampleMap.zones)
     {
+        int vLow = z.velLow;
+        int vHigh = (z.velHigh > 0) ? z.velHigh : 127;
         if (midiNoteNumber >= z.keyLow && midiNoteNumber <= z.keyHigh &&
-            velInt >= z.velLow && velInt <= z.velHigh &&
+            velInt >= vLow && velInt <= vHigh &&
             z.filePath.isNotEmpty() &&
             !z.trigger.equalsIgnoreCase("release"))
         {
@@ -158,56 +164,87 @@ void OpenWavAudioProcessor::handleNoteOn(juce::MidiKeyboardState*, int /*midiCha
         }
     }
 
+    // Velocity fallback: If no zones match exact velocity range, match key range
+    if (matchingZones.empty())
+    {
+        for (const auto& z : currentSampleMap.zones)
+        {
+            if (midiNoteNumber >= z.keyLow && midiNoteNumber <= z.keyHigh &&
+                z.filePath.isNotEmpty() &&
+                !z.trigger.equalsIgnoreCase("release"))
+            {
+                matchingZones.push_back(&z);
+            }
+        }
+    }
+
     if (!matchingZones.empty())
     {
-        // Group matching zones by groupIndex for multi-group layering (e.g. multi-mic libraries)
-        std::map<int, std::vector<const SampleMapZoneState*>> groupZoneMap;
+        // 1. Identify distinct Round Robin sequence positions among matching zones
+        std::vector<int> distinctRRIndices;
         for (const auto* z : matchingZones)
+        {
+            int rr = std::max(1, z->roundRobinIndex);
+            if (std::find(distinctRRIndices.begin(), distinctRRIndices.end(), rr) == distinctRRIndices.end())
+                distinctRRIndices.push_back(rr);
+        }
+        std::sort(distinctRRIndices.begin(), distinctRRIndices.end());
+
+        int targetRRIndex = 1;
+        if (distinctRRIndices.size() <= 1 || currentSampleMap.roundRobinMode == 2)
+        {
+            targetRRIndex = !distinctRRIndices.empty() ? distinctRRIndices[0] : 1;
+        }
+        else if (currentSampleMap.roundRobinMode == 1) // Random RR
+        {
+            int lastIdx = lastRandomZoneIndex[midiNoteNumber];
+            int pick = juce::Random::getSystemRandom().nextInt(static_cast<int>(distinctRRIndices.size()));
+            if (distinctRRIndices.size() > 1 && pick == lastIdx)
+                pick = (pick + 1) % static_cast<int>(distinctRRIndices.size());
+            lastRandomZoneIndex[midiNoteNumber] = pick;
+            targetRRIndex = distinctRRIndices[static_cast<size_t>(pick)];
+        }
+        else // Sequential / Cycle RR
+        {
+            int count = noteRoundRobinCounters[midiNoteNumber]++;
+            size_t pick = static_cast<size_t>(count) % distinctRRIndices.size();
+            targetRRIndex = distinctRRIndices[pick];
+        }
+
+        // 2. Filter matching zones to the chosen Round Robin variation
+        std::vector<const SampleMapZoneState*> rrMatchingZones;
+        for (const auto* z : matchingZones)
+        {
+            int rr = std::max(1, z->roundRobinIndex);
+            if (rr == targetRRIndex || z->roundRobinIndex <= 0)
+                rrMatchingZones.push_back(z);
+        }
+
+        // 3. Trigger multi-group layers (e.g. multi-mic positions or group layers for this RR)
+        std::map<int, std::vector<const SampleMapZoneState*>> groupZoneMap;
+        for (const auto* z : rrMatchingZones)
         {
             groupZoneMap[z->groupIndex].push_back(z);
         }
 
         for (auto& pair : groupZoneMap)
         {
-            int grpIdx = pair.first;
             auto& grpZones = pair.second;
             if (grpZones.empty()) continue;
 
-            const SampleMapZoneState* chosenZone = nullptr;
-
-            if (grpZones.size() == 1 || currentSampleMap.roundRobinMode == 2)
-            {
-                chosenZone = grpZones[0];
-            }
-            else if (currentSampleMap.roundRobinMode == 1) // Random RR
-            {
-                int lastIdx = lastRandomZoneIndex[midiNoteNumber];
-                int pick = 0;
-                if (grpZones.size() > 1)
-                {
-                    pick = juce::Random::getSystemRandom().nextInt(static_cast<int>(grpZones.size()));
-                    if (pick == lastIdx)
-                        pick = (pick + 1) % static_cast<int>(grpZones.size());
-                }
-                lastRandomZoneIndex[midiNoteNumber] = pick;
-                chosenZone = grpZones[static_cast<size_t>(pick)];
-            }
-            else // Sequential / Cycle RR
-            {
-                std::sort(grpZones.begin(), grpZones.end(), [](const SampleMapZoneState* a, const SampleMapZoneState* b) {
-                    return a->roundRobinIndex < b->roundRobinIndex;
-                });
-                int count = noteRoundRobinCounters[midiNoteNumber]++;
-                size_t pick = static_cast<size_t>(count) % grpZones.size();
-                chosenZone = grpZones[pick];
-            }
-
+            const SampleMapZoneState* chosenZone = grpZones[0];
             if (chosenZone != nullptr)
             {
                 juce::File fileToLoad(chosenZone->filePath);
-                audioEngine.playZoneVoice(fileToLoad, midiNoteNumber, chosenZone->rootNote, chosenZone->fineTuneCents, chosenZone->gainDb, velocity,
-                                          chosenZone->attackMs / 1000.0f, chosenZone->decayMs / 1000.0f, chosenZone->sustainLevel, chosenZone->releaseMs / 1000.0f,
-                                          audioEngine.isOneShotEnabled(), audioEngine.isLooping(), chosenZone->groupIndex, chosenZone->pan);
+                float att = (chosenZone->attackMs > 0.0f ? chosenZone->attackMs : currentSampleMap.globalAttackMs) / 1000.0f;
+                float dec = (chosenZone->decayMs > 0.0f ? chosenZone->decayMs : currentSampleMap.globalDecayMs) / 1000.0f;
+                float sus = chosenZone->sustainLevel;
+                float rel = (chosenZone->releaseMs > 0.0f ? chosenZone->releaseMs : currentSampleMap.globalReleaseMs) / 1000.0f;
+
+                audioEngine.playZoneVoice(fileToLoad, midiNoteNumber, chosenZone->rootNote, chosenZone->fineTuneCents + currentSampleMap.masterFineTuneCents, chosenZone->gainDb, velocity,
+                                          att, dec, sus, rel,
+                                          audioEngine.isOneShotEnabled(), chosenZone->loopEnabled, chosenZone->groupIndex, chosenZone->pan,
+                                          chosenZone->sampleStart, chosenZone->sampleEnd, chosenZone->loopStart, chosenZone->loopEnd);
                 zoneTriggered = true;
             }
         }
@@ -243,9 +280,14 @@ void OpenWavAudioProcessor::handleNoteOff(juce::MidiKeyboardState*, int /*midiCh
             z.filePath.isNotEmpty())
         {
             juce::File fileToLoad(z.filePath);
-            audioEngine.playZoneVoice(fileToLoad, midiNoteNumber, z.rootNote, z.fineTuneCents, z.gainDb, std::max(0.2f, velocity),
-                                      z.attackMs / 1000.0f, z.decayMs / 1000.0f, z.sustainLevel, z.releaseMs / 1000.0f,
-                                      true, false, z.groupIndex, z.pan);
+            float att = (z.attackMs > 0.0f ? z.attackMs : currentSampleMap.globalAttackMs) / 1000.0f;
+            float dec = (z.decayMs > 0.0f ? z.decayMs : currentSampleMap.globalDecayMs) / 1000.0f;
+            float sus = z.sustainLevel;
+            float rel = (z.releaseMs > 0.0f ? z.releaseMs : currentSampleMap.globalReleaseMs) / 1000.0f;
+            audioEngine.playZoneVoice(fileToLoad, midiNoteNumber, z.rootNote, z.fineTuneCents + currentSampleMap.masterFineTuneCents, z.gainDb, std::max(0.2f, velocity),
+                                      att, dec, sus, rel,
+                                      true, false, z.groupIndex, z.pan,
+                                      z.sampleStart, z.sampleEnd, z.loopStart, z.loopEnd);
         }
     }
 }

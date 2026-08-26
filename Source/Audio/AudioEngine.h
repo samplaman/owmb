@@ -95,6 +95,10 @@ struct RealtimeVoiceSlot
     bool isMetronome { false };
     int groupIndex { 0 };
     float pan { 0.0f };
+    int64_t sampleStartOffset { 0 };
+    int64_t sampleEndOffset { 0 };
+    int64_t loopStartOffset { 0 };
+    int64_t loopEndOffset { 0 };
 };
 
 enum class EngineCommandType : int
@@ -131,6 +135,10 @@ struct EngineCommand
     float floatVal7 { 0.0f };
     double doubleVal1 { 0.0 };
     double doubleVal2 { 1.0 };
+    int64_t int64Val1 { 0 };
+    int64_t int64Val2 { 0 };
+    int64_t int64Val3 { 0 };
+    int64_t int64Val4 { 0 };
     bool boolVal1 { false };
     bool boolVal2 { false };
     std::shared_ptr<CachedSample> sampleData;
@@ -141,7 +149,7 @@ class AudioEngine : public juce::ChangeListener, public juce::Timer
 public:
     static constexpr int MaxActiveVoices = 32;
     static constexpr int CommandQueueCapacity = 256;
-    static constexpr int MaxGroups = 32;
+    static constexpr int MaxGroups = 256;
 
     AudioEngine();
     ~AudioEngine() override;
@@ -162,7 +170,25 @@ public:
     bool getCachedSampleCopy(const juce::String& filePath, juce::AudioBuffer<float>& destBuffer, double& sampleRate) const;
     void playZoneVoice(const juce::File& file, int triggerMidiNote, int rootNote, float fineTuneCents, float gainDb, float velocity = 1.0f,
                        float attackSec = 0.005f, float decaySec = 0.1f, float sustainLevel = 1.0f, float releaseSec = 0.2f, bool isOneShot = false, bool isLooping = false,
-                       int groupIndex = 0, float pan = 0.0f);
+                       int groupIndex = 0, float pan = 0.0f,
+                       int64_t sampleStart = 0, int64_t sampleEnd = 0, int64_t loopStart = 0, int64_t loopEnd = 0);
+
+    // Sampler ADSR Envelope Controls
+    void setSamplerAdsr(float attackSec, float decaySec, float sustainLevel, float releaseSec)
+    {
+        samplerAttackSec.store(juce::jmax(0.001f, attackSec), std::memory_order_relaxed);
+        samplerDecaySec.store(juce::jmax(0.001f, decaySec), std::memory_order_relaxed);
+        samplerSustainLevel.store(juce::jlimit(0.0f, 1.0f, sustainLevel), std::memory_order_relaxed);
+        samplerReleaseSec.store(juce::jmax(0.001f, releaseSec), std::memory_order_relaxed);
+    }
+    void setSamplerAttackSec(float sec) { samplerAttackSec.store(juce::jmax(0.001f, sec), std::memory_order_relaxed); }
+    float getSamplerAttackSec() const { return samplerAttackSec.load(std::memory_order_relaxed); }
+    void setSamplerDecaySec(float sec) { samplerDecaySec.store(juce::jmax(0.001f, sec), std::memory_order_relaxed); }
+    float getSamplerDecaySec() const { return samplerDecaySec.load(std::memory_order_relaxed); }
+    void setSamplerSustainLevel(float sus) { samplerSustainLevel.store(juce::jlimit(0.0f, 1.0f, sus), std::memory_order_relaxed); }
+    float getSamplerSustainLevel() const { return samplerSustainLevel.load(std::memory_order_relaxed); }
+    void setSamplerReleaseSec(float sec) { samplerReleaseSec.store(juce::jmax(0.001f, sec), std::memory_order_relaxed); }
+    float getSamplerReleaseSec() const { return samplerReleaseSec.load(std::memory_order_relaxed); }
 
     // Algorithmic Reverb
     void setSamplerReverbAmount(float amount) { samplerReverbAmount.store(juce::jlimit(0.0f, 1.0f, amount), std::memory_order_relaxed); }
@@ -448,6 +474,10 @@ private:
     std::atomic<bool> pitchTrackingEnabled { true };
     std::atomic<bool> oneShotEnabled { false };
     std::atomic<bool> isLoadedInSampler { false };
+    std::atomic<float> samplerAttackSec { 0.005f };
+    std::atomic<float> samplerDecaySec { 0.1f };
+    std::atomic<float> samplerSustainLevel { 1.0f };
+    std::atomic<float> samplerReleaseSec { 0.2f };
 
     // IR Convolution Reverb
     juce::dsp::Convolution irConvolution;
@@ -458,13 +488,15 @@ private:
     juce::String currentLoadedIrPath;
     int reverbTailSamplesRemaining { 0 };
 
-    // Delay & Chorus
+    // Delay & Chorus DSP Buffers
     juce::AudioBuffer<float> delayBuffer;
     int delayBufferWritePos { 0 };
     std::atomic<float> samplerDelayTimeMs { 250.0f };
     std::atomic<float> samplerDelayFeedback { 0.0f };
     std::atomic<float> samplerDelayWetLevel { 0.0f };
 
+    juce::AudioBuffer<float> chorusBuffer;
+    int chorusBufferWritePos { 0 };
     std::atomic<float> samplerChorusRate { 1.0f };
     std::atomic<float> samplerChorusDepth { 0.0f };
     std::atomic<float> samplerChorusWet { 0.0f };
