@@ -1,0 +1,21 @@
+Loris THANKS file
+
+Loris is developed by Kelly Fitz and Lippold Haken at the CERL Sound
+Group (http://www.cerlsoundgroup.org).
+
+IEEE floating point conversion code was provided by Malcolm Slaney 
+and Ken Turkowski, by way of Arun Chandra. 
+
+Platform-neutral fast Fourier transform implementation provided by
+Takuya OOURA, http://momonga.t.u-tokyo.ac.jp/~ooura/fft.html.
+
+Key parts of the development of Loris were initiated during an invited
+residency by Kelly Fitz at the Bregman Electronic Music Studio at
+Dartmouth College in 1996, graciously arranged by Larry Polansky.
+
+Ulrike Axen provided an optimal collating algorithm, used in the Distiller.
+
+Thanks to Michael Gogins for .NET testing and Csound opcode assistance. 
+
+Thanks to John Ramsdell for assistance with the autobuild system.
+

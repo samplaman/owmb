@@ -39,6 +39,12 @@ if (APPLE)
     list(APPEND PLUGIN_FORMATS AU)
 endif()
 
+# Loris Additive Synthesis Library
+set(LORIS_UTILS OFF CACHE BOOL "" FORCE)
+set(LORIS_PYTHON OFF CACHE BOOL "" FORCE)
+set(LORIS_FFTW OFF CACHE BOOL "" FORCE)
+add_subdirectory(ThirdParty/loris EXCLUDE_FROM_ALL)
+
 # Declare Audio Plugin & Standalone application target
 juce_add_plugin(OpenWav
     COMPANY_NAME "OWMB"
@@ -84,6 +90,8 @@ target_sources(OpenWav PRIVATE
     Source/Scanner/LibraryScanner.cpp
     Source/Audio/AudioEngine.h
     Source/Audio/AudioEngine.cpp
+    Source/Audio/LorisResynthesizer.h
+    Source/Audio/LorisResynthesizer.cpp
     Source/UI/OpenWavLookAndFeel.h
     Source/UI/OpenWavLookAndFeel.cpp
     Source/UI/HeaderBarComponent.h
@@ -116,6 +124,8 @@ target_sources(OpenWav PRIVATE
     Source/UI/SampleMapComponent.cpp
     Source/UI/SliceConfigComponent.h
     Source/UI/SliceConfigComponent.cpp
+    Source/UI/LorisResynthesisDialog.h
+    Source/UI/LorisResynthesisDialog.cpp
     Source/Network/MobileSyncManager.h
     Source/Network/MobileSyncManager.cpp
     Source/UI/StudioIcons.h
@@ -125,6 +135,11 @@ target_sources(OpenWav PRIVATE
     Source/PluginProcessor.cpp
     Source/PluginEditor.h
     Source/PluginEditor.cpp
+)
+
+target_include_directories(OpenWav PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/loris/src"
+    "${CMAKE_CURRENT_BINARY_DIR}/ThirdParty/loris/src"
 )
 
 target_compile_definitions(OpenWav PRIVATE
@@ -151,6 +166,7 @@ endif()
 
 target_link_libraries(OpenWav PRIVATE
     OpenWavAssets
+    loris
     juce::juce_audio_basics
     juce::juce_audio_devices
     juce::juce_audio_formats
@@ -165,7 +181,7 @@ target_link_libraries(OpenWav PRIVATE
     juce::juce_gui_basics
     juce::juce_gui_extra
     juce::juce_opengl
-    )
+)
 
 if (APPLE)
     target_sources(OpenWav PRIVATE

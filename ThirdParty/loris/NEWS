@@ -1,0 +1,905 @@
+Loris is an open source library implementing sound analysis,
+synthesis, and morphing, developed by Kelly Fitz and Lippold Haken
+at the CERL Sound Group. Loris includes a C++ class library, a
+Python module, a C-linkable interface, and documentation.
+
+Loris 2.0 modernizes the build and toolchain: it replaces the autotools
+build with CMake, requires C++17, and builds with no compiler warnings.
+
+A detailed list of major changes is given in the change 
+history, below. 
+
+Loris can be downloaded from https://github.com/kellyfitz/loris
+
+For more information about Loris, contact the developers at
+loris@cerlsoundgroup.org, or visit them at
+http://www.cerlsoundgroup.org/Loris
+
+Please send bug reports to loris@cerlsoundgroup.org
+
+Loris is free software. Please see the file COPYING for details.
+
+Loris is Copyright (c) 1999-2026 by Kelly Fitz and Lippold Haken.
+
+
+History of visible changes, organized by release number:
+
+-------------------------------------------------------
+Loris 2.0 (2026-07-27), changes since the 1.9 release:
+
+- Replaced the autotools (configure/automake/libtool) build system with
+CMake (3.24 or newer). See INSTALL for the new build instructions. The
+config.h header is gone; the two configurable macros it held are now
+supplied directly by the build.
+
+- The library now requires a C++17 compiler. Modernized the sources to
+be free of deprecated constructs (std::auto_ptr, std::unary_function/
+binary_function, std::bind1st/bind2nd, std::not1): a clean build now
+emits no warnings.
+
+- Fixed a signed-integer-overflow bug in the AIFF IEEE-extended (80-bit)
+sample-rate conversion that could misread sample rates under optimizing
+compilers.
+
+- Added a CMake target and CTest registration for the full test suite
+(run with ctest), and a VS Code environment (CMakePresets.json plus
+.vscode) for building, testing, and debugging from the IDE.
+
+- Removed the Csound opcodes, the Xcode project, and the Windows project
+files. Absorbed the fast block synthesizer (loris-fastsynth).
+
+- Ported the morphing demo (demo/morphdemo.py) to Python 3, and removed
+the obsolete lorisdoc.py (its docstrings now live in the SWIG interface
+files, which also generate call signatures automatically).
+
+- FFTW remains optional; without it, Loris uses its bundled FFT.
+
+- The shared library soname advances from 13 to 14. Loris 2.0 is not
+binary compatible with 1.9: it requires C++17 and uses std::unique_ptr
+in public headers. Anything linked against libloris must be rebuilt.
+
+- Development has moved from SourceForge to GitHub
+(https://github.com/kellyfitz/loris). Every push is now built and tested
+on both Linux (GCC) and macOS (clang) by GitHub Actions, in three
+configurations each; Loris has long been developed on both platforms,
+but this is the first time that portability is checked automatically.
+
+-------------------------------------------------------
+changes since 1.8 release:
+
+- Added configuration option to build (or not build) the command
+line utilities.
+
+- Converted PartialList from a typedef into a class (some changes 
+to the C++ interface, no changes to procedural or Python interfaces).
+
+- In the SWIG (Python) interface, added many of the PartialList 
+mutation functions to the PartialList class itself. 
+
+- Updated Python module test code and SWIG (Python) interface to be
+compatible with Python 3 (as well as Python 2.6/7). Earlier versions
+of Python are no longer supported. 
+
+- Removed support for Csound4.
+
+-------------------------------------------------------
+changes since 1.7 release:
+
+- Enabled channelization with a constant reference frequency
+specification in Python interface.
+
+- Fixed errors in the names of some analyzer bandwidth enhancement
+configuration functions in the C interface. 
+
+- Improved data type size specification in SdifFile.C -- can now
+define symbols like SIZEOF_INT during build to specify the
+sizes of 2- and 4- byte integer types (if not using the 
+autotools, which do this automatically). 
+
+- Fixed a bug in the Csound5 opcodes that prevented morphing 
+from producing any output.
+
+-------------------------------------------------------
+changes since 1.6 release:
+
+- Improved behavior of cropping in Python and procedural interfaces
+such that Partials left empty after cropping are removed from the
+PartialList. 
+
+- Corrected a logic error in Cropper that caused Breakpoints to be 
+introduced into Partials that should be left empty by cropping (no 
+Breakpoints in the cropping range).
+
+- Added support for resampling according to a timing envelope
+to the Resampler class. This allows time reversal and scrubbing 
+effects, in addition to straightforware time dilation.
+
+- Fixed a header inclusion error that prevented building with some
+compilers.
+
+-------------------------------------------------------
+changes since 1.5.4 release:
+
+- Corrected several sources of significant phase errors in 
+synthesis, and in phase reporting from analysis data.
+
+- Improved the Resampler implementation of Breakpoint time
+quantization (previously called "sparse resampling"), no longer
+adding extra Breakpoints unpredictably to lessen differences 
+between the original and resampled envelopes. 
+
+- Added capability to perform logarithmic frequency morphing --
+log or linear morphing can be selected independently for both 
+amplitude/bandwidth and frequency envelopes. (This might be 
+especially useful if you are morphing two different pitches to
+obtain a third pitch.)
+
+- Cleaned up Filter interface and implementation, made it more
+consistent with other common tools (like Matlab and scipy). 
+
+- Added a Parameters struct to the Synthesizer class that can
+be used to specify a full configuration of the Synthesizer. 
+
+- Added a default parameter set to the class, which can be
+modified to change the default Synthesizer configuration (used
+by AiffFile, for example, to render Partials). 
+
+- Added access to the Filter used by bandwidth-enhanced 
+Oscillators through the Synthesizer class, as well as the
+Oscillator class, so that different filters can be designed
+and employed in bandwidth enhanced synthesis.
+
+- Added access to global default synthesis parameters through
+loris.SynthesisParameters in the Python interface.
+
+-------------------------------------------------------
+changes since 1.5.3 release:
+
+- Fixed a bug involving the use of the nonstandard extension
+std::isfinite that prevented compilation with some compilers.
+
+- Implemented LinearEnvelope iterators in Python. 
+
+- Implemented addition and subtraction of two LinearEnvelopes
+in C++ and Python.
+
+-------------------------------------------------------
+changes since 1.5.2 release:
+
+- Analyzer can have time-varying frequency resolution
+specified by an Envelope.
+
+- Replaced Fundamental class with a pair of classes for
+estimating fundamental frequency, FundamentalFromSamples
+performs reassigned spectral analysis and estimates the
+fundamental from the spectral peaks, and FundamentalFromPartials
+estimates the fundamental from the frequency and amplitude
+envelopes of a collection of Partials.
+
+- Added Fundamental classes to scripting (Python) interface.
+
+- Look for Csound5 headers at config time, and prefer to
+build Csound5 opcode library, fall back to Csound4. 
+
+- Added Visual Studio 2008 projects for building the simple
+morphing test and the Python module under windows.
+
+- Improved 64-bit compatibility.
+
+-------------------------------------------------------
+changes since 1.5.1 release:
+
+- Analyzer always constructs amplitude and fundamental
+frequency envelopes during analysis (cannot disable).
+
+- fixed broken SpcFile::addPartial members in Python 
+interface.
+
+- improved resampling in the Python interface, now
+have options for sparse (default) and dense (good 
+for use with CNMAT sinusoids~ external for Max/MSP)
+resampling.
+
+-------------------------------------------------------
+changes since 1.5 release:
+
+- updated command-line analysis utility (loris-analyze)
+to estimate the fundamental frequency reference envelope
+during analysis when distilling or sifting.
+
+- updated command-line analysis utility (loris-analyze)
+to provide a choice between spectral residue (-bwresidue)
+and sinusoidal convergence (mixed derivative of phase)
+(-bwconvergence) algorithms for computing bandwidth 
+envelopes.
+
+- changed parameter for specifying convergence bandwidth
+tolerance from percent (0 to 100) to absolute (0 to 1)
+to be more intuitive and consistent with the rest of
+Loris (which doesn't use percent anywhere). Affects
+C++, Python, and C interfaces. For now, a value greater
+than one is scaled down by 1/100 with a notification of
+the change.
+
+- made Distiller, Sieve, and Collator default fade and
+gap (silent) times consistent, and made those defaults
+consistent in all contexts (Python, C++, and the 
+command line utilities). 
+
+- added bandwidth scaling option to synthesis command
+line utility (good for turning off bandwidth-enhanced
+synthesis, scale by 0).
+
+-------------------------------------------------------
+changes since 1.4 release:
+
+- enabled fundamental estimation by default in Analyzer
+
+- added mixed phase derivative estimator option for 
+bandwidth association. Added corresponding Analyzer member
+functions for selecting a bandwidth association option:
+storeResidueBandwidth (bandwidth association algorithm 
+in previous versions of Loris), storeConvergenceBandwidth
+(mixed derivative), or storeNoBandwidth (no bandwidth 
+association). 
+
+- fixed typos in AiffFile.h that prevented compiling on 
+some systems.
+
+- added option in Channelizer to use amplitude weighting
+in the computation of the apropriate channel for a Partial.
+
+- added Channelizer members for computing channel center
+frequencies and channel numbers corresponding to a
+specified frequency.
+
+- improved accuracy of stretched harmonic channelization.
+
+- improved fundamental estimation algorithm to use estimator
+confidence level to determine the validity of f0 estimates
+(used in FrequencyReference and Analyzer).
+
+-------------------------------------------------------
+changes since 1.3 release:
+
+- phase/frequency correction incorporated into Analyzer
+and Morpher so that both now generate phase-correct
+Partials.
+
+- Channelizer made more reliable by using a non-weighted
+frequency average. Also added capability to channelize
+stretched harmonics, as in piano tones, by computing a
+strecthing factor and using it to align the frequency 
+channels on non-integer multiples of the fundamental 
+frequency.
+
+- made Resampler preserve phases by making small frequency 
+adjustments so that the resampled phases are matched as nearly
+as possible. Resampler now generates phase-correct Partials.
+
+- added a class Harmonifier that uses a reference frequency 
+envelope to make the frequencies of labeled Partials harmonic.
+
+- added phase correction utilities to the PartialUtils
+namespace, for restoring phase-correctness to Partials
+after modification.
+
+- added a class SpectralSurface representing a smoothed 
+time-frequency surface that can be used to perform 
+cross-synthesis, the filtering of one sound by the
+time-varying spectrum of another. Can also be used to
+perform formant-corrected pitch shifting.
+
+- Resampler can now perform dense (Breakpoint every 
+interval) or sparse (Breakpoints only at intervals
+near to original Breakpoints) resampling.
+
+- fixed bug in Distiller that caused occassional unpredictable
+behavior.
+
+- added platform-neutral FourierTransform implementation,
+in case FFTW is not available.
+
+- added optional fundamental tracking during analysis,
+and improved the old frequency reference and fundamental
+tracking algorithms.
+
+-------------------------------------------------------
+changes since 1.2 release:
+
+Command-line utilities:
+
+Several command-line utility programs have been added to
+loris_analyze (now called loris-analyze) and
+loris_spewmarkers (now called loris-spewmarkers), which
+were introduced in Loris 1.2. The new utilities include:
+
+- loris-dilate - a utility for dilating partials stored
+in a SDIF file and saving the dilated partials in
+another SDIF file.
+
+- loris-mark and loris-unmark - utilities for adding and
+removing markers in AIFF, SDIF, and Spc files.
+
+- loris-synthesize - a synthesis utility for rendering
+Partials stored in a SDIF file, optionally with dilation
+and constant amplitude and frequency scaling.
+
+Morphing improvements:
+
+- changed amplitude morphing to use a shaping parameter
+that allows much smoother-sounding morphs, by performing
+multiplicative (additiive in log scale) amplitude
+morphing. The old linear behavior can be achieved (or
+very-nearly approximated) by setting this parameter to
+something big (like 10000), but setting it to something
+on the order of 1E-5 often sounds more natural, and
+setting it very small like 1E-12 causes very
+abrupt-sounding transitions. Bandwidth is morphed using
+the same shaping scheme.
+
+- added frequency reference envelope parameter to
+Morpher, so that a strong reference Partial can be used
+to estimate frequencies of very weak ones (only works
+for harmonically-labeled Partials). A threshold
+parameter for idetifying weak Partials goes with this.
+
+- added a Morpher parameter for controlling the minimum
+time between Breakpoints in a morphed Partial, to reduce
+the abundance of Breakpoint data that the Morpher can
+generate.
+
+- extended morphing functionality in scripting and
+procedural interfaces to allow morphing with refernce
+envelopes and access to the amplitude morph shaping
+parameter.
+
+Csound opcode improvements:
+
+- updated Csound opcodes to be compatible with current
+versions of Csound that support dynamic loading of
+opcode libraries, so it is no longer necessary to
+rebuild the csound application to integrate the Loris
+opcodes. Added csound detection and building of the
+opcode librarty to autobuild process. This works most
+reliably with ABS distributions of Csound version 4.
+(Many thanks to Michael Gogins and John Ramsdell for
+making this possible.)
+
+- csound opcodes are built into the Loris library,
+when csound is available. No separate opcode library
+is needed. 
+
+- included versions of the opcode source that are
+compatible with Csound 5 (though these are not yet used
+in the build, they can be used to build an opcode
+library for Csound 5, many thanks to Michael Gogins for
+contributing these.)
+
+Bug fixes:
+
+- improved phase accuracy of synthesis.
+
+- fixed floating point rounding errors in SDIF export
+that were causing some breakpoints to be lost in the
+export process (thanks to Michael Klingbeil for help
+finding these errors!). Part of this fix is to use
+double precision floating point numbers in SDIF files
+from now on, so Loris SDIF files are twice as big as
+they used to be. Old SDIF files (with single-precision
+floats) are still imported, but export is always double
+precision.
+
+- fixed phase interpolation in the phaseAt operation,
+and improved it in the Morpher.
+
+Other changes and enhancements:
+
+- improved scripting interface to take advantage of new
+capabilities of SWIG, including support for C++ STL
+vectors. SampleVector is now just a DoubleVector, and it
+acts like a list in the native language, instead of
+having its own idiosyncratic behavior. THIS BREAKS OLD
+CODE, but makes it much easier to work with samples
+in the scripting interface.
+
+- overhauled PartialUtils. All functors have been
+renamed and all have corresponding functions. Names are
+now consistent and predictable. THIS BREAKS OLD CODE,
+but the old PartialUtils were such a mess...
+
+- Dilator now can compute new times for Markers, using
+the same interface as for dilating Partials.
+
+- renamed BreakpointEnvelope to LinearEnvelope, to
+eliminate confusion with the Breakpoint envelopes that
+make up Partials. BreakpointEnvelope is still around as
+a deprecated typedef, but related operations in the
+procedural and scripting interfaces have been renamed.
+THIS BREAKS OLD CODE, but it is less confusing.
+
+- added experimental fundamental frequency estimator,
+called Fundamental.
+
+- C++ api is now mostly documented using doxygen,
+and HTML docs are build automatically when doxygen 
+is available. The Python module is fully documented
+using pydoc.
+
+-------------------------------------------------------
+changes since 1.1 release:
+
+- added rewritten AiffFile and SpcFile classes, with 
+interfaces that allow Partials to be added directly
+and automatically rendered, and that include access
+to Aiff-style Markers (time-string pairs, represented
+by the new class Marker).
+
+- added rewritten SdifFile classes that look and
+feel like the AiffFile and SpcFile classes, and
+support Markers, and no longer use the IRCAM
+SDIF library. 
+
+- Tcl module is no longer built by default, only the 
+Python module.
+
+- added AiffFile Marker access to scripting module.
+
+- added sampleVector_fill to procedural interface, and
+to its documentation.
+
+- removed depdendency on the IRCAM SDIF library.
+
+- added capability to build the Loris Csound generators
+as a dynamically-loaded module, on platforms that support
+them. (Cannot seem to get them to work under OS X.)
+
+- added FFTW3 compatibilty, version detected at configure 
+time.
+
+- added utilities directory, including a program for spewing markers
+(loris_spewmarkers) and another for performing Loris analysis
+(loris_analyze).
+
+-------------------------------------------------------
+changes since 1.0.2 release:
+
+- added window sidelobeLevel parameter to Analyzer, 
+decoupled it from the amplitude floor.
+
+- bandwidth (noise) association can now be disabled in 
+Analyzer by setting bwRegionWidth to 0.
+
+- softened amplitude floor in Analyzer, now amplitudes 
+near (within 10dB) of the amplitude floor are faded out,
+instead of suddenly being eliminated at the threshold.
+
+- added split member function to Partial, for breaking
+a Partial at a specified position (iterator).
+
+- added absorb member function to Partial, for absorbing
+another Partial's energy as noise (bandwidth).
+
+- changed Partial::erase to return an iterator refering
+to the position after the erasure, or end if the last
+Breakpoint it erased.
+
+- added Partial constructor from a half-open range
+delimited by Partial::const_iterators (documented too).
+
+- added new, simpler, Python 2.2-style iterators to the
+scripting interface. Eventually these will replace the
+old STL-style ones, but for now they coexist.
+
+- added some new functors to PartialUtils and 
+BreakpointUtils.
+
+- added Resampler class for sampling Partial data at a 
+uniform rate, making it easier to use with real-time
+rendering systems. Also added resample function to scripting
+and procedural interfaces.
+
+- updated documentation
+
+-------------------------------------------------------
+changes since 1.0.1 release:
+
+- moved compile-time type checks from FourierTransform.C
+to configure.in, so the former now compiles even with 
+wimpy compilers
+
+- added check for template member support to configure.in
+
+- changed name of (Python) loriscmodule to _loris, to
+keep up with changes to SWIG
+
+- added "collating" of unlabeled Partials to the
+distillation operation. This combines unlabeled Partials
+into groups of non-overlapping (in time) Partials, assigned
+an unused label (greater than the label associated with any
+frequency channel), and fused into a single Partial per
+group. "Collating" is a bit like "sifting" but
+non-overlapping Partials are grouped without regard to
+frequency proximity. This algorithm produces the
+smallest-possible number of collated Partials. Thanks to
+Ulrike Axen for providing this optimal algorithm.
+
+- Perl module can now be built, optionally, with the 
+--with-perl option to configure. It is still untested,
+but a very minimal test is performed in make check,just
+to make sure that it can be loaded. The perl module
+is (temporarily) called perLoris.
+
+- Python sequences can be used as arguments to dilate, 
+other languages still need strings, but typemaps could
+be added for them too.
+
+- autodetection of scripting langauges has been improved
+
+-------------------------------------------------------
+changes since 1.0 release:
+
+- added compile-time checks to ensure that fftw_complex
+is compatible with std::compelx<double>, in 
+FourierTransform.C.
+
+- fixed sloppy coding (bad use of vector iterators to get
+pointers) that caused compile errors under new versions
+of CodeWarrior and gcc (3).
+
+- added prebinding to Darwin build, though it won't
+do anything until prebound versions of SDIF and FFTW
+are available.
+
+- removed old Mac OS project files, etc, since they
+were never up-to-date anyway, and too difficult to 
+maintain.
+
+-------------------------------------------------------
+changes since 1.0beta9 release:
+
+- Updated documentation (finally) including C++
+API documentation (finally).
+
+- added assignment operator to Oscillator so that STL
+containers of them can be used
+
+- made FrequencyReference a subclass (implementor) of 
+the Envelope interface, restricted access to its 
+BreakpointEnvelope to const.
+
+- made FrequencyReference use all Breakpoints in the 
+reference Partial when the number of samples is not
+specified.
+
+- Sieve no longer sorts Partial list, and therefore no
+longer needs the list itself as an argument to sift(),
+can pass just iterators.
+
+- Greatly improved the Sieve interface, made it generic
+(container-type independent).
+
+- Morpher interface radically improved to expose much 
+more morphing functionality. 
+
+- Added PartialPtrs class, a container of pointers to 
+Partials, used internally to make algorithms more generic.
+
+- Removed FadeTime() member from class Partial, added fade 
+time as a parameter to classes Distiller, Synthesizer, and
+Sieve (replacing minGapTime, which is twice the fade time).
+
+-------------------------------------------------------
+changes since 1.0beta8 release:
+
+- fixed Dilator to insert Breakpoints in new Partials at 
+times corresponding to dilation target time points. Without
+these new Breakpoints, and since our Breakpoints are 
+non-uniformly distributed in time, Partials could go
+breifly out of tune with each other as a result of 
+dilation.
+
+- added PartialList.h defining the type PartialList as
+a name for std::list< Partial >, in the Loris namespace.
+
+- replaced all instances of #if HAVE_M_PI with 
+#if defined(HAVE_M_PI) && (HAVE_M_PI), which seems 
+better.
+
+- put everything in procedural interface (loris.h) in
+Loris namespace, when compiling C++.
+
+-------------------------------------------------------
+changes since 1.0beta7 release:
+
+- fixed phase error in SpcFile.C, introduced by replacing
+TwoPi symbol by 2. * Pi in the denominator without proper
+parenthesis.
+
+- eliminated many spurious compiler warnings
+
+- improved error handling and reporting in SDIF reading
+
+- autobuilding of Loris library and the Python module 
+under Darwin is now possible
+
+- added version symbols in loris.h (automatically generated
+by automake) and a version() function in the scripting interface
+(returns a version string)
+
+- Totally new SDIF file format -- we now define our own 
+matrix types so that we can read and write our partials,
+even if we label them (!), which was not previously possible
+due to silliness with the SDIF library. Optionally, 1TRC
+files can still be exported, but they are the sine-only 
+ones that are described by the SdifTypes.STYP file. Our 
+matrices contain irregularly-spaced bandwidth-enhanced
+data, but no interpolated (bogus) data, so a frame may 
+not contain breakpoints for all active Partials.
+
+- Simplified loris.h slightly by removing the silly
+LORIS_OPAQUE_POINTERS symbol, whose purpose is a mystery.
+
+- Cleaned up the SWIG interface somewhat to reflect modern
+developments in SWIG (like the elimination of the documentation
+facility).
+
+- Analyzer can be constructed and configured with two 
+parameters now, the frequency resolution and the width
+of the analysis window. It seems that most commonly,
+those parameters need to be set independently, and
+other parameters derived from them. The single-argument
+version of configure() no longer exists, but can be
+simulated by calling configure() with two identical 
+arguments.
+
+- The configure method in the Analyzer scripting interface
+has been removed (just create a new Analyzer when you need
+to reconfigure). analyzer_configure() has been removed from 
+the procedural interface, as has the single-argument version
+of createAnalyzer(). In the scripting interface, the Analyzer
+constructor can be called with a single argument, and the
+window width will be set equal to the specified resolution.
+
+- Analysis configures the analysis window to have sidelobe
+attenuation equal to the amplitude floor, instead of always
+using 95 dB. The amplitude floor still defaults to 90 dB.
+
+- KaiserWindow::computeLength() now takes the Kaiser shaping
+parameter as its second parameter, instead of the attenuation
+(from which it computes the shaping parameter).
+
+- Added spliceByLabel() to procedural interface, for splicing
+Partials having a specified label into a separate list.
+
+- Added extractLabeled( PartialList *, label ) to the
+scripting interface, returns Partials having the specified
+label in a new PartialList.
+
+- Added PartialUtils::timeSpan(iterator, iterator) to 
+find the time spanned by all Partials in an iterator
+range. Used this to implement a timeSpan method for
+PartialList in the scripting interface.
+
+- Removed all the preprocessor scaffolding involving 
+NO_LORIS_NAMESPACE, since it offered only a false sense
+of security. There's no reason to believe that Loris will
+build with a compiler that is not namespace-savvy.
+
+- Added default values for sample rate (44100) in synthesize
+and exportAiff, and for number of channels (1) and 
+sample size (16 bits) in exportAiff in scripting interface.
+
+- Fixed Distiller to correctly preserve Partials with label 0.
+
+- Improved efficiency and consistency of Sieve and sifting operation,
+and added default gap equal to 0.
+
+- FrequencyReference class can be constructed with a specified
+number of samples of the longest Partial's frequency envelope
+(the old way) or sampled every 30ms (the recent way). In the
+procedural interface, specifying a number of samples equal
+to 0 causes the 30ms sampling. In the scripting interface,
+the number of samples argument is optional, and if unspecified,
+the 30 ms sampling is used. In the scripting and procedural 
+interfaces, the number of samples is the last argument to
+createFreqReference(), whereas is used to be the third. THIS
+MAY BREAK OLD CODE.
+
+-------------------------------------------------------
+changes since 1.0beta6 release:
+
+- Improved Distiller operation.
+
+- Changed iterator behavior in scripting interface (NOTE: this 
+may break previously-working code!) next and prev methods
+for PartialIterators and PartialListIterators no longer advance
+and return themselves, they now return a new iterator at the
+next/prev position, more like pointers, less like STL iterators,
+easier to use.
+
+- Improvements and cleanup in Analyzer, Filter, Oscillator,
+FourierTransform, Synthesizer.
+
+- Updated Mac project for CW7 and carbon.
+
+- Added FrequencyReference class.
+
+- Improved autoconfiguration.
+
+-------------------------------------------------------
+changes since 1.0beta5 release:
+
+- The ReassignedSpectrum class has been modified to compute
+the reassignment data using fewer transforms, and thus to 
+run faster. 
+
+- The files used by the GNU autotools to generate distribution
+tarballs have been modified to include Mac OS-specific files in
+the full source distribution.
+
+-------------------------------------------------------
+changes since 1.0beta4 release:
+
+- The Distiller now incorporates the formerly-experimental sifting
+process, that had been implemented in the Sieve class, which is 
+now obsolete. The sifting process now is more predictable: it retains
+the longest Partial of an overlapping pair, instead of the first one
+it encountered.
+
+- Loris has been autoconfiscated. This is a first attempt to use
+the GNU autotools to configure Loris for Unix and Linux (and
+windows?) builds.
+
+- Loris and FFTW are now separate CodeWarrior projects for Mac 
+build. Both are distributed as XML exports.
+
+- Loris now requires release 3.4 or later of the SDIF library 
+from IRCAM. Earlier versions had problems that prevented Loris
+from using them as intended.
+
+- The Loris demo and Loris Mac source releases have 
+been terminated. The demo is now attached to the Loris
+web page (www.cerlsoundgroup.org/Loris), and the Mac
+source is now incldued with the full source distribution.
+
+-------------------------------------------------------
+changes since 1.0beta3 release:
+
+- Tcl and Perl interfaces and documentation have been added to the
+scripting support. The Tcl module can be tested using the morphtest.tcl
+script in the test directory. The Perl module has not been tested yet
+and is awaiting a competent Perl programmer to provide a Perl version of
+the test script.
+
+- the macro LORIS_VERSION has been added to a prefix file included in
+all Loris headers and sources. So it is now possible to determine the
+Loris release version programmatically and at compile time. See the
+header Loris_prefix.h for a description of the format of this macro. The
+Loris version is also accessible using the versionString function in the
+scripting interface.
+
+- the PartialList and Partial iterators in the scripting interface have
+been rewritten and now mimic the C++ STL classes they wrap. Most
+importantly, iterators do _no_ memory or reference management. So that
+in Python, if you loose the last reference to a PartialList and the list
+gets deleted, you may be left with invalid Partials, Iterators, and
+Breakpoints, that formerly corrsponded to contents of that PartialList.
+See the documentation for more details. This implementation is very
+different from the implementation in release 1.0beta3, but is more or
+less the one that we expect to stick with.
+
+- the non-object functions in the scripting interface for accessing AIFF
+format sample files (ImportAiff, and infoAiff) have been removed. Use the 
+AiffFile class added in the previous release. See the test and demo scripts
+for examples.
+
+- the ExportSpc class has been removed from the scripting interface and
+replaced by non-object importSpc and exportSpc functions. See the
+documenation for details. In the C++ class library the ExportSpc class
+has been replaced by the SpcFile class, the ImportSdif and ExportSdif
+classes have been replaced by the SdifFile class.
+
+- the CodeWarrior project itself is no longer distributed for the MacOS.
+Instead, the exported XML description is distributed. This file can be
+used to build (mostly) a CodeWarrior project using any recent version of
+the IDE, using the Import Project option on the File menu.
+
+-------------------------------------------------------
+change since 1.0beta2 release:
+
+- preliminary implementation of PartialList iteration and access to
+individual Partials in a PartialList in the scripting interface. This
+implementation is incomplete and experimental, and should be expected
+to change.
+
+- AiffFile class added to scripting interface, so there is no longer a
+separate function (and disk access) for querying the sample rate, bit
+depth, and number of channels in a samples file. These parameters are
+now obtained from an AiffFile object that also provides access to the
+SampleVector.
+
+- Sieve class has been added to Loris class library, invoked through
+sift() function in the scripting interface. The sifting operation is
+an experimental process that sometimes improves the fidelity of morphs
+and syntheses from distilled PartialLists. Sifting is performed after
+channelization and before distillation, and has the effect of
+relabeling some Partials to zero (0). These Partials are left behind
+unmodified by the distillation process, and can be removed from the
+PartialList, or retained and synthesized. (Partials labeled zero do
+not participate in morphing, they are instead faded in and out.) This
+implementation is experimental and should be expected to change.
+
+- errors in test and demo scripts have been fixed.
+
+- Python interface documentation has been updated and improved.
+
+- updated to use the version 3.2.2 of the SDIF library from IRCAM,
+obtain from the IRCAM SDIF website (www.ircam.fr/sdif). This version
+is incompatible with version 3.2.0, used in by earlier Loris releases.
+Update to version 3.2.2, or compile with the flag SDIF_VERSION defined
+to have the value 320 to use version 3.2.0 of the SDIF library. See
+the README file or more information.
+
+- SWIG 1.3a5 is being used to generate the Python wrappers now, so
+anyone wishing to try generating wrappers for other languages can now
+choose from Java, Guile, Ruby, and others, in addition to Tcl and Perl.
+
+- other minor changes in the scripting interface, see the demo and
+test scripts for examples. 
+
+-------------------------------------------------------
+change since 1.0beta1 release:
+
+- added .spc file support for real-time bandwidth-enhanced additive
+synthesis and sound morphing using the Symbolic Sound Kyma System.
+Documentation updated accordingly (though not very extensive).
+
+- Loris module tested and verified with Python 2.0, now the default
+build (to build or another Python release, change the Makefile, or,
+in the MacOS Codewarrior project, the Access Path, to reflect the 
+correct version number).
+
+- static library target added to Codewarrior project for MacOS.
+
+- MacOS Python module now uses a static library instead of a shared 
+libarary (DLL), since static libraries seem much more stable and are
+less restrictive. (This should alleviate some instability related to
+memory management across library boundaries.)
+
+- test directory has been added with the simple morph test, distinct
+from the longer test in the demo directory (and package).
+
+-------------------------------------------------------
+changes since 1.0alpha release:
+
+- the core Loris library is mostly unchanged from the alpha release,
+but the scripting interface has been completely rewritten to provide
+a generic interface to a variety of scriping languages using SWIG
+(www.swig.org) At this time, only the Python module has been
+tested, and only with Python 1.5.2, though Loris is also reported to
+work with Python 1.6.
+
+- a c-linkable procedural interface has been implemented.
+
+- a first-cut of (html) documentation for the procedural interface and
+for the Python module is included, and posted to SourceForge
+(sourceforge.net/projects/loris).
+
+-------------------------------------------------------
+Copying information:
+
+Loris is Copyright (c) 1999-2026 by Kelly Fitz and Lippold Haken
+<loris@cerlsoundgroup.org>
+
+
+   Permission is granted to anyone to make or distribute verbatim copies
+   of this document as received, in any medium, provided that the
+   copyright notice and this permission notice are preserved,
+   thus giving the recipient permission to redistribute in turn.
+
+   Permission is granted to distribute modified versions
+   of this document, or of portions of it,
+   under the above conditions, provided also that they
+   carry prominent notices stating who last changed them.
+

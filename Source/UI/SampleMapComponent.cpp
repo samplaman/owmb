@@ -1,5 +1,6 @@
 #include "SampleMapComponent.h"
 #include "OpenWavLookAndFeel.h"
+#include "LorisResynthesisDialog.h"
 #include <regex>
 // Rebuild trigger
 
@@ -17,6 +18,11 @@ SampleMapComponent::SampleMapComponent(AudioEngine& engine)
     // ── Action Toolbar Buttons ─────────────────────────
     addAndMakeVisible(addSampleButton);
     addSampleButton.addListener(this);
+
+    addAndMakeVisible(lorisResynthButton);
+    lorisResynthButton.addListener(this);
+    lorisResynthButton.setTooltip("Resynthesize a single sample across notes using Loris Additive Modeling");
+    lorisResynthButton.setColour(juce::TextButton::textColourOffId, OpenWavLookAndFeel::accentCyan.brighter(0.2f));
 
     addAndMakeVisible(deleteSelectedButton);
     deleteSelectedButton.addListener(this);
@@ -1867,6 +1873,8 @@ void SampleMapComponent::resized()
 
     addSampleButton.setBounds(topRow.removeFromLeft(78));
     topRow.removeFromLeft(gap);
+    lorisResynthButton.setBounds(topRow.removeFromLeft(90));
+    topRow.removeFromLeft(gap);
     deleteSelectedButton.setBounds(topRow.removeFromLeft(96));
     topRow.removeFromLeft(gap);
     autoMapPitchButton.setBounds(topRow.removeFromLeft(70));
@@ -2067,6 +2075,7 @@ void SampleMapComponent::buttonClicked(juce::Button* button)
             }
         });
     }
+    else if (button == &lorisResynthButton) openLorisResynthesisDialog();
     else if (button == &deleteSelectedButton) deleteSelectedZones();
     else if (button == &autoMapPitchButton) autoMapByPitch();
     else if (button == &autoMapChromaticButton) autoMapChromatic();
@@ -2241,5 +2250,110 @@ void SampleMapComponent::setState(const SampleMapState& state)
     repaint();
 }
 
+void SampleMapComponent::openLorisResynthesisDialog()
+{
+    juce::File sourceFile;
+
+    // 1. Check if a zone is currently selected
+    if (selectedZoneIndex >= 0 && selectedZoneIndex < static_cast<int>(zones.size()))
+    {
+        sourceFile = juce::File(zones[selectedZoneIndex].filePath);
+    }
+
+    // 2. Otherwise check if AudioEngine has a loaded file
+    if (!sourceFile.existsAsFile())
+    {
+        sourceFile = audioEngine.getCurrentFile();
+    }
+
+    if (sourceFile.existsAsFile())
+    {
+        openLorisResynthesisForSample(sourceFile);
+    }
+    else
+    {
+        // Prompt user to select an audio file to resynthesize
+        auto chooser = std::make_shared<juce::FileChooser>(
+            "Select Audio Sample for Loris Resynthesis",
+            juce::File::getSpecialLocation(juce::File::userDesktopDirectory),
+            "*.wav;*.mp3;*.flac;*.ogg;*.aif;*.aiff;*.aifc;*.WAV;*.MP3;*.FLAC;*.OGG;*.AIF;*.AIFF;*.AIFC",
+            true);
+
+        chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles, [this, chooser](const juce::FileChooser& fc) {
+            auto result = fc.getResult();
+            if (result.existsAsFile())
+            {
+                openLorisResynthesisForSample(result);
+            }
+        });
+    }
+}
+
+void SampleMapComponent::openLorisResynthesisForSample(const juce::File& file)
+{
+    if (!file.existsAsFile()) return;
+
+    juce::AudioFormatManager formatMgr;
+    formatMgr.registerBasicFormats();
+    std::unique_ptr<juce::AudioFormatReader> reader(formatMgr.createReaderFor(file));
+    if (reader == nullptr) return;
+
+    juce::AudioBuffer<float> buf((int)reader->numChannels, (int)reader->lengthInSamples);
+    reader->read(&buf, 0, (int)reader->lengthInSamples, 0, true, true);
+    double sr = reader->sampleRate;
+    int detectedRoot = LorisResynthesizer::detectRootMidiNote(buf, sr);
+
+    LorisResynthesisDialog::showDialog(this, file, buf, sr, detectedRoot, [this](const std::vector<ResynthesizedZone>& generatedZones) {
+        applyResynthesizedZones(generatedZones);
+    });
+}
+
+void SampleMapComponent::applyResynthesizedZones(const std::vector<ResynthesizedZone>& generatedZones)
+{
+    if (generatedZones.empty()) return;
+
+    clearAllZones();
+
+    for (const auto& gz : generatedZones)
+    {
+        if (gz.audioFile.existsAsFile())
+        {
+            audioEngine.loadFile(gz.audioFile, false, true);
+
+            SampleMapZone z;
+            z.filePath = gz.audioFile.getFullPathName();
+            z.sampleName = gz.sampleName;
+            z.rootNote = gz.rootNote;
+            z.keyLow = gz.keyLow;
+            z.keyHigh = gz.keyHigh;
+            z.velLow = 0;
+            z.velHigh = 127;
+            z.roundRobinIndex = 1;
+            z.fineTuneCents = 0.0f;
+            z.gainDb = 0.0f;
+            z.attackMs = 5.0f;
+            z.decayMs = 100.0f;
+            z.sustainLevel = 1.0f;
+            z.releaseMs = 200.0f;
+            z.isSelected = false;
+
+            zones.push_back(z);
+        }
+    }
+
+    if (!zones.empty())
+    {
+        selectedZoneIndex = 0;
+        selectedZoneIndices.clear();
+        selectedZoneIndices.insert(0);
+        zones[0].isSelected = true;
+    }
+
+    resized();
+    repaint();
+    if (onStateChanged) onStateChanged();
+}
+
 } // namespace openwav
+
 

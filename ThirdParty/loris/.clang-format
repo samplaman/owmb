@@ -1,0 +1,49 @@
+---
+BasedOnStyle: Microsoft
+ColumnLimit: 80
+IndentWidth: 4
+ContinuationIndentWidth: 4
+BreakBeforeBraces: Allman
+PointerAlignment: Right
+AlignAfterOpenBracket: Align
+AlwaysBreakAfterReturnType: AllDefinitions
+BreakConstructorInitializers: AfterColon
+PackConstructorInitializers: Never
+
+# --- MULTI-LINE ENFORCEMENT ---
+AllowShortFunctionsOnASingleLine: None
+AllowShortBlocksOnASingleLine: Never
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+
+# --- ALIGNED INCLUDE SORTING & REGROUPING ---
+SortIncludes: true
+IncludeBlocks: Regroup
+
+IncludeCategories:
+  # Group 1: The paired header file (e.g., #include "Logger.hpp")
+  # Clang-format assigns Priority 0 to the main header by default.
+
+  # Group 2: Other headers from your project (e.g., #include "util/StringHelpers.hpp")
+  - Regex: '^".*"'
+    Priority: 10
+
+  # Group 3: Third-party library headers (e.g., #include <boost/asio.hpp>)
+  - Regex: '^<.*\..*>'
+    Priority: 20
+
+  # Group 4: C++ Standard Library headers (e.g., #include <vector>)
+  # Matches angle brackets containing word characters only (no dots or slashes)
+  - Regex: '^<[[:alnum:]_]+>$'
+    Priority: 30
+
+  # Group 5: C Standard Library headers (e.g., #include <cmath>)
+  # Standard C headers in modern C++ use the 'c' prefix and no extension (e.g., <cmath>, <cstdio>)
+  - Regex: '^<c[[:alnum:]_]+>$'
+    Priority: 40
+
+  # Group 6: System/OS-specific headers (e.g., #include <windows.h> or <unistd.h>)
+  # Captures system headers using legacy .h extensions
+  - Regex: '^<[[:alnum:]_]+\.h>$'
+    Priority: 50
+---

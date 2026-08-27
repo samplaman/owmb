@@ -110,6 +110,11 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
     // Slices displayed on main transport bar; auto-mapping to sampler occurs via right-click Auto-Slice
   };
 
+  waveformTransport.onLorisResynthCompleted = [this](const std::vector<ResynthesizedZone>& zones) {
+    sampleMapComponent.applyResynthesizedZones(zones);
+    headerBar.setViewMode(ViewMode::SampleMap);
+  };
+
   // Broadcast current LookAndFeel theme and colours to all sub-components
   sendLookAndFeelChange();
 
@@ -425,7 +430,12 @@ void OpenWavAudioProcessorEditor::settingsRequested() {
   menu.addSeparator();
   menu.addItem(5, "About OWMB...");
 
-  menu.showMenuAsync(juce::PopupMenu::Options(), [this](int result) {
+  menu.showMenuAsync(
+      juce::PopupMenu::Options()
+          .withTargetComponent(&headerBar.getSettingsButton())
+          .withPreferredPopupDirection(juce::PopupMenu::Options::PopupDirection::downwards)
+          .withStandardItemHeight(28),
+      [this](int result) {
     auto applyColour = [this](juce::Colour c, const juce::String &hexStr) {
       OpenWavLookAndFeel::setPrimaryColour(c);
       audioProcessor.getDatabaseManager().setPrimaryColourHex(hexStr);
@@ -792,15 +802,15 @@ void OpenWavAudioProcessorEditor::mouseDown(const juce::MouseEvent &e) {
 }
 
 void OpenWavAudioProcessorEditor::cloudSampleSelected(const MediaItem &item) {
-  audioProcessor.getAudioEngine().stop();
-  audioProcessor.getAudioEngine().setSampleBpm(item.bpm);
-  audioProcessor.getAudioEngine().loadFile(juce::File(item.filePath), true);
   sampleTable.selectItemById(item.id, false);
   analysisComponent.setItem(item);
 }
 
 void OpenWavAudioProcessorEditor::cloudSampleDoubleClicked(
-    const MediaItem &item) {}
+    const MediaItem &item) {
+  sampleTable.selectItemById(item.id, false);
+  analysisComponent.setItem(item);
+}
 
 void OpenWavAudioProcessorEditor::triggerFilterUpdate() {
   sampleTable.updateFilter(
@@ -939,10 +949,14 @@ void OpenWavAudioProcessorEditor::restoreStateFromProcessor() {
   editComponent.setState(s.edit);
   sampleMapComponent.setState(s.sampleMap);
 
-  // 6. Restore View Mode
+  // 6. Restore View Mode (never open directly in Cloud view)
   if (s.currentViewMode >= 0 && s.currentViewMode <= 6) {
     auto mode = static_cast<ViewMode>(s.currentViewMode);
+    if (mode == ViewMode::Cloud)
+      mode = ViewMode::List;
     headerBar.setViewMode(mode);
+  } else {
+    headerBar.setViewMode(ViewMode::List);
   }
 
   resized();

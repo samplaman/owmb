@@ -80,6 +80,13 @@ void OpenWavLookAndFeel::setDarkTheme(bool useDark)
 }
 
 OpenWavLookAndFeel::OpenWavLookAndFeel() {
+#if JUCE_MAC || JUCE_IOS
+  setDefaultSansSerifTypefaceName("SF Pro Text");
+#elif JUCE_WINDOWS
+  setDefaultSansSerifTypefaceName("Segoe UI");
+#else
+  setDefaultSansSerifTypefaceName("Inter");
+#endif
   updateColors();
 }
 
@@ -382,11 +389,18 @@ void OpenWavLookAndFeel::drawLinearSlider(
   }
 }
 
+int OpenWavLookAndFeel::getPopupMenuBorderSize()
+{
+    return 6;
+}
+
 void OpenWavLookAndFeel::drawPopupMenuBackground(juce::Graphics& g, int width, int height)
 {
-    g.fillAll(bgCard);
+    auto area = juce::Rectangle<float>(0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height));
+    g.setColour(bgCard);
+    g.fillRoundedRectangle(area, 6.0f);
     g.setColour(borderColour);
-    g.drawRect(0, 0, width, height, 1);
+    g.drawRoundedRectangle(area.reduced(0.5f), 6.0f, 1.0f);
 }
 
 void OpenWavLookAndFeel::drawPopupMenuItem(juce::Graphics& g, const juce::Rectangle<int>& area,
@@ -397,9 +411,9 @@ void OpenWavLookAndFeel::drawPopupMenuItem(juce::Graphics& g, const juce::Rectan
 {
     if (isSeparator)
     {
-        auto r = area.reduced(6, 0);
+        auto r = area.reduced(8, 0);
         r.removeFromTop(r.getHeight() / 2);
-        g.setColour(borderColour);
+        g.setColour(borderColour.withAlpha(0.6f));
         g.fillRect(r.removeFromTop(1));
         return;
     }
@@ -409,22 +423,22 @@ void OpenWavLookAndFeel::drawPopupMenuItem(juce::Graphics& g, const juce::Rectan
         textColour = *textColourToUse;
 
     if (!isActive)
-        textColour = textSecondary;
+        textColour = textSecondary.withAlpha(0.6f);
 
     if (isHighlighted && isActive)
     {
         g.setColour(bgHover);
-        g.fillRect(area.reduced(2, 1));
+        g.fillRoundedRectangle(area.reduced(3, 1).toFloat(), 4.0f);
         textColour = accentCyan;
     }
 
-    auto r = area.reduced(10, 0);
+    auto r = area.reduced(12, 0);
 
     if (isTicked)
     {
-        auto tickArea = r.removeFromLeft(16).toFloat();
+        auto tickArea = r.removeFromLeft(18).toFloat();
         g.setColour(accentCyan);
-        float dotRadius = 3.0f;
+        float dotRadius = 3.5f;
         g.fillEllipse(tickArea.getCentreX() - dotRadius, tickArea.getCentreY() - dotRadius, dotRadius * 2.0f, dotRadius * 2.0f);
     }
 
@@ -434,7 +448,7 @@ void OpenWavLookAndFeel::drawPopupMenuItem(juce::Graphics& g, const juce::Rectan
         icon->drawWithin(g, iconArea, juce::RectanglePlacement::centred, 1.0f);
     }
 
-    g.setFont(juce::Font(12.0f).boldened());
+    g.setFont(juce::Font(juce::FontOptions(12.5f)));
     g.setColour(textColour);
     g.drawText(text, r, juce::Justification::centredLeft, true);
 
@@ -446,7 +460,7 @@ void OpenWavLookAndFeel::drawPopupMenuItem(juce::Graphics& g, const juce::Rectan
 
     if (hasSubMenu)
     {
-        g.setColour(isActive ? textPrimary : textSecondary);
+        g.setColour(isActive ? (isHighlighted ? accentCyan : textPrimary) : textSecondary);
         auto arrowArea = r.removeFromRight(10).toFloat();
         juce::Path p;
         p.addTriangle(arrowArea.getX(), arrowArea.getCentreY() - 4.0f,
@@ -473,6 +487,79 @@ void OpenWavLookAndFeel::drawTickBox(juce::Graphics& g, juce::Component& /*compo
         float dotRadius = std::min(box.getWidth(), box.getHeight()) * 0.22f;
         g.fillEllipse(box.getCentreX() - dotRadius, box.getCentreY() - dotRadius, dotRadius * 2.0f, dotRadius * 2.0f);
     }
+}
+
+juce::Typeface::Ptr OpenWavLookAndFeel::getTypefaceForFont(const juce::Font& font)
+{
+    juce::String style = font.getTypefaceStyle();
+    bool isBold = font.isBold() || style.containsIgnoreCase("bold");
+    bool isItalic = font.isItalic() || style.containsIgnoreCase("italic");
+
+#if JUCE_MAC || JUCE_IOS
+    static const juce::String preferredFonts[] = {
+        "SF Pro Text", "SF Pro Display", ".AppleSystemUIFont", "Helvetica Neue", "Arial"
+    };
+#elif JUCE_WINDOWS
+    static const juce::String preferredFonts[] = {
+        "Segoe UI", "Aptos", "Calibri", "Arial"
+    };
+#else
+    static const juce::String preferredFonts[] = {
+        "Inter", "Roboto", "Ubuntu", "DejaVu Sans", "Liberation Sans", "Sans-Serif"
+    };
+#endif
+
+    for (const auto& fontName : preferredFonts)
+    {
+        juce::FontOptions options;
+        options = options.withName(fontName);
+        if (isBold && isItalic)
+            options = options.withStyle("Bold Italic");
+        else if (isBold)
+            options = options.withStyle("Bold");
+        else if (isItalic)
+            options = options.withStyle("Italic");
+        else if (style.isNotEmpty())
+            options = options.withStyle(style);
+        else
+            options = options.withStyle("Regular");
+
+        auto tf = juce::Typeface::createSystemTypefaceFor(options);
+        if (tf != nullptr)
+            return tf;
+    }
+
+    return juce::LookAndFeel_V4::getTypefaceForFont(font);
+}
+
+juce::Font OpenWavLookAndFeel::getLabelFont(juce::Label& label)
+{
+    return label.getFont();
+}
+
+juce::Font OpenWavLookAndFeel::getTextButtonFont(juce::TextButton& /*button*/, int buttonHeight)
+{
+    return juce::Font(juce::FontOptions(std::min(13.0f, (float)buttonHeight * 0.52f)).withStyle("Bold"));
+}
+
+juce::Font OpenWavLookAndFeel::getComboBoxFont(juce::ComboBox& /*box*/)
+{
+    return juce::Font(juce::FontOptions(12.5f));
+}
+
+juce::Font OpenWavLookAndFeel::getPopupMenuFont()
+{
+    return juce::Font(juce::FontOptions(13.0f));
+}
+
+juce::Font OpenWavLookAndFeel::getAlertWindowTitleFont()
+{
+    return juce::Font(juce::FontOptions(15.0f).withStyle("Bold"));
+}
+
+juce::Font OpenWavLookAndFeel::getAlertWindowMessageFont()
+{
+    return juce::Font(juce::FontOptions(13.0f));
 }
 
 } // namespace openwav

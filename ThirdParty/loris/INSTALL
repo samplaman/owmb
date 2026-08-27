@@ -1,0 +1,91 @@
+Installing Loris
+****************
+
+Loris is Copyright (c) 1999-2026 by Kelly Fitz and Lippold Haken
+<loris@cerlsoundgroup.org>
+
+Loris builds with CMake, version 3.24 or newer.
+
+
+Basic Installation
+==================
+
+From the top of the source tree:
+
+    cmake -S . -B build
+    cmake --build build
+    ctest --test-dir build        # optional: run the test suite
+    cmake --install build         # may need sudo, or set a --prefix
+
+The build is entirely out-of-tree: everything generated lands in the
+build directory (any name works; `build` is conventional), and the
+source tree stays clean.
+
+`cmake --install` installs:
+
+    <prefix>/lib/libloris.dylib (or .so)    the Loris class library
+    <prefix>/include/loris.h                the procedural (C) interface
+    <prefix>/include/loris/*.h              the C++ class headers
+    <prefix>/bin/loris-*                    the command line utilities
+    <site-packages>/loris.py, _loris.so     the Python module
+
+The default install prefix is /usr/local; override it with
+`cmake --install build --prefix <prefix>`.
+
+
+Requirements
+============
+
+  - CMake 3.24+ and a C++ compiler.
+
+  - SWIG 4.0+ and a Python 3 development environment, for the Python
+    module (optional). Both SWIG and the setuptools shim are pip
+    installable: `pip install -r requirements.txt`.
+
+  - FFTW 3 (optional but recommended, www.fftw.org). Without it, Loris
+    uses its bundled FFT, and infrequent non-power-of-two DFTs are
+    slower.
+
+  - Doxygen (optional), to build the API documentation.
+
+
+Configuration Options
+=====================
+
+Pass these to the first cmake invocation, e.g. `cmake -S . -B build
+-DLORIS_FFTW=OFF`:
+
+    LORIS_FFTW    (ON)   use the FFTW library if available
+    LORIS_UTILS   (ON)   build the loris-* command line utilities
+    LORIS_PYTHON  (ON)   build the SWIG Python module
+    LORIS_DEBUG   (OFF)  enable internal Loris debugging code
+    BUILD_TESTING (ON)   build the test suite (run it with ctest)
+
+
+Python Virtual Environments
+===========================
+
+To build for (and install into) a Python virtual environment, configure
+with the venv activated (more precisely: with the VIRTUAL_ENV
+environment variable set, which activation does). The Python module is
+then installed into that venv's site-packages, e.g.:
+
+    python3 -m venv .venv
+    source .venv/bin/activate
+    pip install -r requirements.txt      # swig + setuptools
+    cmake -S . -B build
+    cmake --build build
+    cmake --install build --prefix "$VIRTUAL_ENV"
+
+After which `import loris` works anywhere that venv's Python runs.
+
+
+Documentation
+=============
+
+If Doxygen is available at configure time, build the API documentation
+with:
+
+    cmake --build build --target docs
+
+The HTML lands in build/doc/html.

@@ -974,10 +974,49 @@ void SampleCloudComponent::resized() {
 }
 
 void SampleCloudComponent::mouseDown(const juce::MouseEvent &e) {
+  // Perform hit test at mouse position if no node is currently hovered
+  if (hoveredNodeIndex < 0 && !nodes.empty() && lastViewProjectionMatrix.mat[15] != 0.0f) {
+    const float halfW = getEffectiveWidth() * 0.5f;
+    const float halfH = getEffectiveHeight() * 0.5f;
+    const float mx = e.position.x;
+    const float my = e.position.y;
+    const float m00 = lastViewProjectionMatrix.mat[0], m04 = lastViewProjectionMatrix.mat[4], m08 = lastViewProjectionMatrix.mat[8], m12 = lastViewProjectionMatrix.mat[12];
+    const float m01 = lastViewProjectionMatrix.mat[1], m05 = lastViewProjectionMatrix.mat[5], m09 = lastViewProjectionMatrix.mat[9], m13 = lastViewProjectionMatrix.mat[13];
+    const float m02 = lastViewProjectionMatrix.mat[2], m06 = lastViewProjectionMatrix.mat[6], m10 = lastViewProjectionMatrix.mat[10], m14 = lastViewProjectionMatrix.mat[14];
+    const float m03 = lastViewProjectionMatrix.mat[3], m07 = lastViewProjectionMatrix.mat[7], m11 = lastViewProjectionMatrix.mat[11], m15 = lastViewProjectionMatrix.mat[15];
+
+    int bestIndex = -1;
+    float bestZ = std::numeric_limits<float>::max();
+    for (size_t i = 0; i < nodes.size(); ++i) {
+      const auto &n = nodes[i];
+      const float w = m03 * n.currentPos.x + m07 * n.currentPos.y + m11 * n.currentPos.z + m15;
+      if (w <= 0.001f) continue;
+      const float spZ = m02 * n.currentPos.x + m06 * n.currentPos.y + m10 * n.currentPos.z + m14;
+      if (spZ <= 0.0f || spZ >= bestZ) continue;
+      const float invW = 1.0f / w;
+      const float sx = halfW + (m00 * n.currentPos.x + m04 * n.currentPos.y + m08 * n.currentPos.z + m12) * invW * halfW;
+      const float visualRadius = std::max(8.0f, n.radius * 2.5f) + 8.0f;
+      const float dx = sx - mx;
+      if (std::abs(dx) > visualRadius) continue;
+      const float sy = halfH - (m01 * n.currentPos.x + m05 * n.currentPos.y + m09 * n.currentPos.z + m13) * invW * halfH;
+      const float dy = sy - my;
+      if (std::abs(dy) > visualRadius) continue;
+      if (dx * dx + dy * dy < visualRadius * visualRadius) {
+        bestZ = spZ;
+        bestIndex = static_cast<int>(i);
+      }
+    }
+    if (bestIndex >= 0) {
+      hoveredNodeIndex = bestIndex;
+    }
+  }
+
   if (e.mods.isRightButtonDown() || e.mods.isPopupMenu()) {
     if (hoveredNodeIndex >= 0 && hoveredNodeIndex < static_cast<int>(nodes.size())) {
       selectedNodeIndex = hoveredNodeIndex;
       targetCameraCenterPos = nodes[selectedNodeIndex].targetPos;
+      audioEngine.stop();
+      audioEngine.loadFile(juce::File(nodes[selectedNodeIndex].item.filePath), true);
       listeners.call([&](SampleCloudListener &l) {
         l.cloudSampleSelected(nodes[selectedNodeIndex].item);
       });
@@ -985,6 +1024,20 @@ void SampleCloudComponent::mouseDown(const juce::MouseEvent &e) {
       repaint();
       showContextMenuForNode(selectedNodeIndex);
     }
+    return;
+  }
+
+  // Node clicked directly: play sample immediately and trigger selection
+  if (hoveredNodeIndex >= 0 && hoveredNodeIndex < static_cast<int>(nodes.size())) {
+    selectedNodeIndex = hoveredNodeIndex;
+    targetCameraCenterPos = nodes[selectedNodeIndex].targetPos;
+    audioEngine.stop();
+    audioEngine.loadFile(juce::File(nodes[selectedNodeIndex].item.filePath), true);
+    listeners.call([&](SampleCloudListener &l) {
+      l.cloudSampleSelected(nodes[selectedNodeIndex].item);
+    });
+    overlayComponent.repaint();
+    repaint();
     return;
   }
 
@@ -1056,20 +1109,7 @@ void SampleCloudComponent::mouseDrag(const juce::MouseEvent &e) {
 }
 
 void SampleCloudComponent::mouseUp(const juce::MouseEvent &e) {
-  if (e.mods.isRightButtonDown() || e.mods.isPopupMenu())
-    return;
-
-  if (e.getDistanceFromDragStart() < 15.0f) {
-    if (hoveredNodeIndex >= 0) {
-      selectedNodeIndex = hoveredNodeIndex;
-      targetCameraCenterPos = nodes[selectedNodeIndex].targetPos;
-      listeners.call([&](SampleCloudListener &l) {
-        l.cloudSampleSelected(nodes[selectedNodeIndex].item);
-      });
-      overlayComponent.repaint();
-      repaint();
-    }
-  }
+  juce::ignoreUnused(e);
   isRotating = false;
   isPanning = false;
 }
@@ -1110,7 +1150,7 @@ void SampleCloudComponent::mouseMove(const juce::MouseEvent &e) {
     const float invW = 1.0f / w;
     const float spX = m00 * px + m04 * py + m08 * pz + m12;
     const float sx = halfW + (spX * invW) * halfW;
-    const float visualRadius = std::max(2.2f, n.radius * 2.0f) + 4.0f;
+    const float visualRadius = std::max(8.0f, n.radius * 2.5f) + 8.0f;
 
     const float dx = sx - mx;
     if (std::abs(dx) > visualRadius)
@@ -1173,10 +1213,16 @@ void SampleCloudComponent::mouseDoubleClick(const juce::MouseEvent &e) {
   if (e.mods.isRightButtonDown() || e.mods.isPopupMenu())
     return;
 
-  if (hoveredNodeIndex >= 0) {
+  if (hoveredNodeIndex >= 0 && hoveredNodeIndex < static_cast<int>(nodes.size())) {
+    selectedNodeIndex = hoveredNodeIndex;
+    targetCameraCenterPos = nodes[selectedNodeIndex].targetPos;
+    audioEngine.stop();
+    audioEngine.loadFile(juce::File(nodes[selectedNodeIndex].item.filePath), true);
     listeners.call([&](SampleCloudListener &l) {
-      l.cloudSampleDoubleClicked(nodes[hoveredNodeIndex].item);
+      l.cloudSampleDoubleClicked(nodes[selectedNodeIndex].item);
     });
+    overlayComponent.repaint();
+    repaint();
   }
 }
 

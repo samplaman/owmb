@@ -1,0 +1,50 @@
+# ==========================================================================
+# Loris .gitignore
+# The repository is source-only. The CMake build works out-of-tree in
+# build/, so generated files no longer land in the source tree at all.
+# ==========================================================================
+
+# --- CMake build trees ---
+/build/
+/build-*/
+
+# --- Compiled objects and libraries (e.g. from the static demo/Makefile) ---
+*.o
+*.a
+*.so
+*.dylib
+*.dSYM/
+
+# --- Python bytecode ---
+__pycache__/
+*.pyc
+*.pyo
+
+# --- Python virtual environment ---
+/.venv/
+/venv/
+
+# --- Scratch files from manually-run test programs ---
+*.ctest.*
+*.pytest.*
+*.pi.*
+
+# --- Demo outputs (demo/morphdemo.py writes these into demo/; the tracked
+#     input sounds live in demo/source/, so these anchored globs miss them) ---
+/demo/*.aiff
+/demo/*.sdif
+/demo/*.spc
+
+# --- macOS / editor cruft ---
+.DS_Store
+*~
+*.swp
+
+# --- Claude Code (keep shared settings.json tracked; ignore personal + local) ---
+.claude/settings.local.json
+
+# --- Personal CMake presets (see CMakeUserPresets.json.example) ---
+/CMakeUserPresets.json
+
+# --- Local-only working notes (not for the repo, for now) ---
+/PROJECT-STATUS.md

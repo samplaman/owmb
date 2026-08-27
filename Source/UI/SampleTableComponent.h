@@ -259,6 +259,7 @@ private:
     bool currentFavOnly { false };
 
     juce::ListenerList<SampleTableListener> listeners;
+    bool isSynchronizingSelection { false };
     juce::String similarityTargetId;
     juce::String similarityTargetName;
     MediaItem cachedSimilarityTargetItem;

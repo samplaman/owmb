@@ -1,0 +1,23 @@
+# ---------------------------------------------------------------------------
+# Loris — Python requirements   (pip install -r requirements.txt)
+#
+# This file is self-contained on purpose: the entire Python binding toolchain
+# comes from pip so the build reproduces off-platform with just a C++ compiler
+# and this venv — no Homebrew/apt required.
+#
+#   setuptools : build-time dependency of the swig package itself.
+#   swig       : the wrapper generator CMake invokes (via UseSWIG) to produce
+#                scripting/lorisPYTHON_wrap.cxx and loris.py. Pinned to the
+#                tested version for reproducible output.
+#
+# The Loris *runtime* module (`import loris`) has NO third-party Python
+# dependencies of its own — it is a self-contained C extension.
+#
+# Optional system libraries (NOT pip-installable; auto-detected by CMake):
+#   FFTW3    - faster non-power-of-two DFTs. Without it, Loris uses its bundled
+#              DFT (src/fftsg.c) and builds/works fine. Install if you want it:
+#              macOS: brew install fftw   |   Debian/Ubuntu: apt install libfftw3-dev
+# ---------------------------------------------------------------------------
+
+setuptools>=68
+swig==4.4.1

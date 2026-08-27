@@ -1,6 +1,7 @@
 #include "WaveformTransportComponent.h"
 #include "OpenWavLookAndFeel.h"
 #include "SliceConfigComponent.h"
+#include "LorisResynthesisDialog.h"
 #if JUCE_WINDOWS
  #ifndef NOMINMAX
   #define NOMINMAX
@@ -474,6 +475,11 @@ WaveformTransportComponent::WaveformTransportComponent(AudioEngine& engine)
     autoSliceButton.onClick = [this] { openSliceConfigWindow(); };
     addAndMakeVisible(autoSliceButton);
 
+    // Loris Resynth Button
+    lorisResynthButton.onClick = [this] { openLorisResynthesis(); };
+    lorisResynthButton.setTooltip("Loris Additive Resynthesis: Generate multi-note instrument from this sample");
+    addAndMakeVisible(lorisResynthButton);
+
     // Host Sync Button (placed after AutoSlice along with BPM)
     syncButton.setClickingTogglesState(true);
     syncButton.setToggleState(audioEngine.isHostSyncEnabled(), juce::dontSendNotification);
@@ -692,6 +698,9 @@ void WaveformTransportComponent::resized()
     topRow.removeFromLeft(5);
 
     autoSliceButton.setBounds(topRow.removeFromLeft(74).withHeight(28));
+    topRow.removeFromLeft(5);
+
+    lorisResynthButton.setBounds(topRow.removeFromLeft(74).withHeight(28));
     topRow.removeFromLeft(8);
 
     // Sync button and BPM control placed directly after AutoSlice button
@@ -1194,4 +1203,42 @@ void WaveformTransportComponent::triggerSlice()
     autoSliceButton.triggerClick();
 }
 
+void WaveformTransportComponent::openLorisResynthesis()
+{
+    juce::File currentFile = audioEngine.getCurrentFile();
+    juce::AudioBuffer<float> buffer;
+    double sampleRate = 44100.0;
+    bool hasBuffer = audioEngine.getAudioBufferCopy(buffer, sampleRate);
+
+    if (!hasBuffer || buffer.getNumSamples() == 0)
+    {
+        if (currentFile.existsAsFile())
+        {
+            juce::AudioFormatManager formatMgr;
+            formatMgr.registerBasicFormats();
+            std::unique_ptr<juce::AudioFormatReader> reader(formatMgr.createReaderFor(currentFile));
+            if (reader != nullptr)
+            {
+                buffer.setSize((int)reader->numChannels, (int)reader->lengthInSamples);
+                reader->read(&buffer, 0, (int)reader->lengthInSamples, 0, true, true);
+                sampleRate = reader->sampleRate;
+                hasBuffer = true;
+            }
+        }
+    }
+
+    if (!hasBuffer || buffer.getNumSamples() == 0)
+        return;
+
+    int rootNote = LorisResynthesizer::detectRootMidiNote(buffer, sampleRate);
+
+    LorisResynthesisDialog::showDialog(this, currentFile, buffer, sampleRate, rootNote, [this](const std::vector<ResynthesizedZone>& zones) {
+        if (onLorisResynthCompleted)
+        {
+            onLorisResynthCompleted(zones);
+        }
+    });
+}
+
 } // namespace openwav
+

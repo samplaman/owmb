@@ -6,6 +6,7 @@
  #include <juce_gui_basics/juce_gui_basics.h>
 #endif
 #include "../Audio/AudioEngine.h"
+#include "../Audio/LorisResynthesizer.h"
 
 namespace openwav
 {
@@ -125,6 +126,9 @@ public:
     void setActiveSliceRange(double startRatio, double endRatio, int sliceIndex = -1);
 
     std::function<void(const std::vector<double>&)> onSlicesGenerated;
+    std::function<void(const std::vector<ResynthesizedZone>&)> onLorisResynthCompleted;
+
+    void openLorisResynthesis();
 
 private:
     void runAutoSlice();
@@ -138,6 +142,7 @@ private:
     juce::TextButton loopButton { "Loop" };
     juce::TextButton autoPlayButton { "Auto" };
     juce::TextButton autoSliceButton { "Slice" };
+    juce::TextButton lorisResynthButton { "Resynth" };
     juce::TextButton syncButton { "SYNC" };
     BpmControlComponent bpmControl;
 

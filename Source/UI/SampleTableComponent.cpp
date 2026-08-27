@@ -862,6 +862,9 @@ void SampleTableComponent::cellClicked(int rowNumber, int columnId, const juce::
 
 void SampleTableComponent::selectedRowsChanged(int lastRowSelected)
 {
+    if (isSynchronizingSelection)
+        return;
+
     if (lastRowSelected >= 0 && lastRowSelected < static_cast<int>(allFilteredItems.size()))
     {
         const auto& item = allFilteredItems[static_cast<size_t>(lastRowSelected)];
@@ -921,19 +924,28 @@ void SampleTableComponent::selectItemById(const juce::String& itemId, bool trigg
             }
 
             int prevSelectedRow = table.getSelectedRow();
-            bool prevAutoPlay = shouldAutoPlayOnSelection;
-            shouldAutoPlayOnSelection = triggerPlayback;
-            table.selectRow(row);
-            shouldAutoPlayOnSelection = prevAutoPlay;
-
-            if (prevSelectedRow == row)
+            if (!triggerPlayback)
             {
-                juce::File fileToLoad(allFilteredItems[i].filePath);
-                if (fileToLoad.existsAsFile())
+                isSynchronizingSelection = true;
+                table.selectRow(row);
+                isSynchronizingSelection = false;
+            }
+            else
+            {
+                bool prevAutoPlay = shouldAutoPlayOnSelection;
+                shouldAutoPlayOnSelection = true;
+                table.selectRow(row);
+                shouldAutoPlayOnSelection = prevAutoPlay;
+
+                if (prevSelectedRow == row)
                 {
-                    audioEngine.stop();
-                    audioEngine.setSampleBpm(allFilteredItems[i].bpm);
-                    audioEngine.loadFile(fileToLoad, triggerPlayback);
+                    juce::File fileToLoad(allFilteredItems[i].filePath);
+                    if (fileToLoad.existsAsFile())
+                    {
+                        audioEngine.stop();
+                        audioEngine.setSampleBpm(allFilteredItems[i].bpm);
+                        audioEngine.loadFile(fileToLoad, true);
+                    }
                 }
             }
 

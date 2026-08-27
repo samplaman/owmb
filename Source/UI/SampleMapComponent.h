@@ -6,6 +6,7 @@
  #include <juce_gui_basics/juce_gui_basics.h>
 #endif
 #include "../Audio/AudioEngine.h"
+#include "../Audio/LorisResynthesizer.h"
 #include "../Models/MediaItem.h"
 #include "../Models/PluginState.h"
 #include <vector>
@@ -91,6 +92,9 @@ public:
     void loadSampleMapFromFile();
     bool loadSampleMapFile(const juce::File& file);
     void exportSampleMapToZip();
+    void openLorisResynthesisDialog();
+    void openLorisResynthesisForSample(const juce::File& file);
+    void applyResynthesizedZones(const std::vector<ResynthesizedZone>& generatedZones);
 
     SampleMapState getState() const;
     void setState(const SampleMapState& state);
@@ -123,6 +127,7 @@ private:
 
     // Action Toolbar
     juce::TextButton addSampleButton { "Add Sample" };
+    juce::TextButton lorisResynthButton { "Loris Resynth" };
     juce::TextButton deleteSelectedButton { "Delete Selected" };
     juce::TextButton autoMapPitchButton { "Auto Pitch" };
     juce::TextButton autoMapChromaticButton { "Auto Chromatic" };

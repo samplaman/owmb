@@ -1,0 +1,8 @@
+# Keep editor and tooling configuration out of `git archive` output, and so
+# out of the source tarballs attached to releases. These belong to the
+# working repository, not to a release of the library: .claude configures a
+# coding assistant, and .vscode hardcodes this developer's Homebrew cmake
+# path. Both remain tracked and are cloned normally.
+.claude          export-ignore
+.vscode          export-ignore
+.gitattributes   export-ignore

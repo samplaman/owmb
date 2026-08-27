@@ -1,0 +1,82 @@
+{
+    "version": 6,
+    "configurePresets": [
+        {
+            "name": "ci",
+            "displayName": "Debug (interpreter from the environment)",
+            "description": "Debug build that injects nothing about the toolchain: Python comes from $VIRTUAL_ENV when a virtual environment is active and from PATH otherwise, SWIG from PATH, FFTW from the usual system locations. Copy CMakeUserPresets.json.example to pin a personal layout.",
+            "binaryDir": "${sourceDir}/build-ci",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+            }
+        },
+        {
+            "name": "ci-release",
+            "displayName": "Release (interpreter from the environment)",
+            "inherits": "ci",
+            "binaryDir": "${sourceDir}/build-ci-release",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release"
+            }
+        },
+        {
+            "name": "ci-nofftw",
+            "displayName": "Debug, bundled FFT (no FFTW)",
+            "inherits": "ci",
+            "binaryDir": "${sourceDir}/build-ci-nofftw",
+            "cacheVariables": {
+                "LORIS_FFTW": "OFF"
+            }
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "ci",
+            "configurePreset": "ci",
+            "jobs": 4
+        },
+        {
+            "name": "ci-release",
+            "configurePreset": "ci-release",
+            "jobs": 4
+        },
+        {
+            "name": "ci-nofftw",
+            "configurePreset": "ci-nofftw",
+            "jobs": 4
+        }
+    ],
+    "testPresets": [
+        {
+            "name": "ci",
+            "configurePreset": "ci",
+            "output": {
+                "outputOnFailure": true
+            },
+            "execution": {
+                "jobs": 4
+            }
+        },
+        {
+            "name": "ci-release",
+            "configurePreset": "ci-release",
+            "output": {
+                "outputOnFailure": true
+            },
+            "execution": {
+                "jobs": 4
+            }
+        },
+        {
+            "name": "ci-nofftw",
+            "configurePreset": "ci-nofftw",
+            "output": {
+                "outputOnFailure": true
+            },
+            "execution": {
+                "jobs": 4
+            }
+        }
+    ]
+}

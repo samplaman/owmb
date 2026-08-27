@@ -55,6 +55,7 @@ public:
     ViewMode getCurrentViewMode() const { return currentViewMode; }
     bool isCloudViewActive() const { return currentViewMode == ViewMode::Cloud; }
     int getSearchEditorRight() const { return searchEditor.getRight(); }
+    juce::TextButton& getSettingsButton() { return settingsButton; }
 
     void addListener(HeaderBarListener* listener);
     void removeListener(HeaderBarListener* listener);

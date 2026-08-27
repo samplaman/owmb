@@ -61,6 +61,7 @@ public:
                           const juce::Slider::SliderStyle style, juce::Slider& slider) override;
 
     void drawPopupMenuBackground(juce::Graphics& g, int width, int height) override;
+    int getPopupMenuBorderSize() override;
 
     void drawPopupMenuItem(juce::Graphics& g, const juce::Rectangle<int>& area,
                            bool isSeparator, bool isActive, bool isHighlighted,
@@ -72,6 +73,15 @@ public:
                      float x, float y, float w, float h,
                      bool ticked, bool isEnabled,
                      bool shouldDrawButtonAsHighlighted, bool shouldDrawButtonAsDown) override;
+
+    // Modern Typography System
+    juce::Typeface::Ptr getTypefaceForFont(const juce::Font& font) override;
+    juce::Font getLabelFont(juce::Label& label) override;
+    juce::Font getTextButtonFont(juce::TextButton& button, int buttonHeight) override;
+    juce::Font getComboBoxFont(juce::ComboBox& box) override;
+    juce::Font getPopupMenuFont() override;
+    juce::Font getAlertWindowTitleFont() override;
+    juce::Font getAlertWindowMessageFont() override;
 };
 
 } // namespace openwav
