@@ -9,7 +9,7 @@
 # WITHOUT ANY WARRANTY, to the extent permitted by law; without even the
 # implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
-cmake_minimum_required(VERSION 3.24)
+cmake_minimum_required(VERSION 3.22)
 
 project(Loris VERSION 2.1 LANGUAGES C CXX)
 
@@ -33,9 +33,9 @@ set(LORIS_VERSION_STR "Loris ${PROJECT_VERSION}${LORIS_PRERELEASE_STR}")
 #----------------------------------------------------------------
 # Options
 #----------------------------------------------------------------
-option(LORIS_FFTW "Use the FFTW library if available (otherwise use the bundled FFT)" ON)
-option(LORIS_UTILS "Build the command line utilities" ON)
-option(LORIS_PYTHON "Build the SWIG Python module" ON)
+option(LORIS_FFTW "Use the FFTW library if available (otherwise use the bundled FFT)" OFF)
+option(LORIS_UTILS "Build the command line utilities" OFF)
+option(LORIS_PYTHON "Build the SWIG Python module" OFF)
 option(LORIS_DEBUG "Enable internal Loris debugging code (not recommended)" OFF)
 
 # Oldest Python the SWIG module is supported on. CI builds against exactly this

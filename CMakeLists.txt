@@ -7,10 +7,11 @@ endif()
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 if (MSVC)
     add_compile_options(/utf-8 /bigobj)
-    add_compile_definitions(_CRT_SECURE_NO_WARNINGS NOMINMAX)
+    add_compile_definitions(_CRT_SECURE_NO_WARNINGS NOMINMAX _USE_MATH_DEFINES)
 elseif (UNIX AND NOT APPLE)
     add_compile_options(
         -U_FORTIFY_SOURCE
@@ -43,7 +44,15 @@ endif()
 set(LORIS_UTILS OFF CACHE BOOL "" FORCE)
 set(LORIS_PYTHON OFF CACHE BOOL "" FORCE)
 set(LORIS_FFTW OFF CACHE BOOL "" FORCE)
+set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
 add_subdirectory(ThirdParty/loris EXCLUDE_FROM_ALL)
+
+# Suppress third-party Loris compiler warnings that fail CI on Windows/Linux
+if (MSVC)
+    target_compile_options(loris PRIVATE /W0 /utf-8 /bigobj)
+else()
+    target_compile_options(loris PRIVATE -w)
+endif()
 
 # Declare Audio Plugin & Standalone application target
 juce_add_plugin(OpenWav
@@ -161,7 +170,7 @@ endif()
 
 if (MSVC)
     target_compile_options(OpenWav PRIVATE /utf-8 /bigobj)
-    target_compile_definitions(OpenWav PRIVATE _CRT_SECURE_NO_WARNINGS NOMINMAX)
+    target_compile_definitions(OpenWav PRIVATE _CRT_SECURE_NO_WARNINGS NOMINMAX _USE_MATH_DEFINES)
 endif()
 
 target_link_libraries(OpenWav PRIVATE

@@ -49,7 +49,7 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install Linux Build Dependencies (ALSA, X11, XCB, OpenGL, Freetype, Ninja, PkgConfig, Xvfb)
+      - name: Install Linux Build Dependencies (ALSA, X11, OpenGL, Freetype, Ninja, PkgConfig, Xvfb)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
@@ -70,20 +70,12 @@ jobs:
             libxext-dev \
             libxinerama-dev \
             libxrandr-dev \
+            libxrender-dev \
+            libxi-dev \
+            libfontconfig1-dev \
             libgl1-mesa-dev \
             libglu1-mesa-dev \
             mesa-common-dev \
-            libxrender-dev \
-            libfontconfig1-dev \
-            libxcb-xfixes0-dev \
-            libxcb-render0-dev \
-            libxcb-shape0-dev \
-            libxcb-shm0-dev \
-            libxcb-util-dev \
-            libxcb-icccm4-dev \
-            libxcb-image0-dev \
-            libxcb-keysyms1-dev \
-            libxcb-randr0-dev \
             libx11-xcb-dev
 
       - name: Configure CMake (Linux)

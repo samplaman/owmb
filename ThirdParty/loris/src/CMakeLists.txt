@@ -81,13 +81,27 @@ add_library(loris STATIC ${CPP_SRC} ${PI_SRC} ${FASTSYNTH_SRC})
 # Fastsynth_Float_Type is part of the fast-synth API types, so every
 # consumer must agree with the library: make the definition PUBLIC.
 # (Renders in double precision, as the original Xcode target did.)
-target_compile_definitions(loris PUBLIC FASTSYNTH_FLOAT_TYPE=double)
+target_compile_definitions(loris PUBLIC
+    FASTSYNTH_FLOAT_TYPE=double
+    _USE_MATH_DEFINES
+)
+
+if (CMAKE_C_COMPILER_ID STREQUAL "MSVC" OR CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+    target_compile_definitions(loris PRIVATE _CRT_SECURE_NO_WARNINGS NOMINMAX)
+    target_compile_options(loris PRIVATE /W0)
+else()
+    target_compile_options(loris PRIVATE -Wno-comment)
+endif()
 
 # The libtool -version-info 13:0:0 lineage ended with 1.9. Loris 2.0 breaks
 # binary compatibility -- it requires C++17 and puts unique_ptr in public
 # headers -- so the soname advances to 14 rather than letting a 1.9-era
 # binary load this library.
-set_target_properties(loris PROPERTIES VERSION 14.0.0 SOVERSION 14)
+set_target_properties(loris PROPERTIES
+    VERSION 14.0.0
+    SOVERSION 14
+    POSITION_INDEPENDENT_CODE ON
+)
 
 # the binary dir (generated loris.h) must precede the source dir, so that
 # a stale in-tree loris.h left by an autotools build cannot shadow it
@@ -96,8 +110,6 @@ target_include_directories(loris PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/fast-synth-src>
 )
-
-target_compile_options(loris PRIVATE -Wno-comment)
 
 if(LORIS_HAVE_FFTW3)
     target_compile_definitions(loris PRIVATE HAVE_FFTW3_H=1)
@@ -109,7 +121,7 @@ if(LORIS_DEBUG)
     target_compile_definitions(loris PRIVATE Debug_Loris)
 endif()
 
-if(NOT APPLE)
+if(UNIX AND NOT APPLE)
     target_link_libraries(loris PRIVATE m)
 endif()
 
