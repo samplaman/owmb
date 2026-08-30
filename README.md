@@ -8,15 +8,15 @@
 
 ## Key Features
 
--  **3D Interactive Sample Cloud Visualizer**
--  **Interactive Zoom & Pan**
--  **Tag-Based Searching & Auto-Inference**
--  **Ultra-Fast Asynchronous Library Scanner**
--  **Scanned Folders Management**
--  **Hidden File Filtering**
--  **Pro Light & Dark UI**
--  **DAW Drag-and-Drop**
--  **GitHub Actions Auto-Releases**
+- **3D Cloud Instant Preview & Resynthesis**: Seamlessly explore your sample library in a 3D constellation with real-time additive resynthesis powered by Loris.
+- **Interactive 2D/3D Zoom & Pan**: Fluid navigation through thousands of samples with high-performance hardware-accelerated rendering.
+- **Advanced Tag-Based Searching**: Powerful filtering with automated inference to find your sounds faster than ever.
+- **Ultra-Fast Asynchronous Library Scanner**: Rapidly index massive sample libraries without impacting performance.
+- **Loris Additive Resynthesis**: High-quality spectral re-synthesis tools integrated directly into the workflow.
+- **Modern Typography & UI Styling**: Clean, production-ready interface with refined light and dark modes, plus enhanced settings menus.
+- **Sample Map Management**: Full support for exporting and importing sample map bundles (.zip) with automated sample reloading and mapping state synchronization.
+- **DAW Drag-and-Drop**: Effortless integration with all major DAWs.
+- **Platform Agnostic**: Stable performance across Windows 11, macOS (Apple Silicon & Intel), and Linux.
 
 ---
 
