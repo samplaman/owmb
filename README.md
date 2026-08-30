@@ -15,8 +15,24 @@
 - **Loris Additive Resynthesis**: High-quality spectral re-synthesis tools integrated directly into the workflow.
 - **Modern Typography & UI Styling**: Clean, production-ready interface with refined light and dark modes, plus enhanced settings menus.
 - **Sample Map Management**: Full support for exporting and importing sample map bundles (.zip) with automated sample reloading and mapping state synchronization.
-- **DAW Drag-and-Drop**: Effortless integration with all major DAWs.
+- **DAW Drag-and-Drop**: Effortless integration with all major DAWs. (Note: On macOS, please hold `Control` while dragging to ensure proper OS-level drag-and-drop behavior).
 - **Platform Agnostic**: Stable performance across Windows 11, macOS (Apple Silicon & Intel), and Linux.
+
+## ⌨️ Application Keyboard Shortcuts
+
+| Key | Action |
+| :--- | :--- |
+| `Space` | Play/Pause / Transport Control |
+| `Enter` | Trigger Convert / Confirm Action |
+| `Escape` | Cancel / Close Dialogs |
+| `Delete` / `Backspace` | Delete Selection |
+| `Up` | Previous Item / Increase Value |
+| `Down` | Next Item / Decrease Value |
+| `Left` | Previous Item / Decrease Note |
+| `Right` | Next Item / Increase Note |
+| `Numpad +` | Increment Selection/Value |
+| `Numpad -` | Decrement Selection/Value |
+| `Numpad 0` | Reset Selection/Value |
 
 ---
 

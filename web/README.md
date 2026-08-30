@@ -11,6 +11,15 @@ web/
 ├── index.html           # Main HTML structure & showcase interface
 ├── styles.css           # Studio Dark theme stylesheet
 ├── app.js               # Interactive gallery, Lightbox & keyboard switcher
+
+## ⌨️ Keyboard Shortcuts (Web Gallery)
+
+| Key | Action |
+| :--- | :--- |
+| `Escape` | Close Lightbox |
+| `Arrow Left` | Previous image |
+| `Arrow Right` | Next image |
+
 ├── owmblogo.png         # Official OWMB Logo
 ├── owmbico.png          # OWMB Icon
 ├── ss1.png              # 3D Sample Constellation Screenshot
