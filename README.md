@@ -18,7 +18,7 @@
 - **DAW Drag-and-Drop**: Effortless integration with all major DAWs. (Note: On macOS, please hold `Control` while dragging to ensure proper OS-level drag-and-drop behavior).
 - **Platform Agnostic**: Stable performance across Windows 11, macOS (Apple Silicon & Intel), and Linux.
 
-## ⌨️ Application Keyboard Shortcuts
+## Application Keyboard Shortcuts
 
 | Key | Action |
 | :--- | :--- |
