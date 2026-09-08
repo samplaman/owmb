@@ -139,6 +139,10 @@ target_sources(OpenWav PRIVATE
     Source/Network/MobileSyncManager.h
     Source/Network/MobileSyncManager.cpp
     Source/UI/StudioIcons.h
+    Source/UI/ShortcutManager.h
+    Source/UI/ShortcutManager.cpp
+    Source/UI/ShortcutsDialogComponent.h
+    Source/UI/ShortcutsDialogComponent.cpp
     Source/UI/MobileTransferDialog.h
     Source/UI/MobileTransferDialog.cpp
     Source/PluginProcessor.h

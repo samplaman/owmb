@@ -1,6 +1,7 @@
 #include "SampleMapComponent.h"
 #include "OpenWavLookAndFeel.h"
 #include "LorisResynthesisDialog.h"
+#include "ShortcutManager.h"
 #include <regex>
 // Rebuild trigger
 
@@ -2089,7 +2090,9 @@ void SampleMapComponent::buttonClicked(juce::Button* button)
 
 bool SampleMapComponent::keyPressed(const juce::KeyPress& key)
 {
-    if (key == juce::KeyPress::deleteKey || key == juce::KeyPress::backspaceKey)
+    auto& sm = ShortcutManager::getInstance();
+
+    if (sm.matches("map.delete_zone", key))
     {
         if (!selectedZoneIndices.empty() || selectedZoneIndex >= 0)
         {
@@ -2104,10 +2107,10 @@ bool SampleMapComponent::keyPressed(const juce::KeyPress& key)
     int deltaNote = 0;
     int deltaVel = 0;
 
-    if (key == juce::KeyPress::leftKey) deltaNote = -1;
-    else if (key == juce::KeyPress::rightKey) deltaNote = 1;
-    else if (key == juce::KeyPress::upKey) deltaVel = 4;
-    else if (key == juce::KeyPress::downKey) deltaVel = -4;
+    if (sm.matches("map.nudge_down", key)) deltaNote = -1;
+    else if (sm.matches("map.nudge_up", key)) deltaNote = 1;
+    else if (sm.matches("map.velocity_up", key)) deltaVel = 4;
+    else if (sm.matches("map.velocity_down", key)) deltaVel = -4;
 
     if (deltaNote != 0 || deltaVel != 0)
     {

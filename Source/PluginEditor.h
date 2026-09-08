@@ -16,6 +16,7 @@
 #include "UI/RecorderComponent.h"
 #include "UI/ScanProgressDialog.h"
 #include "UI/AboutDialog.h"
+#include "UI/ShortcutsDialogComponent.h"
 #include "UI/MobileTransferDialog.h"
 #include "UI/SimilarityGraphPopup.h"
 #include "UI/AnalysisComponent.h"
@@ -126,6 +127,7 @@ private:
     WaveformTransportComponent waveformTransport;
     ScanProgressDialog scanProgressDialog;
     AboutDialog aboutDialog;
+    ShortcutsDialogComponent shortcutsDialog;
     MobileTransferDialog mobileTransferDialog;
     SimilarityGraphPopup similarityGraphPopup;
     AnalysisComponent analysisComponent;

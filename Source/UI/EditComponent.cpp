@@ -1,5 +1,6 @@
 #include "EditComponent.h"
 #include "OpenWavLookAndFeel.h"
+#include "ShortcutManager.h"
 
 namespace openwav
 {
@@ -1885,30 +1886,24 @@ void EditComponent::playSelectionOnly()
 // ─────────────────────────────────────────────────────────
 bool EditComponent::keyPressed(const juce::KeyPress& key)
 {
-    if (key.getModifiers().isCtrlDown() || key.getModifiers().isCommandDown())
+    auto& sm = ShortcutManager::getInstance();
+
+    if (sm.matches("edit.select_all", key))
     {
-        if (key.getKeyCode() == 'A' || key.getKeyCode() == 'a')
-        {
-            selectAllRegion();
-            return true;
-        }
-        if (key.getKeyCode() == 'D' || key.getKeyCode() == 'd')
-        {
-            deselectAllRegion();
-            return true;
-        }
-    }
-    if (key == juce::KeyPress::spaceKey)
-    {
-        playPauseButton.triggerClick();
+        selectAllRegion();
         return true;
     }
-    if (key == juce::KeyPress::escapeKey)
+    if (sm.matches("edit.deselect_all", key) || sm.matches("edit.escape", key))
     {
         deselectAllRegion();
         return true;
     }
-    if (key.isKeyCode(juce::KeyPress::deleteKey) || key.isKeyCode(juce::KeyPress::backspaceKey))
+    if (sm.matches("transport.play_pause", key))
+    {
+        playPauseButton.triggerClick();
+        return true;
+    }
+    if (sm.matches("edit.silence_selection", key))
     {
         if (isSpectralView && hasSpectralBoxSelection)
         {
@@ -1921,7 +1916,7 @@ bool EditComponent::keyPressed(const juce::KeyPress& key)
             return true;
         }
     }
-    if (key.getKeyCode() == 'S' || key.getKeyCode() == 's')
+    if (sm.matches("edit.set_start_cursor", key))
     {
         double currentR = currentPositionSecs / totalDurationSecs;
         double endR = audioEngine.getSampleEndRatio();
@@ -1930,7 +1925,7 @@ bool EditComponent::keyPressed(const juce::KeyPress& key)
         repaint();
         return true;
     }
-    if (key.getKeyCode() == 'E' || key.getKeyCode() == 'e')
+    if (sm.matches("edit.set_end_cursor", key))
     {
         double currentR = currentPositionSecs / totalDurationSecs;
         double startR = audioEngine.getSampleStartRatio();

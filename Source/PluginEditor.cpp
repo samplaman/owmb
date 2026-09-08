@@ -417,6 +417,8 @@ void OpenWavAudioProcessorEditor::settingsRequested() {
   menu.addSubMenu("Text & UI Scaling", scaleSubMenu);
 
   menu.addSeparator();
+  menu.addItem(21, "Keyboard Shortcuts...");
+  menu.addSeparator();
   menu.addItem(20, "Phone Field Recorder Sync (LAN)...");
   menu.addSeparator();
   menu.addItem(3, "Audio / MIDI Device Settings...");
@@ -580,6 +582,9 @@ void OpenWavAudioProcessorEditor::settingsRequested() {
               triggerFilterUpdate();
             }
           });
+    } else if (result == 21) // Keyboard Shortcuts...
+    {
+      shortcutsDialog.showDialog();
     } else if (result == 20) // Phone Field Recorder Sync (LAN)
     {
       mobileTransferDialog.showDialog();
@@ -847,34 +852,48 @@ void OpenWavAudioProcessorEditor::applyUiScale(float scale) {
 }
 
 bool OpenWavAudioProcessorEditor::keyPressed(const juce::KeyPress &key) {
-  if (key.getModifiers().isCommandDown()) {
-    if (key.getTextCharacter() == '+' || key.getTextCharacter() == '=' ||
-        key.getKeyCode() == juce::KeyPress::numberPadAdd) {
-      applyUiScale(audioProcessor.getDatabaseManager().getUiScale() + 0.10f);
-      return true;
-    }
-    if (key.getTextCharacter() == '-' || key.getTextCharacter() == '_' ||
-        key.getKeyCode() == juce::KeyPress::numberPadSubtract) {
-      applyUiScale(audioProcessor.getDatabaseManager().getUiScale() - 0.10f);
-      return true;
-    }
-    if (key.getTextCharacter() == '0' || key.getKeyCode() == '0' ||
-        key.getKeyCode() == juce::KeyPress::numberPad0) {
-      applyUiScale(1.0f);
-      return true;
-    }
+  auto& sm = ShortcutManager::getInstance();
+
+  if (sm.matches("ui.zoom_in", key)) {
+    applyUiScale(audioProcessor.getDatabaseManager().getUiScale() + 0.10f);
+    return true;
+  }
+  if (sm.matches("ui.zoom_out", key)) {
+    applyUiScale(audioProcessor.getDatabaseManager().getUiScale() - 0.10f);
+    return true;
+  }
+  if (sm.matches("ui.zoom_reset", key)) {
+    applyUiScale(1.0f);
+    return true;
   }
 
-  if (key.getTextCharacter() == 'l' || key.getTextCharacter() == 'L') {
+  if (sm.matches("transport.loop", key)) {
     waveformTransport.toggleLoop();
     return true;
   }
-  if (key.getTextCharacter() == 's' || key.getTextCharacter() == 'S') {
+  if (sm.matches("transport.slice", key)) {
     waveformTransport.triggerSlice();
     return true;
   }
-  if (key == juce::KeyPress::spaceKey) {
+  if (sm.matches("transport.play_pause", key)) {
     waveformTransport.togglePlay();
+    return true;
+  }
+
+  if (sm.matches("view.list", key)) {
+    headerBar.setViewMode(ViewMode::List);
+    return true;
+  }
+  if (sm.matches("view.galaxy", key)) {
+    headerBar.setViewMode(ViewMode::Cloud);
+    return true;
+  }
+  if (sm.matches("view.edit", key)) {
+    headerBar.setViewMode(ViewMode::Edit);
+    return true;
+  }
+  if (sm.matches("view.sample_map", key)) {
+    headerBar.setViewMode(ViewMode::SampleMap);
     return true;
   }
 
