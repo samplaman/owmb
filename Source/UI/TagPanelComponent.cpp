@@ -4,6 +4,18 @@
 namespace openwav
 {
 
+static bool isBpmTag(const juce::String& tag)
+{
+    juce::String t = tag.trim();
+    if (t.endsWithIgnoreCase("BPM"))
+        return true;
+    if (t.startsWith("#"))
+        t = t.substring(1).trim();
+    if (t.startsWithIgnoreCase("BPM"))
+        return true;
+    return false;
+}
+
 TagPanelComponent::TagPanelComponent(TagDatabaseManager& db)
     : dbManager(db)
 {
@@ -22,6 +34,16 @@ TagPanelComponent::TagPanelComponent(TagDatabaseManager& db)
     addAndMakeVisible(filterHeaderLabel);
     addAndMakeVisible(tagsHeaderLabel);
     addAndMakeVisible(foldersHeaderLabel);
+
+    // BPM toggle button setup
+    showBpmButton.setClickingTogglesState(true);
+    showBpmButton.setToggleState(false, juce::dontSendNotification);
+    showBpmButton.setTooltip("Show/Hide BPM tempo tags");
+    showBpmButton.onClick = [this] {
+        showBpmTags = showBpmButton.getToggleState();
+        refreshTags();
+    };
+    addChildComponent(showBpmButton);
 
     // Viewports setup
     tagViewport.setViewedComponent(&tagCloudContainer, false);
@@ -45,10 +67,7 @@ TagPanelComponent::TagPanelComponent(TagDatabaseManager& db)
         selectedTags.clear();
         favoritesOnly = false;
         favoritesButton.setToggleState(false, juce::dontSendNotification);
-        for (auto* btn : tagButtons)
-        {
-            btn->setToggleState(false, juce::dontSendNotification);
-        }
+        refreshTags();
         notifySelectionChanged();
     };
     addAndMakeVisible(clearFiltersButton);
@@ -137,11 +156,7 @@ void TagPanelComponent::setSelectedTags(const std::vector<juce::String>& tags)
     for (const auto& t : tags)
         selectedTags.insert(t);
 
-    for (auto* btn : tagButtons)
-    {
-        if (btn != nullptr)
-            btn->setToggleState(selectedTags.count(btn->getButtonText()) > 0, juce::dontSendNotification);
-    }
+    refreshTags();
     notifySelectionChanged();
 }
 
@@ -187,9 +202,48 @@ void TagPanelComponent::refreshTags()
     tagCloudContainer.removeAllChildren();
 
     auto freqs = dbManager.getTagFrequencies();
-    tagsHeaderLabel.setText("TAGS (" + juce::String(freqs.size()) + ")", juce::dontSendNotification);
 
-    std::vector<std::pair<juce::String, int>> sortedTags(freqs.begin(), freqs.end());
+    int totalBpmTags = 0;
+    for (const auto& pair : freqs)
+    {
+        if (isBpmTag(pair.first))
+            totalBpmTags++;
+    }
+
+    if (totalBpmTags > 0)
+    {
+        showBpmButton.setVisible(true);
+        showBpmButton.setToggleState(showBpmTags, juce::dontSendNotification);
+        if (showBpmTags)
+        {
+            showBpmButton.setButtonText("Hide BPM");
+            showBpmButton.setTooltip("Hide tempo/BPM tags from list (" + juce::String(totalBpmTags) + " tags)");
+        }
+        else
+        {
+            showBpmButton.setButtonText("+ BPM");
+            showBpmButton.setTooltip("Show hidden BPM tags (" + juce::String(totalBpmTags) + " tags)");
+        }
+    }
+    else
+    {
+        showBpmButton.setVisible(false);
+    }
+
+    std::vector<std::pair<juce::String, int>> sortedTags;
+    sortedTags.reserve(freqs.size());
+
+    for (const auto& pair : freqs)
+    {
+        bool isBpm = isBpmTag(pair.first);
+        // Auto-hide BPM tags unless user toggled them on or the tag is actively selected
+        if (!showBpmTags && isBpm && selectedTags.find(pair.first) == selectedTags.end())
+            continue;
+
+        sortedTags.push_back(pair);
+    }
+
+    tagsHeaderLabel.setText("TAGS (" + juce::String(sortedTags.size()) + ")", juce::dontSendNotification);
 
     std::sort(sortedTags.begin(), sortedTags.end(), [](const auto& a, const auto& b) {
         if (a.second != b.second) return a.second > b.second;
@@ -202,6 +256,7 @@ void TagPanelComponent::refreshTags()
         int count = pair.second;
 
         auto* btn = new juce::TextButton(tagStr + " (" + juce::String(count) + ")");
+        btn->setComponentID("tagButton");
         btn->setClickingTogglesState(true);
         btn->setToggleState(selectedTags.find(tagStr) != selectedTags.end(), juce::dontSendNotification);
 
@@ -307,33 +362,29 @@ void TagPanelComponent::resized()
     folderListContainer.setBounds(0, 0, fContainerWidth, std::max(1, fY));
 
     // Tags Section (Takes remaining vertical space in middle)
-    tagsHeaderLabel.setBounds(area.removeFromTop(18));
+    auto tagsHeaderRow = area.removeFromTop(18);
+    if (showBpmButton.isVisible())
+    {
+        showBpmButton.setBounds(tagsHeaderRow.removeFromRight(60).withHeight(18));
+        tagsHeaderRow.removeFromRight(4);
+    }
+    tagsHeaderLabel.setBounds(tagsHeaderRow);
     area.removeFromTop(4);
     tagViewport.setBounds(area);
 
-    // Layout tag pills inside tagCloudContainer
+    // Layout tag items inside tagCloudContainer as a vertical list
     int viewportWidth = std::max(100, tagViewport.getMaximumVisibleWidth());
-    int x = 0;
+    int itemHeight = 22;
+    int itemGap = 2;
     int y = 0;
-    int pillHeight = 24;
-    int gap = 6;
 
     for (auto* btn : tagButtons)
     {
-        int fontWidth = juce::Font(11.0f).getStringWidth(btn->getButtonText());
-        int btnWidth = fontWidth + 18;
-
-        if (x + btnWidth > viewportWidth && x > 0)
-        {
-            x = 0;
-            y += pillHeight + gap;
-        }
-
-        btn->setBounds(x, y, btnWidth, pillHeight);
-        x += btnWidth + gap;
+        btn->setBounds(0, y, viewportWidth, itemHeight);
+        y += itemHeight + itemGap;
     }
 
-    int totalTagHeight = (tagButtons.size() > 0) ? (y + pillHeight) : 0;
+    int totalTagHeight = (tagButtons.size() > 0) ? (y - itemGap) : 0;
     tagCloudContainer.setBounds(0, 0, viewportWidth, std::max(1, totalTagHeight));
 }
 

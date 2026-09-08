@@ -111,8 +111,8 @@ jobs:
           security unlock-keychain -p "build_temp_keychain_pass" $KEYCHAIN_PATH
 
           echo "$MACOS_CERTIFICATE" | base64 --decode > $RUNNER_TEMP/certificate.p12
-          security import $RUNNER_TEMP/certificate.p12 -k $KEYCHAIN_PATH -P "$MACOS_CERTIFICATE_PWD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "build_temp_keychain_pass" $KEYCHAIN_PATH
+          security import $RUNNER_TEMP/certificate.p12 -k $KEYCHAIN_PATH -P "$MACOS_CERTIFICATE_PWD" -T /usr/bin/codesign -T /usr/bin/productbuild -T /usr/bin/pkgbuild
+          security set-key-partition-list -S apple-tool:,apple:,codesign:,productbuild:,pkgbuild: -s -k "build_temp_keychain_pass" $KEYCHAIN_PATH
           security list-keychain -d user -s $KEYCHAIN_PATH $(security list-keychains -d user | tr -d '"')
           rm -f $RUNNER_TEMP/certificate.p12
 
@@ -224,14 +224,32 @@ jobs:
           copy_mac_bundle "AU" "OWMB.component"
           copy_mac_bundle "Standalone" "OWMB.app"
           
-          # 1. Create Native macOS PKG Installer
+          # 1. Create Native macOS PKG Product Installer
+          PKG_SCRIPTS="build/pkg_scripts_${{ matrix.os_name }}"
+          PKG_COMPONENTS="build/pkg_components_${{ matrix.os_name }}"
+          rm -rf "$PKG_SCRIPTS" "$PKG_COMPONENTS"
           mkdir -p "$PKG_STAGING/Applications" \
                    "$PKG_STAGING/Library/Audio/Plug-Ins/VST3" \
-                   "$PKG_STAGING/Library/Audio/Plug-Ins/Components"
+                   "$PKG_STAGING/Library/Audio/Plug-Ins/Components" \
+                   "$PKG_SCRIPTS" \
+                   "$PKG_COMPONENTS"
 
           [ -d "$DIST_DIR/OWMB.app" ] && cp -R "$DIST_DIR/OWMB.app" "$PKG_STAGING/Applications/"
           [ -d "$DIST_DIR/OWMB.vst3" ] && cp -R "$DIST_DIR/OWMB.vst3" "$PKG_STAGING/Library/Audio/Plug-Ins/VST3/"
           [ -d "$DIST_DIR/OWMB.component" ] && cp -R "$DIST_DIR/OWMB.component" "$PKG_STAGING/Library/Audio/Plug-Ins/Components/"
+
+          # Postinstall script to clear Gatekeeper quarantine and ensure correct file permissions
+          cat << 'EOF' > "$PKG_SCRIPTS/postinstall"
+          #!/bin/bash
+          xattr -r -d com.apple.quarantine "/Applications/OWMB.app" 2>/dev/null || true
+          xattr -r -d com.apple.quarantine "/Library/Audio/Plug-Ins/VST3/OWMB.vst3" 2>/dev/null || true
+          xattr -r -d com.apple.quarantine "/Library/Audio/Plug-Ins/Components/OWMB.component" 2>/dev/null || true
+          chmod -R 755 "/Applications/OWMB.app" 2>/dev/null || true
+          chmod -R 755 "/Library/Audio/Plug-Ins/VST3/OWMB.vst3" 2>/dev/null || true
+          chmod -R 755 "/Library/Audio/Plug-Ins/Components/OWMB.component" 2>/dev/null || true
+          exit 0
+          EOF
+          chmod +x "$PKG_SCRIPTS/postinstall"
 
           VERSION_TAG="${{ github.event.inputs.tag_name }}"
           if [ -z "$VERSION_TAG" ]; then
@@ -243,20 +261,46 @@ jobs:
             fi
           fi
 
+          # Build component package with root:wheel ownership and postinstall script
+          pkgbuild --root "$PKG_STAGING" \
+            --scripts "$PKG_SCRIPTS" \
+            --ownership recommended \
+            --identifier "com.samplaman.owmb.pkg" \
+            --version "$VERSION_TAG" \
+            --install-location "/" \
+            "$PKG_COMPONENTS/OWMB-Component.pkg"
+
+          # Create distribution file for product archive specifying LocalSystem domain
+          cat << EOF > "$PKG_COMPONENTS/Distribution.xml"
+          <?xml version="1.0" encoding="utf-8"?>
+          <installer-gui-script minSpecVersion="2">
+              <title>OWMB</title>
+              <options customize="never" require-scripts="false" hostArchitectures="x86_64,arm64"/>
+              <domains enable_anywhere="false" enable_currentUserHome="false" enable_localSystem="true"/>
+              <choices-outline>
+                  <line choice="default">
+                      <line choice="com.samplaman.owmb.pkg"/>
+                  </line>
+              </choices-outline>
+              <choice id="default"/>
+              <choice id="com.samplaman.owmb.pkg" visible="false">
+                  <pkg-ref id="com.samplaman.owmb.pkg"/>
+              </choice>
+              <pkg-ref id="com.samplaman.owmb.pkg" version="$VERSION_TAG" onConclusion="none">OWMB-Component.pkg</pkg-ref>
+          </installer-gui-script>
+          EOF
+
           INSTALLER_CERT=$(security find-identity -v 2>/dev/null | grep "Developer ID Installer:" | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/' || true)
           if [ -n "$INSTALLER_CERT" ]; then
-            echo "Signing PKG with Developer ID Installer certificate: $INSTALLER_CERT"
-            pkgbuild --root "$PKG_STAGING" \
-              --identifier "com.samplaman.owmb.pkg" \
-              --version "$VERSION_TAG" \
-              --install-location "/" \
+            echo "Signing PKG Product Archive with Developer ID Installer certificate: $INSTALLER_CERT"
+            productbuild --distribution "$PKG_COMPONENTS/Distribution.xml" \
+              --package-path "$PKG_COMPONENTS" \
               --sign "$INSTALLER_CERT" \
               "$PKG_NAME"
           else
-            pkgbuild --root "$PKG_STAGING" \
-              --identifier "com.samplaman.owmb.pkg" \
-              --version "$VERSION_TAG" \
-              --install-location "/" \
+            echo "Building PKG Product Archive (unsigned - no Developer ID Installer certificate found)..."
+            productbuild --distribution "$PKG_COMPONENTS/Distribution.xml" \
+              --package-path "$PKG_COMPONENTS" \
               "$PKG_NAME"
           fi
 

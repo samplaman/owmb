@@ -3,25 +3,25 @@
 namespace openwav {
 
 juce::Colour OpenWavLookAndFeel::bgDark =
-    juce::Colour::fromRGB(240, 240, 240);
+    juce::Colour::fromRGB(18, 18, 18);
 juce::Colour OpenWavLookAndFeel::bgHeader =
-    juce::Colour::fromRGB(255, 255, 255);
-juce::Colour OpenWavLookAndFeel::bgCard =
-    juce::Colour::fromRGB(255, 255, 255);
-juce::Colour OpenWavLookAndFeel::bgHover =
-    juce::Colour::fromRGB(225, 225, 225);
-juce::Colour OpenWavLookAndFeel::accentCyan =
-    juce::Colour::fromRGB(60, 60, 60);
-juce::Colour OpenWavLookAndFeel::accentBlue =
-    juce::Colour::fromRGB(110, 110, 110);
-juce::Colour OpenWavLookAndFeel::textPrimary =
     juce::Colour::fromRGB(30, 30, 30);
+juce::Colour OpenWavLookAndFeel::bgCard =
+    juce::Colour::fromRGB(32, 32, 32);
+juce::Colour OpenWavLookAndFeel::bgHover =
+    juce::Colour::fromRGB(48, 48, 48);
+juce::Colour OpenWavLookAndFeel::accentCyan =
+    juce::Colour::fromRGB(0, 200, 220);
+juce::Colour OpenWavLookAndFeel::accentBlue =
+    juce::Colour::fromRGB(0, 140, 255);
+juce::Colour OpenWavLookAndFeel::textPrimary =
+    juce::Colour::fromRGB(240, 240, 240);
 juce::Colour OpenWavLookAndFeel::textSecondary =
-    juce::Colour::fromRGB(100, 100, 100);
+    juce::Colour::fromRGB(160, 160, 160);
 juce::Colour OpenWavLookAndFeel::borderColour =
-    juce::Colour::fromRGB(215, 215, 215);
+    juce::Colour::fromRGB(50, 50, 50);
 juce::Colour OpenWavLookAndFeel::favoriteRed =
-    juce::Colour::fromRGB(120, 120, 120);
+    juce::Colour::fromRGB(230, 70, 70);
 
 juce::Colour OpenWavLookAndFeel::customPrimaryColour = juce::Colour::fromRGB(0, 200, 220);
 bool OpenWavLookAndFeel::hasCustomPrimaryColour = false;
@@ -87,6 +87,7 @@ OpenWavLookAndFeel::OpenWavLookAndFeel() {
 #else
   setDefaultSansSerifTypefaceName("Inter");
 #endif
+  setDarkTheme(true);
   updateColors();
 }
 
@@ -186,11 +187,21 @@ void OpenWavLookAndFeel::drawButtonBackground(
     fillColour = bgHover;
   }
 
+  if (button.getComponentID() == "tagButton") {
+      cornerRadius = 4.0f;
+      if (!button.getToggleState() && !shouldDrawButtonAsHighlighted && !shouldDrawButtonAsDown) {
+          fillColour = juce::Colours::transparentBlack;
+      }
+  }
+
   g.setColour(fillColour);
   g.fillRoundedRectangle(bounds, cornerRadius);
 
   bool isMuteBtn = (text == "Mute" || text == "Unmute");
   juce::Colour border = isMuteBtn ? (button.getToggleState() ? favoriteRed : borderColour) : (button.getToggleState() ? accentCyan : borderColour);
+  if (button.getComponentID() == "tagButton" && !button.getToggleState()) {
+      border = shouldDrawButtonAsHighlighted ? borderColour.withAlpha(0.6f) : juce::Colours::transparentBlack;
+  }
   float stroke = button.getToggleState() ? 1.4f : 1.0f;
   g.setColour(border);
   g.drawRoundedRectangle(bounds, cornerRadius, stroke);
@@ -203,6 +214,27 @@ void OpenWavLookAndFeel::drawButtonText(juce::Graphics &g,
   auto text = button.getButtonText();
   // Small padding inside the button
   auto bounds = button.getLocalBounds().toFloat().reduced(4.0f, 2.0f);
+
+  if (button.getComponentID() == "tagButton") {
+      auto font = juce::Font(11.5f).boldened();
+      g.setFont(font);
+      juce::Colour textColour = button.getToggleState() ? accentCyan : textPrimary;
+      g.setColour(textColour);
+
+      auto textBounds = bounds.reduced(6.0f, 0.0f);
+      int parenIdx = text.lastIndexOf("(");
+      if (parenIdx > 0) {
+          auto tagPart = text.substring(0, parenIdx).trim();
+          auto countPart = text.substring(parenIdx).trim();
+          g.drawText(tagPart, textBounds, juce::Justification::centredLeft, true);
+          g.setColour(textColour.withAlpha(0.55f));
+          g.drawText(countPart, textBounds, juce::Justification::centredRight, true);
+      } else {
+          g.drawText(text, textBounds, juce::Justification::centredLeft, true);
+      }
+      return;
+  }
+
   juce::String svgString;
 
   if (text == "+ Add Folder" || text == "Add Folder") {

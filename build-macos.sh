@@ -182,34 +182,80 @@ copy_bundle_if_exists "VST3" "OWMB.vst3"
 copy_bundle_if_exists "AU" "OWMB.component"
 copy_bundle_if_exists "Standalone" "OWMB.app"
 
-# 4a. Create Native macOS PKG Installer
+# 4a. Create Native macOS PKG Product Installer
 echo "==> Creating Native macOS PKG Installer: $DIST_NAME-Installer.pkg..."
 PKG_STAGING="build/pkg_root_$DIST_NAME"
-rm -rf "$PKG_STAGING"
+PKG_SCRIPTS="build/pkg_scripts_$DIST_NAME"
+PKG_COMPONENTS="build/pkg_build_$DIST_NAME"
+rm -rf "$PKG_STAGING" "$PKG_SCRIPTS" "$PKG_COMPONENTS"
 mkdir -p "$PKG_STAGING/Applications" \
          "$PKG_STAGING/Library/Audio/Plug-Ins/VST3" \
-         "$PKG_STAGING/Library/Audio/Plug-Ins/Components"
+         "$PKG_STAGING/Library/Audio/Plug-Ins/Components" \
+         "$PKG_SCRIPTS" \
+         "$PKG_COMPONENTS"
 
 [ -d "dist/$DIST_NAME/OWMB.app" ] && cp -R "dist/$DIST_NAME/OWMB.app" "$PKG_STAGING/Applications/"
 [ -d "dist/$DIST_NAME/OWMB.vst3" ] && cp -R "dist/$DIST_NAME/OWMB.vst3" "$PKG_STAGING/Library/Audio/Plug-Ins/VST3/"
 [ -d "dist/$DIST_NAME/OWMB.component" ] && cp -R "dist/$DIST_NAME/OWMB.component" "$PKG_STAGING/Library/Audio/Plug-Ins/Components/"
 
-rm -f "$DIST_NAME-Installer.pkg"
+# Postinstall script to clear quarantine attributes and ensure proper system permissions
+cat << 'EOF' > "$PKG_SCRIPTS/postinstall"
+#!/bin/bash
+# Remove Gatekeeper quarantine attributes from installed app and plugins
+xattr -r -d com.apple.quarantine "/Applications/OWMB.app" 2>/dev/null || true
+xattr -r -d com.apple.quarantine "/Library/Audio/Plug-Ins/VST3/OWMB.vst3" 2>/dev/null || true
+xattr -r -d com.apple.quarantine "/Library/Audio/Plug-Ins/Components/OWMB.component" 2>/dev/null || true
+
+# Ensure correct file permissions for audio hosts & system
+chmod -R 755 "/Applications/OWMB.app" 2>/dev/null || true
+chmod -R 755 "/Library/Audio/Plug-Ins/VST3/OWMB.vst3" 2>/dev/null || true
+chmod -R 755 "/Library/Audio/Plug-Ins/Components/OWMB.component" 2>/dev/null || true
+exit 0
+EOF
+chmod +x "$PKG_SCRIPTS/postinstall"
+
+rm -f "$DIST_NAME-Installer.pkg" "$PKG_COMPONENTS/OWMB-Component.pkg"
+
+# Build component package with recommended root:wheel ownership and postinstall script
+pkgbuild --root "$PKG_STAGING" \
+    --scripts "$PKG_SCRIPTS" \
+    --ownership recommended \
+    --identifier "com.samplaman.owmb.pkg" \
+    --version "1.0.0" \
+    --install-location "/" \
+    "$PKG_COMPONENTS/OWMB-Component.pkg"
+
+# Create distribution file for product archive specifying LocalSystem domain
+cat << EOF > "$PKG_COMPONENTS/Distribution.xml"
+<?xml version="1.0" encoding="utf-8"?>
+<installer-gui-script minSpecVersion="2">
+    <title>OWMB</title>
+    <options customize="never" require-scripts="false" hostArchitectures="x86_64,arm64"/>
+    <domains enable_anywhere="false" enable_currentUserHome="false" enable_localSystem="true"/>
+    <choices-outline>
+        <line choice="default">
+            <line choice="com.samplaman.owmb.pkg"/>
+        </line>
+    </choices-outline>
+    <choice id="default"/>
+    <choice id="com.samplaman.owmb.pkg" visible="false">
+        <pkg-ref id="com.samplaman.owmb.pkg"/>
+    </choice>
+    <pkg-ref id="com.samplaman.owmb.pkg" version="1.0.0" onConclusion="none">OWMB-Component.pkg</pkg-ref>
+</installer-gui-script>
+EOF
 
 INSTALLER_SIGN_ID=$(security find-identity -v 2>/dev/null | grep "Developer ID Installer:" | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/' || true)
 if [ -n "$INSTALLER_SIGN_ID" ]; then
     echo "==> Auto-detected Developer ID Installer certificate: $INSTALLER_SIGN_ID"
-    pkgbuild --root "$PKG_STAGING" \
-        --identifier "com.samplaman.owmb.pkg" \
-        --version "1.0.0" \
-        --install-location "/" \
+    productbuild --distribution "$PKG_COMPONENTS/Distribution.xml" \
+        --package-path "$PKG_COMPONENTS" \
         --sign "$INSTALLER_SIGN_ID" \
         "$DIST_NAME-Installer.pkg"
 else
-    pkgbuild --root "$PKG_STAGING" \
-        --identifier "com.samplaman.owmb.pkg" \
-        --version "1.0.0" \
-        --install-location "/" \
+    echo "==> Building PKG Product Archive (unsigned)..."
+    productbuild --distribution "$PKG_COMPONENTS/Distribution.xml" \
+        --package-path "$PKG_COMPONENTS" \
         "$DIST_NAME-Installer.pkg"
 fi
 

@@ -46,6 +46,12 @@ Pre-built binaries and installers for **Windows 11**, **macOS** (Universal for A
 - **macOS Universal Installer (.pkg / .dmg)**: `OWMB-macOS-Universal-Installer.pkg` / `OWMB-macOS-Universal-Installer.dmg` / `OWMB-macOS-Universal.dmg` (VST3, AU & App for Apple Silicon & Intel)
 - **Linux Distros (.tar.gz)**: `OWMB-Linux-Distros-x64.tar.gz` (VST3 Plugin & Standalone Executable)
 
+> [!TIP]
+> **macOS Installation & Gatekeeper**:
+> - **Native Package Installer (`.pkg`)**: Run `OWMB-macOS-Universal-Installer.pkg` to install the standalone application (`/Applications`), VST3 (`/Library/Audio/Plug-Ins/VST3`), and AU Component (`/Library/Audio/Plug-Ins/Components`).
+> - **Disk Image Installer (`.dmg`)**: You can also open `OWMB-macOS-Universal-Installer.dmg` and drag the app and plugins into the folder shortcuts.
+> - If macOS Gatekeeper displays an "unidentified developer" prompt, Control-click (or right-click) the `.pkg` and select **Open**, or navigate to **System Settings > Privacy & Security** and click **Open Anyway**.
+
 ---
 
 ## Building OWMB Locally

@@ -104,7 +104,7 @@ private:
     std::set<juce::String> scanFolders;
     juce::String pixeldrainApiKey { "https://pixeldrain.com/d/BCLFaT9q" };
     juce::String downloadFolder;
-    bool darkThemeActive = false;
+    bool darkThemeActive = true;
     juce::String primaryColourHex;
     float uiScale = 1.0f;
     juce::ListenerList<TagDatabaseListener> listeners;

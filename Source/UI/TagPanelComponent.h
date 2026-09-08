@@ -57,6 +57,7 @@ private:
     juce::TextButton autoTagButton { "Auto-Tag Library" };
 
     juce::Label tagsHeaderLabel { {}, "TAGS" };
+    juce::TextButton showBpmButton { "+ BPM" };
     juce::Viewport tagViewport;
     juce::Component tagCloudContainer;
     juce::OwnedArray<juce::TextButton> tagButtons;
@@ -71,6 +72,7 @@ private:
 
     bool favoritesOnly { false };
     bool matchAll { false };
+    bool showBpmTags { false };
     bool isAutoTagging { false };
     double autoTagProgress { 0.0 };
 
