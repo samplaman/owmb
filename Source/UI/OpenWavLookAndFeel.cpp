@@ -456,32 +456,135 @@ void OpenWavLookAndFeel::drawLinearSlider(
   }
 }
 
+// ─────────────────────────────────────────────────────────
+//  ComboBox Styling
+// ─────────────────────────────────────────────────────────
+void OpenWavLookAndFeel::drawComboBox(juce::Graphics& g, int width, int height, bool isButtonDown,
+                                      int buttonX, int buttonY, int buttonW, int buttonH,
+                                      juce::ComboBox& box)
+{
+    auto bounds = juce::Rectangle<float>(0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height)).reduced(0.5f);
+    float cornerRadius = 6.0f;
+
+    // Background fill
+    juce::Colour fillCol = bgCard;
+    if (!box.isEnabled())
+        fillCol = bgDark.withAlpha(0.6f);
+    else if (isButtonDown)
+        fillCol = bgCard.darker(0.12f);
+    else if (box.isMouseOver())
+        fillCol = bgHover;
+
+    g.setColour(fillCol);
+    g.fillRoundedRectangle(bounds, cornerRadius);
+
+    // Border
+    juce::Colour borderCol = borderColour;
+    float strokeWidth = 1.0f;
+    if (box.isEnabled())
+    {
+        if (box.hasKeyboardFocus(true) || isButtonDown)
+        {
+            borderCol = accentCyan;
+            strokeWidth = 1.4f;
+        }
+        else if (box.isMouseOver())
+        {
+            borderCol = borderColour.brighter(0.35f);
+        }
+    }
+    else
+    {
+        borderCol = borderColour.withAlpha(0.4f);
+    }
+
+    g.setColour(borderCol);
+    g.drawRoundedRectangle(bounds, cornerRadius, strokeWidth);
+
+    // Downward chevron
+    float arrowW = 8.0f;
+    float arrowH = 4.5f;
+    float cx = static_cast<float>(buttonX) + static_cast<float>(buttonW) * 0.5f;
+    float cy = static_cast<float>(buttonY) + static_cast<float>(buttonH) * 0.5f;
+
+    juce::Path arrow;
+    arrow.startNewSubPath(cx - arrowW * 0.5f, cy - arrowH * 0.5f);
+    arrow.lineTo(cx, cy + arrowH * 0.5f);
+    arrow.lineTo(cx + arrowW * 0.5f, cy - arrowH * 0.5f);
+
+    juce::Colour arrowCol = textSecondary;
+    if (!box.isEnabled())
+        arrowCol = textSecondary.withAlpha(0.3f);
+    else if (isButtonDown)
+        arrowCol = accentCyan;
+    else if (box.isMouseOver())
+        arrowCol = textPrimary;
+
+    g.setColour(arrowCol);
+    g.strokePath(arrow, juce::PathStrokeType(1.6f, juce::PathStrokeType::JointStyle::mitered, juce::PathStrokeType::EndCapStyle::rounded));
+}
+
+void OpenWavLookAndFeel::positionComboBoxText(juce::ComboBox& box, juce::Label& label)
+{
+    label.setBounds(8, 0, box.getWidth() - 28, box.getHeight());
+    label.setFont(getComboBoxFont(box));
+    label.setJustificationType(juce::Justification::centredLeft);
+}
+
+// ─────────────────────────────────────────────────────────
+//  PopupMenu Styling
+// ─────────────────────────────────────────────────────────
+void OpenWavLookAndFeel::preparePopupMenuWindow(juce::Component& window)
+{
+    window.setOpaque(false);
+}
+
 int OpenWavLookAndFeel::getPopupMenuBorderSize()
 {
     return 6;
 }
 
+int OpenWavLookAndFeel::getIdealPopupMenuItemHeight(const juce::String& /*text*/, bool isSeparator, int /*standardMenuItemHeight*/)
+{
+    if (isSeparator)
+        return 8;
+    return 28;
+}
+
 void OpenWavLookAndFeel::drawPopupMenuBackground(juce::Graphics& g, int width, int height)
 {
     auto area = juce::Rectangle<float>(0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height));
-    g.setColour(bgCard);
-    g.fillRoundedRectangle(area, 6.0f);
-    g.setColour(borderColour);
-    g.drawRoundedRectangle(area.reduced(0.5f), 6.0f, 1.0f);
+    auto menuArea = area.reduced(0.5f);
+    float cornerSize = 8.0f;
+
+    // Deep sleek dark background with slight translucency
+    g.setColour(juce::Colour(0xf4161b22));
+    g.fillRoundedRectangle(menuArea, cornerSize);
+
+    // Subtle modern border
+    g.setColour(borderColour.brighter(0.15f));
+    g.drawRoundedRectangle(menuArea, cornerSize, 1.0f);
+
+    // Top highlight bevel for elevated floating depth
+    juce::Path highlight;
+    highlight.addRoundedRectangle(menuArea.getX() + 1.0f, menuArea.getY() + 1.0f,
+                                  menuArea.getWidth() - 2.0f, 1.0f, 0.5f);
+    g.setColour(juce::Colours::white.withAlpha(0.06f));
+    g.fillPath(highlight);
 }
 
 void OpenWavLookAndFeel::drawPopupMenuItem(juce::Graphics& g, const juce::Rectangle<int>& area,
-                                            bool isSeparator, bool isActive, bool isHighlighted,
-                                            bool isTicked, bool hasSubMenu, const juce::String& text,
-                                            const juce::String& shortcutKeyText,
-                                            const juce::Drawable* icon, const juce::Colour* textColourToUse)
+                                           bool isSeparator, bool isActive, bool isHighlighted,
+                                           bool isTicked, bool hasSubMenu, const juce::String& text,
+                                           const juce::String& shortcutKeyText,
+                                           const juce::Drawable* icon, const juce::Colour* textColourToUse)
 {
     if (isSeparator)
     {
         auto r = area.reduced(8, 0);
-        r.removeFromTop(r.getHeight() / 2);
-        g.setColour(borderColour.withAlpha(0.6f));
-        g.fillRect(r.removeFromTop(1));
+        float lineY = static_cast<float>(r.getCentreY());
+        g.setColour(borderColour.withAlpha(0.5f));
+        g.drawLine(static_cast<float>(r.getX()), lineY, static_cast<float>(r.getRight()), lineY, 1.0f);
         return;
     }
 
@@ -490,23 +593,33 @@ void OpenWavLookAndFeel::drawPopupMenuItem(juce::Graphics& g, const juce::Rectan
         textColour = *textColourToUse;
 
     if (!isActive)
-        textColour = textSecondary.withAlpha(0.6f);
+        textColour = textSecondary.withAlpha(0.45f);
 
+    // Highlighted item pill with rounded corners
     if (isHighlighted && isActive)
     {
-        g.setColour(bgHover);
-        g.fillRoundedRectangle(area.reduced(3, 1).toFloat(), 4.0f);
+        auto highlightBounds = area.reduced(4, 1).toFloat();
+        g.setColour(accentCyan.withAlpha(0.18f));
+        g.fillRoundedRectangle(highlightBounds, 6.0f);
+        g.setColour(accentCyan.withAlpha(0.4f));
+        g.drawRoundedRectangle(highlightBounds, 6.0f, 0.8f);
         textColour = accentCyan;
     }
 
     auto r = area.reduced(12, 0);
 
+    // Modern checkmark for ticked items
     if (isTicked)
     {
         auto tickArea = r.removeFromLeft(18).toFloat();
-        g.setColour(accentCyan);
-        float dotRadius = 3.5f;
-        g.fillEllipse(tickArea.getCentreX() - dotRadius, tickArea.getCentreY() - dotRadius, dotRadius * 2.0f, dotRadius * 2.0f);
+        float cx = tickArea.getCentreX();
+        float cy = tickArea.getCentreY();
+        juce::Path tickPath;
+        tickPath.startNewSubPath(cx - 4.5f, cy);
+        tickPath.lineTo(cx - 1.5f, cy + 3.5f);
+        tickPath.lineTo(cx + 4.5f, cy - 3.5f);
+        g.setColour(isActive ? accentCyan : textSecondary.withAlpha(0.5f));
+        g.strokePath(tickPath, juce::PathStrokeType(1.8f, juce::PathStrokeType::JointStyle::mitered, juce::PathStrokeType::EndCapStyle::rounded));
     }
 
     if (icon != nullptr)
@@ -521,20 +634,59 @@ void OpenWavLookAndFeel::drawPopupMenuItem(juce::Graphics& g, const juce::Rectan
 
     if (shortcutKeyText.isNotEmpty())
     {
-        g.setColour(textSecondary);
+        g.setColour(textSecondary.withAlpha(0.7f));
         g.drawText(shortcutKeyText, r, juce::Justification::centredRight, true);
     }
 
     if (hasSubMenu)
     {
-        g.setColour(isActive ? (isHighlighted ? accentCyan : textPrimary) : textSecondary);
-        auto arrowArea = r.removeFromRight(10).toFloat();
+        auto arrowArea = r.removeFromRight(12).toFloat();
+        float cx = arrowArea.getCentreX();
+        float cy = arrowArea.getCentreY();
         juce::Path p;
-        p.addTriangle(arrowArea.getX(), arrowArea.getCentreY() - 4.0f,
-                      arrowArea.getRight(), arrowArea.getCentreY(),
-                      arrowArea.getX(), arrowArea.getCentreY() + 4.0f);
-        g.fillPath(p);
+        p.startNewSubPath(cx - 2.5f, cy - 4.5f);
+        p.lineTo(cx + 2.0f, cy);
+        p.lineTo(cx - 2.5f, cy + 4.5f);
+        g.setColour(isActive ? (isHighlighted ? accentCyan : textSecondary) : textSecondary.withAlpha(0.35f));
+        g.strokePath(p, juce::PathStrokeType(1.5f, juce::PathStrokeType::mitered, juce::PathStrokeType::rounded));
     }
+}
+
+void OpenWavLookAndFeel::drawPopupMenuSectionHeader(juce::Graphics& g, const juce::Rectangle<int>& area,
+                                                    const juce::String& sectionName)
+{
+    g.setFont(juce::Font(juce::FontOptions(10.5f).withStyle("Bold")));
+    g.setColour(accentCyan.withAlpha(0.8f));
+    auto r = area.reduced(12, 0);
+    g.drawText(sectionName.toUpperCase(), r, juce::Justification::centredLeft, true);
+}
+
+void OpenWavLookAndFeel::drawPopupMenuUpDownArrow(juce::Graphics& g, int width, int height, bool isScrollUpArrow)
+{
+    g.setColour(bgCard);
+    g.fillRect(0, 0, width, height);
+
+    float cx = static_cast<float>(width) * 0.5f;
+    float cy = static_cast<float>(height) * 0.5f;
+    float arrowW = 8.0f;
+    float arrowH = 4.5f;
+
+    juce::Path p;
+    if (isScrollUpArrow)
+    {
+        p.startNewSubPath(cx - arrowW * 0.5f, cy + arrowH * 0.5f);
+        p.lineTo(cx, cy - arrowH * 0.5f);
+        p.lineTo(cx + arrowW * 0.5f, cy + arrowH * 0.5f);
+    }
+    else
+    {
+        p.startNewSubPath(cx - arrowW * 0.5f, cy - arrowH * 0.5f);
+        p.lineTo(cx, cy + arrowH * 0.5f);
+        p.lineTo(cx + arrowW * 0.5f, cy - arrowH * 0.5f);
+    }
+
+    g.setColour(accentCyan);
+    g.strokePath(p, juce::PathStrokeType(1.6f, juce::PathStrokeType::mitered, juce::PathStrokeType::rounded));
 }
 
 void OpenWavLookAndFeel::drawTickBox(juce::Graphics& g, juce::Component& /*component*/,

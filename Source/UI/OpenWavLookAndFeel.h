@@ -60,14 +60,26 @@ public:
                           float sliderPos, float minSliderPos, float maxSliderPos,
                           const juce::Slider::SliderStyle style, juce::Slider& slider) override;
 
+    // ComboBox Styling
+    void drawComboBox(juce::Graphics& g, int width, int height, bool isButtonDown,
+                      int buttonX, int buttonY, int buttonW, int buttonH,
+                      juce::ComboBox& box) override;
+    void positionComboBoxText(juce::ComboBox& box, juce::Label& label) override;
+
+    // PopupMenu Styling
+    void preparePopupMenuWindow(juce::Component& window) override;
     void drawPopupMenuBackground(juce::Graphics& g, int width, int height) override;
     int getPopupMenuBorderSize() override;
+    int getIdealPopupMenuItemHeight(const juce::String& text, bool isSeparator, int standardMenuItemHeight) override;
 
     void drawPopupMenuItem(juce::Graphics& g, const juce::Rectangle<int>& area,
                            bool isSeparator, bool isActive, bool isHighlighted,
                            bool isTicked, bool hasSubMenu, const juce::String& text,
                            const juce::String& shortcutKeyText,
                            const juce::Drawable* icon, const juce::Colour* textColour) override;
+    void drawPopupMenuSectionHeader(juce::Graphics& g, const juce::Rectangle<int>& area,
+                                    const juce::String& sectionName) override;
+    void drawPopupMenuUpDownArrow(juce::Graphics& g, int width, int height, bool isScrollUpArrow) override;
 
     void drawTickBox(juce::Graphics& g, juce::Component& component,
                      float x, float y, float w, float h,
