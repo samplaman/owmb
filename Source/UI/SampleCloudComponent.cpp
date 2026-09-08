@@ -1364,6 +1364,45 @@ void SampleCloudComponent::mouseWheelMove(
     overlayComponent.repaint();
     repaint();
   } else {
+#if JUCE_MAC
+    // On macOS only: when using trackpad or Magic Mouse, rotate the 3D view around selected node when scrolling horizontally
+    const bool isTrackpadOrMagicMouse = (wheel.isSmooth || wheel.isInertial);
+    const bool isHorizontalScroll = (std::abs(wheel.deltaX) > 0.0001f) &&
+                                    (std::abs(wheel.deltaX) >= std::abs(wheel.deltaY) * 0.35f);
+
+    if (isTrackpadOrMagicMouse && !is2DMode && isHorizontalScroll) {
+      // 1. Identify selected node (or hovered node if none currently selected)
+      if (selectedNodeIndex >= 0 && selectedNodeIndex < static_cast<int>(nodes.size())) {
+        targetCameraCenterPos = nodes[selectedNodeIndex].targetPos;
+        cameraCenterPos.x += (targetCameraCenterPos.x - cameraCenterPos.x) * 0.35f;
+        cameraCenterPos.y += (targetCameraCenterPos.y - cameraCenterPos.y) * 0.35f;
+        cameraCenterPos.z += (targetCameraCenterPos.z - cameraCenterPos.z) * 0.35f;
+      } else if (hoveredNodeIndex >= 0 && hoveredNodeIndex < static_cast<int>(nodes.size())) {
+        selectedNodeIndex = hoveredNodeIndex;
+        targetCameraCenterPos = nodes[selectedNodeIndex].targetPos;
+        cameraCenterPos.x += (targetCameraCenterPos.x - cameraCenterPos.x) * 0.35f;
+        cameraCenterPos.y += (targetCameraCenterPos.y - cameraCenterPos.y) * 0.35f;
+        cameraCenterPos.z += (targetCameraCenterPos.z - cameraCenterPos.z) * 0.35f;
+      }
+
+      // 2. Rotate 3D view around selected node (azimuth / yaw orbit)
+      const float rotSensitivity = 2.2f;
+      const float rotDelta = wheel.deltaX * rotSensitivity;
+      targetRotY -= rotDelta;
+      rotY -= rotDelta * 0.4f;
+
+      // 3. If there is also significant vertical movement, zoom simultaneously
+      if (std::abs(wheel.deltaY) > std::abs(wheel.deltaX) * 0.6f) {
+        targetZoomScale = juce::jlimit(
+            0.05f, 10.0f, targetZoomScale * std::pow(1.15f, wheel.deltaY * 3.0f));
+      }
+
+      overlayComponent.repaint();
+      repaint();
+      return;
+    }
+#endif
+
     targetZoomScale = juce::jlimit(
         0.05f, 10.0f, targetZoomScale * std::pow(1.15f, wheel.deltaY * 3.0f));
     overlayComponent.repaint();
