@@ -959,6 +959,29 @@ void EditComponent::paintWaveform(juce::Graphics& g, juce::Rectangle<float> boun
     float selStartX = ratioToX(startRatio, bounds);
     float selEndX = ratioToX(endRatio, bounds);
 
+    // Draw visible selection overlay on waveform
+    if (endRatio > startRatio && (startRatio > 0.0001 || endRatio < 0.9999 || dragTarget == DragTarget::SelectingRange))
+    {
+        float leftX = std::max(bounds.getX(), std::min(selStartX, selEndX));
+        float rightX = std::min(bounds.getRight(), std::max(selStartX, selEndX));
+        float selW = rightX - leftX;
+        if (selW > 1.0f)
+        {
+            // Shaded selection box overlay
+            g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.18f));
+            g.fillRect(leftX, bounds.getY(), selW, bounds.getHeight());
+
+            // Left and right boundary lines with shadow
+            g.setColour(juce::Colours::black.withAlpha(0.85f));
+            g.drawVerticalLine(static_cast<int>(leftX) - 1, bounds.getY(), bounds.getBottom());
+            g.drawVerticalLine(static_cast<int>(rightX) + 1, bounds.getY(), bounds.getBottom());
+
+            g.setColour(OpenWavLookAndFeel::accentCyan);
+            g.drawVerticalLine(static_cast<int>(leftX), bounds.getY(), bounds.getBottom());
+            g.drawVerticalLine(static_cast<int>(rightX), bounds.getY(), bounds.getBottom());
+        }
+    }
+
     const auto peaks = audioEngine.getWaveformPeaks();
     const int numPeakPoints = peaks.numPoints;
     int numPixels = static_cast<int>(bounds.getWidth());
@@ -1537,7 +1560,9 @@ void EditComponent::paintSpectrogram(juce::Graphics& g, juce::Rectangle<float> b
 
         float startX = ratioToX(spectralTimeStart, bounds);
         float endX = ratioToX(spectralTimeEnd, bounds);
-        float boxW = std::max(4.0f, endX - startX);
+        float boxLeft = std::min(startX, endX);
+        float boxRight = std::max(startX, endX);
+        float boxW = std::max(4.0f, boxRight - boxLeft);
 
         double minF = 20.0;
         double maxF = 20000.0;
@@ -1546,61 +1571,201 @@ void EditComponent::paintSpectrogram(juce::Graphics& g, juce::Rectangle<float> b
 
         float topY = bounds.getBottom() - static_cast<float>(normHigh) * bounds.getHeight();
         float bottomY = bounds.getBottom() - static_cast<float>(normLow) * bounds.getHeight();
-        float boxH = std::max(4.0f, bottomY - topY);
+        float boxTop = std::min(topY, bottomY);
+        float boxBottom = std::max(topY, bottomY);
+        float boxH = std::max(4.0f, boxBottom - boxTop);
 
-        juce::Rectangle<float> boxRect(startX, topY, boxW, boxH);
+        if (currentSpectralShape == SpectralSelectionShape::Time)
+        {
+            boxTop = bounds.getY();
+            boxH = bounds.getHeight();
+        }
+        else if (currentSpectralShape == SpectralSelectionShape::Frequency)
+        {
+            boxLeft = bounds.getX();
+            boxW = bounds.getWidth();
+        }
+
+        juce::Rectangle<float> boxRect(boxLeft, boxTop, boxW, boxH);
         boxRect = boxRect.getIntersection(bounds);
 
-        if (!boxRect.isEmpty())
-        {
-            if (currentSpectralShape == SpectralSelectionShape::Ellipse)
-            {
-                g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.22f));
-                g.fillEllipse(boxRect);
-                g.setColour(OpenWavLookAndFeel::accentCyan);
-                g.drawEllipse(boxRect, 1.5f);
+        const juce::Colour fillCol = juce::Colour(0, 220, 255).withAlpha(0.28f);
+        const juce::Colour neonBorderCol = juce::Colour(0, 245, 255);
+        const juce::Colour shadowCol = juce::Colours::black.withAlpha(0.85f);
+        const juce::Colour handleCol = juce::Colours::white;
 
-                // Subtle dashed bounding box
-                g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.35f));
-                float dashLengths[] = { 4.0f, 3.0f };
+        if (currentSpectralShape == SpectralSelectionShape::Ellipse)
+        {
+            if (!boxRect.isEmpty())
+            {
+                g.setColour(fillCol);
+                g.fillEllipse(boxRect);
+
+                g.setColour(shadowCol);
+                g.drawEllipse(boxRect.expanded(1.0f), 3.0f);
+
+                g.setColour(neonBorderCol);
+                g.drawEllipse(boxRect, 2.0f);
+
+                g.setColour(neonBorderCol.withAlpha(0.5f));
+                float dashLengths[] = { 4.0f, 4.0f };
                 g.drawDashedLine(juce::Line<float>(boxRect.getTopLeft(), boxRect.getTopRight()), dashLengths, 2, 1.0f);
                 g.drawDashedLine(juce::Line<float>(boxRect.getTopRight(), boxRect.getBottomRight()), dashLengths, 2, 1.0f);
                 g.drawDashedLine(juce::Line<float>(boxRect.getBottomRight(), boxRect.getBottomLeft()), dashLengths, 2, 1.0f);
                 g.drawDashedLine(juce::Line<float>(boxRect.getBottomLeft(), boxRect.getTopLeft()), dashLengths, 2, 1.0f);
             }
-            else if (currentSpectralShape == SpectralSelectionShape::Lasso && lassoScreenPoints.size() >= 2)
+        }
+        else if (currentSpectralShape == SpectralSelectionShape::Lasso)
+        {
+            if (lassoScreenPoints.size() >= 2)
             {
+                auto toScreen = [&](const juce::Point<float>& pt) -> juce::Point<float> {
+                    return { ratioToX(pt.x, bounds), bounds.getBottom() - pt.y * bounds.getHeight() };
+                };
+
                 juce::Path lassoPath;
-                lassoPath.startNewSubPath(lassoScreenPoints[0]);
+                lassoPath.startNewSubPath(toScreen(lassoScreenPoints[0]));
                 for (size_t i = 1; i < lassoScreenPoints.size(); ++i)
                 {
-                    lassoPath.lineTo(lassoScreenPoints[i]);
+                    lassoPath.lineTo(toScreen(lassoScreenPoints[i]));
                 }
-                if (dragTarget != DragTarget::SelectingSpectralBox)
-                {
-                    lassoPath.closeSubPath();
-                }
+                lassoPath.closeSubPath();
 
-                g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.22f));
+                g.setColour(fillCol);
                 g.fillPath(lassoPath);
-                g.setColour(OpenWavLookAndFeel::accentCyan);
-                g.strokePath(lassoPath, juce::PathStrokeType(1.5f));
 
-                // Subtle dashed bounding box
-                g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.35f));
-                float dashLengths[] = { 4.0f, 3.0f };
-                g.drawDashedLine(juce::Line<float>(boxRect.getTopLeft(), boxRect.getTopRight()), dashLengths, 2, 1.0f);
-                g.drawDashedLine(juce::Line<float>(boxRect.getTopRight(), boxRect.getBottomRight()), dashLengths, 2, 1.0f);
-                g.drawDashedLine(juce::Line<float>(boxRect.getBottomRight(), boxRect.getBottomLeft()), dashLengths, 2, 1.0f);
-                g.drawDashedLine(juce::Line<float>(boxRect.getBottomLeft(), boxRect.getTopLeft()), dashLengths, 2, 1.0f);
+                g.setColour(shadowCol);
+                g.strokePath(lassoPath, juce::PathStrokeType(3.0f));
+
+                g.setColour(neonBorderCol);
+                g.strokePath(lassoPath, juce::PathStrokeType(2.0f));
+
+                if (dragTarget == DragTarget::SelectingSpectralBox)
+                {
+                    g.setColour(neonBorderCol.withAlpha(0.7f));
+                    float dashLengths[] = { 3.0f, 3.0f };
+                    g.drawDashedLine(juce::Line<float>(toScreen(lassoScreenPoints.back()), toScreen(lassoScreenPoints.front())), dashLengths, 2, 1.2f);
+                }
+
+                if (!boxRect.isEmpty())
+                {
+                    g.setColour(neonBorderCol.withAlpha(0.4f));
+                    float dashLengths[] = { 4.0f, 4.0f };
+                    g.drawDashedLine(juce::Line<float>(boxRect.getTopLeft(), boxRect.getTopRight()), dashLengths, 2, 1.0f);
+                    g.drawDashedLine(juce::Line<float>(boxRect.getTopRight(), boxRect.getBottomRight()), dashLengths, 2, 1.0f);
+                    g.drawDashedLine(juce::Line<float>(boxRect.getBottomRight(), boxRect.getBottomLeft()), dashLengths, 2, 1.0f);
+                    g.drawDashedLine(juce::Line<float>(boxRect.getBottomLeft(), boxRect.getTopLeft()), dashLengths, 2, 1.0f);
+                }
             }
-            else
+            else if (lassoScreenPoints.size() == 1)
             {
-                // Box, Time, and Frequency selections
-                g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.25f));
+                float px = ratioToX(lassoScreenPoints[0].x, bounds);
+                float py = bounds.getBottom() - lassoScreenPoints[0].y * bounds.getHeight();
+                g.setColour(neonBorderCol);
+                g.fillEllipse(px - 4.0f, py - 4.0f, 8.0f, 8.0f);
+            }
+        }
+        else if (currentSpectralShape == SpectralSelectionShape::Time)
+        {
+            if (!boxRect.isEmpty())
+            {
+                g.setColour(fillCol);
                 g.fillRect(boxRect);
-                g.setColour(OpenWavLookAndFeel::accentCyan);
-                g.drawRect(boxRect, 1.5f);
+
+                g.setColour(shadowCol);
+                g.drawVerticalLine(static_cast<int>(boxRect.getX()) - 1, bounds.getY(), bounds.getBottom());
+                g.drawVerticalLine(static_cast<int>(boxRect.getRight()) + 1, bounds.getY(), bounds.getBottom());
+
+                g.setColour(neonBorderCol);
+                g.drawVerticalLine(static_cast<int>(boxRect.getX()), bounds.getY(), bounds.getBottom());
+                g.drawVerticalLine(static_cast<int>(boxRect.getRight()), bounds.getY(), bounds.getBottom());
+
+                g.drawLine(boxRect.getX(), bounds.getY(), boxRect.getRight(), bounds.getY(), 2.5f);
+                g.drawLine(boxRect.getX(), bounds.getBottom(), boxRect.getRight(), bounds.getBottom(), 2.5f);
+            }
+        }
+        else if (currentSpectralShape == SpectralSelectionShape::Frequency)
+        {
+            if (!boxRect.isEmpty())
+            {
+                g.setColour(fillCol);
+                g.fillRect(boxRect);
+
+                g.setColour(shadowCol);
+                g.drawHorizontalLine(static_cast<int>(boxRect.getY()) - 1, bounds.getX(), bounds.getRight());
+                g.drawHorizontalLine(static_cast<int>(boxRect.getBottom()) + 1, bounds.getX(), bounds.getRight());
+
+                g.setColour(neonBorderCol);
+                g.drawHorizontalLine(static_cast<int>(boxRect.getY()), bounds.getX(), bounds.getRight());
+                g.drawHorizontalLine(static_cast<int>(boxRect.getBottom()), bounds.getX(), bounds.getRight());
+
+                g.drawLine(bounds.getX(), boxRect.getY(), bounds.getX(), boxRect.getBottom(), 2.5f);
+                g.drawLine(bounds.getRight(), boxRect.getY(), bounds.getRight(), boxRect.getBottom(), 2.5f);
+            }
+        }
+        else // Box selection
+        {
+            if (!boxRect.isEmpty())
+            {
+                g.setColour(fillCol);
+                g.fillRect(boxRect);
+
+                g.setColour(shadowCol);
+                g.drawRect(boxRect.expanded(1.0f), 3.0f);
+
+                g.setColour(neonBorderCol);
+                g.drawRect(boxRect, 2.0f);
+
+                const float bracketLen = std::min(10.0f, std::min(boxRect.getWidth(), boxRect.getHeight()) * 0.35f);
+                if (bracketLen > 3.0f)
+                {
+                    // Top-Left
+                    g.setColour(shadowCol);
+                    g.drawLine(boxRect.getX() - 1.0f, boxRect.getY(), boxRect.getX() + bracketLen, boxRect.getY(), 3.5f);
+                    g.drawLine(boxRect.getX(), boxRect.getY() - 1.0f, boxRect.getX(), boxRect.getY() + bracketLen, 3.5f);
+                    g.setColour(handleCol);
+                    g.drawLine(boxRect.getX(), boxRect.getY(), boxRect.getX() + bracketLen, boxRect.getY(), 2.0f);
+                    g.drawLine(boxRect.getX(), boxRect.getY(), boxRect.getX(), boxRect.getY() + bracketLen, 2.0f);
+
+                    // Top-Right
+                    g.setColour(shadowCol);
+                    g.drawLine(boxRect.getRight() - bracketLen, boxRect.getY(), boxRect.getRight() + 1.0f, boxRect.getY(), 3.5f);
+                    g.drawLine(boxRect.getRight(), boxRect.getY() - 1.0f, boxRect.getRight(), boxRect.getY() + bracketLen, 3.5f);
+                    g.setColour(handleCol);
+                    g.drawLine(boxRect.getRight() - bracketLen, boxRect.getY(), boxRect.getRight(), boxRect.getY(), 2.0f);
+                    g.drawLine(boxRect.getRight(), boxRect.getY(), boxRect.getRight(), boxRect.getY() + bracketLen, 2.0f);
+
+                    // Bottom-Left
+                    g.setColour(shadowCol);
+                    g.drawLine(boxRect.getX() - 1.0f, boxRect.getBottom(), boxRect.getX() + bracketLen, boxRect.getBottom(), 3.5f);
+                    g.drawLine(boxRect.getX(), boxRect.getBottom() - bracketLen, boxRect.getX(), boxRect.getBottom() + 1.0f, 3.5f);
+                    g.setColour(handleCol);
+                    g.drawLine(boxRect.getX(), boxRect.getBottom(), boxRect.getX() + bracketLen, boxRect.getBottom(), 2.0f);
+                    g.drawLine(boxRect.getX(), boxRect.getBottom() - bracketLen, boxRect.getX(), boxRect.getBottom(), 2.0f);
+
+                    // Bottom-Right
+                    g.setColour(shadowCol);
+                    g.drawLine(boxRect.getRight() - bracketLen, boxRect.getBottom(), boxRect.getRight() + 1.0f, boxRect.getBottom(), 3.5f);
+                    g.drawLine(boxRect.getRight(), boxRect.getBottom() - bracketLen, boxRect.getRight(), boxRect.getBottom() + 1.0f, 3.5f);
+                    g.setColour(handleCol);
+                    g.drawLine(boxRect.getRight() - bracketLen, boxRect.getBottom(), boxRect.getRight(), boxRect.getBottom(), 2.0f);
+                    g.drawLine(boxRect.getRight(), boxRect.getBottom() - bracketLen, boxRect.getRight(), boxRect.getBottom(), 2.0f);
+                }
+
+                // Midpoint handle dots
+                if (boxRect.getWidth() > 20.0f && boxRect.getHeight() > 20.0f)
+                {
+                    auto drawMidHandle = [&](float cx, float cy) {
+                        g.setColour(shadowCol);
+                        g.fillRect(cx - 3.5f, cy - 3.5f, 7.0f, 7.0f);
+                        g.setColour(handleCol);
+                        g.fillRect(cx - 2.0f, cy - 2.0f, 4.0f, 4.0f);
+                    };
+                    drawMidHandle(boxRect.getCentreX(), boxRect.getY());
+                    drawMidHandle(boxRect.getCentreX(), boxRect.getBottom());
+                    drawMidHandle(boxRect.getX(), boxRect.getCentreY());
+                    drawMidHandle(boxRect.getRight(), boxRect.getCentreY());
+                }
             }
         }
 
@@ -1823,20 +1988,34 @@ void EditComponent::paintSelectionInfoOverlay(juce::Graphics& g, juce::Rectangle
 {
     if (totalDurationSecs <= 0.0) return;
 
-    double startR = audioEngine.getSampleStartRatio();
-    double endR = audioEngine.getSampleEndRatio();
-    double selDurationSecs = (endR - startR) * totalDurationSecs;
+    juce::String infoStr;
+    if (isSpectralView && (hasSpectralBoxSelection || dragTarget == DragTarget::SelectingSpectralBox))
+    {
+        double selDur = (spectralTimeEnd - spectralTimeStart) * totalDurationSecs;
+        infoStr = juce::String::formatted("Spectral Sel: %.3fs - %.3fs (%.3fs) | %.0fHz - %.0fHz",
+                                          spectralTimeStart * totalDurationSecs,
+                                          spectralTimeEnd * totalDurationSecs,
+                                          selDur,
+                                          spectralFreqLow,
+                                          spectralFreqHigh);
+    }
+    else
+    {
+        double startR = audioEngine.getSampleStartRatio();
+        double endR = audioEngine.getSampleEndRatio();
+        double selDurationSecs = (endR - startR) * totalDurationSecs;
 
-    juce::AudioBuffer<float> buf;
-    double sr = 44100.0;
-    int totalSamples = 0;
-    if (audioEngine.getAudioBufferCopy(buf, sr))
-        totalSamples = buf.getNumSamples();
+        juce::AudioBuffer<float> buf;
+        double sr = 44100.0;
+        int totalSamples = 0;
+        if (audioEngine.getAudioBufferCopy(buf, sr))
+            totalSamples = buf.getNumSamples();
 
-    int selSamples = static_cast<int>((endR - startR) * totalSamples);
+        int selSamples = static_cast<int>((endR - startR) * totalSamples);
 
-    juce::String infoStr = juce::String::formatted("Sel: %.3fs (%d smp) | S: %.3fs | E: %.3fs",
-                                                   selDurationSecs, selSamples, startR * totalDurationSecs, endR * totalDurationSecs);
+        infoStr = juce::String::formatted("Sel: %.3fs (%d smp) | S: %.3fs | E: %.3fs",
+                                          selDurationSecs, selSamples, startR * totalDurationSecs, endR * totalDurationSecs);
+    }
 
     g.setFont(juce::Font(10.0f).boldened());
     int strWidth = g.getCurrentFont().getStringWidth(infoStr) + 16;
@@ -2225,7 +2404,7 @@ void EditComponent::mouseDown(const juce::MouseEvent& e)
         lassoScreenPoints.clear();
         if (currentSpectralShape == SpectralSelectionShape::Lasso)
         {
-            lassoScreenPoints.push_back(e.position);
+            lassoScreenPoints.push_back({ static_cast<float>(clickRatio), normY });
         }
         else if (currentSpectralShape == SpectralSelectionShape::Time)
         {
@@ -2352,30 +2531,29 @@ void EditComponent::mouseDrag(const juce::MouseEvent& e)
         }
         else if (currentSpectralShape == SpectralSelectionShape::Lasso)
         {
-            if (lassoScreenPoints.empty() || lassoScreenPoints.back().getDistanceFrom(e.position) > 2.0f)
+            float normY = juce::jlimit(0.0f, 1.0f, (wfBounds.getBottom() - e.position.y) / wfBounds.getHeight());
+            juce::Point<float> normPt(static_cast<float>(currentRatio), normY);
+            if (lassoScreenPoints.empty() || lassoScreenPoints.back().getDistanceFrom(normPt) > 0.002f)
             {
-                lassoScreenPoints.push_back(e.position);
+                lassoScreenPoints.push_back(normPt);
             }
 
-            float minX = lassoScreenPoints.front().x;
-            float maxX = lassoScreenPoints.front().x;
-            float minY = lassoScreenPoints.front().y;
-            float maxY = lassoScreenPoints.front().y;
+            float minR = lassoScreenPoints.front().x;
+            float maxR = lassoScreenPoints.front().x;
+            float minNormY = lassoScreenPoints.front().y;
+            float maxNormY = lassoScreenPoints.front().y;
             for (const auto& pt : lassoScreenPoints)
             {
-                minX = std::min(minX, pt.x);
-                maxX = std::max(maxX, pt.x);
-                minY = std::min(minY, pt.y);
-                maxY = std::max(maxY, pt.y);
+                minR = std::min(minR, pt.x);
+                maxR = std::max(maxR, pt.x);
+                minNormY = std::min(minNormY, pt.y);
+                maxNormY = std::max(maxNormY, pt.y);
             }
 
-            spectralTimeStart = juce::jlimit(0.0, 1.0, xToRatio(minX, wfBounds));
-            spectralTimeEnd = juce::jlimit(0.0, 1.0, xToRatio(maxX, wfBounds));
-
-            float ptNormY1 = juce::jlimit(0.0f, 1.0f, (wfBounds.getBottom() - maxY) / wfBounds.getHeight());
-            float ptNormY2 = juce::jlimit(0.0f, 1.0f, (wfBounds.getBottom() - minY) / wfBounds.getHeight());
-            spectralFreqLow = static_cast<float>(20.0 * std::pow(20000.0 / 20.0, ptNormY1));
-            spectralFreqHigh = static_cast<float>(20.0 * std::pow(20000.0 / 20.0, ptNormY2));
+            spectralTimeStart = juce::jlimit(0.0, 1.0, static_cast<double>(minR));
+            spectralTimeEnd = juce::jlimit(0.0, 1.0, static_cast<double>(maxR));
+            spectralFreqLow = static_cast<float>(20.0 * std::pow(20000.0 / 20.0, minNormY));
+            spectralFreqHigh = static_cast<float>(20.0 * std::pow(20000.0 / 20.0, maxNormY));
         }
         else // Box and Ellipse
         {
@@ -2483,17 +2661,22 @@ void EditComponent::mouseUp(const juce::MouseEvent& /*e*/)
     {
         if (currentSpectralShape == SpectralSelectionShape::Lasso)
         {
-            hasSpectralBoxSelection = (lassoScreenPoints.size() >= 3 && (spectralTimeEnd - spectralTimeStart > 0.001));
+            hasSpectralBoxSelection = (lassoScreenPoints.size() >= 2);
             if (!hasSpectralBoxSelection)
                 lassoScreenPoints.clear();
         }
         else if (currentSpectralShape == SpectralSelectionShape::Frequency)
         {
-            hasSpectralBoxSelection = (spectralFreqHigh - spectralFreqLow > 5.0f);
+            hasSpectralBoxSelection = (spectralFreqHigh - spectralFreqLow > 1.0f);
         }
-        else
+        else if (currentSpectralShape == SpectralSelectionShape::Time)
         {
-            hasSpectralBoxSelection = (spectralTimeEnd - spectralTimeStart > 0.002);
+            hasSpectralBoxSelection = (spectralTimeEnd - spectralTimeStart > 0.0001);
+        }
+        else // Box and Ellipse
+        {
+            hasSpectralBoxSelection = ((spectralTimeEnd - spectralTimeStart > 0.0001) ||
+                                       (spectralFreqHigh - spectralFreqLow > 2.0f));
         }
         updateControlVisibility();
     }
