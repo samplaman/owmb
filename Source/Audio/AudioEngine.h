@@ -90,6 +90,13 @@ struct RealtimeVoiceSlot
     bool isZoneVoice { false };
     bool isOneShot { false };
     bool isMetronome { false };
+    double loopInRatio { 0.0 };
+    double loopOutRatio { 1.0 };
+    double loopCrossfadeMs { 0.0 };
+    double fadeInMs { 0.0 };
+    double fadeOutMs { 0.0 };
+    int fadeInCurveType { 0 };
+    int fadeOutCurveType { 0 };
 };
 
 enum class EngineCommandType : int
@@ -102,6 +109,9 @@ enum class EngineCommandType : int
     SetLooping,
     SetGain,
     SetSampleRange,
+    SetLoopPoints,
+    SetLoopCrossfadeMs,
+    SetFades,
     SetPitchTracking,
     SetOneShot,
     LoadPreviewSample,
@@ -183,6 +193,16 @@ public:
     void setSampleRange(double startRatio, double endRatio);
     double getSampleStartRatio() const { return sampleStartRatioAtomic.load(std::memory_order_relaxed); }
     double getSampleEndRatio() const { return sampleEndRatioAtomic.load(std::memory_order_relaxed); }
+    void setLoopPoints(double inRatio, double outRatio);
+    double getLoopInRatio() const { return loopInRatioAtomic.load(std::memory_order_relaxed); }
+    double getLoopOutRatio() const { return loopOutRatioAtomic.load(std::memory_order_relaxed); }
+    void setLoopCrossfadeMs(double ms);
+    double getLoopCrossfadeMs() const { return loopCrossfadeMsAtomic.load(std::memory_order_relaxed); }
+    void setFades(double inMs, int inCurve, double outMs, int outCurve);
+    double getFadeInMs() const { return fadeInMsAtomic.load(std::memory_order_relaxed); }
+    double getFadeOutMs() const { return fadeOutMsAtomic.load(std::memory_order_relaxed); }
+    int getFadeInCurve() const { return fadeInCurveAtomic.load(std::memory_order_relaxed); }
+    int getFadeOutCurve() const { return fadeOutCurveAtomic.load(std::memory_order_relaxed); }
     bool getAudioBufferCopy(juce::AudioBuffer<float>& destBuffer, double& sampleRate) const;
     bool cropLoadedSample(double startRatio, double endRatio);
     bool normalizeLoadedSample();
@@ -318,6 +338,13 @@ private:
     std::atomic<bool> isLoopingAtomic { false };
     std::atomic<double> sampleStartRatioAtomic { 0.0 };
     std::atomic<double> sampleEndRatioAtomic { 1.0 };
+    std::atomic<double> loopInRatioAtomic { 0.0 };
+    std::atomic<double> loopOutRatioAtomic { 1.0 };
+    std::atomic<double> loopCrossfadeMsAtomic { 0.0 };
+    std::atomic<double> fadeInMsAtomic { 0.0 };
+    std::atomic<double> fadeOutMsAtomic { 0.0 };
+    std::atomic<int> fadeInCurveAtomic { 0 };
+    std::atomic<int> fadeOutCurveAtomic { 0 };
     std::atomic<double> stoppedPositionSecs { 0.0 };
     std::atomic<double> engineSampleRateAtomic { 44100.0 };
     std::atomic<double> currentFileSampleRateAtomic { 44100.0 };

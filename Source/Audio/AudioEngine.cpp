@@ -237,6 +237,43 @@ void AudioEngine::drainCommandsOnAudioThread()
                 }
                 break;
             }
+            case EngineCommandType::SetLoopPoints:
+            {
+                for (auto& slot : voicePool)
+                {
+                    if (!slot.isZoneVoice && !slot.isMetronome)
+                    {
+                        slot.loopInRatio = cmd.doubleVal1;
+                        slot.loopOutRatio = cmd.doubleVal2;
+                    }
+                }
+                break;
+            }
+            case EngineCommandType::SetLoopCrossfadeMs:
+            {
+                for (auto& slot : voicePool)
+                {
+                    if (!slot.isZoneVoice && !slot.isMetronome)
+                    {
+                        slot.loopCrossfadeMs = cmd.doubleVal1;
+                    }
+                }
+                break;
+            }
+            case EngineCommandType::SetFades:
+            {
+                for (auto& slot : voicePool)
+                {
+                    if (!slot.isZoneVoice && !slot.isMetronome)
+                    {
+                        slot.fadeInMs = cmd.doubleVal1;
+                        slot.fadeInCurveType = cmd.intVal1;
+                        slot.fadeOutMs = cmd.doubleVal2;
+                        slot.fadeOutCurveType = cmd.intVal2;
+                    }
+                }
+                break;
+            }
             case EngineCommandType::LoadPreviewSample:
             {
                 activePreviewSampleOnAudioThread = cmd.sampleData;
@@ -422,6 +459,13 @@ void AudioEngine::startPlaybackInternal(double startRatio)
     slot.active = true;
     slot.startRatio = sampleStartRatioAtomic.load(std::memory_order_relaxed);
     slot.endRatio = sampleEndRatioAtomic.load(std::memory_order_relaxed);
+    slot.loopInRatio = loopInRatioAtomic.load(std::memory_order_relaxed);
+    slot.loopOutRatio = loopOutRatioAtomic.load(std::memory_order_relaxed);
+    slot.loopCrossfadeMs = loopCrossfadeMsAtomic.load(std::memory_order_relaxed);
+    slot.fadeInMs = fadeInMsAtomic.load(std::memory_order_relaxed);
+    slot.fadeOutMs = fadeOutMsAtomic.load(std::memory_order_relaxed);
+    slot.fadeInCurveType = fadeInCurveAtomic.load(std::memory_order_relaxed);
+    slot.fadeOutCurveType = fadeOutCurveAtomic.load(std::memory_order_relaxed);
     slot.rootNote = slot.sample->rootNote;
     slot.triggerMidiNote = -1;
     slot.fineTuneCents = 0.0f;
@@ -663,21 +707,42 @@ void AudioEngine::processNextAudioBlock(juce::AudioBuffer<float>& outputBuffer, 
         int startSample = static_cast<int>(slot.startRatio * voiceLength);
         int endSample = static_cast<int>(slot.endRatio * voiceLength);
         if (endSample <= startSample) endSample = voiceLength;
-        int loopLen = endSample - startSample;
 
-        // Smooth crossfade length (up to 50ms) to ensure seamless, click-free loop wrap-around
+        int loopStartSample = static_cast<int>(slot.loopInRatio * voiceLength);
+        int loopEndSample = static_cast<int>(slot.loopOutRatio * voiceLength);
+        if (loopEndSample <= loopStartSample)
+        {
+            loopStartSample = startSample;
+            loopEndSample = endSample;
+        }
+        int loopLen = loopEndSample - loopStartSample;
+
+        // Loop crossfade length
         int xfadeLen = 0;
         if (slot.isLooping && loopLen >= 64)
         {
             double sr = engineSampleRateAtomic.load(std::memory_order_relaxed);
             if (sr <= 0.0) sr = 44100.0;
-            int desiredXfade = static_cast<int>(0.050 * sr); // 50ms
-            xfadeLen = std::min(desiredXfade, loopLen / 4);
+            int desiredXfade = static_cast<int>((slot.loopCrossfadeMs / 1000.0) * sr);
+            if (slot.isZoneVoice && desiredXfade == 0)
+                desiredXfade = static_cast<int>(0.005 * sr);
+            xfadeLen = std::min(desiredXfade, loopLen / 2);
         }
 
         if (pos < startSample) pos = startSample;
 
         bool hasAdsr = !slot.isMetronome;
+
+        double bufSr = (slot.bufferSampleRate > 0.0) ? slot.bufferSampleRate : 44100.0;
+        int fadeInSamples = static_cast<int>((slot.fadeInMs / 1000.0) * bufSr);
+        int fadeOutSamples = static_cast<int>((slot.fadeOutMs / 1000.0) * bufSr);
+
+        auto evalFadeCurve = [](float t, int type) -> float {
+            t = juce::jlimit(0.0f, 1.0f, t);
+            if (type == 1) return std::sin(t * juce::MathConstants<float>::halfPi);
+            if (type == 2) return t * t;
+            return t;
+        };
 
         auto getInterpolatedSample = [&](int ch, double readPos) -> float {
             if (readPos < 0.0) readPos = 0.0;
@@ -694,16 +759,16 @@ void AudioEngine::processNextAudioBlock(juce::AudioBuffer<float>& outputBuffer, 
         for (int i = 0; i < numSamples; ++i)
         {
             float envVal = hasAdsr ? slot.adsr.getNextSample() : 1.0f;
-            float voiceVol = globalGain * slot.gain * envVal;
             bool adsrActive = hasAdsr ? slot.adsr.isActive() : true;
+            int boundarySample = slot.isLooping ? loopEndSample : endSample;
 
-            if (pos >= endSample || !adsrActive)
+            if (pos >= boundarySample || !adsrActive)
             {
                 if (slot.isLooping && loopLen > 0 && adsrActive)
                 {
-                    double overshoot = pos - endSample;
-                    pos = startSample + xfadeLen + overshoot;
-                    if (pos >= endSample) pos = startSample;
+                    double overshoot = pos - loopEndSample;
+                    pos = loopStartSample + xfadeLen + overshoot;
+                    if (pos >= loopEndSample) pos = loopStartSample;
                 }
                 else
                 {
@@ -715,15 +780,35 @@ void AudioEngine::processNextAudioBlock(juce::AudioBuffer<float>& outputBuffer, 
             double curPos = pos;
             if (curPos >= voiceLength) curPos = voiceLength - 1;
 
-            if (slot.isLooping && xfadeLen > 0 && curPos >= (endSample - xfadeLen))
+            float fadeGain = 1.0f;
+            if (fadeInSamples > 0 && curPos >= startSample && curPos < (startSample + fadeInSamples))
             {
-                double delta = curPos - (endSample - xfadeLen);
+                if (!slot.isLooping || curPos < loopStartSample || loopStartSample > startSample)
+                {
+                    float t = static_cast<float>((curPos - startSample) / fadeInSamples);
+                    fadeGain *= evalFadeCurve(t, slot.fadeInCurveType);
+                }
+            }
+            if (fadeOutSamples > 0 && curPos <= endSample && curPos > (endSample - fadeOutSamples))
+            {
+                if (!slot.isLooping || loopEndSample < endSample)
+                {
+                    float t = static_cast<float>((endSample - curPos) / fadeOutSamples);
+                    fadeGain *= evalFadeCurve(t, slot.fadeOutCurveType);
+                }
+            }
+
+            float voiceVol = globalGain * slot.gain * envVal * fadeGain;
+
+            if (slot.isLooping && xfadeLen > 0 && curPos >= (loopEndSample - xfadeLen))
+            {
+                double delta = curPos - (loopEndSample - xfadeLen);
                 double t = juce::jlimit(0.0, 1.0, delta / static_cast<double>(xfadeLen));
                 float theta = static_cast<float>(t * juce::MathConstants<double>::halfPi);
                 float wOut = std::cos(theta);
                 float wIn = std::sin(theta);
 
-                double inPos = startSample + delta;
+                double inPos = loopStartSample + delta;
                 if (inPos >= voiceLength) inPos = voiceLength - 1;
 
                 for (int ch = 0; ch < outChannels; ++ch)
@@ -1452,6 +1537,52 @@ void AudioEngine::setSampleRange(double startRatio, double endRatio)
     cmd.type = EngineCommandType::SetSampleRange;
     cmd.doubleVal1 = start;
     cmd.doubleVal2 = end;
+    pushCommand(cmd);
+}
+
+void AudioEngine::setLoopPoints(double inRatio, double outRatio)
+{
+    double inR = juce::jlimit(0.0, 1.0, inRatio);
+    double outR = juce::jlimit(0.0, 1.0, outRatio);
+    if (outR < inR) std::swap(inR, outR);
+
+    loopInRatioAtomic.store(inR, std::memory_order_relaxed);
+    loopOutRatioAtomic.store(outR, std::memory_order_relaxed);
+
+    EngineCommand cmd;
+    cmd.type = EngineCommandType::SetLoopPoints;
+    cmd.doubleVal1 = inR;
+    cmd.doubleVal2 = outR;
+    pushCommand(cmd);
+}
+
+void AudioEngine::setLoopCrossfadeMs(double ms)
+{
+    double xms = std::max(0.0, ms);
+    loopCrossfadeMsAtomic.store(xms, std::memory_order_relaxed);
+
+    EngineCommand cmd;
+    cmd.type = EngineCommandType::SetLoopCrossfadeMs;
+    cmd.doubleVal1 = xms;
+    pushCommand(cmd);
+}
+
+void AudioEngine::setFades(double inMs, int inCurve, double outMs, int outCurve)
+{
+    double fIn = std::max(0.0, inMs);
+    double fOut = std::max(0.0, outMs);
+
+    fadeInMsAtomic.store(fIn, std::memory_order_relaxed);
+    fadeInCurveAtomic.store(inCurve, std::memory_order_relaxed);
+    fadeOutMsAtomic.store(fOut, std::memory_order_relaxed);
+    fadeOutCurveAtomic.store(outCurve, std::memory_order_relaxed);
+
+    EngineCommand cmd;
+    cmd.type = EngineCommandType::SetFades;
+    cmd.doubleVal1 = fIn;
+    cmd.intVal1 = inCurve;
+    cmd.doubleVal2 = fOut;
+    cmd.intVal2 = outCurve;
     pushCommand(cmd);
 }
 

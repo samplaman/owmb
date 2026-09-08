@@ -31,7 +31,16 @@ EditComponent::EditComponent(AudioEngine& engine)
     loopToggleButton.setClickingTogglesState(true);
     loopToggleButton.setToggleState(audioEngine.isLooping(), juce::dontSendNotification);
     loopToggleButton.onClick = [this] {
-        audioEngine.setLooping(loopToggleButton.getToggleState());
+        bool looping = loopToggleButton.getToggleState();
+        audioEngine.setLooping(looping);
+        if (looping && !loopMarkersSet)
+        {
+            loopInRatio = audioEngine.getSampleStartRatio();
+            loopOutRatio = audioEngine.getSampleEndRatio();
+            loopMarkersSet = true;
+        }
+        audioEngine.setLoopPoints(loopInRatio, loopOutRatio);
+        audioEngine.setLoopCrossfadeMs(crossfadeMs);
         repaint();
     };
     addAndMakeVisible(loopToggleButton);
@@ -218,6 +227,8 @@ EditComponent::EditComponent(AudioEngine& engine)
     loopInNudgeLeft.setTooltip("Nudge Loop Start Left");
     loopInNudgeLeft.onClick = [this] {
         loopInRatio = juce::jlimit(0.0, loopOutRatio - 0.001, loopInRatio - 0.002);
+        loopMarkersSet = true;
+        audioEngine.setLoopPoints(loopInRatio, loopOutRatio);
         repaint();
     };
     addAndMakeVisible(loopInNudgeLeft);
@@ -225,6 +236,8 @@ EditComponent::EditComponent(AudioEngine& engine)
     loopInNudgeRight.setTooltip("Nudge Loop Start Right");
     loopInNudgeRight.onClick = [this] {
         loopInRatio = juce::jlimit(0.0, loopOutRatio - 0.001, loopInRatio + 0.002);
+        loopMarkersSet = true;
+        audioEngine.setLoopPoints(loopInRatio, loopOutRatio);
         repaint();
     };
     addAndMakeVisible(loopInNudgeRight);
@@ -232,6 +245,8 @@ EditComponent::EditComponent(AudioEngine& engine)
     loopOutNudgeLeft.setTooltip("Nudge Loop End Left");
     loopOutNudgeLeft.onClick = [this] {
         loopOutRatio = juce::jlimit(loopInRatio + 0.001, 1.0, loopOutRatio - 0.002);
+        loopMarkersSet = true;
+        audioEngine.setLoopPoints(loopInRatio, loopOutRatio);
         repaint();
     };
     addAndMakeVisible(loopOutNudgeLeft);
@@ -239,6 +254,8 @@ EditComponent::EditComponent(AudioEngine& engine)
     loopOutNudgeRight.setTooltip("Nudge Loop End Right");
     loopOutNudgeRight.onClick = [this] {
         loopOutRatio = juce::jlimit(loopInRatio + 0.001, 1.0, loopOutRatio + 0.002);
+        loopMarkersSet = true;
+        audioEngine.setLoopPoints(loopInRatio, loopOutRatio);
         repaint();
     };
     addAndMakeVisible(loopOutNudgeRight);
@@ -257,6 +274,14 @@ EditComponent::EditComponent(AudioEngine& engine)
             loopInRatio = 0.0;
             loopOutRatio = 1.0;
             loopMarkersSet = false;
+            fadeInMs = 0.0;
+            fadeOutMs = 0.0;
+            fadeInSlider.setValue(0.0, juce::dontSendNotification);
+            fadeOutSlider.setValue(0.0, juce::dontSendNotification);
+            fadeInMsLabel.setText("0 ms", juce::dontSendNotification);
+            fadeOutMsLabel.setText("0 ms", juce::dontSendNotification);
+            audioEngine.setFades(0.0, fadeInCurveType, 0.0, fadeOutCurveType);
+            audioEngine.setLoopPoints(0.0, 1.0);
             zoomLevel = 1.0;
             scrollOffset = 0.0;
             zoomSlider.setValue(1.0, juce::dontSendNotification);
@@ -309,10 +334,8 @@ EditComponent::EditComponent(AudioEngine& engine)
     fadeInSlider.onValueChange = [this] {
         fadeInMs = fadeInSlider.getValue();
         fadeInMsLabel.setText(juce::String(static_cast<int>(fadeInMs)) + " ms", juce::dontSendNotification);
+        audioEngine.setFades(fadeInMs, fadeInCurveType, fadeOutMs, fadeOutCurveType);
         repaint();
-    };
-    fadeInSlider.onDragEnd = [this] {
-        bakeFadesIntoBuffer();
     };
     addAndMakeVisible(fadeInSlider);
 
@@ -329,6 +352,7 @@ EditComponent::EditComponent(AudioEngine& engine)
     fadeInCurveBox.setSelectedId(1, juce::dontSendNotification);
     fadeInCurveBox.onChange = [this] {
         fadeInCurveType = fadeInCurveBox.getSelectedId() - 1;
+        audioEngine.setFades(fadeInMs, fadeInCurveType, fadeOutMs, fadeOutCurveType);
         repaint();
     };
     addAndMakeVisible(fadeInCurveBox);
@@ -341,10 +365,8 @@ EditComponent::EditComponent(AudioEngine& engine)
     fadeOutSlider.onValueChange = [this] {
         fadeOutMs = fadeOutSlider.getValue();
         fadeOutMsLabel.setText(juce::String(static_cast<int>(fadeOutMs)) + " ms", juce::dontSendNotification);
+        audioEngine.setFades(fadeInMs, fadeInCurveType, fadeOutMs, fadeOutCurveType);
         repaint();
-    };
-    fadeOutSlider.onDragEnd = [this] {
-        bakeFadesIntoBuffer();
     };
     addAndMakeVisible(fadeOutSlider);
 
@@ -361,6 +383,7 @@ EditComponent::EditComponent(AudioEngine& engine)
     fadeOutCurveBox.setSelectedId(1, juce::dontSendNotification);
     fadeOutCurveBox.onChange = [this] {
         fadeOutCurveType = fadeOutCurveBox.getSelectedId() - 1;
+        audioEngine.setFades(fadeInMs, fadeInCurveType, fadeOutMs, fadeOutCurveType);
         repaint();
     };
     addAndMakeVisible(fadeOutCurveBox);
@@ -373,6 +396,7 @@ EditComponent::EditComponent(AudioEngine& engine)
     crossfadeSlider.onValueChange = [this] {
         crossfadeMs = crossfadeSlider.getValue();
         crossfadeMsLabel.setText(juce::String(static_cast<int>(crossfadeMs)) + " ms", juce::dontSendNotification);
+        audioEngine.setLoopCrossfadeMs(crossfadeMs);
         repaint();
     };
     addAndMakeVisible(crossfadeSlider);
@@ -1836,8 +1860,13 @@ void EditComponent::bakeFadesIntoBuffer()
     if (!hasAudioToEdit()) return;
 
     audioEngine.applyFadesToBuffer(fadeInMs, fadeInCurveType, fadeOutMs, fadeOutCurveType);
-    fadeInSlider.setValue(0.0);
-    fadeOutSlider.setValue(0.0);
+    fadeInMs = 0.0;
+    fadeOutMs = 0.0;
+    fadeInSlider.setValue(0.0, juce::dontSendNotification);
+    fadeOutSlider.setValue(0.0, juce::dontSendNotification);
+    fadeInMsLabel.setText("0 ms", juce::dontSendNotification);
+    fadeOutMsLabel.setText("0 ms", juce::dontSendNotification);
+    audioEngine.setFades(0.0, fadeInCurveType, 0.0, fadeOutCurveType);
     repaint();
     restartPlaybackFromStart();
 }
@@ -2116,9 +2145,13 @@ void EditComponent::mouseDrag(const juce::MouseEvent& e)
             break;
         case DragTarget::LoopInMarker:
             loopInRatio = juce::jlimit(0.0, loopOutRatio - 0.001, currentRatio);
+            loopMarkersSet = true;
+            audioEngine.setLoopPoints(loopInRatio, loopOutRatio);
             break;
         case DragTarget::LoopOutMarker:
             loopOutRatio = juce::jlimit(loopInRatio + 0.001, 1.0, currentRatio);
+            loopMarkersSet = true;
+            audioEngine.setLoopPoints(loopInRatio, loopOutRatio);
             break;
         case DragTarget::FadeInHandle:
         {
@@ -2166,6 +2199,7 @@ void EditComponent::mouseUp(const juce::MouseEvent& /*e*/)
                 loopInRatio = startR;
                 loopOutRatio = endR;
                 loopMarkersSet = true;
+                audioEngine.setLoopPoints(loopInRatio, loopOutRatio);
             }
         }
     }
@@ -2175,7 +2209,7 @@ void EditComponent::mouseUp(const juce::MouseEvent& /*e*/)
     }
     else if (dragTarget == DragTarget::FadeInHandle || dragTarget == DragTarget::FadeOutHandle)
     {
-        bakeFadesIntoBuffer();
+        // Non-destructive: do not bake on release, fades remain active and adjustable!
     }
     else if (dragTarget == DragTarget::SelectingSpectralBox)
     {
@@ -2197,6 +2231,7 @@ void EditComponent::mouseDoubleClick(const juce::MouseEvent& /*e*/)
     loopInRatio = 0.0;
     loopOutRatio = 1.0;
     loopMarkersSet = false;
+    audioEngine.setLoopPoints(0.0, 1.0);
     repaint();
 }
 
@@ -2369,6 +2404,18 @@ void EditComponent::sampleLoaded(const juce::String& filePath)
         loopInRatio = 0.0;
         loopOutRatio = 1.0;
         loopMarkersSet = false;
+        fadeInMs = 0.0;
+        fadeOutMs = 0.0;
+        crossfadeMs = 0.0;
+        fadeInSlider.setValue(0.0, juce::dontSendNotification);
+        fadeOutSlider.setValue(0.0, juce::dontSendNotification);
+        crossfadeSlider.setValue(0.0, juce::dontSendNotification);
+        fadeInMsLabel.setText("0 ms", juce::dontSendNotification);
+        fadeOutMsLabel.setText("0 ms", juce::dontSendNotification);
+        crossfadeMsLabel.setText("0 ms", juce::dontSendNotification);
+        audioEngine.setLoopPoints(0.0, 1.0);
+        audioEngine.setLoopCrossfadeMs(0.0);
+        audioEngine.setFades(0.0, fadeInCurveType, 0.0, fadeOutCurveType);
         zoomLevel = 1.0;
         scrollOffset = 0.0;
         zoomSlider.setValue(1.0, juce::dontSendNotification);
@@ -2605,6 +2652,10 @@ void EditComponent::setState(const EditComponentState& state)
             crossfadeMs = state.crossfadeMs;
             crossfadeSlider.setValue(state.crossfadeMs, juce::dontSendNotification);
             crossfadeMsLabel.setText(juce::String(static_cast<int>(crossfadeMs)) + " ms", juce::dontSendNotification);
+
+            audioEngine.setLoopPoints(loopInRatio, loopOutRatio);
+            audioEngine.setLoopCrossfadeMs(crossfadeMs);
+            audioEngine.setFades(fadeInMs, fadeInCurveType, fadeOutMs, fadeOutCurveType);
 
             zoomLevel = juce::jlimit(1.0, 64.0, state.zoomLevel);
             zoomSlider.setValue(zoomLevel, juce::dontSendNotification);
