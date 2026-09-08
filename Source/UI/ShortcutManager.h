@@ -70,7 +70,7 @@ public:
 
 private:
     ShortcutManager();
-    ~ShortcutManager() override = default;
+    ~ShortcutManager() = default;
 
     void initDefaultShortcuts();
     void notifyChanged();
