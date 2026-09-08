@@ -300,7 +300,7 @@ void ShortcutsDialogComponent::stopRecording() {
 bool ShortcutsDialogComponent::keyPressed(const juce::KeyPress& key) {
     if (recordingActionId.isNotEmpty()) {
         // Cancel on Escape key
-        if (key.getKeyCode() == juce::KeyPress::escapeKey && key.getModifiers().isWithoutKeysDown()) {
+        if (key == juce::KeyPress::escapeKey) {
             stopRecording();
             return true;
         }
@@ -334,7 +334,7 @@ bool ShortcutsDialogComponent::keyPressed(const juce::KeyPress& key) {
         }
     }
 
-    if (key.getKeyCode() == juce::KeyPress::escapeKey && key.getModifiers().isWithoutKeysDown()) {
+    if (key == juce::KeyPress::escapeKey) {
         hideDialog();
         return true;
     }
