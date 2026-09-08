@@ -13,17 +13,21 @@ EditComponent::EditComponent(AudioEngine& engine)
 {
     setOpaque(true);
     audioEngine.addListener(this);
+    tooltipWindow = std::make_unique<juce::TooltipWindow>(this, 400);
 
     // ── Transport buttons ──────────────────────────────
+    playPauseButton.setTooltip("Play / Pause (Space)");
     playPauseButton.onClick = [this] {
         if (audioEngine.isPlaying()) audioEngine.pause();
         else                         audioEngine.play();
     };
     addAndMakeVisible(playPauseButton);
 
+    stopButton.setTooltip("Stop Playback");
     stopButton.onClick = [this] { audioEngine.stop(); };
     addAndMakeVisible(stopButton);
 
+    loopToggleButton.setTooltip("Loop Playback (L)");
     loopToggleButton.setClickingTogglesState(true);
     loopToggleButton.setToggleState(audioEngine.isLooping(), juce::dontSendNotification);
     loopToggleButton.onClick = [this] {
@@ -32,22 +36,34 @@ EditComponent::EditComponent(AudioEngine& engine)
     };
     addAndMakeVisible(loopToggleButton);
 
+    playSelButton.setComponentID("editIconBtn");
+    playSelButton.setTooltip("Play Selection Only");
     playSelButton.onClick = [this] { playSelectionOnly(); };
     addAndMakeVisible(playSelButton);
 
     // ── Editing buttons ────────────────────────────────
+    selectAllButton.setComponentID("editIconBtn");
+    selectAllButton.setTooltip("Select All (Cmd/Ctrl + A)");
     selectAllButton.onClick = [this] { selectAllRegion(); };
     addAndMakeVisible(selectAllButton);
 
+    deselectAllButton.setComponentID("editIconBtn");
+    deselectAllButton.setTooltip("Deselect All (Esc)");
     deselectAllButton.onClick = [this] { deselectAllRegion(); };
     addAndMakeVisible(deselectAllButton);
 
+    cropButton.setComponentID("editIconBtn");
+    cropButton.setTooltip("Crop to Selection");
     cropButton.onClick = [this] { cropToSelection(); };
     addAndMakeVisible(cropButton);
 
+    resetSelectionButton.setComponentID("editIconBtn");
+    resetSelectionButton.setTooltip("Reset Selection");
     resetSelectionButton.onClick = [this] { resetSelection(); };
     addAndMakeVisible(resetSelectionButton);
 
+    snapZeroCrossingButton.setComponentID("editIconBtn");
+    snapZeroCrossingButton.setTooltip("Snap Selection to Zero-Crossing");
     snapZeroCrossingButton.setClickingTogglesState(true);
     snapZeroCrossingButton.setToggleState(false, juce::dontSendNotification);
     snapZeroCrossingButton.onClick = [this] {
@@ -56,6 +72,7 @@ EditComponent::EditComponent(AudioEngine& engine)
     addAndMakeVisible(snapZeroCrossingButton);
 
     // ── Spectral View & Removal Buttons ───────────────
+    spectralToggleButton.setTooltip("Toggle Spectral / Time-Frequency View");
     spectralToggleButton.setClickingTogglesState(true);
     spectralToggleButton.onClick = [this] {
         isSpectralView = spectralToggleButton.getToggleState();
@@ -68,82 +85,109 @@ EditComponent::EditComponent(AudioEngine& engine)
     };
     addAndMakeVisible(spectralToggleButton);
 
-    repairSpectralButton.setTooltip("Smoothly heal / interpolate corrupted spectral region from adjacent audio frames");
+    repairSpectralButton.setComponentID("editIconBtn");
+    repairSpectralButton.setTooltip("Spectral Heal / Inpaint: Interpolate corrupted spectral frames");
     repairSpectralButton.onClick = [this] { repairSpectralSelection(); };
     addAndMakeVisible(repairSpectralButton);
 
-    deHarmonicButton.setTooltip("Notch out fundamental frequency and first 4 integer harmonics across the selection (De-Hum / De-Whistle)");
+    deHarmonicButton.setComponentID("editIconBtn");
+    deHarmonicButton.setTooltip("De-Harmonic: Notch fundamental frequency & harmonics (De-Hum)");
     deHarmonicButton.onClick = [this] { deHarmonicSelection(); };
     addAndMakeVisible(deHarmonicButton);
 
-    denoiseSpectralButton.setTooltip("Suppress noise floor in selected time-frequency zone");
+    denoiseSpectralButton.setComponentID("editIconBtn");
+    denoiseSpectralButton.setTooltip("Spectral Denoise: Suppress background noise floor in selection");
     denoiseSpectralButton.onClick = [this] { denoiseSpectralSelection(); };
     addAndMakeVisible(denoiseSpectralButton);
 
-    widenSpectralButton.setTooltip("Enhance stereo side-channel spatial width in selected frequency band");
+    widenSpectralButton.setComponentID("editIconBtn");
+    widenSpectralButton.setTooltip("Stereo Spread: Enhance side-channel spatial width in selection");
     widenSpectralButton.onClick = [this] { widenSpectralSelection(); };
     addAndMakeVisible(widenSpectralButton);
 
-    warmthSpectralButton.setTooltip("Add pleasant analog harmonic warmth to selected frequency band");
+    warmthSpectralButton.setComponentID("editIconBtn");
+    warmthSpectralButton.setTooltip("Spectral Warmth: Add analog harmonic warmth to selection");
     warmthSpectralButton.onClick = [this] { warmthSpectralSelection(); };
     addAndMakeVisible(warmthSpectralButton);
 
-    removeSpectralElementButton.setTooltip("Notch out / silence the selected frequency box");
+    removeSpectralElementButton.setComponentID("editIconBtn");
+    removeSpectralElementButton.setTooltip("Remove: Silence / notch out selected spectral box");
     removeSpectralElementButton.onClick = [this] { removeSpectralSelection(); };
     addAndMakeVisible(removeSpectralElementButton);
 
-    boostSpectralButton.setTooltip("Boost selected spectral box by +6dB");
+    boostSpectralButton.setComponentID("editIconBtn");
+    boostSpectralButton.setTooltip("Boost Spectral Box (+6dB)");
     boostSpectralButton.onClick = [this] { boostSpectralSelection(); };
     addAndMakeVisible(boostSpectralButton);
 
-    attenuateSpectralButton.setTooltip("Attenuate selected spectral box by -6dB");
+    attenuateSpectralButton.setComponentID("editIconBtn");
+    attenuateSpectralButton.setTooltip("Attenuate Spectral Box (-6dB)");
     attenuateSpectralButton.onClick = [this] { attenuateSpectralSelection(); };
     addAndMakeVisible(attenuateSpectralButton);
 
-    isolateSpectralButton.setTooltip("Isolate only the selected spectral region via bandpass filtering");
+    isolateSpectralButton.setComponentID("editIconBtn");
+    isolateSpectralButton.setTooltip("Isolate: Bandpass filter around selected spectral region");
     isolateSpectralButton.onClick = [this] { isolateSpectralSelection(); };
     addAndMakeVisible(isolateSpectralButton);
 
     // ── DSP Tools ──────────────────────────────────────
+    silenceButton.setComponentID("editIconBtn");
+    silenceButton.setTooltip("Silence Selection");
     silenceButton.onClick = [this] { silenceSelectedRegion(); };
     addAndMakeVisible(silenceButton);
 
+    reverseButton.setComponentID("editIconBtn");
+    reverseButton.setTooltip("Reverse Selection");
     reverseButton.onClick = [this] { reverseSelectedRegion(); };
     addAndMakeVisible(reverseButton);
 
+    normalizeButton.setComponentID("editIconBtn");
+    normalizeButton.setTooltip("Normalize Peak to 0dB");
     normalizeButton.onClick = [this] { normalizeAudioPeak(); };
     addAndMakeVisible(normalizeButton);
 
+    gainBoostButton.setComponentID("editIconBtn");
+    gainBoostButton.setTooltip("Gain Boost (+3dB)");
     gainBoostButton.onClick = [this] {
         audioEngine.adjustGainSelection(audioEngine.getSampleStartRatio(), audioEngine.getSampleEndRatio(), 3.0f);
         restartPlaybackFromStart();
     };
     addAndMakeVisible(gainBoostButton);
 
+    gainCutButton.setComponentID("editIconBtn");
+    gainCutButton.setTooltip("Gain Cut (-3dB)");
     gainCutButton.onClick = [this] {
         audioEngine.adjustGainSelection(audioEngine.getSampleStartRatio(), audioEngine.getSampleEndRatio(), -3.0f);
         restartPlaybackFromStart();
     };
     addAndMakeVisible(gainCutButton);
 
+    autoTrimButton.setComponentID("editIconBtn");
+    autoTrimButton.setTooltip("Auto-Trim Silence");
     autoTrimButton.onClick = [this] {
         audioEngine.autoTrimSilence();
         restartPlaybackFromStart();
     };
     addAndMakeVisible(autoTrimButton);
 
+    hpFilterButton.setComponentID("editIconBtn");
+    hpFilterButton.setTooltip("Low Cut Filter (80Hz High-Pass)");
     hpFilterButton.onClick = [this] {
         audioEngine.applyHighPassFilter(audioEngine.getSampleStartRatio(), audioEngine.getSampleEndRatio(), 80.0f);
         restartPlaybackFromStart();
     };
     addAndMakeVisible(hpFilterButton);
 
+    invertPhaseButton.setComponentID("editIconBtn");
+    invertPhaseButton.setTooltip("Invert Phase (Polarity Flip)");
     invertPhaseButton.onClick = [this] {
         audioEngine.invertPhaseSelection(audioEngine.getSampleStartRatio(), audioEngine.getSampleEndRatio());
         restartPlaybackFromStart();
     };
     addAndMakeVisible(invertPhaseButton);
 
+    speed2xButton.setComponentID("editIconBtn");
+    speed2xButton.setTooltip("Double Speed (2x)");
     speed2xButton.onClick = [this] {
         audioEngine.changeSampleSpeed(2.0);
         totalDurationSecs = audioEngine.getTotalLengthSeconds();
@@ -151,6 +195,8 @@ EditComponent::EditComponent(AudioEngine& engine)
     };
     addAndMakeVisible(speed2xButton);
 
+    speedHalfButton.setComponentID("editIconBtn");
+    speedHalfButton.setTooltip("Half Speed (0.5x)");
     speedHalfButton.onClick = [this] {
         audioEngine.changeSampleSpeed(0.5);
         totalDurationSecs = audioEngine.getTotalLengthSeconds();
@@ -158,40 +204,52 @@ EditComponent::EditComponent(AudioEngine& engine)
     };
     addAndMakeVisible(speedHalfButton);
 
+    deverbButton.setComponentID("editIconBtn");
+    deverbButton.setTooltip("Deverb: Suppress reverberant tail & room reflections");
     deverbButton.onClick = [this] { deverbSelectedRegion(); };
     addAndMakeVisible(deverbButton);
 
+    bakeFadesButton.setComponentID("editIconBtn");
+    bakeFadesButton.setTooltip("Bake Fades into Audio");
     bakeFadesButton.onClick = [this] { bakeFadesIntoBuffer(); };
     addAndMakeVisible(bakeFadesButton);
 
     // ── Fine Loop Nudge controls ──────────────────────
+    loopInNudgeLeft.setTooltip("Nudge Loop Start Left");
     loopInNudgeLeft.onClick = [this] {
         loopInRatio = juce::jlimit(0.0, loopOutRatio - 0.001, loopInRatio - 0.002);
         repaint();
     };
     addAndMakeVisible(loopInNudgeLeft);
 
+    loopInNudgeRight.setTooltip("Nudge Loop Start Right");
     loopInNudgeRight.onClick = [this] {
         loopInRatio = juce::jlimit(0.0, loopOutRatio - 0.001, loopInRatio + 0.002);
         repaint();
     };
     addAndMakeVisible(loopInNudgeRight);
 
+    loopOutNudgeLeft.setTooltip("Nudge Loop End Left");
     loopOutNudgeLeft.onClick = [this] {
         loopOutRatio = juce::jlimit(loopInRatio + 0.001, 1.0, loopOutRatio - 0.002);
         repaint();
     };
     addAndMakeVisible(loopOutNudgeLeft);
 
+    loopOutNudgeRight.setTooltip("Nudge Loop End Right");
     loopOutNudgeRight.onClick = [this] {
         loopOutRatio = juce::jlimit(loopInRatio + 0.001, 1.0, loopOutRatio + 0.002);
         repaint();
     };
     addAndMakeVisible(loopOutNudgeRight);
 
+    exportButton.setComponentID("editIconBtn");
+    exportButton.setTooltip("Export Edited Audio");
     exportButton.onClick = [this] { exportEdited(); };
     addAndMakeVisible(exportButton);
 
+    revertOriginalButton.setComponentID("editIconBtn");
+    revertOriginalButton.setTooltip("Revert to Original Audio");
     revertOriginalButton.onClick = [this] {
         if (audioEngine.restoreOriginal())
         {
@@ -341,11 +399,13 @@ EditComponent::EditComponent(AudioEngine& engine)
     };
     addAndMakeVisible(zoomSlider);
 
+    zoomInButton.setTooltip("Zoom In (+)");
     zoomInButton.onClick = [this] {
         zoomSlider.setValue(juce::jmin(64.0, zoomLevel * 1.5));
     };
     addAndMakeVisible(zoomInButton);
 
+    zoomOutButton.setTooltip("Zoom Out (-)");
     zoomOutButton.onClick = [this] {
         zoomSlider.setValue(juce::jmax(1.0, zoomLevel / 1.5));
     };
@@ -507,90 +567,94 @@ void EditComponent::resized()
     row1.removeFromLeft(gap);
     stopButton.setBounds(row1.removeFromLeft(60));
     row1.removeFromLeft(gap);
-    playSelButton.setBounds(row1.removeFromLeft(80));
+    playSelButton.setBounds(row1.removeFromLeft(30));
     row1.removeFromLeft(gap);
     loopToggleButton.setBounds(row1.removeFromLeft(65));
     row1.removeFromLeft(gap);
     spectralToggleButton.setBounds(row1.removeFromLeft(95));
     row1.removeFromLeft(12);
 
-    sampleNameLabel.setBounds(row1.removeFromLeft(200));
-
     // Right side of Row 1: Zoom & Export
-    exportButton.setBounds(row1.removeFromRight(90));
+    exportButton.setBounds(row1.removeFromRight(30));
     row1.removeFromRight(gap);
-    revertOriginalButton.setBounds(row1.removeFromRight(80));
+    revertOriginalButton.setBounds(row1.removeFromRight(30));
     row1.removeFromRight(gap);
     zoomInButton.setBounds(row1.removeFromRight(26));
     row1.removeFromRight(2);
     zoomOutButton.setBounds(row1.removeFromRight(26));
     row1.removeFromRight(gap);
-    zoomSlider.setBounds(row1.removeFromRight(100));
+    zoomSlider.setBounds(row1.removeFromRight(90));
     row1.removeFromRight(gap);
     zoomLabel.setBounds(row1.removeFromRight(40));
+
+    // Dynamic space for sample name label
+    sampleNameLabel.setBounds(row1);
+
+    const int iconBtnWidth = 30;
+    const int iconBtnGap = 4;
 
     // Row 2: Action Tools (Spectral suite when in spectral mode, DSP suite in waveform mode)
     if (isSpectralView)
     {
-        repairSpectralButton.setBounds(row2.removeFromLeft(96));
-        row2.removeFromLeft(gap);
-        deHarmonicButton.setBounds(row2.removeFromLeft(96));
-        row2.removeFromLeft(gap);
-        denoiseSpectralButton.setBounds(row2.removeFromLeft(110));
-        row2.removeFromLeft(gap);
+        repairSpectralButton.setBounds(row2.removeFromLeft(iconBtnWidth));
+        row2.removeFromLeft(iconBtnGap);
+        deHarmonicButton.setBounds(row2.removeFromLeft(iconBtnWidth));
+        row2.removeFromLeft(iconBtnGap);
+        denoiseSpectralButton.setBounds(row2.removeFromLeft(iconBtnWidth));
+        row2.removeFromLeft(iconBtnGap);
         if (audioEngine.getNumChannels() >= 2)
         {
-            widenSpectralButton.setBounds(row2.removeFromLeft(96));
-            row2.removeFromLeft(gap);
+            widenSpectralButton.setBounds(row2.removeFromLeft(iconBtnWidth));
+            row2.removeFromLeft(iconBtnGap);
         }
-        warmthSpectralButton.setBounds(row2.removeFromLeft(72));
-        row2.removeFromLeft(gap);
-        removeSpectralElementButton.setBounds(row2.removeFromLeft(68));
-        row2.removeFromLeft(gap);
-        boostSpectralButton.setBounds(row2.removeFromLeft(52));
-        row2.removeFromLeft(gap);
-        attenuateSpectralButton.setBounds(row2.removeFromLeft(52));
-        row2.removeFromLeft(gap);
-        isolateSpectralButton.setBounds(row2.removeFromLeft(64));
-        row2.removeFromLeft(gap);
-        bakeFadesButton.setBounds(row2.removeFromLeft(88));
+        warmthSpectralButton.setBounds(row2.removeFromLeft(iconBtnWidth));
+        row2.removeFromLeft(iconBtnGap);
+        removeSpectralElementButton.setBounds(row2.removeFromLeft(iconBtnWidth));
+        row2.removeFromLeft(iconBtnGap);
+        boostSpectralButton.setBounds(row2.removeFromLeft(iconBtnWidth));
+        row2.removeFromLeft(iconBtnGap);
+        attenuateSpectralButton.setBounds(row2.removeFromLeft(iconBtnWidth));
+        row2.removeFromLeft(iconBtnGap);
+        isolateSpectralButton.setBounds(row2.removeFromLeft(iconBtnWidth));
+        row2.removeFromLeft(10);
+        bakeFadesButton.setBounds(row2.removeFromLeft(iconBtnWidth));
     }
     else
     {
-        selectAllButton.setBounds(row2.removeFromLeft(88));
-        row2.removeFromLeft(gap);
-        deselectAllButton.setBounds(row2.removeFromLeft(98));
-        row2.removeFromLeft(gap);
-        cropButton.setBounds(row2.removeFromLeft(60));
-        row2.removeFromLeft(gap);
-        resetSelectionButton.setBounds(row2.removeFromLeft(64));
-        row2.removeFromLeft(gap);
-        snapZeroCrossingButton.setBounds(row2.removeFromLeft(84));
-        row2.removeFromLeft(10); // Gap to DSP tools
+        selectAllButton.setBounds(row2.removeFromLeft(iconBtnWidth));
+        row2.removeFromLeft(iconBtnGap);
+        deselectAllButton.setBounds(row2.removeFromLeft(iconBtnWidth));
+        row2.removeFromLeft(iconBtnGap);
+        cropButton.setBounds(row2.removeFromLeft(iconBtnWidth));
+        row2.removeFromLeft(iconBtnGap);
+        resetSelectionButton.setBounds(row2.removeFromLeft(iconBtnWidth));
+        row2.removeFromLeft(iconBtnGap);
+        snapZeroCrossingButton.setBounds(row2.removeFromLeft(iconBtnWidth));
+        row2.removeFromLeft(12); // Gap to DSP tools
 
-        silenceButton.setBounds(row2.removeFromLeft(70));
-        row2.removeFromLeft(gap);
-        reverseButton.setBounds(row2.removeFromLeft(74));
-        row2.removeFromLeft(gap);
-        normalizeButton.setBounds(row2.removeFromLeft(86));
-        row2.removeFromLeft(gap);
-        gainBoostButton.setBounds(row2.removeFromLeft(54));
-        row2.removeFromLeft(gap);
-        gainCutButton.setBounds(row2.removeFromLeft(54));
-        row2.removeFromLeft(gap);
-        autoTrimButton.setBounds(row2.removeFromLeft(84));
-        row2.removeFromLeft(gap);
-        hpFilterButton.setBounds(row2.removeFromLeft(72));
-        row2.removeFromLeft(gap);
-        invertPhaseButton.setBounds(row2.removeFromLeft(96));
-        row2.removeFromLeft(gap);
-        speed2xButton.setBounds(row2.removeFromLeft(76));
-        row2.removeFromLeft(gap);
-        speedHalfButton.setBounds(row2.removeFromLeft(86));
-        row2.removeFromLeft(gap);
-        deverbButton.setBounds(row2.removeFromLeft(72));
-        row2.removeFromLeft(gap);
-        bakeFadesButton.setBounds(row2.removeFromLeft(88));
+        silenceButton.setBounds(row2.removeFromLeft(iconBtnWidth));
+        row2.removeFromLeft(iconBtnGap);
+        reverseButton.setBounds(row2.removeFromLeft(iconBtnWidth));
+        row2.removeFromLeft(iconBtnGap);
+        normalizeButton.setBounds(row2.removeFromLeft(iconBtnWidth));
+        row2.removeFromLeft(iconBtnGap);
+        gainBoostButton.setBounds(row2.removeFromLeft(iconBtnWidth));
+        row2.removeFromLeft(iconBtnGap);
+        gainCutButton.setBounds(row2.removeFromLeft(iconBtnWidth));
+        row2.removeFromLeft(iconBtnGap);
+        autoTrimButton.setBounds(row2.removeFromLeft(iconBtnWidth));
+        row2.removeFromLeft(iconBtnGap);
+        hpFilterButton.setBounds(row2.removeFromLeft(iconBtnWidth));
+        row2.removeFromLeft(iconBtnGap);
+        invertPhaseButton.setBounds(row2.removeFromLeft(iconBtnWidth));
+        row2.removeFromLeft(iconBtnGap);
+        speed2xButton.setBounds(row2.removeFromLeft(iconBtnWidth));
+        row2.removeFromLeft(iconBtnGap);
+        speedHalfButton.setBounds(row2.removeFromLeft(iconBtnWidth));
+        row2.removeFromLeft(iconBtnGap);
+        deverbButton.setBounds(row2.removeFromLeft(iconBtnWidth));
+        row2.removeFromLeft(iconBtnGap);
+        bakeFadesButton.setBounds(row2.removeFromLeft(iconBtnWidth));
     }
 
     area.removeFromTop(8); // Gap

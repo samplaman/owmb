@@ -98,6 +98,7 @@ private:
     float evaluateFadeCurve(float t, int curveType) const;
 
     AudioEngine& audioEngine;
+    std::unique_ptr<juce::TooltipWindow> tooltipWindow;
 
     // Transport & editing buttons
     juce::TextButton playPauseButton { "Play" };

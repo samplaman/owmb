@@ -295,12 +295,22 @@ void OpenWavLookAndFeel::drawButtonText(juce::Graphics &g,
       svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><polyline points=\"17 1 21 5 17 9\"/><path d=\"M3 11V9a4 4 0 0 1 4-4h14\"/><polyline points=\"7 23 3 19 7 15\"/><path d=\"M21 13v2a4 4 0 0 1-4 4H3\"/></svg>";
   } else if (text == "Normalize") {
       svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><polyline points=\"22 12 18 12 15 21 9 3 6 12 2 12\"/></svg>";
+  } else if (text == "+3dB" || text == "+3 dB") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><polyline points=\"18 13 12 7 6 13\"/><line x1=\"12\" y1=\"7\" x2=\"12\" y2=\"21\"/><path d=\"M19 3v4M17 5h4\"/></svg>";
+  } else if (text == "-3dB" || text == "-3 dB") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><polyline points=\"6 11 12 17 18 11\"/><line x1=\"12\" y1=\"17\" x2=\"12\" y2=\"3\"/><line x1=\"17\" y1=\"5\" x2=\"21\" y2=\"5\"/></svg>";
+  } else if (text == "2x Speed" || text == "2x") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><polygon points=\"13 19 22 12 13 5 13 19\"/><polygon points=\"2 19 11 12 2 5 2 19\"/></svg>";
+  } else if (text == "0.5x Speed" || text == "0.5x") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><polygon points=\"11 19 2 12 11 5 11 19\"/><polygon points=\"22 19 13 12 22 5 22 19\"/></svg>";
   } else if (text == "Deverb") {
       svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><line x1=\"12\" y1=\"2\" x2=\"12\" y2=\"22\"/><line x1=\"17\" y1=\"5\" x2=\"17\" y2=\"19\"/><line x1=\"22\" y1=\"8\" x2=\"22\" y2=\"16\"/><line x1=\"7\" y1=\"8\" x2=\"7\" y2=\"16\"/><line x1=\"2\" y1=\"10\" x2=\"2\" y2=\"14\"/></svg>";
   } else if (text == "Bake Fades" || text == "Bake") {
       svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><polyline points=\"22 6 12 13 2 6\"/><polyline points=\"22 18 12 13 2 18\"/></svg>";
   } else if (text == "Export" || text == "Export Selection") {
       svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"/><polyline points=\"7 10 12 15 17 10\"/><line x1=\"12\" y1=\"15\" x2=\"12\" y2=\"3\"/></svg>";
+  } else if (text == "Revert" || text == "Revert Original") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8\"/><path d=\"M3 3v5h5\"/></svg>";
   } else if (text == "Select All") {
       svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"3\" y=\"3\" width=\"18\" height=\"18\" rx=\"2\"/><path d=\"M9 9h6v6H9z\"/></svg>";
   } else if (text == "Deselect All") {
@@ -311,6 +321,24 @@ void OpenWavLookAndFeel::drawButtonText(juce::Graphics &g,
       svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M2 18l6-12 14 0\"/></svg>";
   } else if (text == "Invert Phase") {
       svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6\"/></svg>";
+  } else if (text == "Heal / Inpaint" || text == "Heal") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z\"/></svg>";
+  } else if (text == "De-Harmonic") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><line x1=\"4\" y1=\"4\" x2=\"4\" y2=\"20\"/><line x1=\"9\" y1=\"7\" x2=\"9\" y2=\"17\"/><line x1=\"14\" y1=\"10\" x2=\"14\" y2=\"14\"/><line x1=\"19\" y1=\"6\" x2=\"19\" y2=\"18\"/><line x1=\"2\" y1=\"2\" x2=\"22\" y2=\"22\"/></svg>";
+  } else if (text == "Spectral Denoise") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M2 14c4-6 6-6 10 0s6 6 10 0\"/><line x1=\"3\" y1=\"3\" x2=\"21\" y2=\"21\"/></svg>";
+  } else if (text == "Stereo Spread") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><polyline points=\"7 8 3 12 7 16\"/><polyline points=\"17 8 21 12 17 16\"/><line x1=\"3\" y1=\"12\" x2=\"21\" y2=\"12\"/></svg>";
+  } else if (text == "Warmth") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z\"/></svg>";
+  } else if (text == "Remove" || text == "Remove Spectral") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><polyline points=\"3 6 5 6 21 6\"/><path d=\"M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2\"/></svg>";
+  } else if (text == "+6dB") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><polyline points=\"17 11 12 6 7 11\"/><polyline points=\"17 18 12 13 7 18\"/></svg>";
+  } else if (text == "-6dB") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><polyline points=\"7 13 12 18 17 13\"/><polyline points=\"7 6 12 11 17 6\"/></svg>";
+  } else if (text == "Isolate") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"9\"/><line x1=\"22\" y1=\"12\" x2=\"17\" y2=\"12\"/><line x1=\"7\" y1=\"12\" x2=\"2\" y2=\"12\"/><line x1=\"12\" y1=\"2\" x2=\"12\" y2=\"7\"/><line x1=\"12\" y1=\"17\" x2=\"12\" y2=\"22\"/></svg>";
   } else if (text == "Spectral" || text == "Spectral Clean") {
       svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"2\" y=\"2\" width=\"20\" height=\"20\" rx=\"3\"/><line x1=\"6\" y1=\"18\" x2=\"6\" y2=\"12\"/><line x1=\"10\" y1=\"18\" x2=\"10\" y2=\"6\"/><line x1=\"14\" y1=\"18\" x2=\"14\" y2=\"10\"/><line x1=\"18\" y1=\"18\" x2=\"18\" y2=\"8\"/></svg>";
   } else if (text == "Mute" || text == "Unmute") {
@@ -332,6 +360,13 @@ void OpenWavLookAndFeel::drawButtonText(juce::Graphics &g,
       if (xml != nullptr) {
           auto drawable = juce::Drawable::createFromSVG(*xml);
           if (drawable != nullptr) {
+              if (button.getComponentID() == "editIconBtn") {
+                  float iconSize = 15.0f;
+                  auto iconArea = button.getLocalBounds().toFloat().withSizeKeepingCentre(iconSize, iconSize);
+                  drawable->drawWithin(g, iconArea, juce::RectanglePlacement::centred, 1.0f);
+                  return;
+              }
+
               float iconSize = 14.0f;
               float gap = 4.0f;
               float textWidth = font.getStringWidthFloat(text);
@@ -592,6 +627,30 @@ juce::Font OpenWavLookAndFeel::getAlertWindowTitleFont()
 juce::Font OpenWavLookAndFeel::getAlertWindowMessageFont()
 {
     return juce::Font(juce::FontOptions(13.0f));
+}
+
+void OpenWavLookAndFeel::drawTooltip(juce::Graphics& g, const juce::String& text, int width, int height)
+{
+    auto bounds = juce::Rectangle<int>(0, 0, width, height).toFloat();
+    g.setColour(juce::Colour(0xF0181B22)); // Deep modern dark tooltip background
+    g.fillRoundedRectangle(bounds, 5.0f);
+
+    g.setColour(borderColour.withAlpha(0.75f));
+    g.drawRoundedRectangle(bounds.reduced(0.5f), 5.0f, 1.0f);
+
+    g.setColour(textPrimary);
+    g.setFont(juce::Font(juce::FontOptions(12.0f)));
+    g.drawFittedText(text, bounds.toNearestInt().reduced(8, 3), juce::Justification::centred, 1);
+}
+
+juce::Rectangle<int> OpenWavLookAndFeel::getTooltipBounds(const juce::String& tipText, juce::Point<int> screenPos, juce::Rectangle<int> parentArea)
+{
+    auto font = juce::Font(juce::FontOptions(12.0f));
+    int textWidth = font.getStringWidth(tipText) + 20;
+    int textHeight = 26;
+
+    auto targetArea = juce::Rectangle<int>(screenPos.x + 10, screenPos.y + 16, textWidth, textHeight);
+    return targetArea.constrainedWithin(parentArea);
 }
 
 } // namespace openwav

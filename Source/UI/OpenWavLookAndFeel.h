@@ -74,6 +74,9 @@ public:
                      bool ticked, bool isEnabled,
                      bool shouldDrawButtonAsHighlighted, bool shouldDrawButtonAsDown) override;
 
+    void drawTooltip(juce::Graphics& g, const juce::String& text, int width, int height) override;
+    juce::Rectangle<int> getTooltipBounds(const juce::String& tipText, juce::Point<int> screenPos, juce::Rectangle<int> parentArea) override;
+
     // Modern Typography System
     juce::Typeface::Ptr getTypefaceForFont(const juce::Font& font) override;
     juce::Font getLabelFont(juce::Label& label) override;
