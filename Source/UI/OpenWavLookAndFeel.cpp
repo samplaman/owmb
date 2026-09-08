@@ -544,11 +544,13 @@ int OpenWavLookAndFeel::getPopupMenuBorderSize()
     return 6;
 }
 
-int OpenWavLookAndFeel::getIdealPopupMenuItemHeight(const juce::String& /*text*/, bool isSeparator, int /*standardMenuItemHeight*/)
+void OpenWavLookAndFeel::getIdealPopupMenuItemSize(const juce::String& text, bool isSeparator,
+                                                   int standardMenuItemHeight,
+                                                   int& idealWidth, int& idealHeight)
 {
-    if (isSeparator)
-        return 8;
-    return 28;
+    juce::LookAndFeel_V4::getIdealPopupMenuItemSize(text, isSeparator, standardMenuItemHeight, idealWidth, idealHeight);
+    if (!isSeparator && idealHeight < 28)
+        idealHeight = 28;
 }
 
 void OpenWavLookAndFeel::drawPopupMenuBackground(juce::Graphics& g, int width, int height)

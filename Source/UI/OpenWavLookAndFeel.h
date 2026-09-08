@@ -70,7 +70,9 @@ public:
     void preparePopupMenuWindow(juce::Component& window) override;
     void drawPopupMenuBackground(juce::Graphics& g, int width, int height) override;
     int getPopupMenuBorderSize() override;
-    int getIdealPopupMenuItemHeight(const juce::String& text, bool isSeparator, int standardMenuItemHeight) override;
+    void getIdealPopupMenuItemSize(const juce::String& text, bool isSeparator,
+                                   int standardMenuItemHeight,
+                                   int& idealWidth, int& idealHeight) override;
 
     void drawPopupMenuItem(juce::Graphics& g, const juce::Rectangle<int>& area,
                            bool isSeparator, bool isActive, bool isHighlighted,
