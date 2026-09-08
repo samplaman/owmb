@@ -95,6 +95,28 @@ EditComponent::EditComponent(AudioEngine& engine)
     };
     addAndMakeVisible(spectralToggleButton);
 
+    auto setupShapeBtn = [this](juce::TextButton& btn, const juce::String& tip, SpectralSelectionShape shape) {
+        btn.setComponentID("editIconBtn");
+        btn.setTooltip(tip);
+        btn.setClickingTogglesState(true);
+        btn.setRadioGroupId(9001);
+        btn.onClick = [this, shape] {
+            currentSpectralShape = shape;
+            updateShapeButtonStates();
+            repaint();
+        };
+        addAndMakeVisible(btn);
+    };
+
+    setupShapeBtn(spectralBoxSelectBtn, "Spectral Box Select: Draw a 2D time-frequency bounding box", SpectralSelectionShape::Box);
+    setupShapeBtn(spectralTimeSelectBtn, "Spectral Time Select: Select entire frequency spectrum over time slice", SpectralSelectionShape::Time);
+    setupShapeBtn(spectralFreqSelectBtn, "Spectral Frequency Select: Select full time across specific frequency band", SpectralSelectionShape::Frequency);
+    setupShapeBtn(spectralLassoSelectBtn, "Spectral Lasso Select: Freehand freeform polygon selection", SpectralSelectionShape::Lasso);
+    setupShapeBtn(spectralEllipseSelectBtn, "Spectral Oval Select: Elliptical time-frequency selection", SpectralSelectionShape::Ellipse);
+
+    updateShapeButtonStates();
+    initSpectralCursors();
+
     repairSpectralButton.setComponentID("editIconBtn");
     repairSpectralButton.setTooltip("Spectral Heal / Inpaint: Interpolate corrupted spectral frames");
     repairSpectralButton.onClick = [this] { repairSpectralSelection(); };
@@ -288,6 +310,7 @@ EditComponent::EditComponent(AudioEngine& engine)
             zoomSlider.setValue(1.0, juce::dontSendNotification);
             totalDurationSecs = audioEngine.getTotalLengthSeconds();
             hasSpectralBoxSelection = false;
+            lassoScreenPoints.clear();
             spectrogramGenerated = false;
             if (isSpectralView)
                 generateSpectrogram();
@@ -532,6 +555,11 @@ void EditComponent::updateControlVisibility()
     bakeFadesButton.setVisible(hasSamplerSample);
 
     // Spectral Tools (visible whenever in Spectral mode)
+    spectralBoxSelectBtn.setVisible(showSpectralTools);
+    spectralTimeSelectBtn.setVisible(showSpectralTools);
+    spectralFreqSelectBtn.setVisible(showSpectralTools);
+    spectralLassoSelectBtn.setVisible(showSpectralTools);
+    spectralEllipseSelectBtn.setVisible(showSpectralTools);
     repairSpectralButton.setVisible(showSpectralTools);
     deHarmonicButton.setVisible(showSpectralTools);
     denoiseSpectralButton.setVisible(showSpectralTools);
@@ -621,6 +649,18 @@ void EditComponent::resized()
     // Row 2: Action Tools (Spectral suite when in spectral mode, DSP suite in waveform mode)
     if (isSpectralView)
     {
+        const int shapeBtnWidth = 38;
+        spectralBoxSelectBtn.setBounds(row2.removeFromLeft(shapeBtnWidth));
+        row2.removeFromLeft(iconBtnGap);
+        spectralTimeSelectBtn.setBounds(row2.removeFromLeft(shapeBtnWidth));
+        row2.removeFromLeft(iconBtnGap);
+        spectralFreqSelectBtn.setBounds(row2.removeFromLeft(shapeBtnWidth));
+        row2.removeFromLeft(iconBtnGap);
+        spectralLassoSelectBtn.setBounds(row2.removeFromLeft(shapeBtnWidth));
+        row2.removeFromLeft(iconBtnGap);
+        spectralEllipseSelectBtn.setBounds(row2.removeFromLeft(shapeBtnWidth));
+        row2.removeFromLeft(12); // Gap between shape tools and action tools
+
         repairSpectralButton.setBounds(row2.removeFromLeft(iconBtnWidth));
         row2.removeFromLeft(iconBtnGap);
         deHarmonicButton.setBounds(row2.removeFromLeft(iconBtnWidth));
@@ -1513,20 +1553,72 @@ void EditComponent::paintSpectrogram(juce::Graphics& g, juce::Rectangle<float> b
 
         if (!boxRect.isEmpty())
         {
-            g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.25f));
-            g.fillRect(boxRect);
-            g.setColour(OpenWavLookAndFeel::accentCyan);
-            g.drawRect(boxRect, 1.5f);
+            if (currentSpectralShape == SpectralSelectionShape::Ellipse)
+            {
+                g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.22f));
+                g.fillEllipse(boxRect);
+                g.setColour(OpenWavLookAndFeel::accentCyan);
+                g.drawEllipse(boxRect, 1.5f);
+
+                // Subtle dashed bounding box
+                g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.35f));
+                float dashLengths[] = { 4.0f, 3.0f };
+                g.drawDashedLine(juce::Line<float>(boxRect.getTopLeft(), boxRect.getTopRight()), dashLengths, 2, 1.0f);
+                g.drawDashedLine(juce::Line<float>(boxRect.getTopRight(), boxRect.getBottomRight()), dashLengths, 2, 1.0f);
+                g.drawDashedLine(juce::Line<float>(boxRect.getBottomRight(), boxRect.getBottomLeft()), dashLengths, 2, 1.0f);
+                g.drawDashedLine(juce::Line<float>(boxRect.getBottomLeft(), boxRect.getTopLeft()), dashLengths, 2, 1.0f);
+            }
+            else if (currentSpectralShape == SpectralSelectionShape::Lasso && lassoScreenPoints.size() >= 2)
+            {
+                juce::Path lassoPath;
+                lassoPath.startNewSubPath(lassoScreenPoints[0]);
+                for (size_t i = 1; i < lassoScreenPoints.size(); ++i)
+                {
+                    lassoPath.lineTo(lassoScreenPoints[i]);
+                }
+                if (dragTarget != DragTarget::SelectingSpectralBox)
+                {
+                    lassoPath.closeSubPath();
+                }
+
+                g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.22f));
+                g.fillPath(lassoPath);
+                g.setColour(OpenWavLookAndFeel::accentCyan);
+                g.strokePath(lassoPath, juce::PathStrokeType(1.5f));
+
+                // Subtle dashed bounding box
+                g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.35f));
+                float dashLengths[] = { 4.0f, 3.0f };
+                g.drawDashedLine(juce::Line<float>(boxRect.getTopLeft(), boxRect.getTopRight()), dashLengths, 2, 1.0f);
+                g.drawDashedLine(juce::Line<float>(boxRect.getTopRight(), boxRect.getBottomRight()), dashLengths, 2, 1.0f);
+                g.drawDashedLine(juce::Line<float>(boxRect.getBottomRight(), boxRect.getBottomLeft()), dashLengths, 2, 1.0f);
+                g.drawDashedLine(juce::Line<float>(boxRect.getBottomLeft(), boxRect.getTopLeft()), dashLengths, 2, 1.0f);
+            }
+            else
+            {
+                // Box, Time, and Frequency selections
+                g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.25f));
+                g.fillRect(boxRect);
+                g.setColour(OpenWavLookAndFeel::accentCyan);
+                g.drawRect(boxRect, 1.5f);
+            }
         }
 
-        juce::String specStr = juce::String::formatted("Spectral: %.2fs - %.2fs | %.0fHz - %.0fHz",
+        juce::String shapeName = "Box";
+        if (currentSpectralShape == SpectralSelectionShape::Time) shapeName = "Time";
+        else if (currentSpectralShape == SpectralSelectionShape::Frequency) shapeName = "Freq";
+        else if (currentSpectralShape == SpectralSelectionShape::Lasso) shapeName = "Lasso";
+        else if (currentSpectralShape == SpectralSelectionShape::Ellipse) shapeName = "Oval";
+
+        juce::String specStr = juce::String::formatted("Spectral [%s]: %.2fs - %.2fs | %.0fHz - %.0fHz",
+                                                       shapeName.toRawUTF8(),
                                                        spectralTimeStart * totalDurationSecs,
                                                        spectralTimeEnd * totalDurationSecs,
                                                        spectralFreqLow, spectralFreqHigh);
 
         g.setFont(juce::Font(10.0f).boldened());
         int w = g.getCurrentFont().getStringWidth(specStr) + 16;
-        auto pillRect = juce::Rectangle<float>(bounds.getX() + 10.0f, bounds.getY() + 8.0f, w, 18.0f);
+        auto pillRect = juce::Rectangle<float>(bounds.getX() + 10.0f, bounds.getY() + 8.0f, static_cast<float>(w), 18.0f);
         g.setColour(OpenWavLookAndFeel::bgDark.withAlpha(0.85f));
         g.fillRoundedRectangle(pillRect, 4.0f);
         g.setColour(OpenWavLookAndFeel::accentCyan);
@@ -1547,6 +1639,7 @@ void EditComponent::repairSpectralSelection()
     if (audioEngine.repairSpectralRegion(startR, endR, lowF, highF))
     {
         hasSpectralBoxSelection = false;
+        lassoScreenPoints.clear();
         spectrogramGenerated = false;
         if (isSpectralView)
             generateSpectrogram();
@@ -1569,6 +1662,7 @@ void EditComponent::deHarmonicSelection()
     if (audioEngine.removeSpectralHarmonics(startR, endR, f0))
     {
         hasSpectralBoxSelection = false;
+        lassoScreenPoints.clear();
         spectrogramGenerated = false;
         if (isSpectralView)
             generateSpectrogram();
@@ -1650,6 +1744,7 @@ void EditComponent::removeSpectralSelection()
     if (audioEngine.silenceSpectralRegion(startR, endR, lowF, highF))
     {
         hasSpectralBoxSelection = false;
+        lassoScreenPoints.clear();
         spectrogramGenerated = false;
         if (isSpectralView)
             generateSpectrogram();
@@ -1711,6 +1806,7 @@ void EditComponent::isolateSpectralSelection()
     if (audioEngine.isolateSpectralRegion(startR, endR, lowF, highF))
     {
         hasSpectralBoxSelection = false;
+        lassoScreenPoints.clear();
         spectrogramGenerated = false;
         if (isSpectralView)
             generateSpectrogram();
@@ -1775,6 +1871,8 @@ void EditComponent::deselectAllRegion()
     loopInRatio = 0.0;
     loopOutRatio = 1.0;
     loopMarkersSet = false;
+    hasSpectralBoxSelection = false;
+    lassoScreenPoints.clear();
     repaint();
 }
 
@@ -1938,6 +2036,110 @@ bool EditComponent::keyPressed(const juce::KeyPress& key)
 }
 
 // ─────────────────────────────────────────────────────────
+//  Spectral Cursors & Selection Shapes
+// ─────────────────────────────────────────────────────────
+juce::MouseCursor EditComponent::createSpectralCursor(SpectralSelectionShape shape)
+{
+    const int w = 24;
+    const int h = 24;
+    juce::Image img(juce::Image::ARGB, w, h, true);
+    juce::Graphics g(img);
+
+    // Crosshair center at (7, 7)
+    const float cx = 7.0f;
+    const float cy = 7.0f;
+
+    // Outer shadow / outline for high contrast on both dark & bright spectral areas
+    g.setColour(juce::Colours::black.withAlpha(0.9f));
+    g.drawLine(cx, 1.0f, cx, 13.0f, 3.0f);
+    g.drawLine(1.0f, cy, 13.0f, cy, 3.0f);
+
+    // Precise 1px white crosshair
+    g.setColour(juce::Colours::white);
+    g.drawLine(cx, 1.0f, cx, 13.0f, 1.0f);
+    g.drawLine(1.0f, cy, 13.0f, cy, 1.0f);
+
+    // Center pinpoint pixel in cyan
+    g.setColour(OpenWavLookAndFeel::accentCyan);
+    g.fillRect(cx - 0.5f, cy - 0.5f, 1.0f, 1.0f);
+
+    // Shape glyph container at bottom-right (x: 12..23, y: 12..23)
+    g.setColour(juce::Colours::black.withAlpha(0.75f));
+    g.fillRoundedRectangle(12.0f, 12.0f, 11.0f, 11.0f, 2.0f);
+    g.setColour(juce::Colours::black);
+    g.drawRoundedRectangle(12.0f, 12.0f, 11.0f, 11.0f, 2.0f, 1.0f);
+
+    // Draw mini shape glyph in bright cyan
+    g.setColour(OpenWavLookAndFeel::accentCyan);
+    switch (shape)
+    {
+        case SpectralSelectionShape::Box:
+            g.drawRect(14.0f, 14.0f, 7.0f, 7.0f, 1.2f);
+            break;
+        case SpectralSelectionShape::Time:
+            g.drawLine(15.5f, 14.0f, 15.5f, 21.0f, 1.2f);
+            g.drawLine(19.5f, 14.0f, 19.5f, 21.0f, 1.2f);
+            break;
+        case SpectralSelectionShape::Frequency:
+            g.drawLine(14.0f, 15.5f, 21.0f, 15.5f, 1.2f);
+            g.drawLine(14.0f, 19.5f, 21.0f, 19.5f, 1.2f);
+            break;
+        case SpectralSelectionShape::Lasso:
+        {
+            juce::Path p;
+            p.startNewSubPath(15.0f, 15.0f);
+            p.lineTo(20.0f, 15.0f);
+            p.lineTo(20.5f, 18.5f);
+            p.lineTo(17.5f, 21.0f);
+            p.lineTo(14.5f, 18.5f);
+            p.closeSubPath();
+            g.strokePath(p, juce::PathStrokeType(1.1f));
+            break;
+        }
+        case SpectralSelectionShape::Ellipse:
+            g.drawEllipse(14.0f, 14.0f, 7.0f, 7.0f, 1.2f);
+            break;
+    }
+
+    return juce::MouseCursor(img, static_cast<int>(cx), static_cast<int>(cy));
+}
+
+void EditComponent::initSpectralCursors()
+{
+    spectralBoxCursor = createSpectralCursor(SpectralSelectionShape::Box);
+    spectralTimeCursor = createSpectralCursor(SpectralSelectionShape::Time);
+    spectralFreqCursor = createSpectralCursor(SpectralSelectionShape::Frequency);
+    spectralLassoCursor = createSpectralCursor(SpectralSelectionShape::Lasso);
+    spectralEllipseCursor = createSpectralCursor(SpectralSelectionShape::Ellipse);
+    spectralCursorsInitialized = true;
+}
+
+juce::MouseCursor EditComponent::getSpectralCursor(SpectralSelectionShape shape)
+{
+    if (!spectralCursorsInitialized)
+        initSpectralCursors();
+
+    switch (shape)
+    {
+        case SpectralSelectionShape::Box:       return spectralBoxCursor;
+        case SpectralSelectionShape::Time:      return spectralTimeCursor;
+        case SpectralSelectionShape::Frequency: return spectralFreqCursor;
+        case SpectralSelectionShape::Lasso:     return spectralLassoCursor;
+        case SpectralSelectionShape::Ellipse:   return spectralEllipseCursor;
+    }
+    return spectralBoxCursor;
+}
+
+void EditComponent::updateShapeButtonStates()
+{
+    spectralBoxSelectBtn.setToggleState(currentSpectralShape == SpectralSelectionShape::Box, juce::dontSendNotification);
+    spectralTimeSelectBtn.setToggleState(currentSpectralShape == SpectralSelectionShape::Time, juce::dontSendNotification);
+    spectralFreqSelectBtn.setToggleState(currentSpectralShape == SpectralSelectionShape::Frequency, juce::dontSendNotification);
+    spectralLassoSelectBtn.setToggleState(currentSpectralShape == SpectralSelectionShape::Lasso, juce::dontSendNotification);
+    spectralEllipseSelectBtn.setToggleState(currentSpectralShape == SpectralSelectionShape::Ellipse, juce::dontSendNotification);
+}
+
+// ─────────────────────────────────────────────────────────
 //  Mouse Hover / Cursors
 // ─────────────────────────────────────────────────────────
 void EditComponent::mouseMove(const juce::MouseEvent& e)
@@ -1952,6 +2154,12 @@ void EditComponent::mouseMove(const juce::MouseEvent& e)
     if (!wfBounds.contains(e.position))
     {
         setMouseCursor(juce::MouseCursor::NormalCursor);
+        return;
+    }
+
+    if (isSpectralView)
+    {
+        setMouseCursor(getSpectralCursor(currentSpectralShape));
         return;
     }
 
@@ -1984,6 +2192,11 @@ void EditComponent::mouseMove(const juce::MouseEvent& e)
     }
 }
 
+void EditComponent::mouseExit(const juce::MouseEvent& /*e*/)
+{
+    setMouseCursor(juce::MouseCursor::NormalCursor);
+}
+
 // ─────────────────────────────────────────────────────────
 //  Mouse Interaction
 // ─────────────────────────────────────────────────────────
@@ -2008,6 +2221,23 @@ void EditComponent::mouseDown(const juce::MouseEvent& e)
         float normY = juce::jlimit(0.0f, 1.0f, (wfBounds.getBottom() - e.position.y) / wfBounds.getHeight());
         spectralFreqLow = static_cast<float>(20.0 * std::pow(20000.0 / 20.0, normY));
         spectralFreqHigh = spectralFreqLow;
+
+        lassoScreenPoints.clear();
+        if (currentSpectralShape == SpectralSelectionShape::Lasso)
+        {
+            lassoScreenPoints.push_back(e.position);
+        }
+        else if (currentSpectralShape == SpectralSelectionShape::Time)
+        {
+            spectralFreqLow = 20.0f;
+            spectralFreqHigh = 20000.0f;
+        }
+        else if (currentSpectralShape == SpectralSelectionShape::Frequency)
+        {
+            spectralTimeStart = 0.0;
+            spectralTimeEnd = 1.0;
+        }
+
         hasSpectralBoxSelection = true;
         updateControlVisibility();
         repaint();
@@ -2100,17 +2330,60 @@ void EditComponent::mouseDrag(const juce::MouseEvent& e)
     if (dragTarget == DragTarget::SelectingSpectralBox)
     {
         double startR = xToRatio(spectralDragStartPos.x, wfBounds);
-        spectralTimeStart = std::min(startR, currentRatio);
-        spectralTimeEnd = std::max(startR, currentRatio);
-
         float normY1 = juce::jlimit(0.0f, 1.0f, (wfBounds.getBottom() - spectralDragStartPos.y) / wfBounds.getHeight());
         float normY2 = juce::jlimit(0.0f, 1.0f, (wfBounds.getBottom() - e.position.y) / wfBounds.getHeight());
 
         float f1 = static_cast<float>(20.0 * std::pow(20000.0 / 20.0, normY1));
         float f2 = static_cast<float>(20.0 * std::pow(20000.0 / 20.0, normY2));
 
-        spectralFreqLow = std::min(f1, f2);
-        spectralFreqHigh = std::max(f1, f2);
+        if (currentSpectralShape == SpectralSelectionShape::Time)
+        {
+            spectralTimeStart = std::min(startR, currentRatio);
+            spectralTimeEnd = std::max(startR, currentRatio);
+            spectralFreqLow = 20.0f;
+            spectralFreqHigh = 20000.0f;
+        }
+        else if (currentSpectralShape == SpectralSelectionShape::Frequency)
+        {
+            spectralTimeStart = 0.0;
+            spectralTimeEnd = 1.0;
+            spectralFreqLow = std::min(f1, f2);
+            spectralFreqHigh = std::max(f1, f2);
+        }
+        else if (currentSpectralShape == SpectralSelectionShape::Lasso)
+        {
+            if (lassoScreenPoints.empty() || lassoScreenPoints.back().getDistanceFrom(e.position) > 2.0f)
+            {
+                lassoScreenPoints.push_back(e.position);
+            }
+
+            float minX = lassoScreenPoints.front().x;
+            float maxX = lassoScreenPoints.front().x;
+            float minY = lassoScreenPoints.front().y;
+            float maxY = lassoScreenPoints.front().y;
+            for (const auto& pt : lassoScreenPoints)
+            {
+                minX = std::min(minX, pt.x);
+                maxX = std::max(maxX, pt.x);
+                minY = std::min(minY, pt.y);
+                maxY = std::max(maxY, pt.y);
+            }
+
+            spectralTimeStart = juce::jlimit(0.0, 1.0, xToRatio(minX, wfBounds));
+            spectralTimeEnd = juce::jlimit(0.0, 1.0, xToRatio(maxX, wfBounds));
+
+            float ptNormY1 = juce::jlimit(0.0f, 1.0f, (wfBounds.getBottom() - maxY) / wfBounds.getHeight());
+            float ptNormY2 = juce::jlimit(0.0f, 1.0f, (wfBounds.getBottom() - minY) / wfBounds.getHeight());
+            spectralFreqLow = static_cast<float>(20.0 * std::pow(20000.0 / 20.0, ptNormY1));
+            spectralFreqHigh = static_cast<float>(20.0 * std::pow(20000.0 / 20.0, ptNormY2));
+        }
+        else // Box and Ellipse
+        {
+            spectralTimeStart = std::min(startR, currentRatio);
+            spectralTimeEnd = std::max(startR, currentRatio);
+            spectralFreqLow = std::min(f1, f2);
+            spectralFreqHigh = std::max(f1, f2);
+        }
 
         hasSpectralBoxSelection = true;
         updateControlVisibility();
@@ -2208,7 +2481,20 @@ void EditComponent::mouseUp(const juce::MouseEvent& /*e*/)
     }
     else if (dragTarget == DragTarget::SelectingSpectralBox)
     {
-        hasSpectralBoxSelection = (spectralTimeEnd - spectralTimeStart > 0.002);
+        if (currentSpectralShape == SpectralSelectionShape::Lasso)
+        {
+            hasSpectralBoxSelection = (lassoScreenPoints.size() >= 3 && (spectralTimeEnd - spectralTimeStart > 0.001));
+            if (!hasSpectralBoxSelection)
+                lassoScreenPoints.clear();
+        }
+        else if (currentSpectralShape == SpectralSelectionShape::Frequency)
+        {
+            hasSpectralBoxSelection = (spectralFreqHigh - spectralFreqLow > 5.0f);
+        }
+        else
+        {
+            hasSpectralBoxSelection = (spectralTimeEnd - spectralTimeStart > 0.002);
+        }
         updateControlVisibility();
     }
 
@@ -2297,6 +2583,7 @@ void EditComponent::visibilityChanged()
 
         spectrogramGenerated = false;
         hasSpectralBoxSelection = false;
+        lassoScreenPoints.clear();
         if (isSpectralView)
             generateSpectrogram();
         updateControlVisibility();
@@ -2420,6 +2707,7 @@ void EditComponent::sampleLoaded(const juce::String& filePath)
     }
 
     hasSpectralBoxSelection = false;
+    lassoScreenPoints.clear();
     spectrogramGenerated = false;
     if (isSpectralView)
     {
@@ -2607,6 +2895,7 @@ EditComponentState EditComponent::getState() const
         s.spectralTimeEnd = spectralTimeEnd;
         s.spectralFreqLow = spectralFreqLow;
         s.spectralFreqHigh = spectralFreqHigh;
+        s.spectralSelectionShape = static_cast<int>(currentSpectralShape);
     }
     return s;
 }
@@ -2662,6 +2951,9 @@ void EditComponent::setState(const EditComponentState& state)
             isSpectralView = state.isSpectralView;
             spectralToggleButton.setToggleState(isSpectralView, juce::dontSendNotification);
             spectralToggleButton.setButtonText(isSpectralView ? "Spectral: ON" : "Spectral: OFF");
+
+            currentSpectralShape = static_cast<SpectralSelectionShape>(juce::jlimit(0, 4, state.spectralSelectionShape));
+            updateShapeButtonStates();
 
             hasSpectralBoxSelection = state.hasSpectralBoxSelection;
             spectralTimeStart = state.spectralTimeStart;

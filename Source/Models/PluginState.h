@@ -36,6 +36,7 @@ struct EditComponentState
     double spectralTimeEnd { 1.0 };
     float spectralFreqLow { 20.0f };
     float spectralFreqHigh { 20000.0f };
+    int spectralSelectionShape { 0 };
 
     juce::var toVar() const
     {
@@ -60,6 +61,7 @@ struct EditComponentState
         obj->setProperty("spectralTimeEnd", spectralTimeEnd);
         obj->setProperty("spectralFreqLow", spectralFreqLow);
         obj->setProperty("spectralFreqHigh", spectralFreqHigh);
+        obj->setProperty("spectralSelectionShape", spectralSelectionShape);
         return juce::var(obj);
     }
 
@@ -90,6 +92,7 @@ struct EditComponentState
         if (obj->hasProperty("spectralTimeEnd")) s.spectralTimeEnd = static_cast<double>(obj->getProperty("spectralTimeEnd"));
         if (obj->hasProperty("spectralFreqLow")) s.spectralFreqLow = static_cast<float>(obj->getProperty("spectralFreqLow"));
         if (obj->hasProperty("spectralFreqHigh")) s.spectralFreqHigh = static_cast<float>(obj->getProperty("spectralFreqHigh"));
+        if (obj->hasProperty("spectralSelectionShape")) s.spectralSelectionShape = static_cast<int>(obj->getProperty("spectralSelectionShape"));
         return s;
     }
 };

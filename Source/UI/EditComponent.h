@@ -28,6 +28,7 @@ public:
     void resized() override;
 
     void mouseMove(const juce::MouseEvent& e) override;
+    void mouseExit(const juce::MouseEvent& e) override;
     void mouseDown(const juce::MouseEvent& e) override;
     void mouseDrag(const juce::MouseEvent& e) override;
     void mouseUp(const juce::MouseEvent& e) override;
@@ -205,6 +206,36 @@ private:
     double dragStartRatio { 0.0 };
 
     // Spectrogram State & Controls
+    enum class SpectralSelectionShape
+    {
+        Box,
+        Time,
+        Frequency,
+        Lasso,
+        Ellipse
+    };
+    SpectralSelectionShape currentSpectralShape { SpectralSelectionShape::Box };
+
+    juce::TextButton spectralBoxSelectBtn { "Box" };
+    juce::TextButton spectralTimeSelectBtn { "Time" };
+    juce::TextButton spectralFreqSelectBtn { "Freq" };
+    juce::TextButton spectralLassoSelectBtn { "Lasso" };
+    juce::TextButton spectralEllipseSelectBtn { "Oval" };
+
+    std::vector<juce::Point<float>> lassoScreenPoints;
+
+    juce::MouseCursor spectralBoxCursor;
+    juce::MouseCursor spectralTimeCursor;
+    juce::MouseCursor spectralFreqCursor;
+    juce::MouseCursor spectralLassoCursor;
+    juce::MouseCursor spectralEllipseCursor;
+    bool spectralCursorsInitialized { false };
+
+    juce::MouseCursor getSpectralCursor(SpectralSelectionShape shape);
+    void initSpectralCursors();
+    static juce::MouseCursor createSpectralCursor(SpectralSelectionShape shape);
+    void updateShapeButtonStates();
+
     juce::TextButton spectralToggleButton { "Spectral: OFF" };
     juce::TextButton repairSpectralButton { "Heal / Inpaint" };
     juce::TextButton deHarmonicButton { "De-Harmonic" };
