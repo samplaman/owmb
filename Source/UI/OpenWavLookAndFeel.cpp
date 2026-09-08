@@ -135,12 +135,23 @@ void OpenWavLookAndFeel::updateColors() {
   setColour(juce::TableHeaderComponent::backgroundColourId, bgHeader);
   setColour(juce::TableHeaderComponent::textColourId, textSecondary);
 
-  // PopupMenu (Right-click menus)
-  setColour(juce::PopupMenu::backgroundColourId, bgCard);
-  setColour(juce::PopupMenu::textColourId, textPrimary);
-  setColour(juce::PopupMenu::headerTextColourId, accentCyan);
-  setColour(juce::PopupMenu::highlightedBackgroundColourId, bgHover);
-  setColour(juce::PopupMenu::highlightedTextColourId, accentCyan);
+  // PopupMenu (Right-click menus & dropdowns)
+  if (isDarkTheme())
+  {
+      setColour(juce::PopupMenu::backgroundColourId, juce::Colour(0xf4161b22));
+      setColour(juce::PopupMenu::textColourId, textPrimary);
+      setColour(juce::PopupMenu::headerTextColourId, accentCyan);
+      setColour(juce::PopupMenu::highlightedBackgroundColourId, bgHover);
+      setColour(juce::PopupMenu::highlightedTextColourId, accentCyan);
+  }
+  else
+  {
+      setColour(juce::PopupMenu::backgroundColourId, juce::Colour(0xfafcfcfd));
+      setColour(juce::PopupMenu::textColourId, textPrimary);
+      setColour(juce::PopupMenu::headerTextColourId, textSecondary.darker(0.25f));
+      setColour(juce::PopupMenu::highlightedBackgroundColourId, bgHover);
+      setColour(juce::PopupMenu::highlightedTextColourId, textPrimary);
+  }
 
   // Directory / FileBrowserComponent
   setColour(juce::FileBrowserComponent::currentPathBoxBackgroundColourId, bgCard);
@@ -559,20 +570,42 @@ void OpenWavLookAndFeel::drawPopupMenuBackground(juce::Graphics& g, int width, i
     auto menuArea = area.reduced(0.5f);
     float cornerSize = 8.0f;
 
-    // Deep sleek dark background with slight translucency
-    g.setColour(juce::Colour(0xf4161b22));
-    g.fillRoundedRectangle(menuArea, cornerSize);
+    bool dark = isDarkTheme();
 
-    // Subtle modern border
-    g.setColour(borderColour.brighter(0.15f));
-    g.drawRoundedRectangle(menuArea, cornerSize, 1.0f);
+    if (dark)
+    {
+        // Deep sleek dark background with slight translucency
+        g.setColour(juce::Colour(0xf4161b22));
+        g.fillRoundedRectangle(menuArea, cornerSize);
 
-    // Top highlight bevel for elevated floating depth
-    juce::Path highlight;
-    highlight.addRoundedRectangle(menuArea.getX() + 1.0f, menuArea.getY() + 1.0f,
-                                  menuArea.getWidth() - 2.0f, 1.0f, 0.5f);
-    g.setColour(juce::Colours::white.withAlpha(0.06f));
-    g.fillPath(highlight);
+        // Subtle modern border
+        g.setColour(borderColour.brighter(0.15f));
+        g.drawRoundedRectangle(menuArea, cornerSize, 1.0f);
+
+        // Top highlight bevel for elevated floating depth
+        juce::Path highlight;
+        highlight.addRoundedRectangle(menuArea.getX() + 1.0f, menuArea.getY() + 1.0f,
+                                      menuArea.getWidth() - 2.0f, 1.0f, 0.5f);
+        g.setColour(juce::Colours::white.withAlpha(0.06f));
+        g.fillPath(highlight);
+    }
+    else
+    {
+        // Elevated crisp light background with subtle soft tint
+        g.setColour(juce::Colour(0xfafcfcfd));
+        g.fillRoundedRectangle(menuArea, cornerSize);
+
+        // Defined modern border for light theme
+        g.setColour(borderColour.darker(0.12f));
+        g.drawRoundedRectangle(menuArea, cornerSize, 1.0f);
+
+        // Top crisp highlight
+        juce::Path highlight;
+        highlight.addRoundedRectangle(menuArea.getX() + 1.0f, menuArea.getY() + 1.0f,
+                                      menuArea.getWidth() - 2.0f, 1.0f, 0.5f);
+        g.setColour(juce::Colours::white.withAlpha(0.7f));
+        g.fillPath(highlight);
+    }
 }
 
 void OpenWavLookAndFeel::drawPopupMenuItem(juce::Graphics& g, const juce::Rectangle<int>& area,
@@ -581,11 +614,13 @@ void OpenWavLookAndFeel::drawPopupMenuItem(juce::Graphics& g, const juce::Rectan
                                            const juce::String& shortcutKeyText,
                                            const juce::Drawable* icon, const juce::Colour* textColourToUse)
 {
+    bool dark = isDarkTheme();
+
     if (isSeparator)
     {
         auto r = area.reduced(8, 0);
         float lineY = static_cast<float>(r.getCentreY());
-        g.setColour(borderColour.withAlpha(0.5f));
+        g.setColour(dark ? borderColour.withAlpha(0.5f) : borderColour.withAlpha(0.85f));
         g.drawLine(static_cast<float>(r.getX()), lineY, static_cast<float>(r.getRight()), lineY, 1.0f);
         return;
     }
@@ -601,11 +636,33 @@ void OpenWavLookAndFeel::drawPopupMenuItem(juce::Graphics& g, const juce::Rectan
     if (isHighlighted && isActive)
     {
         auto highlightBounds = area.reduced(4, 1).toFloat();
-        g.setColour(accentCyan.withAlpha(0.18f));
-        g.fillRoundedRectangle(highlightBounds, 6.0f);
-        g.setColour(accentCyan.withAlpha(0.4f));
-        g.drawRoundedRectangle(highlightBounds, 6.0f, 0.8f);
-        textColour = accentCyan;
+        if (dark)
+        {
+            g.setColour(accentCyan.withAlpha(0.18f));
+            g.fillRoundedRectangle(highlightBounds, 6.0f);
+            g.setColour(accentCyan.withAlpha(0.4f));
+            g.drawRoundedRectangle(highlightBounds, 6.0f, 0.8f);
+            textColour = accentCyan;
+        }
+        else
+        {
+            if (hasCustomPrimaryColour)
+            {
+                g.setColour(customPrimaryColour.withAlpha(0.14f));
+                g.fillRoundedRectangle(highlightBounds, 6.0f);
+                g.setColour(customPrimaryColour.withAlpha(0.35f));
+                g.drawRoundedRectangle(highlightBounds, 6.0f, 0.8f);
+                textColour = customPrimaryColour.getBrightness() > 0.55f ? customPrimaryColour.darker(0.35f) : customPrimaryColour;
+            }
+            else
+            {
+                g.setColour(bgHover);
+                g.fillRoundedRectangle(highlightBounds, 6.0f);
+                g.setColour(borderColour);
+                g.drawRoundedRectangle(highlightBounds, 6.0f, 0.8f);
+                textColour = textPrimary;
+            }
+        }
     }
 
     auto r = area.reduced(12, 0);
@@ -620,7 +677,20 @@ void OpenWavLookAndFeel::drawPopupMenuItem(juce::Graphics& g, const juce::Rectan
         tickPath.startNewSubPath(cx - 4.5f, cy);
         tickPath.lineTo(cx - 1.5f, cy + 3.5f);
         tickPath.lineTo(cx + 4.5f, cy - 3.5f);
-        g.setColour(isActive ? accentCyan : textSecondary.withAlpha(0.5f));
+        juce::Colour tickCol;
+        if (dark)
+        {
+            tickCol = isActive ? accentCyan : textSecondary.withAlpha(0.5f);
+        }
+        else
+        {
+            if (hasCustomPrimaryColour)
+                tickCol = isActive ? (customPrimaryColour.getBrightness() > 0.55f ? customPrimaryColour.darker(0.3f) : customPrimaryColour)
+                                   : textSecondary.withAlpha(0.5f);
+            else
+                tickCol = isActive ? textPrimary : textSecondary.withAlpha(0.5f);
+        }
+        g.setColour(tickCol);
         g.strokePath(tickPath, juce::PathStrokeType(1.8f, juce::PathStrokeType::JointStyle::mitered, juce::PathStrokeType::EndCapStyle::rounded));
     }
 
@@ -649,7 +719,12 @@ void OpenWavLookAndFeel::drawPopupMenuItem(juce::Graphics& g, const juce::Rectan
         p.startNewSubPath(cx - 2.5f, cy - 4.5f);
         p.lineTo(cx + 2.0f, cy);
         p.lineTo(cx - 2.5f, cy + 4.5f);
-        g.setColour(isActive ? (isHighlighted ? accentCyan : textSecondary) : textSecondary.withAlpha(0.35f));
+        juce::Colour arrowCol;
+        if (dark)
+            arrowCol = isActive ? (isHighlighted ? accentCyan : textSecondary) : textSecondary.withAlpha(0.35f);
+        else
+            arrowCol = isActive ? (isHighlighted ? textPrimary : textSecondary) : textSecondary.withAlpha(0.35f);
+        g.setColour(arrowCol);
         g.strokePath(p, juce::PathStrokeType(1.5f, juce::PathStrokeType::mitered, juce::PathStrokeType::rounded));
     }
 }
@@ -658,7 +733,11 @@ void OpenWavLookAndFeel::drawPopupMenuSectionHeader(juce::Graphics& g, const juc
                                                     const juce::String& sectionName)
 {
     g.setFont(juce::Font(juce::FontOptions(10.5f).withStyle("Bold")));
-    g.setColour(accentCyan.withAlpha(0.8f));
+    if (isDarkTheme())
+        g.setColour(accentCyan.withAlpha(0.85f));
+    else
+        g.setColour(hasCustomPrimaryColour ? (customPrimaryColour.getBrightness() > 0.55f ? customPrimaryColour.darker(0.3f) : customPrimaryColour)
+                                           : textSecondary.darker(0.25f));
     auto r = area.reduced(12, 0);
     g.drawText(sectionName.toUpperCase(), r, juce::Justification::centredLeft, true);
 }
@@ -687,8 +766,8 @@ void OpenWavLookAndFeel::drawPopupMenuUpDownArrow(juce::Graphics& g, int width, 
         p.lineTo(cx + arrowW * 0.5f, cy - arrowH * 0.5f);
     }
 
-    g.setColour(accentCyan);
-    g.strokePath(p, juce::PathStrokeType(1.6f, juce::PathStrokeType::mitered, juce::PathStrokeType::rounded));
+    g.setColour(isDarkTheme() ? accentCyan : textPrimary);
+    g.strokePath(p, juce::PathStrokeType(1.5f, juce::PathStrokeType::JointStyle::mitered, juce::PathStrokeType::EndCapStyle::rounded));
 }
 
 void OpenWavLookAndFeel::drawTickBox(juce::Graphics& g, juce::Component& /*component*/,
