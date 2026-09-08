@@ -102,6 +102,21 @@ jobs:
         if: runner.os == 'macOS'
         run: cmake --build build --config Release --parallel 4
 
+      - name: Configure macOS Bundle Info.plist (TCC Privacy Permissions)
+        if: runner.os == 'macOS'
+        run: |
+          find build/OpenWav_artefacts \( -name "OWMB.vst3" -o -name "OWMB.component" -o -name "OWMB.app" \) | while read -r bundle; do
+            if [ -f "$bundle/Contents/Info.plist" ]; then
+              echo "Injecting privacy descriptions into $bundle/Contents/Info.plist"
+              plutil -replace NSDesktopFolderUsageDescription -string "OWMB requires access to your Desktop to scan and load audio samples." "$bundle/Contents/Info.plist" 2>/dev/null || true
+              plutil -replace NSDocumentsFolderUsageDescription -string "OWMB requires access to your Documents folder to scan and load audio samples." "$bundle/Contents/Info.plist" 2>/dev/null || true
+              plutil -replace NSDownloadsFolderUsageDescription -string "OWMB requires access to your Downloads folder to scan and load audio samples." "$bundle/Contents/Info.plist" 2>/dev/null || true
+              plutil -replace NSRemovableVolumesUsageDescription -string "OWMB requires access to external drives and removable volumes to scan and load audio sample libraries." "$bundle/Contents/Info.plist" 2>/dev/null || true
+              plutil -replace NSNetworkVolumesUsageDescription -string "OWMB requires access to network volumes to scan and load audio sample libraries." "$bundle/Contents/Info.plist" 2>/dev/null || true
+              plutil -replace NSMicrophoneUsageDescription -string "OWMB requires microphone access for audio sample recording." "$bundle/Contents/Info.plist" 2>/dev/null || true
+            fi
+          done
+
       - name: Import Apple Developer Certificate
         if: runner.os == 'macOS' && env.MACOS_CERTIFICATE != ''
         run: |

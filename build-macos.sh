@@ -100,6 +100,14 @@ for bundle in \
         cp -f "Mac/OWMB.icns" "$bundle/Contents/Resources/Icon.icns"
         cp -f "Mac/OWMB.icns" "$bundle/Contents/Resources/OWMB.icns"
         cp -f "Mac/OWMB.icns" "$bundle/Contents/Resources/icon.icns"
+        if [ -f "$bundle/Contents/Info.plist" ]; then
+            plutil -replace NSDesktopFolderUsageDescription -string "OWMB requires access to your Desktop to scan and load audio samples." "$bundle/Contents/Info.plist" 2>/dev/null || true
+            plutil -replace NSDocumentsFolderUsageDescription -string "OWMB requires access to your Documents folder to scan and load audio samples." "$bundle/Contents/Info.plist" 2>/dev/null || true
+            plutil -replace NSDownloadsFolderUsageDescription -string "OWMB requires access to your Downloads folder to scan and load audio samples." "$bundle/Contents/Info.plist" 2>/dev/null || true
+            plutil -replace NSRemovableVolumesUsageDescription -string "OWMB requires access to external drives and removable volumes to scan and load audio sample libraries." "$bundle/Contents/Info.plist" 2>/dev/null || true
+            plutil -replace NSNetworkVolumesUsageDescription -string "OWMB requires access to network volumes to scan and load audio sample libraries." "$bundle/Contents/Info.plist" 2>/dev/null || true
+            plutil -replace NSMicrophoneUsageDescription -string "OWMB requires microphone access for audio sample recording." "$bundle/Contents/Info.plist" 2>/dev/null || true
+        fi
         xattr -cr "$bundle" 2>/dev/null || true
         touch "$bundle"
     fi

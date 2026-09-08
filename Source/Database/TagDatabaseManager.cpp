@@ -1283,6 +1283,7 @@ void TagDatabaseManager::addScanFolder(const juce::String& folderPath)
         const juce::ScopedLock sl(lock);
         scanFolders.insert(folderPath);
     }
+    notifyIndexUpdated();
     saveToFile();
 }
 

@@ -78,6 +78,7 @@ juce_add_plugin(OpenWav
     PRODUCT_NAME "OWMB"
     ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/Mac/icon_512x512@2x.png"
     ICON_SMALL "${CMAKE_CURRENT_SOURCE_DIR}/Mac/icon_32x32.png"
+    PLIST_TO_MERGE "${CMAKE_CURRENT_SOURCE_DIR}/Mac/Info-Plist-Additions.plist"
 )
 
 juce_generate_juce_header(OpenWav)

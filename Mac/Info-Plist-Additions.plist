@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>NSDesktopFolderUsageDescription</key>
+    <string>OWMB requires access to your Desktop to scan and load audio samples.</string>
+    <key>NSDocumentsFolderUsageDescription</key>
+    <string>OWMB requires access to your Documents folder to scan and load audio samples.</string>
+    <key>NSDownloadsFolderUsageDescription</key>
+    <string>OWMB requires access to your Downloads folder to scan and load audio samples.</string>
+    <key>NSRemovableVolumesUsageDescription</key>
+    <string>OWMB requires access to external drives and removable volumes to scan and load audio sample libraries.</string>
+    <key>NSNetworkVolumesUsageDescription</key>
+    <string>OWMB requires access to network volumes to scan and load audio sample libraries.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>OWMB requires microphone access for audio sample recording.</string>
+</dict>
+</plist>

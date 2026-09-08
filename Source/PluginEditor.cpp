@@ -342,19 +342,10 @@ void OpenWavAudioProcessorEditor::addFolderRequested() {
 
         for (const auto &fileOrDir : results) {
           juce::File dir = fileOrDir.isDirectory()
-                               ? fileOrDir
-                               : fileOrDir.getParentDirectory();
+                                ? fileOrDir
+                                : fileOrDir.getParentDirectory();
           if (dir.exists() && dir.isDirectory()) {
             juce::String folderPath = dir.getFullPathName();
-#if JUCE_MAC
-            if (access(folderPath.toRawUTF8(), R_OK | X_OK) != 0) {
-              juce::String escapedPath = folderPath.replace("'", "'\\''");
-              juce::String script =
-                  "osascript -e 'do shell script \"chmod -R a+rX \\\"" +
-                  escapedPath + "\\\"\" with administrator privileges'";
-              std::system(script.toRawUTF8());
-            }
-#endif
             if (std::find(foldersToScan.begin(), foldersToScan.end(),
                           folderPath) == foldersToScan.end()) {
               foldersToScan.push_back(folderPath);
@@ -363,7 +354,10 @@ void OpenWavAudioProcessorEditor::addFolderRequested() {
           }
         }
 
+        tagPanel.refreshFolders();
+
         if (!foldersToScan.empty()) {
+          scanProgressDialog.setSilent(false);
           audioProcessor.getLibraryScanner().startScan(foldersToScan);
         }
       });
@@ -372,6 +366,7 @@ void OpenWavAudioProcessorEditor::addFolderRequested() {
 void OpenWavAudioProcessorEditor::rescanRequested() {
   auto folders = audioProcessor.getDatabaseManager().getScanFolders();
   if (!folders.empty()) {
+    scanProgressDialog.setSilent(false);
     audioProcessor.getLibraryScanner().startScan(folders);
   } else {
     addFolderRequested();
@@ -687,35 +682,20 @@ void OpenWavAudioProcessorEditor::filesDropped(const juce::StringArray &files,
   for (const auto &f : files) {
     juce::File file(f);
     if (file.isDirectory()) {
-#if JUCE_MAC
-      if (access(file.getFullPathName().toRawUTF8(), R_OK | X_OK) != 0) {
-        juce::String escapedPath = file.getFullPathName().replace("'", "'\\''");
-        juce::String script =
-            "osascript -e 'do shell script \"chmod -R a+rX \\\"" + escapedPath +
-            "\\\"\" with administrator privileges'";
-        std::system(script.toRawUTF8());
-      }
-#endif
       foldersToScan.push_back(file.getFullPathName());
       audioProcessor.getDatabaseManager().addScanFolder(file.getFullPathName());
     } else if (file.existsAsFile()) {
       // If parent directory not scanned, scan parent
       auto parent = file.getParentDirectory().getFullPathName();
-#if JUCE_MAC
-      if (access(parent.toRawUTF8(), R_OK | X_OK) != 0) {
-        juce::String escapedPath = parent.replace("'", "'\\''");
-        juce::String script =
-            "osascript -e 'do shell script \"chmod -R a+rX \\\"" + escapedPath +
-            "\\\"\" with administrator privileges'";
-        std::system(script.toRawUTF8());
-      }
-#endif
       foldersToScan.push_back(parent);
       audioProcessor.getDatabaseManager().addScanFolder(parent);
     }
   }
 
+  tagPanel.refreshFolders();
+
   if (!foldersToScan.empty()) {
+    scanProgressDialog.setSilent(false);
     audioProcessor.getLibraryScanner().startScan(foldersToScan);
   }
 }

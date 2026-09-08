@@ -11,24 +11,6 @@
 namespace openwav
 {
 
-#if JUCE_MAC
-static bool ensureFolderPermissions(const juce::File& folder)
-{
-    if (!folder.exists() || !folder.isDirectory())
-        return false;
-
-    juce::String path = folder.getFullPathName();
-    if (access(path.toRawUTF8(), R_OK | X_OK) != 0)
-    {
-        juce::String escapedPath = path.replace("'", "'\\''");
-        juce::String script = "osascript -e 'do shell script \"chmod -R a+rX \\\"" + escapedPath + "\\\"\" with administrator privileges'";
-        int res = std::system(script.toRawUTF8());
-        return (res == 0);
-    }
-    return true;
-}
-#endif
-
 LibraryScanner::LibraryScanner(TagDatabaseManager& dbManager)
     : juce::Thread("OpenWavLibraryScannerThread"),
       db(dbManager)
@@ -107,10 +89,6 @@ void LibraryScanner::run()
         juce::File rootDir(folderPath);
         if (!rootDir.exists() || !rootDir.isDirectory())
             continue;
-
-#if JUCE_MAC
-        ensureFolderPermissions(rootDir);
-#endif
 
         juce::DirectoryIterator iter(rootDir, true, "*.wav;*.mp3;*.flac;*.ogg;*.aif;*.aiff;*.aifc;*.WAV;*.MP3;*.FLAC;*.OGG;*.AIF;*.AIFF;*.AIFC", juce::File::findFiles);
 
@@ -205,14 +183,14 @@ void LibraryScanner::run()
         {
             fut.get();
         }
+    }
 
-        // Notify UI and save entire updated database to JSON file once at end of scan
-        if (!cancelRequested)
-        {
-            db.notifyIndexUpdated();
-            db.notifyTagsUpdated();
-            db.saveToFile();
-        }
+    // Notify UI and save updated database once at end of scan
+    if (!cancelRequested)
+    {
+        db.notifyIndexUpdated();
+        db.notifyTagsUpdated();
+        db.saveToFile();
     }
 
     notifyScanFinished(processedCount.load());
