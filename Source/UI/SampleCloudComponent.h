@@ -60,6 +60,8 @@ public:
         MediaItem item;
         Vector3D currentPos;
         Vector3D targetPos;
+        Vector3D pos3D;
+        Vector3D pos2D;
         float radius { 4.0f };
         juce::Colour colour;
         juce::String primaryTag;
@@ -70,6 +72,8 @@ public:
     {
         juce::String tag;
         Vector3D centerPos;
+        Vector3D centerPos3D;
+        Vector3D centerPos2D;
         juce::Colour colour;
         int count { 0 };
     };
@@ -131,6 +135,7 @@ private:
 
     void runLayoutAsync(std::vector<MediaItem> items);
     std::pair<std::vector<TagCluster>, std::vector<std::pair<size_t, size_t>>> calculateClusterLayoutInternal(std::vector<CloudNode>& nodesCopy);
+    void rebuildGpuBuffers();
     void showContextMenuForNode(int nodeIndex);
 
     TagDatabaseManager& dbManager;

@@ -160,11 +160,18 @@ SampleCloudComponent::SampleCloudComponent(TagDatabaseManager &db,
       saved3DRotY = targetRotY;
       targetRotX = 0.0f;
       targetRotY = 0.0f;
+      rotX = 0.0f;
+      rotY = 0.0f;
+      targetCameraCenterPos.z = 0.0f;
+      cameraCenterPos.z = 0.0f;
+      autoRotateButton.setEnabled(false);
     } else {
       targetRotX = saved3DRotX;
       targetRotY = saved3DRotY;
+      autoRotateButton.setEnabled(true);
     }
     viewModeButton.setButtonText(is2DMode ? "3D" : "2D");
+    rebuildGpuBuffers();
   };
 
   autoRotateButton.onClick = [this] {
@@ -321,62 +328,7 @@ void SampleCloudComponent::runLayoutAsync(std::vector<MediaItem> items) {
       comp->clusters = std::move(newClusters);
       comp->constellationEdges = std::move(newEdges);
 
-      comp->vertexBuffer.clear();
-      comp->vertexBuffer.reserve(comp->nodes.size() + comp->clusters.size());
-
-      // Render a luminous planet star at the center of each cluster
-      for (const auto &c : comp->clusters) {
-        comp->vertexBuffer.push_back({
-            c.centerPos.x, c.centerPos.y, c.centerPos.z, c.colour.getFloatRed(),
-            c.colour.getFloatGreen(), c.colour.getFloatBlue(),
-            c.colour.getFloatAlpha() * 0.95f,
-            24.0f // Brilliant cluster star center
-        });
-      }
-
-      for (const auto &n : comp->nodes) {
-        comp->vertexBuffer.push_back(
-            {n.targetPos.x, n.targetPos.y, n.targetPos.z,
-             n.colour.getFloatRed(), n.colour.getFloatGreen(),
-             n.colour.getFloatBlue(), n.colour.getFloatAlpha(), n.radius});
-      }
-
-      comp->lineVertexBuffer.clear();
-      // Add inter-cluster constellation lines
-      for (const auto& edge : comp->constellationEdges) {
-        if (edge.first < comp->clusters.size() && edge.second < comp->clusters.size()) {
-          const auto& c1 = comp->clusters[edge.first];
-          const auto& c2 = comp->clusters[edge.second];
-          comp->lineVertexBuffer.push_back({
-            c1.centerPos.x, c1.centerPos.y, c1.centerPos.z,
-            c1.colour.getFloatRed(), c1.colour.getFloatGreen(), c1.colour.getFloatBlue(), 0.55f
-          });
-          comp->lineVertexBuffer.push_back({
-            c2.centerPos.x, c2.centerPos.y, c2.centerPos.z,
-            c2.colour.getFloatRed(), c2.colour.getFloatGreen(), c2.colour.getFloatBlue(), 0.55f
-          });
-        }
-      }
-
-#if JUCE_MAC
-      if (comp->metalView) {
-        std::vector<MetalVertex> mVerts;
-        mVerts.reserve(comp->vertexBuffer.size());
-        for (const auto& v : comp->vertexBuffer) {
-          mVerts.push_back({v.x, v.y, v.z, v.r, v.g, v.b, v.a, v.radius});
-        }
-        comp->metalView->updateVertices(mVerts);
-
-        std::vector<MetalLineVertex> mLines;
-        mLines.reserve(comp->lineVertexBuffer.size());
-        for (const auto& lv : comp->lineVertexBuffer) {
-          mLines.push_back({lv.x, lv.y, lv.z, lv.r, lv.g, lv.b, lv.a});
-        }
-        comp->metalView->updateLines(mLines);
-      }
-#else
-      comp->vboNeedsUpdate = true;
-#endif
+      comp->rebuildGpuBuffers();
 
       comp->layoutPending = false;
       comp->revealAlpha = 0.0f;
@@ -384,6 +336,94 @@ void SampleCloudComponent::runLayoutAsync(std::vector<MediaItem> items) {
       comp->repaint();
     }
   });
+}
+
+void SampleCloudComponent::rebuildGpuBuffers() {
+  vertexBuffer.clear();
+  lineVertexBuffer.clear();
+
+  for (auto &c : clusters) {
+    c.centerPos = is2DMode ? c.centerPos2D : c.centerPos3D;
+  }
+
+  if (is2DMode) {
+    // 2D Mode: Pure 2D representation of nodes
+    // No luminous cluster stars, no inter-cluster constellation lines
+    vertexBuffer.reserve(nodes.size());
+    for (auto &n : nodes) {
+      n.currentPos = n.pos2D;
+      n.targetPos = n.pos2D;
+      vertexBuffer.push_back({
+          n.pos2D.x, n.pos2D.y, 0.0f,
+          n.colour.getFloatRed(), n.colour.getFloatGreen(),
+          n.colour.getFloatBlue(), n.colour.getFloatAlpha(),
+          n.radius * 1.15f
+      });
+    }
+  } else {
+    // 3D Constellation Mode: 3D stellar clusters with planet stars and constellation lines
+    vertexBuffer.reserve(nodes.size() + clusters.size());
+
+    for (const auto &c : clusters) {
+      vertexBuffer.push_back({
+          c.centerPos3D.x, c.centerPos3D.y, c.centerPos3D.z,
+          c.colour.getFloatRed(), c.colour.getFloatGreen(),
+          c.colour.getFloatBlue(), c.colour.getFloatAlpha() * 0.95f,
+          24.0f // Brilliant cluster star center
+      });
+    }
+
+    for (auto &n : nodes) {
+      n.currentPos = n.pos3D;
+      n.targetPos = n.pos3D;
+      vertexBuffer.push_back({
+          n.pos3D.x, n.pos3D.y, n.pos3D.z,
+          n.colour.getFloatRed(), n.colour.getFloatGreen(),
+          n.colour.getFloatBlue(), n.colour.getFloatAlpha(),
+          n.radius
+      });
+    }
+
+    for (const auto &edge : constellationEdges) {
+      if (edge.first < clusters.size() && edge.second < clusters.size()) {
+        const auto &c1 = clusters[edge.first];
+        const auto &c2 = clusters[edge.second];
+        lineVertexBuffer.push_back({
+            c1.centerPos3D.x, c1.centerPos3D.y, c1.centerPos3D.z,
+            c1.colour.getFloatRed(), c1.colour.getFloatGreen(),
+            c1.colour.getFloatBlue(), 0.55f
+        });
+        lineVertexBuffer.push_back({
+            c2.centerPos3D.x, c2.centerPos3D.y, c2.centerPos3D.z,
+            c2.colour.getFloatRed(), c2.colour.getFloatGreen(),
+            c2.colour.getFloatBlue(), 0.55f
+        });
+      }
+    }
+  }
+
+#if JUCE_MAC
+  if (metalView) {
+    std::vector<MetalVertex> mVerts;
+    mVerts.reserve(vertexBuffer.size());
+    for (const auto &v : vertexBuffer) {
+      mVerts.push_back({v.x, v.y, v.z, v.r, v.g, v.b, v.a, v.radius});
+    }
+    metalView->updateVertices(mVerts);
+
+    std::vector<MetalLineVertex> mLines;
+    mLines.reserve(lineVertexBuffer.size());
+    for (const auto &lv : lineVertexBuffer) {
+      mLines.push_back({lv.x, lv.y, lv.z, lv.r, lv.g, lv.b, lv.a});
+    }
+    metalView->updateLines(mLines);
+  }
+#else
+  vboNeedsUpdate = true;
+#endif
+
+  overlayComponent.repaint();
+  repaint();
 }
 
 std::pair<std::vector<SampleCloudComponent::TagCluster>,
@@ -407,25 +447,27 @@ SampleCloudComponent::calculateClusterLayoutInternal(
 
   size_t tagCount = outClusters.size();
   if (tagCount > 0) {
+    // 1. Calculate 3D Cluster Centers (Fibonacci Sphere)
     float goldenRatio = (1.0f + std::sqrt(5.0f)) / 2.0f;
-    float baseRadius =
+    float baseRadius3D =
         std::max(350.0f, std::sqrt(static_cast<float>(tagCount)) * 140.0f);
 
     for (size_t i = 0; i < tagCount; ++i) {
       float theta = 2.0f * juce::MathConstants<float>::pi * i / goldenRatio;
       float phi = std::acos(1.0f - 2.0f * (i + 0.5f) / tagCount);
 
-      outClusters[i].centerPos = {
-          baseRadius * std::sin(phi) * std::cos(theta),
-          baseRadius * std::cos(phi) * 0.75f,
-          baseRadius * std::sin(phi) * std::sin(theta)};
+      outClusters[i].centerPos3D = {
+          baseRadius3D * std::sin(phi) * std::cos(theta),
+          baseRadius3D * std::cos(phi) * 0.75f,
+          baseRadius3D * std::sin(phi) * std::sin(theta)};
     }
 
+    // 3D Relaxation
     for (int iter = 0; iter < 16; ++iter) {
       if (!layoutActive.load()) return {outClusters, {}};
       for (size_t i = 0; i < tagCount; ++i) {
         for (size_t j = i + 1; j < tagCount; ++j) {
-          auto delta = outClusters[j].centerPos - outClusters[i].centerPos;
+          auto delta = outClusters[j].centerPos3D - outClusters[i].centerPos3D;
           float dist = std::sqrt(delta.x * delta.x + delta.y * delta.y +
                                  delta.z * delta.z);
           float r1 = std::max(65.0f, 40.0f + std::sqrt(static_cast<float>(
@@ -439,31 +481,92 @@ SampleCloudComponent::calculateClusterLayoutInternal(
           if (dist < minDist && dist > 0.01f) {
             float overlap = (minDist - dist) * 0.5f;
             auto dir = delta / dist;
-            outClusters[i].centerPos = outClusters[i].centerPos - dir * overlap;
-            outClusters[j].centerPos = outClusters[j].centerPos + dir * overlap;
+            outClusters[i].centerPos3D = outClusters[i].centerPos3D - dir * overlap;
+            outClusters[j].centerPos3D = outClusters[j].centerPos3D + dir * overlap;
           }
         }
       }
     }
+
+    // 2. Calculate 2D Cluster Centers (Planar Distribution)
+    if (tagCount == 1) {
+      outClusters[0].centerPos2D = {0.0f, 0.0f, 0.0f};
+    } else if (tagCount <= 6) {
+      float baseRadius2D = 320.0f + std::sqrt(static_cast<float>(nodesCopy.size())) * 6.0f;
+      for (size_t i = 0; i < tagCount; ++i) {
+        float theta = 2.0f * juce::MathConstants<float>::pi * i / static_cast<float>(tagCount);
+        outClusters[i].centerPos2D = {
+            baseRadius2D * std::cos(theta),
+            baseRadius2D * std::sin(theta) * 0.85f,
+            0.0f};
+      }
+    } else {
+      float baseRadius2D = std::max(380.0f, std::sqrt(static_cast<float>(tagCount)) * 170.0f);
+      float goldenAngle = 2.39996323f;
+      for (size_t i = 0; i < tagCount; ++i) {
+        float r = baseRadius2D * std::sqrt((i + 0.5f) / static_cast<float>(tagCount));
+        float theta = i * goldenAngle;
+        outClusters[i].centerPos2D = {
+            r * std::cos(theta),
+            r * std::sin(theta) * 0.85f,
+            0.0f};
+      }
+    }
+
+    // 2D Relaxation (Planar Repulsion)
+    for (int iter = 0; iter < 24; ++iter) {
+      if (!layoutActive.load()) return {outClusters, {}};
+      for (size_t i = 0; i < tagCount; ++i) {
+        for (size_t j = i + 1; j < tagCount; ++j) {
+          float dx = outClusters[j].centerPos2D.x - outClusters[i].centerPos2D.x;
+          float dy = outClusters[j].centerPos2D.y - outClusters[i].centerPos2D.y;
+          float dist = std::sqrt(dx * dx + dy * dy);
+
+          float r1 = std::max(65.0f, 35.0f + std::sqrt(static_cast<float>(
+                                                 outClusters[i].count)) * 20.0f);
+          float r2 = std::max(65.0f, 35.0f + std::sqrt(static_cast<float>(
+                                                 outClusters[j].count)) * 20.0f);
+          float minDist = r1 + r2 + 65.0f;
+
+          if (dist < minDist && dist > 0.01f) {
+            float overlap = (minDist - dist) * 0.5f;
+            float nx = dx / dist;
+            float ny = dy / dist;
+            outClusters[i].centerPos2D.x -= nx * overlap;
+            outClusters[i].centerPos2D.y -= ny * overlap;
+            outClusters[j].centerPos2D.x += nx * overlap;
+            outClusters[j].centerPos2D.y += ny * overlap;
+          }
+        }
+      }
+    }
+
+    for (size_t i = 0; i < tagCount; ++i) {
+      outClusters[i].centerPos = is2DMode ? outClusters[i].centerPos2D : outClusters[i].centerPos3D;
+    }
   }
 
-  std::unordered_map<juce::String, Vector3D> tagCenters;
+  std::unordered_map<juce::String, Vector3D> tagCenters3D;
+  std::unordered_map<juce::String, Vector3D> tagCenters2D;
   std::unordered_map<juce::String, int> tagTotalCounts;
   for (const auto &cl : outClusters) {
-    tagCenters[cl.tag] = cl.centerPos;
+    tagCenters3D[cl.tag] = cl.centerPos3D;
+    tagCenters2D[cl.tag] = cl.centerPos2D;
     tagTotalCounts[cl.tag] = cl.count;
   }
 
   std::unordered_map<juce::String, int> tagItemCounts;
   for (auto &node : nodesCopy) {
     if (!layoutActive.load()) return {outClusters, {}};
-    auto cPos = tagCenters[node.primaryTag];
+    auto cPos3D = tagCenters3D[node.primaryTag];
+    auto cPos2D = tagCenters2D[node.primaryTag];
     int countIdx = tagItemCounts[node.primaryTag]++;
     int totalInTag = tagTotalCounts[node.primaryTag];
 
     uint32_t nodeHash = static_cast<uint32_t>(node.item.filePath.hashCode() ^
                                                 (countIdx * 2654435761u));
 
+    // --- 3D NODE POSITION (Spherical Scatter) ---
     float phi = 2.39996323f;
     float uNorm = static_cast<float>(countIdx + 0.5f) /
                   std::max(1.0f, static_cast<float>(totalInTag));
@@ -484,19 +587,29 @@ SampleCloudComponent::calculateClusterLayoutInternal(
     float xDir = radiusAtY * std::cos(theta);
     float zDir = radiusAtY * std::sin(theta);
 
-    node.targetPos = {cPos.x + rDist * xDir + jitterX,
-                      cPos.y + rDist * yDir + jitterY,
-                      cPos.z + rDist * zDir + jitterZ};
+    node.pos3D = {cPos3D.x + rDist * xDir + jitterX,
+                  cPos3D.y + rDist * yDir + jitterY,
+                  cPos3D.z + rDist * zDir + jitterZ};
+
+    // --- 2D NODE POSITION (Planar Fermat Spiral / Disk Layout) ---
+    float clusterRadius2D = std::max(55.0f, std::sqrt(static_cast<float>(totalInTag)) * 18.0f);
+    float r2D = clusterRadius2D * std::sqrt(uNorm);
+    float theta2D = countIdx * 2.39996323f + ((nodeHash % 50) - 25) * 0.01f;
+    node.pos2D = {cPos2D.x + r2D * std::cos(theta2D),
+                  cPos2D.y + r2D * std::sin(theta2D),
+                  0.0f};
+
+    node.targetPos = is2DMode ? node.pos2D : node.pos3D;
     node.currentPos = node.targetPos;
   }
 
-  // Generate Inter-Cluster Constellation Connections
+  // Inter-cluster constellation connections (for 3D mode)
   std::vector<std::pair<size_t, size_t>> outEdges;
   for (size_t i = 0; i < tagCount; ++i) {
     std::vector<std::pair<float, size_t>> neighbors;
     for (size_t j = 0; j < tagCount; ++j) {
       if (i == j) continue;
-      auto delta = outClusters[j].centerPos - outClusters[i].centerPos;
+      auto delta = outClusters[j].centerPos3D - outClusters[i].centerPos3D;
       float d = std::sqrt(delta.x * delta.x + delta.y * delta.y + delta.z * delta.z);
       neighbors.push_back({d, j});
     }
@@ -530,7 +643,8 @@ void SampleCloudComponent::selectItemById(const juce::String &itemId) {
 void SampleCloudComponent::flyToCluster(int clusterIdx) {
   if (clusterIdx < 0 || clusterIdx >= static_cast<int>(clusters.size()))
     return;
-  targetCameraCenterPos = clusters[clusterIdx].centerPos;
+  targetCameraCenterPos = is2DMode ? clusters[clusterIdx].centerPos2D : clusters[clusterIdx].centerPos3D;
+  if (is2DMode) targetCameraCenterPos.z = 0.0f;
   targetZoomScale = juce::jlimit(0.2f, 4.0f, 1.40f);
   selectedNodeIndex = -1;
   overlayComponent.repaint();
@@ -737,6 +851,47 @@ void SampleCloudComponent::paintOverlay(juce::Graphics &g) {
     }
   }
 
+  // 2b. 2D Mode: Floating Category Cluster Badges
+  if (is2DMode && !clusters.empty() && lastViewProjectionMatrix.mat[15] != 0.0f) {
+    juce::Font clusterFont(11.5f, juce::Font::bold);
+    g.setFont(clusterFont);
+
+    for (const auto &cl : clusters) {
+      juce::Vector3D<float> p(cl.centerPos2D.x, cl.centerPos2D.y, 0.0f);
+      float w = lastViewProjectionMatrix.mat[3] * p.x +
+                lastViewProjectionMatrix.mat[7] * p.y +
+                lastViewProjectionMatrix.mat[15];
+      if (w > 0.001f) {
+        float spX = lastViewProjectionMatrix.mat[0] * p.x +
+                    lastViewProjectionMatrix.mat[4] * p.y +
+                    lastViewProjectionMatrix.mat[12];
+        float spY = lastViewProjectionMatrix.mat[1] * p.x +
+                    lastViewProjectionMatrix.mat[5] * p.y +
+                    lastViewProjectionMatrix.mat[13];
+        float sx = halfW + (spX / w) * halfW;
+        float sy = halfH - (spY / w) * halfH;
+
+        float clusterRadius2D = std::max(55.0f, std::sqrt(static_cast<float>(cl.count)) * 18.0f);
+        float screenR = (clusterRadius2D / w) * halfW;
+        float labelY = sy - screenR - 16.0f;
+
+        juce::String cleanTag = cl.tag.startsWith("#") ? cl.tag.substring(1) : cl.tag;
+        juce::String labelText = cleanTag.toUpperCase() + " (" + juce::String(cl.count) + ")";
+        float textW = clusterFont.getStringWidthFloat(labelText) + 16.0f;
+        juce::Rectangle<float> badge(sx - textW * 0.5f, labelY, textW, 20.0f);
+
+        if (badge.getBottom() > 0 && badge.getY() < effH - 60.0f && badge.getRight() > 0 && badge.getX() < effW) {
+          g.setColour(OpenWavLookAndFeel::bgCard.withAlpha(0.88f));
+          g.fillRoundedRectangle(badge, 10.0f);
+          g.setColour(cl.colour.withAlpha(0.55f));
+          g.drawRoundedRectangle(badge, 10.0f, 1.0f);
+          g.setColour(cl.colour.withMultipliedBrightness(1.2f));
+          g.drawText(labelText, badge, juce::Justification::centred);
+        }
+      }
+    }
+  }
+
   // 3. Bottom Category Legend Dock (Horizontally and Vertically aligned with Control Buttons)
   if (!clusters.empty()) {
     juce::Font legendFont(12.0f, juce::Font::bold);
@@ -883,10 +1038,17 @@ void SampleCloudComponent::resetZoomAndPan() {
   zoomScale = 1.0f;
   targetCameraCenterPos = {0.0f, 0.0f, 0.0f};
   cameraCenterPos = {0.0f, 0.0f, 0.0f};
-  targetRotX = 0.35f;
-  targetRotY = 0.45f;
-  is2DMode = false;
-  viewModeButton.setButtonText("2D");
+  if (is2DMode) {
+    targetRotX = 0.0f;
+    targetRotY = 0.0f;
+    rotX = 0.0f;
+    rotY = 0.0f;
+  } else {
+    targetRotX = 0.35f;
+    targetRotY = 0.45f;
+    rotX = 0.35f;
+    rotY = 0.45f;
+  }
   overlayComponent.repaint();
   repaint();
 }
@@ -1067,7 +1229,7 @@ void SampleCloudComponent::mouseDown(const juce::MouseEvent &e) {
   isRotating = false;
   isPanning = false;
 
-  if (e.mods.isShiftDown()) {
+  if (e.mods.isShiftDown() || is2DMode) {
     isPanning = true;
     dragStartCenter = cameraCenterPos;
   } else {
