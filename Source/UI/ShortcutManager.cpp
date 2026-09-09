@@ -255,9 +255,9 @@ void ShortcutManager::initDefaultShortcuts() {
 
     shortcuts.push_back({
         "view.performance",
-        "Switch to Performance View",
+        "Switch to Rack View",
         "View Navigation",
-        "Navigate to effects rack performance view",
+        "Navigate to effects rack view",
         juce::KeyPress('5', cmdMod, '5'),
         juce::KeyPress(),
         juce::KeyPress(),

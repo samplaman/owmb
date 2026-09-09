@@ -1911,7 +1911,7 @@ void SampleMapComponent::resized()
     topRow.removeFromLeft(gap);
     loopButton.setBounds(topRow.removeFromLeft(66));
     topRow.removeFromLeft(gap);
-    openFxRackButton.setBounds(topRow.removeFromLeft(74));
+    openFxRackButton.setBounds(topRow.removeFromLeft(82));
 
     attackKnob.setVisible(false);
     attackLabel.setVisible(false);

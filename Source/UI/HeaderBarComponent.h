@@ -96,7 +96,7 @@ private:
     juce::TextButton btnAnalysisView { "Analysis" };
     juce::TextButton btnEditView { "Edit" };
     juce::TextButton btnSampleMapView { "Sample Map" };
-    juce::TextButton btnPerformanceView { "Performance" };
+    juce::TextButton btnPerformanceView { "Rack" };
 
     juce::String activeFormat { "All" };
     ViewMode currentViewMode { ViewMode::List };

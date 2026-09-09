@@ -150,7 +150,7 @@ void HeaderBarComponent::resized()
     area.removeFromLeft(gap);
     btnSampleMapView.setBounds(area.removeFromLeft(106).withHeight(btnHeight));
     area.removeFromLeft(gap);
-    btnPerformanceView.setBounds(area.removeFromLeft(106).withHeight(btnHeight));
+    btnPerformanceView.setBounds(area.removeFromLeft(72).withHeight(btnHeight));
 }
 
 void HeaderBarComponent::textEditorTextChanged(juce::TextEditor& editor)
