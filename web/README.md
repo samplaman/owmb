@@ -25,13 +25,15 @@ web/
 ├── ss1.png              # 3D Sample Constellation Screenshot
 ├── ss2.png              # Library & Tag Filtering Screenshot
 ├── screenshots/         # Full High-Res Suite of OWMB Workspace Screenshots
-│   ├── 01-list-browser.png        # List View & Waveform Editor
+│   ├── 01-list-browser.png        # List View & Waveform Transport
 │   ├── 02-3d-cloud.png            # 3D Sample Cloud Constellation
 │   ├── 03-online-library.png      # Pixeldrain Soundbanks Browser
-│   ├── 04-recorder-eq.png         # Audio Recorder & 9-Band Parametric EQ
+│   ├── 04-recorder-eq.png         # Audio Recorder & Parametric EQ
 │   ├── 05-acoustic-analysis.png   # Timbral Acoustic Fingerprint
-│   ├── 06-sample-map.png          # Multi-Sample Keyzone Map
-│   └── 07-performance-grid.png    # 32-Pad Performance Mode
+│   ├── 06-waveform-editor.png     # Waveform Slicer & Audio Editor
+│   ├── 07-spectral-editor.png     # High-Resolution Spectral Editor
+│   ├── 08-sample-map.png          # Multi-Velocity Sample Keyzone Map
+│   └── 09-effects-rack.png        # 16-DSP Modular Effects Rack
 ├── .nojekyll            # Prevents Jekyll processing on GitHub Pages
 └── .github/workflows/
     └── deploy-web.yml   # GitHub Actions workflow for auto-deployment
