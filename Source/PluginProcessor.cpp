@@ -147,6 +147,9 @@ void OpenWavAudioProcessor::handleNoteOn(juce::MidiKeyboardState*, int /*midiCha
     {
         audioEngine.triggerNoteOn(midiNoteNumber, velocity);
     }
+
+    // Forward to keyboard state so the UI keybed lights up and hit dots are registered
+    audioEngine.getKeyboardState().noteOn(1, midiNoteNumber, velocity);
 }
 
 void OpenWavAudioProcessor::handleNoteOff(juce::MidiKeyboardState*, int /*midiChannel*/, int midiNoteNumber, float /*velocity*/)
@@ -156,6 +159,7 @@ void OpenWavAudioProcessor::handleNoteOff(juce::MidiKeyboardState*, int /*midiCh
 
     audioEngine.stopZoneVoice(midiNoteNumber);
     audioEngine.triggerNoteOff(midiNoteNumber);
+    audioEngine.getKeyboardState().noteOff(1, midiNoteNumber, 0.0f);
 }
 
 void OpenWavAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)

@@ -120,6 +120,7 @@ private:
 
     void paintKeybed(juce::Graphics& g, juce::Rectangle<float> area) const;
     void paintZoneGrid(juce::Graphics& g, juce::Rectangle<float> area) const;
+    void triggerKeybedNote(int note, float velocity, int velInt);
 
     AudioEngine& audioEngine;
     std::vector<SampleMapZone> zones;
@@ -217,6 +218,7 @@ private:
     DragTarget activeDragTarget { DragTarget::None };
     int activeDragZone { -1 };
     int auditionNote { -1 };
+    int auditionVelocity { 100 };
     std::array<bool, 128> activeMidiNotes {};
     std::array<int, 128> activeNoteVelocities {};
     std::vector<HitDot> recentHitDots;
