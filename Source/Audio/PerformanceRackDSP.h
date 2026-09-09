@@ -31,7 +31,13 @@ enum class PerformanceEffectType : int
     Bitcrusher,
     ParametricEQ,
     PitchShifter,
-    Tremolo
+    Tremolo,
+    Phaser,
+    Flanger,
+    StereoImager,
+    AutoWah,
+    RingModulator,
+    AmpCabinet
 };
 
 struct EffectParamInfo
@@ -437,6 +443,221 @@ private:
     std::atomic<float> mix { 1.0f };
 
     double phase { 0.0 };
+    juce::AudioBuffer<float> dryCopy;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  11. Stereo Analog Phaser
+// ─────────────────────────────────────────────────────────────────────────────
+class RackPhaser : public RackEffectBase
+{
+public:
+    RackPhaser();
+    void prepare(double sampleRate, int maxBlockSize) override;
+    void reset() override;
+    void process(juce::AudioBuffer<float>& buffer) override;
+
+    PerformanceEffectType getType() const override { return PerformanceEffectType::Phaser; }
+    juce::String getName() const override { return "Analog Phaser"; }
+    juce::Colour getAccentColour() const override { return juce::Colour(230, 126, 34); }
+
+    std::vector<EffectParamInfo> getParameterInfos() const override;
+    void setParameter(const juce::String& paramId, float value) override;
+    float getParameter(const juce::String& paramId) const override;
+
+    juce::StringArray getPresetNames() const override;
+    void loadPreset(int presetIndex) override;
+
+private:
+    std::atomic<float> rateHz { 0.5f };
+    std::atomic<float> depth { 0.75f };
+    std::atomic<float> feedback { 0.5f };
+    std::atomic<float> poles { 1.0f }; // 0: 4-stage, 1: 8-stage, 2: 12-stage
+    std::atomic<float> stereoPhaseDeg { 90.0f };
+    std::atomic<float> mix { 0.5f };
+
+    double lfoPhase { 0.0 };
+    std::array<std::array<float, 12>, 2> allpassStates;
+    std::array<float, 2> feedbackBuffer { 0.0f, 0.0f };
+    juce::AudioBuffer<float> dryCopy;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  12. Tape & BBD Stereo Flanger
+// ─────────────────────────────────────────────────────────────────────────────
+class RackFlanger : public RackEffectBase
+{
+public:
+    RackFlanger();
+    void prepare(double sampleRate, int maxBlockSize) override;
+    void reset() override;
+    void process(juce::AudioBuffer<float>& buffer) override;
+
+    PerformanceEffectType getType() const override { return PerformanceEffectType::Flanger; }
+    juce::String getName() const override { return "Tape Flanger"; }
+    juce::Colour getAccentColour() const override { return juce::Colour(52, 152, 219); }
+
+    std::vector<EffectParamInfo> getParameterInfos() const override;
+    void setParameter(const juce::String& paramId, float value) override;
+    float getParameter(const juce::String& paramId) const override;
+
+    juce::StringArray getPresetNames() const override;
+    void loadPreset(int presetIndex) override;
+
+private:
+    std::atomic<float> rateHz { 0.25f };
+    std::atomic<float> depth { 0.8f };
+    std::atomic<float> delayMs { 2.5f };
+    std::atomic<float> feedback { 0.65f };
+    std::atomic<float> stereoSpread { 0.7f };
+    std::atomic<float> mix { 0.5f };
+
+    double lfoPhase { 0.0 };
+    std::vector<float> delayLineL, delayLineR;
+    size_t writePos { 0 };
+    juce::AudioBuffer<float> dryCopy;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  13. Stereo Width & Spatial Imager
+// ─────────────────────────────────────────────────────────────────────────────
+class RackStereoImager : public RackEffectBase
+{
+public:
+    RackStereoImager();
+    void prepare(double sampleRate, int maxBlockSize) override;
+    void reset() override;
+    void process(juce::AudioBuffer<float>& buffer) override;
+
+    PerformanceEffectType getType() const override { return PerformanceEffectType::StereoImager; }
+    juce::String getName() const override { return "Stereo Imager"; }
+    juce::Colour getAccentColour() const override { return juce::Colour(46, 204, 113); }
+
+    std::vector<EffectParamInfo> getParameterInfos() const override;
+    void setParameter(const juce::String& paramId, float value) override;
+    float getParameter(const juce::String& paramId) const override;
+
+    juce::StringArray getPresetNames() const override;
+    void loadPreset(int presetIndex) override;
+
+private:
+    std::atomic<float> width { 1.35f }; // 0 = Mono, 1.0 = Normal, 2.0 = Ultra-Wide
+    std::atomic<float> monoBassCutoffHz { 120.0f };
+    std::atomic<float> balance { 0.0f }; // -1.0 to +1.0
+    std::atomic<float> sideGainDb { 0.0f };
+    std::atomic<float> midGainDb { 0.0f };
+
+    // 1-pole high-pass filter state for side channel bass collapse
+    float sideHpState { 0.0f };
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  14. Dynamic Auto-Wah & Envelope Filter
+// ─────────────────────────────────────────────────────────────────────────────
+class RackAutoWah : public RackEffectBase
+{
+public:
+    RackAutoWah();
+    void prepare(double sampleRate, int maxBlockSize) override;
+    void reset() override;
+    void process(juce::AudioBuffer<float>& buffer) override;
+
+    PerformanceEffectType getType() const override { return PerformanceEffectType::AutoWah; }
+    juce::String getName() const override { return "Dynamic Auto-Wah"; }
+    juce::Colour getAccentColour() const override { return juce::Colour(241, 196, 15); }
+
+    std::vector<EffectParamInfo> getParameterInfos() const override;
+    void setParameter(const juce::String& paramId, float value) override;
+    float getParameter(const juce::String& paramId) const override;
+
+    juce::StringArray getPresetNames() const override;
+    void loadPreset(int presetIndex) override;
+
+private:
+    std::atomic<float> sensitivity { 0.6f };
+    std::atomic<float> depth { 0.75f };
+    std::atomic<float> resonance { 4.5f };
+    std::atomic<float> baseCutoffHz { 350.0f };
+    std::atomic<float> attackMs { 12.0f };
+    std::atomic<float> releaseMs { 120.0f };
+    std::atomic<float> mode { 0.0f }; // 0: Lowpass, 1: Bandpass, 2: Highpass
+    std::atomic<float> mix { 0.85f };
+
+    float envFollower { 0.0f };
+    float s1[2] { 0.0f, 0.0f };
+    float s2[2] { 0.0f, 0.0f };
+    juce::AudioBuffer<float> dryCopy;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  15. Metallic Ring Modulator
+// ─────────────────────────────────────────────────────────────────────────────
+class RackRingModulator : public RackEffectBase
+{
+public:
+    RackRingModulator();
+    void prepare(double sampleRate, int maxBlockSize) override;
+    void reset() override;
+    void process(juce::AudioBuffer<float>& buffer) override;
+
+    PerformanceEffectType getType() const override { return PerformanceEffectType::RingModulator; }
+    juce::String getName() const override { return "Ring Modulator"; }
+    juce::Colour getAccentColour() const override { return juce::Colour(155, 89, 182); }
+
+    std::vector<EffectParamInfo> getParameterInfos() const override;
+    void setParameter(const juce::String& paramId, float value) override;
+    float getParameter(const juce::String& paramId) const override;
+
+    juce::StringArray getPresetNames() const override;
+    void loadPreset(int presetIndex) override;
+
+private:
+    std::atomic<float> carrierFreqHz { 440.0f };
+    std::atomic<float> waveShape { 0.0f }; // 0: Sine, 1: Triangle, 2: Square
+    std::atomic<float> lfoRateHz { 0.0f };
+    std::atomic<float> lfoDepth { 0.0f };
+    std::atomic<float> mix { 0.6f };
+
+    double carrierPhase { 0.0 };
+    double lfoPhase { 0.0 };
+    juce::AudioBuffer<float> dryCopy;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  16. Vintage Amp & Cabinet Simulator
+// ─────────────────────────────────────────────────────────────────────────────
+class RackAmpCabinet : public RackEffectBase
+{
+public:
+    RackAmpCabinet();
+    void prepare(double sampleRate, int maxBlockSize) override;
+    void reset() override;
+    void process(juce::AudioBuffer<float>& buffer) override;
+
+    PerformanceEffectType getType() const override { return PerformanceEffectType::AmpCabinet; }
+    juce::String getName() const override { return "Amp & Cabinet"; }
+    juce::Colour getAccentColour() const override { return juce::Colour(192, 57, 43); }
+
+    std::vector<EffectParamInfo> getParameterInfos() const override;
+    void setParameter(const juce::String& paramId, float value) override;
+    float getParameter(const juce::String& paramId) const override;
+
+    juce::StringArray getPresetNames() const override;
+    void loadPreset(int presetIndex) override;
+
+private:
+    std::atomic<float> drive { 0.45f };
+    std::atomic<float> bass { 0.5f };
+    std::atomic<float> mid { 0.5f };
+    std::atomic<float> treble { 0.5f };
+    std::atomic<float> presence { 0.5f };
+    std::atomic<float> cabinetType { 0.0f }; // 0: British 4x12, 1: Tweed 1x12, 2: Boutique 2x12, 3: Ampeg Bass 8x10, 4: Radio Box
+    std::atomic<float> outputGainDb { -2.0f };
+    std::atomic<float> mix { 1.0f };
+
+    float sBass[2] { 0.0f, 0.0f };
+    float sTreble[2] { 0.0f, 0.0f };
+    float sCab[2] { 0.0f, 0.0f };
     juce::AudioBuffer<float> dryCopy;
 };
 

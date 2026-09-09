@@ -1477,6 +1477,869 @@ void RackTremolo::process(juce::AudioBuffer<float>& buffer)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+//  11. Stereo Analog Phaser Implementation
+// ─────────────────────────────────────────────────────────────────────────────
+RackPhaser::RackPhaser()
+{
+    reset();
+}
+
+void RackPhaser::prepare(double sampleRate, int maxBlockSize)
+{
+    currentSampleRate = sampleRate;
+    dryCopy.setSize(2, maxBlockSize, false, true, false);
+    reset();
+}
+
+void RackPhaser::reset()
+{
+    for (auto& ch : allpassStates)
+        ch.fill(0.0f);
+    feedbackBuffer.fill(0.0f);
+    lfoPhase = 0.0;
+}
+
+std::vector<EffectParamInfo> RackPhaser::getParameterInfos() const
+{
+    return {
+        { "rate", "Rate", 0.05f, 8.0f, 0.5f, "Hz", false, {} },
+        { "depth", "Depth", 0.0f, 1.0f, 0.75f, "%", false, {} },
+        { "feedback", "Feedback", -0.95f, 0.95f, 0.5f, "%", false, {} },
+        { "poles", "Stages", 0.0f, 2.0f, 1.0f, "", true, { "4-Stage", "8-Stage", "12-Stage" } },
+        { "spread", "Stereo", 0.0f, 180.0f, 90.0f, "°", false, {} },
+        { "mix", "Mix", 0.0f, 1.0f, 0.5f, "%", false, {} }
+    };
+}
+
+void RackPhaser::setParameter(const juce::String& paramId, float value)
+{
+    if (paramId == "rate") rateHz.store(value, std::memory_order_relaxed);
+    else if (paramId == "depth") depth.store(value, std::memory_order_relaxed);
+    else if (paramId == "feedback") feedback.store(value, std::memory_order_relaxed);
+    else if (paramId == "poles") poles.store(value, std::memory_order_relaxed);
+    else if (paramId == "spread") stereoPhaseDeg.store(value, std::memory_order_relaxed);
+    else if (paramId == "mix") mix.store(value, std::memory_order_relaxed);
+}
+
+float RackPhaser::getParameter(const juce::String& paramId) const
+{
+    if (paramId == "rate") return rateHz.load(std::memory_order_relaxed);
+    if (paramId == "depth") return depth.load(std::memory_order_relaxed);
+    if (paramId == "feedback") return feedback.load(std::memory_order_relaxed);
+    if (paramId == "poles") return poles.load(std::memory_order_relaxed);
+    if (paramId == "spread") return stereoPhaseDeg.load(std::memory_order_relaxed);
+    if (paramId == "mix") return mix.load(std::memory_order_relaxed);
+    return 0.0f;
+}
+
+juce::StringArray RackPhaser::getPresetNames() const
+{
+    return {
+        "Subtle 4-Stage Drift",
+        "Deep 8-Stage Sweep",
+        "Vocal Liquid Jet",
+        "Barber-Pole Whirlwind",
+        "Vintage 70s Stomp",
+        "Slow Cosmic Phase"
+    };
+}
+
+void RackPhaser::loadPreset(int presetIndex)
+{
+    switch (presetIndex)
+    {
+        case 0:
+            setParameter("rate", 0.3f); setParameter("depth", 0.5f); setParameter("feedback", 0.3f); setParameter("poles", 0.0f); setParameter("spread", 45.0f); setParameter("mix", 0.5f);
+            break;
+        case 1:
+            setParameter("rate", 0.6f); setParameter("depth", 0.85f); setParameter("feedback", 0.7f); setParameter("poles", 1.0f); setParameter("spread", 90.0f); setParameter("mix", 0.5f);
+            break;
+        case 2:
+            setParameter("rate", 1.2f); setParameter("depth", 0.9f); setParameter("feedback", -0.75f); setParameter("poles", 2.0f); setParameter("spread", 120.0f); setParameter("mix", 0.6f);
+            break;
+        case 3:
+            setParameter("rate", 3.5f); setParameter("depth", 0.8f); setParameter("feedback", 0.8f); setParameter("poles", 1.0f); setParameter("spread", 180.0f); setParameter("mix", 0.5f);
+            break;
+        case 4:
+            setParameter("rate", 0.4f); setParameter("depth", 0.7f); setParameter("feedback", 0.45f); setParameter("poles", 0.0f); setParameter("spread", 0.0f); setParameter("mix", 0.5f);
+            break;
+        case 5:
+            setParameter("rate", 0.12f); setParameter("depth", 0.95f); setParameter("feedback", 0.6f); setParameter("poles", 2.0f); setParameter("spread", 90.0f); setParameter("mix", 0.5f);
+            break;
+        default: break;
+    }
+}
+
+void RackPhaser::process(juce::AudioBuffer<float>& buffer)
+{
+    if (isBypassed.load(std::memory_order_relaxed) || buffer.getNumSamples() == 0)
+        return;
+
+    int numChannels = buffer.getNumChannels();
+    int numSamples = buffer.getNumSamples();
+    float curMix = mix.load(std::memory_order_relaxed);
+    float fb = feedback.load(std::memory_order_relaxed);
+    float dep = depth.load(std::memory_order_relaxed);
+    float rHz = rateHz.load(std::memory_order_relaxed);
+    int numPoles = (static_cast<int>(poles.load(std::memory_order_relaxed)) + 1) * 4;
+    float spreadRad = stereoPhaseDeg.load(std::memory_order_relaxed) * juce::MathConstants<float>::pi / 180.0f;
+
+    dryCopy.setSize(numChannels, numSamples, false, false, true);
+    for (int ch = 0; ch < numChannels; ++ch)
+        dryCopy.copyFrom(ch, 0, buffer, ch, 0, numSamples);
+
+    double phaseInc = (2.0 * juce::MathConstants<double>::pi * rHz) / currentSampleRate;
+
+    for (int i = 0; i < numSamples; ++i)
+    {
+        for (int ch = 0; ch < numChannels; ++ch)
+        {
+            double chPhase = lfoPhase + (ch == 1 ? spreadRad : 0.0);
+            float lfo = 0.5f * (1.0f + static_cast<float>(std::sin(chPhase)));
+            float fMin = 200.0f;
+            float fMax = 4500.0f;
+            float fc = fMin + (fMax - fMin) * (lfo * dep + (1.0f - dep) * 0.5f);
+            float w = static_cast<float>(std::tan(juce::MathConstants<double>::pi * fc / currentSampleRate));
+            float alpha = (w - 1.0f) / (w + 1.0f);
+
+            float input = dryCopy.getSample(ch, i) + feedbackBuffer[ch] * fb;
+            float x = input;
+
+            for (int p = 0; p < numPoles; ++p)
+            {
+                float y = alpha * x + allpassStates[ch][p];
+                allpassStates[ch][p] = x - alpha * y;
+                x = y;
+            }
+
+            feedbackBuffer[ch] = x;
+            float dry = dryCopy.getSample(ch, i);
+            buffer.setSample(ch, i, dry * (1.0f - curMix) + x * curMix);
+        }
+
+        lfoPhase = std::fmod(lfoPhase + phaseInc, 2.0 * juce::MathConstants<double>::pi);
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  12. Tape & BBD Stereo Flanger Implementation
+// ─────────────────────────────────────────────────────────────────────────────
+RackFlanger::RackFlanger()
+{
+    prepare(44100.0, 512);
+}
+
+void RackFlanger::prepare(double sampleRate, int maxBlockSize)
+{
+    currentSampleRate = sampleRate;
+    size_t lineLen = static_cast<size_t>(sampleRate * 0.05) + 64;
+    delayLineL.assign(lineLen, 0.0f);
+    delayLineR.assign(lineLen, 0.0f);
+    writePos = 0;
+    dryCopy.setSize(2, maxBlockSize, false, true, false);
+    reset();
+}
+
+void RackFlanger::reset()
+{
+    std::fill(delayLineL.begin(), delayLineL.end(), 0.0f);
+    std::fill(delayLineR.begin(), delayLineR.end(), 0.0f);
+    writePos = 0;
+    lfoPhase = 0.0;
+}
+
+std::vector<EffectParamInfo> RackFlanger::getParameterInfos() const
+{
+    return {
+        { "rate", "Rate", 0.02f, 5.0f, 0.25f, "Hz", false, {} },
+        { "depth", "Depth", 0.0f, 1.0f, 0.8f, "%", false, {} },
+        { "delay", "Manual", 0.2f, 12.0f, 2.5f, "ms", false, {} },
+        { "feedback", "Feedback", -0.98f, 0.98f, 0.65f, "%", false, {} },
+        { "spread", "Stereo", 0.0f, 1.0f, 0.7f, "%", false, {} },
+        { "mix", "Mix", 0.0f, 1.0f, 0.5f, "%", false, {} }
+    };
+}
+
+void RackFlanger::setParameter(const juce::String& paramId, float value)
+{
+    if (paramId == "rate") rateHz.store(value, std::memory_order_relaxed);
+    else if (paramId == "depth") depth.store(value, std::memory_order_relaxed);
+    else if (paramId == "delay") delayMs.store(value, std::memory_order_relaxed);
+    else if (paramId == "feedback") feedback.store(value, std::memory_order_relaxed);
+    else if (paramId == "spread") stereoSpread.store(value, std::memory_order_relaxed);
+    else if (paramId == "mix") mix.store(value, std::memory_order_relaxed);
+}
+
+float RackFlanger::getParameter(const juce::String& paramId) const
+{
+    if (paramId == "rate") return rateHz.load(std::memory_order_relaxed);
+    if (paramId == "depth") return depth.load(std::memory_order_relaxed);
+    if (paramId == "delay") return delayMs.load(std::memory_order_relaxed);
+    if (paramId == "feedback") return feedback.load(std::memory_order_relaxed);
+    if (paramId == "spread") return stereoSpread.load(std::memory_order_relaxed);
+    if (paramId == "mix") return mix.load(std::memory_order_relaxed);
+    return 0.0f;
+}
+
+juce::StringArray RackFlanger::getPresetNames() const
+{
+    return {
+        "Jet Engine Sweep",
+        "Through-Zero Tape Flange",
+        "Subtle Metallic Edge",
+        "Sci-Fi Resonator",
+        "Thick 80s Dimension",
+        "Deep Underwater Flange"
+    };
+}
+
+void RackFlanger::loadPreset(int presetIndex)
+{
+    switch (presetIndex)
+    {
+        case 0:
+            setParameter("rate", 0.2f); setParameter("depth", 0.85f); setParameter("delay", 2.0f); setParameter("feedback", 0.8f); setParameter("spread", 0.8f); setParameter("mix", 0.5f);
+            break;
+        case 1:
+            setParameter("rate", 0.1f); setParameter("depth", 0.95f); setParameter("delay", 0.8f); setParameter("feedback", -0.7f); setParameter("spread", 0.5f); setParameter("mix", 0.5f);
+            break;
+        case 2:
+            setParameter("rate", 0.5f); setParameter("depth", 0.4f); setParameter("delay", 1.2f); setParameter("feedback", 0.4f); setParameter("spread", 0.6f); setParameter("mix", 0.35f);
+            break;
+        case 3:
+            setParameter("rate", 1.8f); setParameter("depth", 0.9f); setParameter("delay", 4.5f); setParameter("feedback", 0.92f); setParameter("spread", 1.0f); setParameter("mix", 0.6f);
+            break;
+        case 4:
+            setParameter("rate", 0.35f); setParameter("depth", 0.7f); setParameter("delay", 3.0f); setParameter("feedback", -0.55f); setParameter("spread", 0.9f); setParameter("mix", 0.5f);
+            break;
+        case 5:
+            setParameter("rate", 0.08f); setParameter("depth", 1.0f); setParameter("delay", 6.0f); setParameter("feedback", 0.75f); setParameter("spread", 0.75f); setParameter("mix", 0.55f);
+            break;
+        default: break;
+    }
+}
+
+void RackFlanger::process(juce::AudioBuffer<float>& buffer)
+{
+    if (isBypassed.load(std::memory_order_relaxed) || buffer.getNumSamples() == 0)
+        return;
+
+    int numChannels = buffer.getNumChannels();
+    int numSamples = buffer.getNumSamples();
+    float curMix = mix.load(std::memory_order_relaxed);
+    float fb = feedback.load(std::memory_order_relaxed);
+    float dep = depth.load(std::memory_order_relaxed);
+    float manDelay = delayMs.load(std::memory_order_relaxed) * 0.001f * static_cast<float>(currentSampleRate);
+    float rHz = rateHz.load(std::memory_order_relaxed);
+    float spreadPhase = stereoSpread.load(std::memory_order_relaxed) * juce::MathConstants<float>::pi;
+
+    dryCopy.setSize(numChannels, numSamples, false, false, true);
+    for (int ch = 0; ch < numChannels; ++ch)
+        dryCopy.copyFrom(ch, 0, buffer, ch, 0, numSamples);
+
+    size_t lineLen = delayLineL.size();
+    if (lineLen < 128) return;
+
+    double phaseInc = (2.0 * juce::MathConstants<double>::pi * rHz) / currentSampleRate;
+
+    for (int i = 0; i < numSamples; ++i)
+    {
+        for (int ch = 0; ch < numChannels; ++ch)
+        {
+            auto& line = (ch == 0) ? delayLineL : delayLineR;
+            double chPhase = lfoPhase + (ch == 1 ? spreadPhase : 0.0);
+            float mod = 0.5f * (1.0f + static_cast<float>(std::sin(chPhase)));
+            float delaySamps = juce::jlimit(1.0f, static_cast<float>(lineLen - 4), manDelay * (1.0f + dep * (mod * 2.0f - 1.0f)));
+
+            double readPos = static_cast<double>(writePos) - delaySamps;
+            if (readPos < 0.0) readPos += lineLen;
+
+            size_t idx0 = static_cast<size_t>(readPos);
+            size_t idx1 = (idx0 + 1) % lineLen;
+            float frac = static_cast<float>(readPos - std::floor(readPos));
+            float flanged = line[idx0] + frac * (line[idx1] - line[idx0]);
+
+            float dry = dryCopy.getSample(ch, i);
+            line[writePos] = dry + flanged * fb;
+
+            buffer.setSample(ch, i, dry * (1.0f - curMix) + flanged * curMix);
+        }
+
+        writePos = (writePos + 1) % lineLen;
+        lfoPhase = std::fmod(lfoPhase + phaseInc, 2.0 * juce::MathConstants<double>::pi);
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  13. Stereo Width & Spatial Imager Implementation
+// ─────────────────────────────────────────────────────────────────────────────
+RackStereoImager::RackStereoImager()
+{
+    reset();
+}
+
+void RackStereoImager::prepare(double sampleRate, int /*maxBlockSize*/)
+{
+    currentSampleRate = sampleRate;
+    reset();
+}
+
+void RackStereoImager::reset()
+{
+    sideHpState = 0.0f;
+}
+
+std::vector<EffectParamInfo> RackStereoImager::getParameterInfos() const
+{
+    return {
+        { "width", "Width", 0.0f, 2.0f, 1.35f, "%", false, {} },
+        { "monobass", "Mono Bass", 20.0f, 500.0f, 120.0f, "Hz", false, {} },
+        { "balance", "Balance", -1.0f, 1.0f, 0.0f, "%", false, {} },
+        { "sidegain", "Side Gain", -12.0f, 12.0f, 0.0f, "dB", false, {} },
+        { "midgain", "Mid Gain", -12.0f, 12.0f, 0.0f, "dB", false, {} }
+    };
+}
+
+void RackStereoImager::setParameter(const juce::String& paramId, float value)
+{
+    if (paramId == "width") width.store(value, std::memory_order_relaxed);
+    else if (paramId == "monobass") monoBassCutoffHz.store(value, std::memory_order_relaxed);
+    else if (paramId == "balance") balance.store(value, std::memory_order_relaxed);
+    else if (paramId == "sidegain") sideGainDb.store(value, std::memory_order_relaxed);
+    else if (paramId == "midgain") midGainDb.store(value, std::memory_order_relaxed);
+}
+
+float RackStereoImager::getParameter(const juce::String& paramId) const
+{
+    if (paramId == "width") return width.load(std::memory_order_relaxed);
+    if (paramId == "monobass") return monoBassCutoffHz.load(std::memory_order_relaxed);
+    if (paramId == "balance") return balance.load(std::memory_order_relaxed);
+    if (paramId == "sidegain") return sideGainDb.load(std::memory_order_relaxed);
+    if (paramId == "midgain") return midGainDb.load(std::memory_order_relaxed);
+    return 0.0f;
+}
+
+juce::StringArray RackStereoImager::getPresetNames() const
+{
+    return {
+        "Master Width & Mono Bass",
+        "Ultra-Wide Ambience (200%)",
+        "Mono Compatibility Check",
+        "Side High-Shimmer Boost",
+        "Tight Vocal Centering",
+        "Sub Bass Anchor (250 Hz)"
+    };
+}
+
+void RackStereoImager::loadPreset(int presetIndex)
+{
+    switch (presetIndex)
+    {
+        case 0:
+            setParameter("width", 1.35f); setParameter("monobass", 120.0f); setParameter("balance", 0.0f); setParameter("sidegain", 0.0f); setParameter("midgain", 0.0f);
+            break;
+        case 1:
+            setParameter("width", 1.85f); setParameter("monobass", 150.0f); setParameter("balance", 0.0f); setParameter("sidegain", 2.5f); setParameter("midgain", -1.0f);
+            break;
+        case 2:
+            setParameter("width", 0.0f); setParameter("monobass", 20.0f); setParameter("balance", 0.0f); setParameter("sidegain", 0.0f); setParameter("midgain", 0.0f);
+            break;
+        case 3:
+            setParameter("width", 1.5f); setParameter("monobass", 200.0f); setParameter("balance", 0.0f); setParameter("sidegain", 3.0f); setParameter("midgain", 0.0f);
+            break;
+        case 4:
+            setParameter("width", 0.85f); setParameter("monobass", 100.0f); setParameter("balance", 0.0f); setParameter("sidegain", -2.0f); setParameter("midgain", 1.5f);
+            break;
+        case 5:
+            setParameter("width", 1.25f); setParameter("monobass", 250.0f); setParameter("balance", 0.0f); setParameter("sidegain", 0.5f); setParameter("midgain", 0.0f);
+            break;
+        default: break;
+    }
+}
+
+void RackStereoImager::process(juce::AudioBuffer<float>& buffer)
+{
+    if (isBypassed.load(std::memory_order_relaxed) || buffer.getNumSamples() == 0 || buffer.getNumChannels() < 2)
+        return;
+
+    int numSamples = buffer.getNumSamples();
+    float w = width.load(std::memory_order_relaxed);
+    float mbFreq = monoBassCutoffHz.load(std::memory_order_relaxed);
+    float bal = balance.load(std::memory_order_relaxed);
+    float sGain = std::pow(10.0f, sideGainDb.load(std::memory_order_relaxed) / 20.0f);
+    float mGain = std::pow(10.0f, midGainDb.load(std::memory_order_relaxed) / 20.0f);
+
+    float alpha = static_cast<float>(std::exp(-2.0 * juce::MathConstants<double>::pi * mbFreq / currentSampleRate));
+    float panL = (bal < 0.0f) ? 1.0f : (1.0f - bal);
+    float panR = (bal > 0.0f) ? 1.0f : (1.0f + bal);
+
+    auto* left = buffer.getWritePointer(0);
+    auto* right = buffer.getWritePointer(1);
+
+    for (int i = 0; i < numSamples; ++i)
+    {
+        float l = left[i];
+        float r = right[i];
+
+        float mid = (l + r) * 0.5f * mGain;
+        float rawSide = (l - r) * 0.5f;
+
+        sideHpState = rawSide - (rawSide - sideHpState) * alpha;
+        float side = (rawSide - sideHpState) * w * sGain;
+
+        left[i] = (mid + side) * panL;
+        right[i] = (mid - side) * panR;
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  14. Dynamic Auto-Wah & Envelope Filter Implementation
+// ─────────────────────────────────────────────────────────────────────────────
+RackAutoWah::RackAutoWah()
+{
+    reset();
+}
+
+void RackAutoWah::prepare(double sampleRate, int maxBlockSize)
+{
+    currentSampleRate = sampleRate;
+    dryCopy.setSize(2, maxBlockSize, false, true, false);
+    reset();
+}
+
+void RackAutoWah::reset()
+{
+    envFollower = 0.0f;
+    s1[0] = s1[1] = 0.0f;
+    s2[0] = s2[1] = 0.0f;
+}
+
+std::vector<EffectParamInfo> RackAutoWah::getParameterInfos() const
+{
+    return {
+        { "sens", "Sensitivity", 0.0f, 1.0f, 0.6f, "%", false, {} },
+        { "depth", "Depth", 0.0f, 1.0f, 0.75f, "%", false, {} },
+        { "q", "Resonance", 0.5f, 10.0f, 4.5f, "", false, {} },
+        { "base", "Base Freq", 40.0f, 3000.0f, 350.0f, "Hz", false, {} },
+        { "attack", "Attack", 1.0f, 100.0f, 12.0f, "ms", false, {} },
+        { "release", "Release", 20.0f, 500.0f, 120.0f, "ms", false, {} },
+        { "mode", "Type", 0.0f, 2.0f, 0.0f, "", true, { "Lowpass", "Bandpass", "Highpass" } },
+        { "mix", "Mix", 0.0f, 1.0f, 0.85f, "%", false, {} }
+    };
+}
+
+void RackAutoWah::setParameter(const juce::String& paramId, float value)
+{
+    if (paramId == "sens") sensitivity.store(value, std::memory_order_relaxed);
+    else if (paramId == "depth") depth.store(value, std::memory_order_relaxed);
+    else if (paramId == "q") resonance.store(value, std::memory_order_relaxed);
+    else if (paramId == "base") baseCutoffHz.store(value, std::memory_order_relaxed);
+    else if (paramId == "attack") attackMs.store(value, std::memory_order_relaxed);
+    else if (paramId == "release") releaseMs.store(value, std::memory_order_relaxed);
+    else if (paramId == "mode") mode.store(value, std::memory_order_relaxed);
+    else if (paramId == "mix") mix.store(value, std::memory_order_relaxed);
+}
+
+float RackAutoWah::getParameter(const juce::String& paramId) const
+{
+    if (paramId == "sens") return sensitivity.load(std::memory_order_relaxed);
+    if (paramId == "depth") return depth.load(std::memory_order_relaxed);
+    if (paramId == "q") return resonance.load(std::memory_order_relaxed);
+    if (paramId == "base") return baseCutoffHz.load(std::memory_order_relaxed);
+    if (paramId == "attack") return attackMs.load(std::memory_order_relaxed);
+    if (paramId == "release") return releaseMs.load(std::memory_order_relaxed);
+    if (paramId == "mode") return mode.load(std::memory_order_relaxed);
+    if (paramId == "mix") return mix.load(std::memory_order_relaxed);
+    return 0.0f;
+}
+
+juce::StringArray RackAutoWah::getPresetNames() const
+{
+    return {
+        "Classic Funk Wah",
+        "Subtle Dynamic Pluck",
+        "Acid Squawk Bandpass",
+        "Down-Sweep Duck",
+        "Talkbox Vowel",
+        "Punchy Slap Bass"
+    };
+}
+
+void RackAutoWah::loadPreset(int presetIndex)
+{
+    switch (presetIndex)
+    {
+        case 0:
+            setParameter("sens", 0.65f); setParameter("depth", 0.8f); setParameter("q", 5.0f); setParameter("base", 300.0f); setParameter("attack", 10.0f); setParameter("release", 110.0f); setParameter("mode", 0.0f); setParameter("mix", 0.9f);
+            break;
+        case 1:
+            setParameter("sens", 0.45f); setParameter("depth", 0.5f); setParameter("q", 2.5f); setParameter("base", 500.0f); setParameter("attack", 5.0f); setParameter("release", 75.0f); setParameter("mode", 0.0f); setParameter("mix", 0.65f);
+            break;
+        case 2:
+            setParameter("sens", 0.8f); setParameter("depth", 0.9f); setParameter("q", 8.0f); setParameter("base", 200.0f); setParameter("attack", 8.0f); setParameter("release", 140.0f); setParameter("mode", 1.0f); setParameter("mix", 0.85f);
+            break;
+        case 3:
+            setParameter("sens", 0.55f); setParameter("depth", 0.7f); setParameter("q", 3.8f); setParameter("base", 1800.0f); setParameter("attack", 15.0f); setParameter("release", 220.0f); setParameter("mode", 0.0f); setParameter("mix", 0.8f);
+            break;
+        case 4:
+            setParameter("sens", 0.75f); setParameter("depth", 0.85f); setParameter("q", 6.5f); setParameter("base", 450.0f); setParameter("attack", 18.0f); setParameter("release", 160.0f); setParameter("mode", 1.0f); setParameter("mix", 0.95f);
+            break;
+        case 5:
+            setParameter("sens", 0.7f); setParameter("depth", 0.7f); setParameter("q", 4.0f); setParameter("base", 120.0f); setParameter("attack", 6.0f); setParameter("release", 90.0f); setParameter("mode", 0.0f); setParameter("mix", 0.8f);
+            break;
+        default: break;
+    }
+}
+
+void RackAutoWah::process(juce::AudioBuffer<float>& buffer)
+{
+    if (isBypassed.load(std::memory_order_relaxed) || buffer.getNumSamples() == 0)
+        return;
+
+    int numChannels = buffer.getNumChannels();
+    int numSamples = buffer.getNumSamples();
+    float curMix = mix.load(std::memory_order_relaxed);
+    float sens = sensitivity.load(std::memory_order_relaxed);
+    float dep = depth.load(std::memory_order_relaxed);
+    float q = resonance.load(std::memory_order_relaxed);
+    float baseF = baseCutoffHz.load(std::memory_order_relaxed);
+    float attCoeff = static_cast<float>(std::exp(-1.0 / ((attackMs.load(std::memory_order_relaxed) * 0.001f) * currentSampleRate)));
+    float relCoeff = static_cast<float>(std::exp(-1.0 / ((releaseMs.load(std::memory_order_relaxed) * 0.001f) * currentSampleRate)));
+    int fMode = static_cast<int>(mode.load(std::memory_order_relaxed));
+
+    dryCopy.setSize(numChannels, numSamples, false, false, true);
+    for (int ch = 0; ch < numChannels; ++ch)
+        dryCopy.copyFrom(ch, 0, buffer, ch, 0, numSamples);
+
+    for (int i = 0; i < numSamples; ++i)
+    {
+        float inputMag = std::abs(dryCopy.getSample(0, i));
+        if (numChannels > 1)
+            inputMag = std::max(inputMag, std::abs(dryCopy.getSample(1, i)));
+
+        if (inputMag > envFollower)
+            envFollower = inputMag + attCoeff * (envFollower - inputMag);
+        else
+            envFollower = inputMag + relCoeff * (envFollower - inputMag);
+
+        float modFc = baseF * std::pow(2.0f, envFollower * sens * dep * 4.0f);
+        modFc = juce::jlimit(20.0f, static_cast<float>(currentSampleRate * 0.48), modFc);
+
+        float g = static_cast<float>(std::tan(juce::MathConstants<double>::pi * modFc / currentSampleRate));
+        float k = 1.0f / q;
+        float a1 = 1.0f / (1.0f + g * (g + k));
+        float a2 = g * a1;
+        float a3 = g * a2;
+
+        for (int ch = 0; ch < numChannels; ++ch)
+        {
+            float in = dryCopy.getSample(ch, i);
+            float v3 = in - s2[ch];
+            float v1 = a1 * s1[ch] + a2 * v3;
+            float v2 = s2[ch] + a2 * s1[ch] + a3 * v3;
+            s1[ch] = 2.0f * v1 - s1[ch];
+            s2[ch] = 2.0f * v2 - s2[ch];
+
+            float lp = v2;
+            float bp = v1;
+            float hp = in - k * v1 - v2;
+
+            float out = (fMode == 1) ? bp : ((fMode == 2) ? hp : lp);
+            buffer.setSample(ch, i, in * (1.0f - curMix) + out * curMix);
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  15. Metallic Ring Modulator Implementation
+// ─────────────────────────────────────────────────────────────────────────────
+RackRingModulator::RackRingModulator()
+{
+    reset();
+}
+
+void RackRingModulator::prepare(double sampleRate, int maxBlockSize)
+{
+    currentSampleRate = sampleRate;
+    dryCopy.setSize(2, maxBlockSize, false, true, false);
+    reset();
+}
+
+void RackRingModulator::reset()
+{
+    carrierPhase = 0.0;
+    lfoPhase = 0.0;
+}
+
+std::vector<EffectParamInfo> RackRingModulator::getParameterInfos() const
+{
+    return {
+        { "carrier", "Carrier Freq", 1.0f, 4000.0f, 440.0f, "Hz", false, {} },
+        { "shape", "Waveform", 0.0f, 2.0f, 0.0f, "", true, { "Sine", "Triangle", "Square" } },
+        { "lforate", "LFO Rate", 0.0f, 20.0f, 0.0f, "Hz", false, {} },
+        { "lfodepth", "LFO Depth", 0.0f, 1.0f, 0.0f, "%", false, {} },
+        { "mix", "Mix", 0.0f, 1.0f, 0.6f, "%", false, {} }
+    };
+}
+
+void RackRingModulator::setParameter(const juce::String& paramId, float value)
+{
+    if (paramId == "carrier") carrierFreqHz.store(value, std::memory_order_relaxed);
+    else if (paramId == "shape") waveShape.store(value, std::memory_order_relaxed);
+    else if (paramId == "lforate") lfoRateHz.store(value, std::memory_order_relaxed);
+    else if (paramId == "lfodepth") lfoDepth.store(value, std::memory_order_relaxed);
+    else if (paramId == "mix") mix.store(value, std::memory_order_relaxed);
+}
+
+float RackRingModulator::getParameter(const juce::String& paramId) const
+{
+    if (paramId == "carrier") return carrierFreqHz.load(std::memory_order_relaxed);
+    if (paramId == "shape") return waveShape.load(std::memory_order_relaxed);
+    if (paramId == "lforate") return lfoRateHz.load(std::memory_order_relaxed);
+    if (paramId == "lfodepth") return lfoDepth.load(std::memory_order_relaxed);
+    if (paramId == "mix") return mix.load(std::memory_order_relaxed);
+    return 0.0f;
+}
+
+juce::StringArray RackRingModulator::getPresetNames() const
+{
+    return {
+        "Sci-Fi Dalek Robot",
+        "Tubular Bells",
+        "Subtle Harmonic Clang",
+        "Tremolo Ring Stutter",
+        "Alien Transmission",
+        "Sub Harmonic Drone (60 Hz)"
+    };
+}
+
+void RackRingModulator::loadPreset(int presetIndex)
+{
+    switch (presetIndex)
+    {
+        case 0:
+            setParameter("carrier", 280.0f); setParameter("shape", 0.0f); setParameter("lforate", 0.0f); setParameter("lfodepth", 0.0f); setParameter("mix", 0.75f);
+            break;
+        case 1:
+            setParameter("carrier", 1120.0f); setParameter("shape", 1.0f); setParameter("lforate", 0.0f); setParameter("lfodepth", 0.0f); setParameter("mix", 0.5f);
+            break;
+        case 2:
+            setParameter("carrier", 640.0f); setParameter("shape", 0.0f); setParameter("lforate", 2.0f); setParameter("lfodepth", 0.25f); setParameter("mix", 0.35f);
+            break;
+        case 3:
+            setParameter("carrier", 18.0f); setParameter("shape", 2.0f); setParameter("lforate", 0.0f); setParameter("lfodepth", 0.0f); setParameter("mix", 0.8f);
+            break;
+        case 4:
+            setParameter("carrier", 880.0f); setParameter("shape", 2.0f); setParameter("lforate", 6.5f); setParameter("lfodepth", 0.8f); setParameter("mix", 0.65f);
+            break;
+        case 5:
+            setParameter("carrier", 60.0f); setParameter("shape", 0.0f); setParameter("lforate", 0.5f); setParameter("lfodepth", 0.15f); setParameter("mix", 0.5f);
+            break;
+        default: break;
+    }
+}
+
+void RackRingModulator::process(juce::AudioBuffer<float>& buffer)
+{
+    if (isBypassed.load(std::memory_order_relaxed) || buffer.getNumSamples() == 0)
+        return;
+
+    int numChannels = buffer.getNumChannels();
+    int numSamples = buffer.getNumSamples();
+    float curMix = mix.load(std::memory_order_relaxed);
+    float baseCarrier = carrierFreqHz.load(std::memory_order_relaxed);
+    int shape = static_cast<int>(waveShape.load(std::memory_order_relaxed));
+    float lfoR = lfoRateHz.load(std::memory_order_relaxed);
+    float lfoD = lfoDepth.load(std::memory_order_relaxed);
+
+    dryCopy.setSize(numChannels, numSamples, false, false, true);
+    for (int ch = 0; ch < numChannels; ++ch)
+        dryCopy.copyFrom(ch, 0, buffer, ch, 0, numSamples);
+
+    double lfoInc = (2.0 * juce::MathConstants<double>::pi * lfoR) / currentSampleRate;
+
+    for (int i = 0; i < numSamples; ++i)
+    {
+        float lfoVal = (lfoR > 0.001f) ? static_cast<float>(std::sin(lfoPhase)) : 0.0f;
+        float actualCarrier = baseCarrier * (1.0f + lfoVal * lfoD);
+        double carrierInc = (2.0 * juce::MathConstants<double>::pi * actualCarrier) / currentSampleRate;
+
+        float carrierVal = 0.0f;
+        double normP = carrierPhase / (2.0 * juce::MathConstants<double>::pi);
+        normP = normP - std::floor(normP);
+
+        if (shape == 1)
+            carrierVal = (normP < 0.5) ? static_cast<float>(4.0 * normP - 1.0) : static_cast<float>(3.0 - 4.0 * normP);
+        else if (shape == 2)
+            carrierVal = (normP < 0.5) ? 1.0f : -1.0f;
+        else
+            carrierVal = static_cast<float>(std::sin(carrierPhase));
+
+        for (int ch = 0; ch < numChannels; ++ch)
+        {
+            float dry = dryCopy.getSample(ch, i);
+            float wet = dry * carrierVal;
+            buffer.setSample(ch, i, dry * (1.0f - curMix) + wet * curMix);
+        }
+
+        carrierPhase = std::fmod(carrierPhase + carrierInc, 2.0 * juce::MathConstants<double>::pi);
+        lfoPhase = std::fmod(lfoPhase + lfoInc, 2.0 * juce::MathConstants<double>::pi);
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  16. Vintage Amp & Cabinet Simulator Implementation
+// ─────────────────────────────────────────────────────────────────────────────
+RackAmpCabinet::RackAmpCabinet()
+{
+    reset();
+}
+
+void RackAmpCabinet::prepare(double sampleRate, int maxBlockSize)
+{
+    currentSampleRate = sampleRate;
+    dryCopy.setSize(2, maxBlockSize, false, true, false);
+    reset();
+}
+
+void RackAmpCabinet::reset()
+{
+    sBass[0] = sBass[1] = 0.0f;
+    sTreble[0] = sTreble[1] = 0.0f;
+    sCab[0] = sCab[1] = 0.0f;
+}
+
+std::vector<EffectParamInfo> RackAmpCabinet::getParameterInfos() const
+{
+    return {
+        { "drive", "Drive", 0.0f, 1.0f, 0.45f, "%", false, {} },
+        { "bass", "Bass", 0.0f, 1.0f, 0.5f, "%", false, {} },
+        { "mid", "Middle", 0.0f, 1.0f, 0.5f, "%", false, {} },
+        { "treble", "Treble", 0.0f, 1.0f, 0.5f, "%", false, {} },
+        { "presence", "Presence", 0.0f, 1.0f, 0.5f, "%", false, {} },
+        { "cab", "Cabinet", 0.0f, 4.0f, 0.0f, "", true, { "British 4x12", "Tweed 1x12", "Boutique 2x12", "Ampeg 8x10", "Radio Horn" } },
+        { "output", "Master", -18.0f, 6.0f, -2.0f, "dB", false, {} },
+        { "mix", "Mix", 0.0f, 1.0f, 1.0f, "%", false, {} }
+    };
+}
+
+void RackAmpCabinet::setParameter(const juce::String& paramId, float value)
+{
+    if (paramId == "drive") drive.store(value, std::memory_order_relaxed);
+    else if (paramId == "bass") bass.store(value, std::memory_order_relaxed);
+    else if (paramId == "mid") mid.store(value, std::memory_order_relaxed);
+    else if (paramId == "treble") treble.store(value, std::memory_order_relaxed);
+    else if (paramId == "presence") presence.store(value, std::memory_order_relaxed);
+    else if (paramId == "cab") cabinetType.store(value, std::memory_order_relaxed);
+    else if (paramId == "output") outputGainDb.store(value, std::memory_order_relaxed);
+    else if (paramId == "mix") mix.store(value, std::memory_order_relaxed);
+}
+
+float RackAmpCabinet::getParameter(const juce::String& paramId) const
+{
+    if (paramId == "drive") return drive.load(std::memory_order_relaxed);
+    if (paramId == "bass") return bass.load(std::memory_order_relaxed);
+    if (paramId == "mid") return mid.load(std::memory_order_relaxed);
+    if (paramId == "treble") return treble.load(std::memory_order_relaxed);
+    if (paramId == "presence") return presence.load(std::memory_order_relaxed);
+    if (paramId == "cab") return cabinetType.load(std::memory_order_relaxed);
+    if (paramId == "output") return outputGainDb.load(std::memory_order_relaxed);
+    if (paramId == "mix") return mix.load(std::memory_order_relaxed);
+    return 0.0f;
+}
+
+juce::StringArray RackAmpCabinet::getPresetNames() const
+{
+    return {
+        "British 4x12 Crunch",
+        "Warm Tweed Clean",
+        "Ampeg Bass Punch",
+        "High-Gain Solo Lead",
+        "Lo-Fi Phone Speaker",
+        "Boutique Chime"
+    };
+}
+
+void RackAmpCabinet::loadPreset(int presetIndex)
+{
+    switch (presetIndex)
+    {
+        case 0:
+            setParameter("drive", 0.6f); setParameter("bass", 0.55f); setParameter("mid", 0.65f); setParameter("treble", 0.6f); setParameter("presence", 0.55f); setParameter("cab", 0.0f); setParameter("output", -3.0f); setParameter("mix", 1.0f);
+            break;
+        case 1:
+            setParameter("drive", 0.22f); setParameter("bass", 0.6f); setParameter("mid", 0.5f); setParameter("treble", 0.45f); setParameter("presence", 0.4f); setParameter("cab", 1.0f); setParameter("output", 0.0f); setParameter("mix", 1.0f);
+            break;
+        case 2:
+            setParameter("drive", 0.38f); setParameter("bass", 0.8f); setParameter("mid", 0.35f); setParameter("treble", 0.4f); setParameter("presence", 0.3f); setParameter("cab", 3.0f); setParameter("output", -2.0f); setParameter("mix", 1.0f);
+            break;
+        case 3:
+            setParameter("drive", 0.88f); setParameter("bass", 0.5f); setParameter("mid", 0.75f); setParameter("treble", 0.7f); setParameter("presence", 0.7f); setParameter("cab", 0.0f); setParameter("output", -5.0f); setParameter("mix", 1.0f);
+            break;
+        case 4:
+            setParameter("drive", 0.5f); setParameter("bass", 0.1f); setParameter("mid", 0.9f); setParameter("treble", 0.2f); setParameter("presence", 0.1f); setParameter("cab", 4.0f); setParameter("output", -1.0f); setParameter("mix", 1.0f);
+            break;
+        case 5:
+            setParameter("drive", 0.4f); setParameter("bass", 0.45f); setParameter("mid", 0.6f); setParameter("treble", 0.75f); setParameter("presence", 0.65f); setParameter("cab", 2.0f); setParameter("output", -2.5f); setParameter("mix", 1.0f);
+            break;
+        default: break;
+    }
+}
+
+void RackAmpCabinet::process(juce::AudioBuffer<float>& buffer)
+{
+    if (isBypassed.load(std::memory_order_relaxed) || buffer.getNumSamples() == 0)
+        return;
+
+    int numChannels = buffer.getNumChannels();
+    int numSamples = buffer.getNumSamples();
+    float curMix = mix.load(std::memory_order_relaxed);
+    float drv = 1.0f + drive.load(std::memory_order_relaxed) * 12.0f;
+    float bGain = 0.5f + bass.load(std::memory_order_relaxed) * 1.0f;
+    float mGain = 0.5f + mid.load(std::memory_order_relaxed) * 1.0f;
+    float tGain = 0.5f + treble.load(std::memory_order_relaxed) * 1.0f;
+    float pGain = 0.5f + presence.load(std::memory_order_relaxed) * 1.0f;
+    int cab = static_cast<int>(cabinetType.load(std::memory_order_relaxed));
+    float outVol = std::pow(10.0f, outputGainDb.load(std::memory_order_relaxed) / 20.0f);
+
+    dryCopy.setSize(numChannels, numSamples, false, false, true);
+    for (int ch = 0; ch < numChannels; ++ch)
+        dryCopy.copyFrom(ch, 0, buffer, ch, 0, numSamples);
+
+    float cabCutoff = 4800.0f;
+    if (cab == 1) cabCutoff = 4200.0f;
+    else if (cab == 2) cabCutoff = 5400.0f;
+    else if (cab == 3) cabCutoff = 3500.0f;
+    else if (cab == 4) cabCutoff = 2400.0f;
+    float cabCoeff = static_cast<float>(std::exp(-2.0 * juce::MathConstants<double>::pi * cabCutoff / currentSampleRate));
+
+    for (int i = 0; i < numSamples; ++i)
+    {
+        for (int ch = 0; ch < numChannels; ++ch)
+        {
+            float in = dryCopy.getSample(ch, i);
+
+            float x = in * drv;
+            float sat = std::tanh(x + 0.15f * x * x);
+
+            sBass[ch] += 0.05f * (sat - sBass[ch]);
+            float bassComponent = sBass[ch] * bGain;
+
+            sTreble[ch] += 0.25f * (sat - sTreble[ch]);
+            float trebleComponent = (sat - sTreble[ch]) * tGain;
+
+            float midComponent = (sat - bassComponent - trebleComponent) * mGain;
+            float shaped = (bassComponent + midComponent + trebleComponent + sat * pGain * 0.3f);
+
+            sCab[ch] = shaped + cabCoeff * (sCab[ch] - shaped);
+            float wet = sCab[ch] * outVol;
+
+            buffer.setSample(ch, i, in * (1.0f - curMix) + wet * curMix);
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 //  PerformanceRackDSP Implementation
 // ─────────────────────────────────────────────────────────────────────────────
 PerformanceRackDSP::PerformanceRackDSP()
@@ -1558,6 +2421,12 @@ std::shared_ptr<RackEffectBase> PerformanceRackDSP::createEffect(PerformanceEffe
         case PerformanceEffectType::ParametricEQ: return std::make_shared<RackParametricEQ>();
         case PerformanceEffectType::PitchShifter: return std::make_shared<RackPitchShifter>();
         case PerformanceEffectType::Tremolo:      return std::make_shared<RackTremolo>();
+        case PerformanceEffectType::Phaser:       return std::make_shared<RackPhaser>();
+        case PerformanceEffectType::Flanger:      return std::make_shared<RackFlanger>();
+        case PerformanceEffectType::StereoImager: return std::make_shared<RackStereoImager>();
+        case PerformanceEffectType::AutoWah:      return std::make_shared<RackAutoWah>();
+        case PerformanceEffectType::RingModulator:return std::make_shared<RackRingModulator>();
+        case PerformanceEffectType::AmpCabinet:   return std::make_shared<RackAmpCabinet>();
         default: break;
     }
     return nullptr;
@@ -1630,7 +2499,13 @@ juce::StringArray PerformanceRackDSP::getRackTemplateNames() const
         "Ambient Space Station",
         "Slammed Drum Bus",
         "Psychedelic Dub Echo",
-        "Clean Master Bus"
+        "Clean Master Bus",
+        "Neo-Soul & Rhodes Keys",
+        "Guitar Hero Rig",
+        "Funkadelic Synth Bass",
+        "80s Dream Pop",
+        "Sci-Fi Sound Design",
+        "Stereo Width & Polish"
     };
 }
 
@@ -1687,9 +2562,78 @@ void PerformanceRackDSP::loadRackTemplate(int templateIndex)
             if (comp) comp->loadPreset(2);
             break;
         }
+        case 6: // Neo-Soul & Rhodes Keys
+        {
+            auto ph = addEffect(PerformanceEffectType::Phaser);
+            if (ph) ph->loadPreset(0);
+            auto ch = addEffect(PerformanceEffectType::Chorus);
+            if (ch) ch->loadPreset(1);
+            auto trem = addEffect(PerformanceEffectType::Tremolo);
+            if (trem) trem->loadPreset(0);
+            auto amp = addEffect(PerformanceEffectType::AmpCabinet);
+            if (amp) amp->loadPreset(1); // Tweed Clean
+            break;
+        }
+        case 7: // Guitar Hero Rig
+        {
+            auto comp = addEffect(PerformanceEffectType::Compressor);
+            if (comp) comp->loadPreset(0);
+            auto amp = addEffect(PerformanceEffectType::AmpCabinet);
+            if (amp) amp->loadPreset(0); // British Crunch
+            auto del = addEffect(PerformanceEffectType::Delay);
+            if (del) del->loadPreset(0);
+            auto rev = addEffect(PerformanceEffectType::Reverb);
+            if (rev) rev->loadPreset(0);
+            break;
+        }
+        case 8: // Funkadelic Synth Bass
+        {
+            auto wah = addEffect(PerformanceEffectType::AutoWah);
+            if (wah) wah->loadPreset(0); // Funk Wah
+            auto dist = addEffect(PerformanceEffectType::Distortion);
+            if (dist) dist->loadPreset(0);
+            auto comp = addEffect(PerformanceEffectType::Compressor);
+            if (comp) comp->loadPreset(1);
+            break;
+        }
+        case 9: // 80s Dream Pop
+        {
+            auto fl = addEffect(PerformanceEffectType::Flanger);
+            if (fl) fl->loadPreset(4); // 80s Dimension
+            auto ch = addEffect(PerformanceEffectType::Chorus);
+            if (ch) ch->loadPreset(0);
+            auto del = addEffect(PerformanceEffectType::Delay);
+            if (del) del->loadPreset(2);
+            auto rev = addEffect(PerformanceEffectType::Reverb);
+            if (rev) rev->loadPreset(3);
+            break;
+        }
+        case 10: // Sci-Fi Sound Design
+        {
+            auto rm = addEffect(PerformanceEffectType::RingModulator);
+            if (rm) rm->loadPreset(0);
+            auto ps = addEffect(PerformanceEffectType::PitchShifter);
+            if (ps) ps->loadPreset(0);
+            auto filt = addEffect(PerformanceEffectType::Filter);
+            if (filt) filt->loadPreset(1);
+            auto del = addEffect(PerformanceEffectType::Delay);
+            if (del) del->loadPreset(3);
+            break;
+        }
+        case 11: // Stereo Width & Polish
+        {
+            auto imager = addEffect(PerformanceEffectType::StereoImager);
+            if (imager) imager->loadPreset(0);
+            auto eq = addEffect(PerformanceEffectType::ParametricEQ);
+            if (eq) eq->loadPreset(0);
+            auto rev = addEffect(PerformanceEffectType::Reverb);
+            if (rev) rev->loadPreset(1);
+            break;
+        }
         default:
             break;
     }
 }
 
 } // namespace openwav
+

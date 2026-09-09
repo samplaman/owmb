@@ -483,13 +483,18 @@ PerformanceComponent::PerformanceComponent(AudioEngine& engine)
     : audioEngine(engine), rackBay(*this)
 {
     // Rack Title & Count
-    rackTitleLabel.setText("STUDIO EFFECTS RACK", juce::dontSendNotification);
-    rackTitleLabel.setFont(juce::Font(15.0f).boldened());
+    rackTitleLabel.setText("SAMPLE MAP FX RACK", juce::dontSendNotification);
+    rackTitleLabel.setFont(juce::Font(14.0f).boldened());
     rackTitleLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::accentCyan);
     addAndMakeVisible(rackTitleLabel);
 
+    targetSubtitleLabel.setText("Zones & MIDI Instrument", juce::dontSendNotification);
+    targetSubtitleLabel.setFont(juce::Font(10.5f).italicised());
+    targetSubtitleLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::textSecondary);
+    addAndMakeVisible(targetSubtitleLabel);
+
     unitCountLabel.setText("0 Units Active", juce::dontSendNotification);
-    unitCountLabel.setFont(juce::Font(12.0f));
+    unitCountLabel.setFont(juce::Font(11.0f));
     unitCountLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::textSecondary);
     addAndMakeVisible(unitCountLabel);
 
@@ -566,18 +571,21 @@ void PerformanceComponent::resized()
     auto area = getLocalBounds();
 
     // Top Toolbar (height 52px)
-    auto topBar = area.removeFromTop(52).reduced(12, 10);
+    auto topBar = area.removeFromTop(52).reduced(12, 8);
     int btnH = 32;
 
-    rackTitleLabel.setBounds(topBar.removeFromLeft(170).withHeight(btnH));
-    unitCountLabel.setBounds(topBar.removeFromLeft(110).withHeight(btnH));
-    topBar.removeFromLeft(10);
+    auto titleArea = topBar.removeFromLeft(175);
+    rackTitleLabel.setBounds(titleArea.removeFromTop(18));
+    targetSubtitleLabel.setBounds(titleArea.removeFromTop(14));
 
-    btnAddEffect.setBounds(topBar.removeFromLeft(110).withHeight(btnH));
-    topBar.removeFromLeft(8);
-    btnPresets.setBounds(topBar.removeFromLeft(110).withHeight(btnH));
-    topBar.removeFromLeft(8);
-    btnClearAll.setBounds(topBar.removeFromLeft(82).withHeight(btnH));
+    unitCountLabel.setBounds(topBar.removeFromLeft(95).withHeight(btnH));
+    topBar.removeFromLeft(6);
+
+    btnAddEffect.setBounds(topBar.removeFromLeft(105).withHeight(btnH));
+    topBar.removeFromLeft(6);
+    btnPresets.setBounds(topBar.removeFromLeft(105).withHeight(btnH));
+    topBar.removeFromLeft(6);
+    btnClearAll.setBounds(topBar.removeFromLeft(78).withHeight(btnH));
 
     // Right-aligned master controls
     masterGainSlider.setBounds(topBar.removeFromRight(150).withHeight(btnH));
@@ -625,6 +633,8 @@ void PerformanceComponent::showAddEffectMenu()
     juce::PopupMenu spatialMenu;
     spatialMenu.addItem(1, "Studio Reverb");
     spatialMenu.addItem(2, "Stereo Delay");
+    spatialMenu.addItem(11, "Tape & BBD Flanger");
+    spatialMenu.addItem(12, "Stereo Width & Imager");
     m.addSubMenu("Spatial & Time", spatialMenu);
 
     juce::PopupMenu dynamicsMenu;
@@ -632,12 +642,16 @@ void PerformanceComponent::showAddEffectMenu()
     dynamicsMenu.addItem(4, "VCA Compressor");
     dynamicsMenu.addItem(5, "3-Band Parametric EQ");
     dynamicsMenu.addItem(6, "Multi-Mode SVF Filter");
+    dynamicsMenu.addItem(13, "Dynamic Auto-Wah");
+    dynamicsMenu.addItem(14, "Amp & Cabinet Simulator");
     m.addSubMenu("Dynamics & Tone", dynamicsMenu);
 
     juce::PopupMenu modMenu;
     modMenu.addItem(7, "Stereo Chorus");
+    modMenu.addItem(15, "Analog Phaser");
     modMenu.addItem(8, "Pitch Harmonizer");
     modMenu.addItem(9, "Tremolo & Auto-Panner");
+    modMenu.addItem(16, "Metallic Ring Modulator");
     m.addSubMenu("Modulation & Pitch", modMenu);
 
     juce::PopupMenu lofiMenu;
@@ -661,6 +675,12 @@ void PerformanceComponent::showAddEffectMenu()
             case 8: type = PerformanceEffectType::PitchShifter; break;
             case 9: type = PerformanceEffectType::Tremolo; break;
             case 10: type = PerformanceEffectType::Bitcrusher; break;
+            case 11: type = PerformanceEffectType::Flanger; break;
+            case 12: type = PerformanceEffectType::StereoImager; break;
+            case 13: type = PerformanceEffectType::AutoWah; break;
+            case 14: type = PerformanceEffectType::AmpCabinet; break;
+            case 15: type = PerformanceEffectType::Phaser; break;
+            case 16: type = PerformanceEffectType::RingModulator; break;
             default: return;
         }
 

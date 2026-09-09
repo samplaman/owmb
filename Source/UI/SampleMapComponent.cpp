@@ -97,6 +97,15 @@ SampleMapComponent::SampleMapComponent(AudioEngine& engine)
     };
     addAndMakeVisible(loopButton);
 
+    openFxRackButton.setColour(juce::TextButton::buttonColourId, OpenWavLookAndFeel::accentCyan.withAlpha(0.25f));
+    openFxRackButton.setColour(juce::TextButton::textColourOffId, OpenWavLookAndFeel::accentCyan);
+    openFxRackButton.setTooltip("Open Performance FX Rack for Sample Mapped Items");
+    openFxRackButton.onClick = [this] {
+        if (onOpenFxRackRequested)
+            onOpenFxRackRequested();
+    };
+    addAndMakeVisible(openFxRackButton);
+
     // ── Inspector Labels & Sliders ─────────────────────
     inspectorTitle.setFont(juce::Font(14.0f).boldened());
     inspectorTitle.setColour(juce::Label::textColourId, OpenWavLookAndFeel::accentCyan);
@@ -1901,6 +1910,8 @@ void SampleMapComponent::resized()
     oneShotButton.setBounds(topRow.removeFromLeft(84));
     topRow.removeFromLeft(gap);
     loopButton.setBounds(topRow.removeFromLeft(66));
+    topRow.removeFromLeft(gap);
+    openFxRackButton.setBounds(topRow.removeFromLeft(74));
 
     attackKnob.setVisible(false);
     attackLabel.setVisible(false);

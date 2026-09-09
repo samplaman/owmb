@@ -103,6 +103,7 @@ public:
 
     std::function<void()> onSliceToSamplerStarted;
     std::function<void()> onStateChanged;
+    std::function<void()> onOpenFxRackRequested;
 
 private:
     juce::Rectangle<float> getGridBounds() const;
@@ -141,6 +142,7 @@ private:
     juce::TextButton pitchTrackButton { "Pitch Track: ON" };
     juce::TextButton oneShotButton { "One Shot: OFF" };
     juce::TextButton loopButton { "Loop: OFF" };
+    juce::TextButton openFxRackButton { "FX Rack" };
 
     juce::TextButton inspectorDeleteButton { "Delete Selected Zone" };
 

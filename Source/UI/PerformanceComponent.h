@@ -154,6 +154,7 @@ private:
 
     // Top Master Toolbar
     juce::Label rackTitleLabel;
+    juce::Label targetSubtitleLabel;
     juce::Label unitCountLabel;
     juce::TextButton btnAddEffect { "+ Add Effect" };
     juce::TextButton btnPresets { "Rack Presets" };
@@ -182,3 +183,4 @@ private:
 };
 
 } // namespace openwav
+

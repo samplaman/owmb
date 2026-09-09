@@ -108,6 +108,10 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
     saveStateToProcessor();
   };
 
+  sampleMapComponent.onOpenFxRackRequested = [this] {
+    headerBar.setViewMode(ViewMode::Performance);
+  };
+
   waveformTransport.onSlicesGenerated = [this](const std::vector<double>& /*ratios*/) {
     // Slices displayed on main transport bar; auto-mapping to sampler occurs via right-click Auto-Slice
   };

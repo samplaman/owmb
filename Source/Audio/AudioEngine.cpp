@@ -134,13 +134,17 @@ void AudioEngine::prepareToPlay(double sampleRate, int samplesPerBlock)
         // Pre-allocate recording buffer for 10 minutes at the current hardware sample rate
         recordingBuffer.setSize(2, static_cast<int>(sampleRate * 600.0), false, true, false);
         recordingBuffer.clear();
-        performanceRack.prepare(sampleRate, samplesPerBlock > 0 ? samplesPerBlock : 512);
+        int blockSize = samplesPerBlock > 0 ? samplesPerBlock : 512;
+        zoneBuffer.setSize(2, blockSize, false, true, false);
+        zoneBuffer.clear();
+        performanceRack.prepare(sampleRate, blockSize);
     }
 }
 
 void AudioEngine::releaseResources()
 {
     performanceRack.reset();
+    zoneBuffer.setSize(0, 0);
 }
 
 bool AudioEngine::pushCommand(const EngineCommand& cmd)
@@ -686,7 +690,12 @@ void AudioEngine::processNextAudioBlock(juce::AudioBuffer<float>& outputBuffer, 
     int outChannels = outputBuffer.getNumChannels();
     float globalGain = gainLevelAtomic.load(std::memory_order_relaxed);
     bool hasActiveVoices = false;
+    bool hasActiveZoneVoices = false;
     double latestPreviewPosSec = -1.0;
+
+    if (zoneBuffer.getNumChannels() < outChannels || zoneBuffer.getNumSamples() < numSamples)
+        zoneBuffer.setSize(outChannels, numSamples, false, false, true);
+    zoneBuffer.clear();
 
     for (auto& slot : voicePool)
     {
@@ -703,6 +712,10 @@ void AudioEngine::processNextAudioBlock(juce::AudioBuffer<float>& outputBuffer, 
         }
 
         hasActiveVoices = true;
+        if (slot.isZoneVoice)
+            hasActiveZoneVoices = true;
+
+        auto& destBuffer = slot.isZoneVoice ? zoneBuffer : outputBuffer;
         double pos = slot.readPosition;
         double ratio = (slot.ratio > 0.0) ? slot.ratio : 1.0;
 
@@ -819,7 +832,7 @@ void AudioEngine::processNextAudioBlock(juce::AudioBuffer<float>& outputBuffer, 
                     float sOut = getInterpolatedSample(srcCh, curPos);
                     float sIn = getInterpolatedSample(srcCh, inPos);
                     float sampleVal = (sOut * wOut + sIn * wIn) * voiceVol;
-                    outputBuffer.addSample(ch, i, sampleVal);
+                    destBuffer.addSample(ch, i, sampleVal);
                 }
             }
             else
@@ -828,7 +841,7 @@ void AudioEngine::processNextAudioBlock(juce::AudioBuffer<float>& outputBuffer, 
                 {
                     int srcCh = std::min(ch, voiceChannels - 1);
                     float sampleVal = getInterpolatedSample(srcCh, curPos) * voiceVol;
-                    outputBuffer.addSample(ch, i, sampleVal);
+                    destBuffer.addSample(ch, i, sampleVal);
                 }
             }
 
@@ -858,9 +871,9 @@ void AudioEngine::processNextAudioBlock(juce::AudioBuffer<float>& outputBuffer, 
         currentPositionAtomic.store(stoppedPositionSecs.load(std::memory_order_relaxed), std::memory_order_relaxed);
     }
 
-    // 6. Process Reverb DSP on Sampler output if global samplerReverbAmount > 0.0f
+    // 6. Process Reverb DSP on Sampler/Zone output if global samplerReverbAmount > 0.0f
     float revAmount = samplerReverbAmount.load(std::memory_order_relaxed);
-    if (revAmount > 0.001f && outputBuffer.getNumChannels() >= 2 && hasActiveVoices)
+    if (revAmount > 0.001f && zoneBuffer.getNumChannels() >= 2 && hasActiveZoneVoices)
     {
         reverbParams.roomSize = 0.4f + revAmount * 0.5f;
         reverbParams.damping = 0.5f;
@@ -868,11 +881,18 @@ void AudioEngine::processNextAudioBlock(juce::AudioBuffer<float>& outputBuffer, 
         reverbParams.dryLevel = 1.0f - (revAmount * 0.2f);
         reverbParams.width = 1.0f;
         reverbDSP.setParameters(reverbParams);
-        reverbDSP.processStereo(outputBuffer.getWritePointer(0), outputBuffer.getWritePointer(1), outputBuffer.getNumSamples());
+        reverbDSP.processStereo(zoneBuffer.getWritePointer(0), zoneBuffer.getWritePointer(1), numSamples);
     }
 
-    // 7. Process Performance Effects Rack
-    performanceRack.process(outputBuffer);
+    // 7. Process Performance Effects Rack ONLY on sample mapped items (zone voices)
+    performanceRack.process(zoneBuffer);
+
+    // 8. Mix processed zone buffer into main output
+    for (int ch = 0; ch < outChannels; ++ch)
+    {
+        int srcCh = std::min(ch, zoneBuffer.getNumChannels() - 1);
+        outputBuffer.addFrom(ch, 0, zoneBuffer, srcCh, 0, numSamples);
+    }
 }
 
 void AudioEngine::preloadSampleFiles(const std::vector<juce::File>& files)

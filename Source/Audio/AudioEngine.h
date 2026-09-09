@@ -401,6 +401,7 @@ private:
     std::map<juce::String, std::shared_ptr<CachedSample>> sampleCache;
 
     PerformanceRackDSP performanceRack;
+    juce::AudioBuffer<float> zoneBuffer;
 
     juce::ListenerList<AudioEngineListener> listeners;
     bool lastNotifiedPlayingState { false };
