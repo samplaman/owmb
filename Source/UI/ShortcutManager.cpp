@@ -252,6 +252,17 @@ void ShortcutManager::initDefaultShortcuts() {
         juce::KeyPress(),
         false
     });
+
+    shortcuts.push_back({
+        "view.performance",
+        "Switch to Performance View",
+        "View Navigation",
+        "Navigate to effects rack performance view",
+        juce::KeyPress('5', cmdMod, '5'),
+        juce::KeyPress(),
+        juce::KeyPress(),
+        false
+    });
 }
 
 ShortcutItem* ShortcutManager::getShortcut(const juce::String& actionId) {

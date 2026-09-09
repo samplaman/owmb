@@ -49,7 +49,8 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
       scanProgressDialog(p.getLibraryScanner()),
       mobileTransferDialog(p.getAudioEngine(), p.getDatabaseManager(),
                            p.getLibraryScanner()),
-      editComponent(p.getAudioEngine()), sampleMapComponent(p.getAudioEngine()) {
+      editComponent(p.getAudioEngine()), sampleMapComponent(p.getAudioEngine()),
+      performanceComponent(p.getAudioEngine()) {
   bool isDark = audioProcessor.getDatabaseManager().isDarkMode();
   juce::String savedColourHex =
       audioProcessor.getDatabaseManager().getPrimaryColourHex();
@@ -79,6 +80,7 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
   addChildComponent(analysisComponent);
   addChildComponent(editComponent);
   addChildComponent(sampleMapComponent);
+  addChildComponent(performanceComponent);
   addAndMakeVisible(waveformTransport);
 
   setResizable(true, true);
@@ -271,6 +273,7 @@ void OpenWavAudioProcessorEditor::resized() {
   analysisComponent.setVisible(false);
   editComponent.setVisible(false);
   sampleMapComponent.setVisible(false);
+  performanceComponent.setVisible(false);
 
   if (mode == ViewMode::Cloud) {
     sampleCloud.setVisible(true);
@@ -291,6 +294,9 @@ void OpenWavAudioProcessorEditor::resized() {
   } else if (mode == ViewMode::SampleMap) {
     sampleMapComponent.setVisible(true);
     sampleMapComponent.setBounds(area);
+  } else if (mode == ViewMode::Performance) {
+    performanceComponent.setVisible(true);
+    performanceComponent.setBounds(area);
   } else // ViewMode::List
   {
     sampleTable.setVisible(true);
@@ -720,6 +726,9 @@ void OpenWavAudioProcessorEditor::viewModeChanged(ViewMode mode) {
     if (!audioProcessor.getAudioEngine().hasOriginalSnapshot())
       audioProcessor.getAudioEngine().snapshotOriginalForEditing();
   }
+  if (mode == ViewMode::Performance) {
+    performanceComponent.refreshRack();
+  }
 }
 
 void OpenWavAudioProcessorEditor::parentHierarchyChanged() {
@@ -896,6 +905,10 @@ bool OpenWavAudioProcessorEditor::keyPressed(const juce::KeyPress &key) {
     headerBar.setViewMode(ViewMode::SampleMap);
     return true;
   }
+  if (sm.matches("view.performance", key)) {
+    headerBar.setViewMode(ViewMode::Performance);
+    return true;
+  }
 
   return juce::AudioProcessorEditor::keyPressed(key);
 }
@@ -911,6 +924,7 @@ void OpenWavAudioProcessorEditor::saveStateToProcessor() {
   s.tagPanelWidth = tagPanelWidth;
   s.edit = editComponent.getState();
   s.sampleMap = sampleMapComponent.getState();
+  s.performance = performanceComponent.getState();
 
   audioProcessor.setFullPluginState(s);
 }
@@ -947,9 +961,10 @@ void OpenWavAudioProcessorEditor::restoreStateFromProcessor() {
   // 5. Restore Sub-components state
   editComponent.setState(s.edit);
   sampleMapComponent.setState(s.sampleMap);
+  performanceComponent.setState(s.performance);
 
   // 6. Restore View Mode (never open directly in Cloud view)
-  if (s.currentViewMode >= 0 && s.currentViewMode <= 6) {
+  if (s.currentViewMode >= 0 && s.currentViewMode <= 7) {
     auto mode = static_cast<ViewMode>(s.currentViewMode);
     if (mode == ViewMode::Cloud)
       mode = ViewMode::List;

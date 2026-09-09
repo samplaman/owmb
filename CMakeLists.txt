@@ -102,6 +102,8 @@ target_sources(OpenWav PRIVATE
     Source/Audio/AudioEngine.cpp
     Source/Audio/LorisResynthesizer.h
     Source/Audio/LorisResynthesizer.cpp
+    Source/Audio/PerformanceRackDSP.h
+    Source/Audio/PerformanceRackDSP.cpp
     Source/UI/OpenWavLookAndFeel.h
     Source/UI/OpenWavLookAndFeel.cpp
     Source/UI/HeaderBarComponent.h
@@ -132,6 +134,8 @@ target_sources(OpenWav PRIVATE
     Source/UI/EditComponent.cpp
     Source/UI/SampleMapComponent.h
     Source/UI/SampleMapComponent.cpp
+    Source/UI/PerformanceComponent.h
+    Source/UI/PerformanceComponent.cpp
     Source/UI/SliceConfigComponent.h
     Source/UI/SliceConfigComponent.cpp
     Source/UI/LorisResynthesisDialog.h

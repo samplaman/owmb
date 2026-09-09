@@ -68,6 +68,7 @@ HeaderBarComponent::HeaderBarComponent(TagDatabaseManager& db, LibraryScanner& s
     btnAnalysisView.onClick = [this] { setViewMode(ViewMode::Analysis); };
     btnEditView.onClick = [this] { setViewMode(ViewMode::Edit); };
     btnSampleMapView.onClick = [this] { setViewMode(ViewMode::SampleMap); };
+    btnPerformanceView.onClick = [this] { setViewMode(ViewMode::Performance); };
     addAndMakeVisible(btnListView);
     addAndMakeVisible(btnCloudView);
     addAndMakeVisible(btnLibrariesView);
@@ -75,6 +76,7 @@ HeaderBarComponent::HeaderBarComponent(TagDatabaseManager& db, LibraryScanner& s
     addAndMakeVisible(btnAnalysisView);
     addAndMakeVisible(btnEditView);
     addAndMakeVisible(btnSampleMapView);
+    addAndMakeVisible(btnPerformanceView);
     btnListView.setToggleState(true, juce::dontSendNotification);
 }
 
@@ -114,7 +116,7 @@ void HeaderBarComponent::resized()
     area.removeFromLeft(20);
 
     // 3. Dynamic Search Editor
-    int searchWidth = juce::jlimit(130, 180, (area.getWidth() - 1050) / 2 + 130);
+    int searchWidth = juce::jlimit(110, 160, (area.getWidth() - 1140) / 2 + 110);
     searchEditor.setBounds(area.removeFromLeft(searchWidth).withHeight(btnHeight));
     area.removeFromLeft(10);
 
@@ -133,7 +135,7 @@ void HeaderBarComponent::resized()
 
     area.removeFromLeft(10);
 
-    // 5. View Mode Toggle (List, Cloud, Library, Record, Analysis, Edit, Sample Map)
+    // 5. View Mode Toggle (List, Cloud, Library, Record, Analysis, Edit, Sample Map, Performance)
     btnListView.setBounds(area.removeFromLeft(62).withHeight(btnHeight));
     area.removeFromLeft(gap);
     btnCloudView.setBounds(area.removeFromLeft(72).withHeight(btnHeight));
@@ -147,6 +149,8 @@ void HeaderBarComponent::resized()
     btnEditView.setBounds(area.removeFromLeft(62).withHeight(btnHeight));
     area.removeFromLeft(gap);
     btnSampleMapView.setBounds(area.removeFromLeft(106).withHeight(btnHeight));
+    area.removeFromLeft(gap);
+    btnPerformanceView.setBounds(area.removeFromLeft(106).withHeight(btnHeight));
 }
 
 void HeaderBarComponent::textEditorTextChanged(juce::TextEditor& editor)
@@ -196,6 +200,7 @@ void HeaderBarComponent::setViewMode(ViewMode mode)
     btnAnalysisView.setToggleState(mode == ViewMode::Analysis, juce::dontSendNotification);
     btnEditView.setToggleState(mode == ViewMode::Edit, juce::dontSendNotification);
     btnSampleMapView.setToggleState(mode == ViewMode::SampleMap, juce::dontSendNotification);
+    btnPerformanceView.setToggleState(mode == ViewMode::Performance, juce::dontSendNotification);
 
     listeners.call([mode](HeaderBarListener& l) {
         l.viewModeChanged(mode);

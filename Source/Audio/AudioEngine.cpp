@@ -126,7 +126,7 @@ void AudioEngine::timerCallback()
     }
 }
 
-void AudioEngine::prepareToPlay(double sampleRate, int /*samplesPerBlock*/)
+void AudioEngine::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
     if (sampleRate > 0.0)
     {
@@ -134,11 +134,13 @@ void AudioEngine::prepareToPlay(double sampleRate, int /*samplesPerBlock*/)
         // Pre-allocate recording buffer for 10 minutes at the current hardware sample rate
         recordingBuffer.setSize(2, static_cast<int>(sampleRate * 600.0), false, true, false);
         recordingBuffer.clear();
+        performanceRack.prepare(sampleRate, samplesPerBlock > 0 ? samplesPerBlock : 512);
     }
 }
 
 void AudioEngine::releaseResources()
 {
+    performanceRack.reset();
 }
 
 bool AudioEngine::pushCommand(const EngineCommand& cmd)
@@ -868,6 +870,9 @@ void AudioEngine::processNextAudioBlock(juce::AudioBuffer<float>& outputBuffer, 
         reverbDSP.setParameters(reverbParams);
         reverbDSP.processStereo(outputBuffer.getWritePointer(0), outputBuffer.getWritePointer(1), outputBuffer.getNumSamples());
     }
+
+    // 7. Process Performance Effects Rack
+    performanceRack.process(outputBuffer);
 }
 
 void AudioEngine::preloadSampleFiles(const std::vector<juce::File>& files)

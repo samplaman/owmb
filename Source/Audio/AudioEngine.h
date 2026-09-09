@@ -16,6 +16,7 @@
 #include <cstring>
 #include <memory>
 #include <map>
+#include "PerformanceRackDSP.h"
 
 namespace openwav
 {
@@ -267,6 +268,9 @@ public:
     void setMidiInputEnabled(bool enabled) { midiInputEnabled.store(enabled, std::memory_order_relaxed); }
     bool isMidiInputEnabled() const { return midiInputEnabled.load(std::memory_order_relaxed); }
 
+    PerformanceRackDSP& getPerformanceRack() { return performanceRack; }
+    const PerformanceRackDSP& getPerformanceRack() const { return performanceRack; }
+
     enum class RecordingChannelMode
     {
         Stereo,
@@ -395,6 +399,8 @@ private:
 
     mutable juce::CriticalSection cacheLock;
     std::map<juce::String, std::shared_ptr<CachedSample>> sampleCache;
+
+    PerformanceRackDSP performanceRack;
 
     juce::ListenerList<AudioEngineListener> listeners;
     bool lastNotifiedPlayingState { false };

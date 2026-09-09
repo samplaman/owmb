@@ -349,6 +349,79 @@ struct SampleMapState
     }
 };
 
+struct RackEffectState
+{
+    int effectType { 0 };
+    bool enabled { true };
+    float wetDry { 0.5f };
+    std::vector<float> parameters;
+
+    juce::var toVar() const
+    {
+        auto* obj = new juce::DynamicObject();
+        obj->setProperty("effectType", effectType);
+        obj->setProperty("enabled", enabled);
+        obj->setProperty("wetDry", wetDry);
+        juce::Array<juce::var> pArray;
+        for (float p : parameters)
+            pArray.add(static_cast<double>(p));
+        obj->setProperty("parameters", pArray);
+        return juce::var(obj);
+    }
+
+    static RackEffectState fromVar(const juce::var& v)
+    {
+        RackEffectState s;
+        if (!v.isObject()) return s;
+        auto* obj = v.getDynamicObject();
+        if (!obj) return s;
+        if (obj->hasProperty("effectType")) s.effectType = static_cast<int>(obj->getProperty("effectType"));
+        if (obj->hasProperty("enabled")) s.enabled = static_cast<bool>(obj->getProperty("enabled"));
+        if (obj->hasProperty("wetDry")) s.wetDry = static_cast<float>(static_cast<double>(obj->getProperty("wetDry")));
+        if (obj->hasProperty("parameters") && obj->getProperty("parameters").isArray())
+        {
+            for (const auto& val : *obj->getProperty("parameters").getArray())
+                s.parameters.push_back(static_cast<float>(static_cast<double>(val)));
+        }
+        return s;
+    }
+};
+
+struct PerformanceRackState
+{
+    bool masterBypass { false };
+    float masterGain { 1.0f };
+    std::vector<RackEffectState> effects;
+
+    juce::var toVar() const
+    {
+        auto* obj = new juce::DynamicObject();
+        obj->setProperty("masterBypass", masterBypass);
+        obj->setProperty("masterGain", masterGain);
+        juce::Array<juce::var> effectArray;
+        for (const auto& eff : effects)
+            effectArray.add(eff.toVar());
+        obj->setProperty("effects", effectArray);
+        return juce::var(obj);
+    }
+
+    static PerformanceRackState fromVar(const juce::var& v)
+    {
+        PerformanceRackState s;
+        if (!v.isObject()) return s;
+        auto* obj = v.getDynamicObject();
+        if (!obj) return s;
+        if (obj->hasProperty("masterBypass")) s.masterBypass = static_cast<bool>(obj->getProperty("masterBypass"));
+        if (obj->hasProperty("masterGain")) s.masterGain = static_cast<float>(static_cast<double>(obj->getProperty("masterGain")));
+        if (obj->hasProperty("effects") && obj->getProperty("effects").isArray())
+        {
+            for (const auto& item : *obj->getProperty("effects").getArray())
+                s.effects.push_back(RackEffectState::fromVar(item));
+        }
+        return s;
+    }
+};
+
 struct PluginFullState
 {
     int version { 2 };
@@ -361,6 +434,7 @@ struct PluginFullState
 
     EditComponentState edit;
     SampleMapState sampleMap;
+    PerformanceRackState performance;
 
     juce::var toVar() const
     {
@@ -385,6 +459,7 @@ struct PluginFullState
 
         obj->setProperty("edit", edit.toVar());
         obj->setProperty("sampleMap", sampleMap.toVar());
+        obj->setProperty("performance", performance.toVar());
         return juce::var(obj);
     }
 
@@ -421,6 +496,7 @@ struct PluginFullState
 
         if (obj->hasProperty("edit")) s.edit = EditComponentState::fromVar(obj->getProperty("edit"));
         if (obj->hasProperty("sampleMap")) s.sampleMap = SampleMapState::fromVar(obj->getProperty("sampleMap"));
+        if (obj->hasProperty("performance")) s.performance = PerformanceRackState::fromVar(obj->getProperty("performance"));
         return s;
     }
 };
