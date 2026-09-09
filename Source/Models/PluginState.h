@@ -242,6 +242,7 @@ struct SampleMapState
     float samplerReverbAmount { 0.0f };
     bool pitchTrackingEnabled { true };
     int roundRobinMode { 0 }; // 0 = Cycle, 1 = Random, 2 = Off
+    int midiChannel { 2 };    // Default to MIDI Channel 2
 
     juce::var toVar() const
     {
@@ -257,6 +258,7 @@ struct SampleMapState
         obj->setProperty("samplerReverbAmount", samplerReverbAmount);
         obj->setProperty("pitchTrackingEnabled", pitchTrackingEnabled);
         obj->setProperty("roundRobinMode", roundRobinMode);
+        obj->setProperty("midiChannel", midiChannel);
         return juce::var(obj);
     }
 
@@ -279,6 +281,8 @@ struct SampleMapState
         if (obj->hasProperty("samplerReverbAmount")) s.samplerReverbAmount = static_cast<float>(obj->getProperty("samplerReverbAmount"));
         if (obj->hasProperty("pitchTrackingEnabled")) s.pitchTrackingEnabled = static_cast<bool>(obj->getProperty("pitchTrackingEnabled"));
         if (obj->hasProperty("roundRobinMode")) s.roundRobinMode = static_cast<int>(obj->getProperty("roundRobinMode"));
+        if (obj->hasProperty("midiChannel")) s.midiChannel = static_cast<int>(obj->getProperty("midiChannel"));
+        else s.midiChannel = 2;
         return s;
     }
 
@@ -293,6 +297,7 @@ struct SampleMapState
         xml->setAttribute("samplerReverbAmount", static_cast<double>(samplerReverbAmount));
         xml->setAttribute("pitchTrackingEnabled", pitchTrackingEnabled ? 1 : 0);
         xml->setAttribute("roundRobinMode", roundRobinMode);
+        xml->setAttribute("midiChannel", midiChannel);
 
         auto baseDir = targetFile.getParentDirectory();
         for (const auto& z : zones)
@@ -321,6 +326,7 @@ struct SampleMapState
         s.samplerReverbAmount = static_cast<float>(xml.getDoubleAttribute("samplerReverbAmount", 0.0));
         s.pitchTrackingEnabled = xml.getBoolAttribute("pitchTrackingEnabled", true);
         s.roundRobinMode = xml.getIntAttribute("roundRobinMode", 0);
+        s.midiChannel = xml.getIntAttribute("midiChannel", 2);
 
         auto baseDir = sourceFile.getParentDirectory();
         for (auto* child : xml.getChildIterator())

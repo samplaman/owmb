@@ -75,7 +75,7 @@ void OpenWavAudioProcessor::setFullPluginState(const PluginFullState& s)
         audioEngine.preloadSampleFiles(filesToPreload);
 }
 
-void OpenWavAudioProcessor::handleNoteOn(juce::MidiKeyboardState*, int /*midiChannel*/, int midiNoteNumber, float velocity)
+void OpenWavAudioProcessor::handleNoteOn(juce::MidiKeyboardState*, int midiChannel, int midiNoteNumber, float velocity)
 {
     if (midiNoteNumber < 0 || midiNoteNumber > 127)
         return;
@@ -88,81 +88,102 @@ void OpenWavAudioProcessor::handleNoteOn(juce::MidiKeyboardState*, int /*midiCha
         currentSampleMap = sampleMapState;
     }
 
-    bool hasMappedZones = !currentSampleMap.zones.empty();
-    bool zoneTriggered = false;
+    int mapChannel = currentSampleMap.midiChannel > 0 ? currentSampleMap.midiChannel : 2;
+    bool isSampleMapChannel = (midiChannel == mapChannel || currentSampleMap.midiChannel == 0);
 
-    // 1. Check Sample Map Zones for matching Key and Velocity
-    std::vector<const SampleMapZoneState*> matchingZones;
-    for (const auto& z : currentSampleMap.zones)
+    if (isSampleMapChannel)
     {
-        if (midiNoteNumber >= z.keyLow && midiNoteNumber <= z.keyHigh && velInt >= z.velLow && velInt <= z.velHigh && z.filePath.isNotEmpty())
-        {
-            matchingZones.push_back(&z);
-        }
-    }
+        bool zoneTriggered = false;
 
-    if (!matchingZones.empty())
-    {
-        const SampleMapZoneState* chosenZone = nullptr;
-
-        if (matchingZones.size() == 1 || currentSampleMap.roundRobinMode == 2) // Single match or RR Off
+        // 1. Check Sample Map Zones for matching Key and Velocity
+        std::vector<const SampleMapZoneState*> matchingZones;
+        for (const auto& z : currentSampleMap.zones)
         {
-            chosenZone = matchingZones[0];
-        }
-        else if (currentSampleMap.roundRobinMode == 1) // Random RR
-        {
-            int lastIdx = lastRandomZoneIndex[midiNoteNumber];
-            int pick = 0;
-            if (matchingZones.size() > 1)
+            if (midiNoteNumber >= z.keyLow && midiNoteNumber <= z.keyHigh && velInt >= z.velLow && velInt <= z.velHigh && z.filePath.isNotEmpty())
             {
-                pick = juce::Random::getSystemRandom().nextInt(static_cast<int>(matchingZones.size()));
-                if (pick == lastIdx)
-                    pick = (pick + 1) % static_cast<int>(matchingZones.size());
+                matchingZones.push_back(&z);
             }
-            lastRandomZoneIndex[midiNoteNumber] = pick;
-            chosenZone = matchingZones[static_cast<size_t>(pick)];
-        }
-        else // Sequential / Cycle RR
-        {
-            std::sort(matchingZones.begin(), matchingZones.end(), [](const SampleMapZoneState* a, const SampleMapZoneState* b) {
-                return a->roundRobinIndex < b->roundRobinIndex;
-            });
-            int count = noteRoundRobinCounters[midiNoteNumber]++;
-            size_t pick = static_cast<size_t>(count) % matchingZones.size();
-            chosenZone = matchingZones[pick];
         }
 
-        if (chosenZone != nullptr)
+        if (!matchingZones.empty())
         {
-            juce::File fileToLoad(chosenZone->filePath);
-            audioEngine.playZoneVoice(fileToLoad, midiNoteNumber, chosenZone->rootNote, chosenZone->fineTuneCents, chosenZone->gainDb, velocity,
-                                      chosenZone->attackMs / 1000.0f, chosenZone->decayMs / 1000.0f, chosenZone->sustainLevel, chosenZone->releaseMs / 1000.0f,
-                                      audioEngine.isOneShotEnabled(), audioEngine.isLooping());
-            zoneTriggered = true;
+            const SampleMapZoneState* chosenZone = nullptr;
+
+            if (matchingZones.size() == 1 || currentSampleMap.roundRobinMode == 2) // Single match or RR Off
+            {
+                chosenZone = matchingZones[0];
+            }
+            else if (currentSampleMap.roundRobinMode == 1) // Random RR
+            {
+                int lastIdx = lastRandomZoneIndex[midiNoteNumber];
+                int pick = 0;
+                if (matchingZones.size() > 1)
+                {
+                    pick = juce::Random::getSystemRandom().nextInt(static_cast<int>(matchingZones.size()));
+                    if (pick == lastIdx)
+                        pick = (pick + 1) % static_cast<int>(matchingZones.size());
+                }
+                lastRandomZoneIndex[midiNoteNumber] = pick;
+                chosenZone = matchingZones[static_cast<size_t>(pick)];
+            }
+            else // Sequential / Cycle RR
+            {
+                std::sort(matchingZones.begin(), matchingZones.end(), [](const SampleMapZoneState* a, const SampleMapZoneState* b) {
+                    return a->roundRobinIndex < b->roundRobinIndex;
+                });
+                int count = noteRoundRobinCounters[midiNoteNumber]++;
+                size_t pick = static_cast<size_t>(count) % matchingZones.size();
+                chosenZone = matchingZones[pick];
+            }
+
+            if (chosenZone != nullptr)
+            {
+                juce::File fileToLoad(chosenZone->filePath);
+                audioEngine.playZoneVoice(fileToLoad, midiNoteNumber, chosenZone->rootNote, chosenZone->fineTuneCents, chosenZone->gainDb, velocity,
+                                          chosenZone->attackMs / 1000.0f, chosenZone->decayMs / 1000.0f, chosenZone->sustainLevel, chosenZone->releaseMs / 1000.0f,
+                                          audioEngine.isOneShotEnabled(), audioEngine.isLooping());
+                zoneTriggered = true;
+            }
+        }
+
+        if (zoneTriggered)
+        {
+            // Forward to keyboard state only when a mapped zone actually triggered
+            audioEngine.getKeyboardState().noteOn(mapChannel, midiNoteNumber, velocity);
         }
     }
-
-    // 2. Playback: If zones are mapped, ONLY play mapped zones; otherwise fall back to single master sample
-    if (!hasMappedZones)
+    else
     {
+        // Channel 1 or non-sample-map channels: trigger single master sample preview / playback
         audioEngine.triggerNoteOn(midiNoteNumber, velocity);
-        audioEngine.getKeyboardState().noteOn(1, midiNoteNumber, velocity);
-    }
-    else if (zoneTriggered)
-    {
-        // Forward to keyboard state only when a mapped zone actually triggered
-        audioEngine.getKeyboardState().noteOn(1, midiNoteNumber, velocity);
+        audioEngine.getKeyboardState().noteOn(midiChannel > 0 ? midiChannel : 1, midiNoteNumber, velocity);
     }
 }
 
-void OpenWavAudioProcessor::handleNoteOff(juce::MidiKeyboardState*, int /*midiChannel*/, int midiNoteNumber, float /*velocity*/)
+void OpenWavAudioProcessor::handleNoteOff(juce::MidiKeyboardState*, int midiChannel, int midiNoteNumber, float /*velocity*/)
 {
     if (midiNoteNumber < 0 || midiNoteNumber > 127)
         return;
 
-    audioEngine.stopZoneVoice(midiNoteNumber);
-    audioEngine.triggerNoteOff(midiNoteNumber);
-    audioEngine.getKeyboardState().noteOff(1, midiNoteNumber, 0.0f);
+    SampleMapState currentSampleMap;
+    {
+        const juce::ScopedLock sl(stateLock);
+        currentSampleMap = sampleMapState;
+    }
+
+    int mapChannel = currentSampleMap.midiChannel > 0 ? currentSampleMap.midiChannel : 2;
+    bool isSampleMapChannel = (midiChannel == mapChannel || currentSampleMap.midiChannel == 0);
+
+    if (isSampleMapChannel)
+    {
+        audioEngine.stopZoneVoice(midiNoteNumber);
+        audioEngine.getKeyboardState().noteOff(mapChannel, midiNoteNumber, 0.0f);
+    }
+    else
+    {
+        audioEngine.triggerNoteOff(midiNoteNumber);
+        audioEngine.getKeyboardState().noteOff(midiChannel > 0 ? midiChannel : 1, midiNoteNumber, 0.0f);
+    }
 }
 
 void OpenWavAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)

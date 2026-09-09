@@ -106,6 +106,41 @@ SampleMapComponent::SampleMapComponent(AudioEngine& engine)
     };
     addAndMakeVisible(openFxRackButton);
 
+    midiChannelButton.setColour(juce::TextButton::buttonColourId, OpenWavLookAndFeel::accentCyan.withAlpha(0.25f));
+    midiChannelButton.setColour(juce::TextButton::textColourOffId, OpenWavLookAndFeel::accentCyan);
+    midiChannelButton.setTooltip("Select incoming MIDI Channel for the Sample Mapper (Default: Channel 2)");
+    updateMidiChannelButtonText();
+    midiChannelButton.onClick = [this] {
+        juce::PopupMenu m;
+        m.addItem(100, "Omni (All Channels)", true, midiChannelSetting == 0);
+        m.addSeparator();
+        for (int ch = 1; ch <= 16; ++ch)
+        {
+            juce::String label = "Channel " + juce::String(ch);
+            if (ch == 2)
+                label += " (Default)";
+            else if (ch == 1)
+                label += " (Master Sample)";
+            m.addItem(ch, label, true, midiChannelSetting == ch);
+        }
+        m.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&midiChannelButton),
+            [this](int result) {
+                if (result == 100)
+                {
+                    midiChannelSetting = 0; // Omni
+                    updateMidiChannelButtonText();
+                    if (onStateChanged) onStateChanged();
+                }
+                else if (result >= 1 && result <= 16)
+                {
+                    midiChannelSetting = result;
+                    updateMidiChannelButtonText();
+                    if (onStateChanged) onStateChanged();
+                }
+            });
+    };
+    addAndMakeVisible(midiChannelButton);
+
     // ── Inspector Labels & Sliders ─────────────────────
     inspectorTitle.setFont(juce::Font(14.0f).boldened());
     inspectorTitle.setColour(juce::Label::textColourId, OpenWavLookAndFeel::accentCyan);
@@ -220,8 +255,20 @@ void SampleMapComponent::loopingStateChanged(bool enabled)
     });
 }
 
-void SampleMapComponent::handleNoteOn(juce::MidiKeyboardState*, int /*midiChannel*/, int midiNoteNumber, float velocity)
+void SampleMapComponent::updateMidiChannelButtonText()
 {
+    if (midiChannelSetting == 0)
+        midiChannelButton.setButtonText("MIDI: Omni");
+    else
+        midiChannelButton.setButtonText("MIDI Ch: " + juce::String(midiChannelSetting));
+}
+
+void SampleMapComponent::handleNoteOn(juce::MidiKeyboardState*, int midiChannel, int midiNoteNumber, float velocity)
+{
+    int targetCh = midiChannelSetting;
+    if (targetCh > 0 && midiChannel > 0 && midiChannel != targetCh)
+        return;
+
     if (midiNoteNumber >= 0 && midiNoteNumber < 128)
     {
         int velInt = juce::jlimit(0, 127, static_cast<int>(velocity * 127.0f));
@@ -279,8 +326,12 @@ void SampleMapComponent::handleNoteOn(juce::MidiKeyboardState*, int /*midiChanne
     }
 }
 
-void SampleMapComponent::handleNoteOff(juce::MidiKeyboardState*, int /*midiChannel*/, int midiNoteNumber, float /*velocity*/)
+void SampleMapComponent::handleNoteOff(juce::MidiKeyboardState*, int midiChannel, int midiNoteNumber, float /*velocity*/)
 {
+    int targetCh = midiChannelSetting;
+    if (targetCh > 0 && midiChannel > 0 && midiChannel != targetCh)
+        return;
+
     if (midiNoteNumber >= 0 && midiNoteNumber < 128)
     {
         activeMidiNotes[static_cast<size_t>(midiNoteNumber)] = false;
@@ -1540,7 +1591,8 @@ void SampleMapComponent::triggerKeybedNote(int note, float velocity, int velInt)
                                       loopButton.getToggleState() || audioEngine.isLooping());
 
             auditionNote = note;
-            audioEngine.getKeyboardState().noteOn(1, note, velocity);
+            int ch = midiChannelSetting > 0 ? midiChannelSetting : 2;
+            audioEngine.getKeyboardState().noteOn(ch, note, velocity);
             resized();
             repaint();
         }
@@ -1757,7 +1809,8 @@ void SampleMapComponent::mouseDown(const juce::MouseEvent& e)
                 }
                 auditionNote = z.rootNote;
                 auditionVelocity = 100;
-                audioEngine.getKeyboardState().noteOn(1, auditionNote, 0.8f);
+                int ch = midiChannelSetting > 0 ? midiChannelSetting : 2;
+                audioEngine.getKeyboardState().noteOn(ch, auditionNote, 0.8f);
 
                 float zoneW = zRect.getWidth();
                 float effectiveEdgeThreshold = (zoneW < 24.0f) ? std::min(3.0f, zoneW * 0.25f) : edgeThreshold;
@@ -1892,7 +1945,8 @@ void SampleMapComponent::mouseDrag(const juce::MouseEvent& e)
             if (auditionNote >= 0)
             {
                 audioEngine.stopZoneVoice(auditionNote);
-                audioEngine.getKeyboardState().noteOff(1, auditionNote, 0.0f);
+                int ch = midiChannelSetting > 0 ? midiChannelSetting : 2;
+                audioEngine.getKeyboardState().noteOff(ch, auditionNote, 0.0f);
                 auditionNote = -1;
             }
             auditionKeyUnderMouse = newNote;
@@ -2029,8 +2083,9 @@ void SampleMapComponent::mouseUp(const juce::MouseEvent& /*e*/)
 {
     if (auditionNote >= 0)
     {
+        int ch = midiChannelSetting > 0 ? midiChannelSetting : 2;
         audioEngine.stopZoneVoice(auditionNote);
-        audioEngine.getKeyboardState().noteOff(1, auditionNote, 0.0f);
+        audioEngine.getKeyboardState().noteOff(ch, auditionNote, 0.0f);
         audioEngine.triggerNoteOff(auditionNote);
     }
 
@@ -2065,6 +2120,9 @@ void SampleMapComponent::resized()
     // ── Single Top Toolbar ──
     auto topRow = area.removeFromTop(28);
     int gap = 5;
+
+    midiChannelButton.setBounds(topRow.removeFromRight(88));
+    topRow.removeFromRight(gap);
 
     addSampleButton.setBounds(topRow.removeFromLeft(78));
     topRow.removeFromLeft(gap);
@@ -2369,6 +2427,7 @@ SampleMapState SampleMapComponent::getState() const
     s.samplerReverbAmount = audioEngine.getSamplerReverbAmount();
     s.pitchTrackingEnabled = audioEngine.isPitchTrackingEnabled();
     s.roundRobinMode = roundRobinMode;
+    s.midiChannel = midiChannelSetting;
     return s;
 }
 
@@ -2418,6 +2477,9 @@ void SampleMapComponent::setState(const SampleMapState& state)
 
     roundRobinMode = state.roundRobinMode;
     roundRobinButton.setButtonText(roundRobinMode == 0 ? "RR: Cycle" : (roundRobinMode == 1 ? "RR: Random" : "RR: OFF"));
+
+    midiChannelSetting = state.midiChannel > 0 ? state.midiChannel : 2;
+    updateMidiChannelButtonText();
 
     if (!zones.empty())
     {

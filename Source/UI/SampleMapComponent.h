@@ -144,6 +144,10 @@ private:
     juce::TextButton oneShotButton { "One Shot: OFF" };
     juce::TextButton loopButton { "Loop: OFF" };
     juce::TextButton openFxRackButton { "FX Rack" };
+    juce::TextButton midiChannelButton { "MIDI Ch: 2" };
+
+    void updateMidiChannelButtonText();
+    int midiChannelSetting { 2 };
 
     juce::TextButton inspectorDeleteButton { "Delete Selected Zone" };
 
