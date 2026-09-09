@@ -142,14 +142,17 @@ void OpenWavAudioProcessor::handleNoteOn(juce::MidiKeyboardState*, int /*midiCha
         }
     }
 
-    // 2. Fallback: Trigger single master sample only if NO zones are mapped and none triggered
-    if (!hasMappedZones && !zoneTriggered)
+    // 2. Playback: If zones are mapped, ONLY play mapped zones; otherwise fall back to single master sample
+    if (!hasMappedZones)
     {
         audioEngine.triggerNoteOn(midiNoteNumber, velocity);
+        audioEngine.getKeyboardState().noteOn(1, midiNoteNumber, velocity);
     }
-
-    // Forward to keyboard state so the UI keybed lights up and hit dots are registered
-    audioEngine.getKeyboardState().noteOn(1, midiNoteNumber, velocity);
+    else if (zoneTriggered)
+    {
+        // Forward to keyboard state only when a mapped zone actually triggered
+        audioEngine.getKeyboardState().noteOn(1, midiNoteNumber, velocity);
+    }
 }
 
 void OpenWavAudioProcessor::handleNoteOff(juce::MidiKeyboardState*, int /*midiChannel*/, int midiNoteNumber, float /*velocity*/)

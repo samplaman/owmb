@@ -224,8 +224,26 @@ void SampleMapComponent::handleNoteOn(juce::MidiKeyboardState*, int /*midiChanne
 {
     if (midiNoteNumber >= 0 && midiNoteNumber < 128)
     {
-        activeMidiNotes[static_cast<size_t>(midiNoteNumber)] = true;
         int velInt = juce::jlimit(0, 127, static_cast<int>(velocity * 127.0f));
+
+        int matchingZoneIdx = -1;
+        juce::File fileToLoad;
+        for (size_t i = 0; i < zones.size(); ++i)
+        {
+            const auto& z = zones[i];
+            if (midiNoteNumber >= z.keyLow && midiNoteNumber <= z.keyHigh && velInt >= z.velLow && velInt <= z.velHigh && z.filePath.isNotEmpty())
+            {
+                matchingZoneIdx = static_cast<int>(i);
+                fileToLoad = juce::File(z.filePath);
+                break;
+            }
+        }
+
+        // If sample map has zones, only respond to mapped areas at this velocity!
+        if (!zones.empty() && matchingZoneIdx < 0)
+            return;
+
+        activeMidiNotes[static_cast<size_t>(midiNoteNumber)] = true;
         activeNoteVelocities[static_cast<size_t>(midiNoteNumber)] = velInt;
 
         uint32_t now = juce::Time::getMillisecondCounter();
@@ -237,20 +255,11 @@ void SampleMapComponent::handleNoteOn(juce::MidiKeyboardState*, int /*midiChanne
         );
         recentHitDots.push_back({ midiNoteNumber, velInt, now });
 
-        juce::File fileToLoad;
-        for (size_t i = 0; i < zones.size(); ++i)
+        if (matchingZoneIdx >= 0)
         {
-            const auto& z = zones[i];
-            if (midiNoteNumber >= z.keyLow && midiNoteNumber <= z.keyHigh && velInt >= z.velLow && velInt <= z.velHigh)
-            {
-                selectedZoneIndex = static_cast<int>(i);
-                selectedZoneIndices.clear();
-                selectedZoneIndices.insert(static_cast<int>(i));
-
-                if (z.filePath.isNotEmpty())
-                    fileToLoad = juce::File(z.filePath);
-                break;
-            }
+            selectedZoneIndex = matchingZoneIdx;
+            selectedZoneIndices.clear();
+            selectedZoneIndices.insert(matchingZoneIdx);
         }
 
         juce::MessageManager::callAsync([this, fileToLoad] {
@@ -1473,9 +1482,7 @@ void SampleMapComponent::triggerKeybedNote(int note, float velocity, int velInt)
     if (note < 0 || note > 127)
         return;
 
-    bool zoneTriggered = false;
-
-    // 1. Find matching zones for note and velocity
+    // Strictly match BOTH note AND velocity within mapped zones
     std::vector<int> matchingZoneIndices;
     for (size_t i = 0; i < zones.size(); ++i)
     {
@@ -1486,39 +1493,30 @@ void SampleMapComponent::triggerKeybedNote(int note, float velocity, int velInt)
         }
     }
 
-    // If no exact velocity layer match, fallback to any zone covering this key note
+    // Only play mapped areas! If no note on selected map at that velocity, DO NOT play outside!
     if (matchingZoneIndices.empty())
     {
-        for (size_t i = 0; i < zones.size(); ++i)
-        {
-            const auto& z = zones[i];
-            if (note >= z.keyLow && note <= z.keyHigh && z.filePath.isNotEmpty())
-            {
-                matchingZoneIndices.push_back(static_cast<int>(i));
-            }
-        }
+        auditionNote = -1;
+        return;
     }
 
     int chosenIdx = -1;
-    if (!matchingZoneIndices.empty())
+    if (matchingZoneIndices.size() == 1 || roundRobinMode == 2)
     {
-        if (matchingZoneIndices.size() == 1 || roundRobinMode == 2)
-        {
-            chosenIdx = matchingZoneIndices[0];
-        }
-        else if (roundRobinMode == 1) // Random RR
-        {
-            chosenIdx = matchingZoneIndices[static_cast<size_t>(juce::Random::getSystemRandom().nextInt(static_cast<int>(matchingZoneIndices.size())))];
-        }
-        else // Cycle RR
-        {
-            std::sort(matchingZoneIndices.begin(), matchingZoneIndices.end(), [this](int a, int b) {
-                return zones[a].roundRobinIndex < zones[b].roundRobinIndex;
-            });
-            static std::map<int, int> rrCounters;
-            int count = rrCounters[note]++;
-            chosenIdx = matchingZoneIndices[static_cast<size_t>(count) % matchingZoneIndices.size()];
-        }
+        chosenIdx = matchingZoneIndices[0];
+    }
+    else if (roundRobinMode == 1) // Random RR
+    {
+        chosenIdx = matchingZoneIndices[static_cast<size_t>(juce::Random::getSystemRandom().nextInt(static_cast<int>(matchingZoneIndices.size())))];
+    }
+    else // Cycle RR
+    {
+        std::sort(matchingZoneIndices.begin(), matchingZoneIndices.end(), [this](int a, int b) {
+            return zones[a].roundRobinIndex < zones[b].roundRobinIndex;
+        });
+        static std::map<int, int> rrCounters;
+        int count = rrCounters[note]++;
+        chosenIdx = matchingZoneIndices[static_cast<size_t>(count) % matchingZoneIndices.size()];
     }
 
     if (chosenIdx >= 0 && chosenIdx < static_cast<int>(zones.size()))
@@ -1540,21 +1538,21 @@ void SampleMapComponent::triggerKeybedNote(int note, float velocity, int velInt)
                                       z.attackMs / 1000.0f, z.decayMs / 1000.0f, z.sustainLevel, z.releaseMs / 1000.0f,
                                       oneShotButton.getToggleState() || audioEngine.isOneShotEnabled(),
                                       loopButton.getToggleState() || audioEngine.isLooping());
-            zoneTriggered = true;
+
+            auditionNote = note;
+            audioEngine.getKeyboardState().noteOn(1, note, velocity);
+            resized();
+            repaint();
+        }
+        else
+        {
+            auditionNote = -1;
         }
     }
-
-    // 2. Fallback: Trigger single master sample if NO zones are mapped and none triggered
-    if (!zoneTriggered)
+    else
     {
-        audioEngine.triggerNoteOn(note, velocity);
+        auditionNote = -1;
     }
-
-    // 3. Forward to keyboard state so on-screen keys light up and hit dots are registered
-    audioEngine.getKeyboardState().noteOn(1, note, velocity);
-
-    resized();
-    repaint();
 }
 
 void SampleMapComponent::paintKeybed(juce::Graphics& g, juce::Rectangle<float> area) const
@@ -1572,6 +1570,16 @@ void SampleMapComponent::paintKeybed(juce::Graphics& g, juce::Rectangle<float> a
         bool isBlackKey = (noteInOctave == 1 || noteInOctave == 3 || noteInOctave == 6 || noteInOctave == 8 || noteInOctave == 10);
 
         juce::Rectangle<float> keyRect(kx, area.getY(), noteWidth, area.getHeight());
+
+        bool hasZone = false;
+        for (const auto& z : zones)
+        {
+            if (note >= z.keyLow && note <= z.keyHigh && z.filePath.isNotEmpty())
+            {
+                hasZone = true;
+                break;
+            }
+        }
 
         bool isMidiPressed = activeMidiNotes[static_cast<size_t>(note)];
         if (note == auditionNote || isMidiPressed)
@@ -1595,13 +1603,31 @@ void SampleMapComponent::paintKeybed(juce::Graphics& g, juce::Rectangle<float> a
         {
             g.setColour(juce::Colours::black.withAlpha(0.85f));
             g.fillRect(keyRect.withHeight(area.getHeight() * 0.65f));
+
+            if (hasZone)
+            {
+                g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.6f));
+                g.fillRect(keyRect.getX() + 0.5f, area.getY() + area.getHeight() * 0.65f - 2.5f, keyRect.getWidth() - 1.0f, 2.0f);
+            }
         }
         else
         {
-            g.setColour(OpenWavLookAndFeel::textSecondary.withAlpha(0.15f));
-            g.fillRect(keyRect);
-            g.setColour(OpenWavLookAndFeel::borderColour.withAlpha(0.3f));
-            g.drawRect(keyRect, 0.5f);
+            if (hasZone)
+            {
+                g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.08f));
+                g.fillRect(keyRect);
+                g.setColour(OpenWavLookAndFeel::borderColour.withAlpha(0.35f));
+                g.drawRect(keyRect, 0.5f);
+                g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.65f));
+                g.fillRect(keyRect.getX() + 0.5f, keyRect.getBottom() - 3.0f, keyRect.getWidth() - 1.0f, 2.5f);
+            }
+            else
+            {
+                g.setColour(OpenWavLookAndFeel::textSecondary.withAlpha(0.15f));
+                g.fillRect(keyRect);
+                g.setColour(OpenWavLookAndFeel::borderColour.withAlpha(0.3f));
+                g.drawRect(keyRect, 0.5f);
+            }
 
             if (note % 12 == 0)
             {
@@ -1622,10 +1648,11 @@ void SampleMapComponent::mouseDown(const juce::MouseEvent& e)
 
     if (keybedArea.contains(e.position))
     {
-        auditionNote = noteNumberAtX(e.x, keybedArea);
+        int targetNote = noteNumberAtX(e.x, keybedArea);
         activeDragTarget = DragTarget::KeybedAudition;
+        auditionKeyUnderMouse = targetNote;
 
-        int noteInOctave = auditionNote % 12;
+        int noteInOctave = targetNote % 12;
         bool isBlackKey = (noteInOctave == 1 || noteInOctave == 3 || noteInOctave == 6 || noteInOctave == 8 || noteInOctave == 10);
         float keyH = isBlackKey ? (keybedArea.getHeight() * 0.65f) : keybedArea.getHeight();
 
@@ -1635,7 +1662,7 @@ void SampleMapComponent::mouseDown(const juce::MouseEvent& e)
         float floatVelocity = static_cast<float>(velInt) / 127.0f;
         auditionVelocity = velInt;
 
-        triggerKeybedNote(auditionNote, floatVelocity, velInt);
+        triggerKeybedNote(targetNote, floatVelocity, velInt);
         return;
     }
 
@@ -1860,14 +1887,15 @@ void SampleMapComponent::mouseDrag(const juce::MouseEvent& e)
         int newVelInt = juce::jlimit(1, 127, static_cast<int>(std::round(1.0f + relY * 126.0f)));
         float newVelocity = static_cast<float>(newVelInt) / 127.0f;
 
-        if (newNote != auditionNote)
+        if (newNote != auditionKeyUnderMouse)
         {
             if (auditionNote >= 0)
             {
                 audioEngine.stopZoneVoice(auditionNote);
                 audioEngine.getKeyboardState().noteOff(1, auditionNote, 0.0f);
+                auditionNote = -1;
             }
-            auditionNote = newNote;
+            auditionKeyUnderMouse = newNote;
             auditionVelocity = newVelInt;
             triggerKeybedNote(newNote, newVelocity, newVelInt);
         }
@@ -2015,6 +2043,7 @@ void SampleMapComponent::mouseUp(const juce::MouseEvent& /*e*/)
     activeDragTarget = DragTarget::None;
     activeDragZone = -1;
     auditionNote = -1;
+    auditionKeyUnderMouse = -1;
     auditionVelocity = 100;
     lassoRect = juce::Rectangle<float>();
     dragStartZones.clear();

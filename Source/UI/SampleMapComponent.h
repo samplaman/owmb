@@ -219,6 +219,7 @@ private:
     int activeDragZone { -1 };
     int auditionNote { -1 };
     int auditionVelocity { 100 };
+    int auditionKeyUnderMouse { -1 };
     std::array<bool, 128> activeMidiNotes {};
     std::array<int, 128> activeNoteVelocities {};
     std::vector<HitDot> recentHitDots;
