@@ -30,7 +30,59 @@ struct SampleMapZone
     float decayMs { 100.0f };     // 0 to 2000 ms
     float sustainLevel { 1.0f };  // 0 to 1.0
     float releaseMs { 200.0f };   // 0 to 5000 ms
+    float velocitySensitivity { 1.0f }; // 0.0 to 1.0
     bool isSelected { false };
+};
+
+class VelocityCurveComponent : public juce::Component
+{
+public:
+    VelocityCurveComponent();
+    ~VelocityCurveComponent() override = default;
+
+    void paint(juce::Graphics& g) override;
+    void mouseDown(const juce::MouseEvent& e) override;
+    void mouseDrag(const juce::MouseEvent& e) override;
+    void mouseUp(const juce::MouseEvent& e) override;
+    void mouseMove(const juce::MouseEvent& e) override;
+    void mouseExit(const juce::MouseEvent& e) override;
+
+    void setSensitivity(float s);
+    float getSensitivity() const { return sensitivity; }
+
+    void setCurve(float c);
+    float getCurve() const { return curve; }
+
+    void setCurveMode(int mode);
+    int getCurveMode() const { return curveMode; }
+
+    void setMinFloor(int floorVal);
+    int getMinFloor() const { return minFloor; }
+
+    float computeResponse(float inVel) const;
+
+    void triggerHit(int velInt);
+    void updateHitFade();
+
+    std::function<void(float newSens, float newCurve, int newMode)> onCurveChanged;
+    std::function<void(int inV, int outV, float dbGain)> onVelocityHit;
+
+private:
+    float sensitivity { 1.0f }; // 0.0 to 1.0
+    float curve { 0.0f };       // -1.0 to +1.0
+    int curveMode { 0 };        // 0=Lin, 1=Soft, 2=Hard, 3=S-Curve, 4=Fixed
+    int minFloor { 0 };         // 0 to 127
+
+    bool isDraggingNode { false };
+    bool isHoveringNode { false };
+    juce::Point<float> hoverPos;
+
+    int lastHitVel { -1 };
+    float lastHitResponse { 0.0f };
+    uint32_t lastHitTimeMs { 0 };
+
+    juce::Rectangle<float> getGraphArea() const;
+    juce::Point<float> getNodePosition(const juce::Rectangle<float>& graphArea) const;
 };
 
 class SampleMapComponent : public juce::Component,
@@ -144,10 +196,44 @@ private:
     juce::TextButton oneShotButton { "One Shot: OFF" };
     juce::TextButton loopButton { "Loop: OFF" };
     juce::TextButton openFxRackButton { "FX Rack" };
+    juce::TextButton velCurveButton { "Vel: 100%" };
     juce::TextButton midiChannelButton { "MIDI Ch: 2" };
 
     void updateMidiChannelButtonText();
+    void updateVelocityCurveButtonText();
+    void applyVelocityPreset(int mode);
+    void updateVelocityCurveUI();
+    float computeEffectiveVelocity(float inVelocity, const SampleMapZone* zone = nullptr) const;
+
     int midiChannelSetting { 2 };
+    float globalVelocitySensitivity { 1.0f };
+    float globalVelocityCurve { 0.0f };
+    int globalVelocityCurveMode { 0 };
+    int globalVelocityMinFloor { 0 };
+    bool velocityScopeIsZone { false };
+
+    // Inspector Tab Switcher
+    juce::TextButton inspectorTabZonesBtn { "Zones" };
+    juce::TextButton inspectorTabVelBtn { "Vel Curve" };
+    int inspectorActiveTab { 0 }; // 0 = Zones, 1 = Velocity Curve
+
+    // Visual Velocity Curve Studio Controls
+    VelocityCurveComponent velocityCurveView;
+    juce::TextButton velLinBtn { "Lin" };
+    juce::TextButton velSoftBtn { "Soft" };
+    juce::TextButton velHardBtn { "Hard" };
+    juce::TextButton velSCurveBtn { "S-Curv" };
+    juce::TextButton velFixedBtn { "Fixed" };
+
+    juce::Label velSensitivityLabel { {}, "Sens:" };
+    juce::Slider velSensitivitySlider;
+    juce::Label velCurveLabel { {}, "Curve:" };
+    juce::Slider velCurveSlider;
+    juce::Label velFloorLabel { {}, "Floor:" };
+    juce::Slider velFloorSlider;
+    juce::TextButton velScopeButton { "Scope: Global" };
+    juce::Label velReadoutLabel { {}, "In: --  Out: --" };
+    juce::TextButton velTestAuditionBtn { "Test Hit" };
 
     juce::TextButton inspectorDeleteButton { "Delete Selected Zone" };
 

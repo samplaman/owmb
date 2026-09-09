@@ -8,6 +8,334 @@
 namespace openwav
 {
 
+// ─────────────────────────────────────────────────────────
+//  VelocityCurveComponent Implementation
+// ─────────────────────────────────────────────────────────
+VelocityCurveComponent::VelocityCurveComponent()
+{
+    setOpaque(false);
+}
+
+void VelocityCurveComponent::setSensitivity(float s)
+{
+    sensitivity = juce::jlimit(0.0f, 1.0f, s);
+    repaint();
+}
+
+void VelocityCurveComponent::setCurve(float c)
+{
+    curve = juce::jlimit(-1.0f, 1.0f, c);
+    repaint();
+}
+
+void VelocityCurveComponent::setCurveMode(int mode)
+{
+    curveMode = mode;
+    repaint();
+}
+
+void VelocityCurveComponent::setMinFloor(int floorVal)
+{
+    minFloor = juce::jlimit(0, 127, floorVal);
+    repaint();
+}
+
+float VelocityCurveComponent::computeResponse(float inVel) const
+{
+    if (inVel <= 0.0001f) return 0.0f;
+    float v = juce::jlimit(0.0f, 1.0f, inVel);
+
+    float curved = v;
+    if (curveMode == 4) // Fixed
+    {
+        curved = 1.0f;
+    }
+    else if (curveMode == 3) // S-Curve
+    {
+        curved = v * v * (3.0f - 2.0f * v);
+        if (std::abs(curve) > 0.01f)
+        {
+            float c = juce::jlimit(-1.0f, 1.0f, curve);
+            if (c > 0.0f) curved = std::pow(curved, 1.0f + 2.5f * c);
+            else curved = std::pow(curved, 1.0f / (1.0f - 2.5f * c));
+        }
+    }
+    else
+    {
+        float c = juce::jlimit(-1.0f, 1.0f, curve);
+        if (curveMode == 1 && c <= 0.0f) c = 0.5f;
+        else if (curveMode == 2 && c >= 0.0f) c = -0.5f;
+
+        if (c > 0.001f)
+            curved = std::pow(v, 1.0f + 2.5f * c);
+        else if (c < -0.001f)
+            curved = std::pow(v, 1.0f / (1.0f - 2.5f * c));
+        else
+            curved = v;
+    }
+
+    float out = (1.0f - sensitivity) + sensitivity * curved;
+    if (minFloor > 0)
+    {
+        float fNorm = static_cast<float>(minFloor) / 127.0f;
+        out = fNorm + (1.0f - fNorm) * out;
+    }
+    return juce::jlimit(0.0f, 1.0f, out);
+}
+
+void VelocityCurveComponent::triggerHit(int velInt)
+{
+    lastHitVel = juce::jlimit(0, 127, velInt);
+    float inNorm = static_cast<float>(lastHitVel) / 127.0f;
+    lastHitResponse = computeResponse(inNorm);
+    lastHitTimeMs = juce::Time::getMillisecondCounter();
+
+    if (onVelocityHit)
+    {
+        int outVel = juce::jlimit(0, 127, static_cast<int>(lastHitResponse * 127.0f + 0.5f));
+        float db = (lastHitResponse > 0.001f) ? (20.0f * std::log10(lastHitResponse)) : -60.0f;
+        onVelocityHit(lastHitVel, outVel, db);
+    }
+
+    repaint();
+}
+
+void VelocityCurveComponent::updateHitFade()
+{
+    if (lastHitVel >= 0)
+    {
+        uint32_t now = juce::Time::getMillisecondCounter();
+        if (now - lastHitTimeMs > 1200)
+        {
+            lastHitVel = -1;
+        }
+        repaint();
+    }
+}
+
+juce::Rectangle<float> VelocityCurveComponent::getGraphArea() const
+{
+    return getLocalBounds().toFloat().reduced(14.0f, 12.0f);
+}
+
+juce::Point<float> VelocityCurveComponent::getNodePosition(const juce::Rectangle<float>& graphArea) const
+{
+    float inNorm = 0.5f;
+    float outNorm = computeResponse(inNorm);
+    float x = graphArea.getX() + inNorm * graphArea.getWidth();
+    float y = graphArea.getBottom() - outNorm * graphArea.getHeight();
+    return { x, y };
+}
+
+void VelocityCurveComponent::paint(juce::Graphics& g)
+{
+    auto area = getLocalBounds().toFloat();
+    auto graphArea = getGraphArea();
+
+    // Background card
+    g.setColour(OpenWavLookAndFeel::bgDark.withAlpha(0.75f));
+    g.fillRoundedRectangle(area, 6.0f);
+    g.setColour(OpenWavLookAndFeel::borderColour.withAlpha(0.35f));
+    g.drawRoundedRectangle(area, 6.0f, 1.0f);
+
+    // Inner graph grid background
+    g.setColour(juce::Colour(0xff101318));
+    g.fillRect(graphArea);
+
+    // Grid lines at 32, 64, 96 (25%, 50%, 75%)
+    g.setFont(juce::Font(8.0f));
+    for (int v : { 32, 64, 96 })
+    {
+        float ratio = static_cast<float>(v) / 127.0f;
+        float x = graphArea.getX() + ratio * graphArea.getWidth();
+        float y = graphArea.getBottom() - ratio * graphArea.getHeight();
+
+        g.setColour(OpenWavLookAndFeel::borderColour.withAlpha(0.2f));
+        g.drawVerticalLine(static_cast<int>(x), graphArea.getY(), graphArea.getBottom());
+        g.drawHorizontalLine(static_cast<int>(y), graphArea.getX(), graphArea.getRight());
+
+        g.setColour(OpenWavLookAndFeel::textSecondary.withAlpha(0.4f));
+        g.drawText(juce::String(v), x - 10.0f, graphArea.getBottom() + 1.0f, 20.0f, 9.0f, juce::Justification::centred);
+        g.drawText(juce::String(v), graphArea.getX() - 14.0f, y - 5.0f, 12.0f, 10.0f, juce::Justification::right);
+    }
+
+    // Diagonal 1:1 reference line (linear baseline)
+    {
+        g.setColour(OpenWavLookAndFeel::textSecondary.withAlpha(0.18f));
+        juce::Line<float> diag(graphArea.getX(), graphArea.getBottom(), graphArea.getRight(), graphArea.getY());
+        float dashes[] = { 3.0f, 3.0f };
+        g.drawDashedLine(diag, dashes, 2, 1.0f);
+    }
+
+    // Build the curve path
+    juce::Path curvePath;
+    juce::Path fillPath;
+
+    int steps = 64;
+    for (int i = 0; i <= steps; ++i)
+    {
+        float inNorm = static_cast<float>(i) / static_cast<float>(steps);
+        float outNorm = computeResponse(inNorm);
+        float px = graphArea.getX() + inNorm * graphArea.getWidth();
+        float py = graphArea.getBottom() - outNorm * graphArea.getHeight();
+
+        if (i == 0)
+        {
+            curvePath.startNewSubPath(px, py);
+            fillPath.startNewSubPath(px, graphArea.getBottom());
+            fillPath.lineTo(px, py);
+        }
+        else
+        {
+            curvePath.lineTo(px, py);
+            fillPath.lineTo(px, py);
+        }
+    }
+    fillPath.lineTo(graphArea.getRight(), graphArea.getBottom());
+    fillPath.closeSubPath();
+
+    // Fill under curve with glowing cyan gradient
+    juce::ColourGradient fillGrad(OpenWavLookAndFeel::accentCyan.withAlpha(0.28f), graphArea.getX(), graphArea.getY(),
+                                  OpenWavLookAndFeel::accentCyan.withAlpha(0.02f), graphArea.getX(), graphArea.getBottom(), false);
+    g.setGradientFill(fillGrad);
+    g.fillPath(fillPath);
+
+    // Glowing stroke for curve
+    g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.35f));
+    g.strokePath(curvePath, juce::PathStrokeType(4.0f));
+    g.setColour(OpenWavLookAndFeel::accentCyan);
+    g.strokePath(curvePath, juce::PathStrokeType(2.0f));
+
+    // Interactive Control Node at Center
+    auto nodePos = getNodePosition(graphArea);
+    float nodeRadius = (isHoveringNode || isDraggingNode) ? 6.5f : 5.0f;
+
+    // Node outer glow
+    g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.4f));
+    g.fillEllipse(nodePos.x - nodeRadius - 3.0f, nodePos.y - nodeRadius - 3.0f, (nodeRadius + 3.0f) * 2.0f, (nodeRadius + 3.0f) * 2.0f);
+    // Node body
+    g.setColour(juce::Colours::white);
+    g.fillEllipse(nodePos.x - nodeRadius, nodePos.y - nodeRadius, nodeRadius * 2.0f, nodeRadius * 2.0f);
+    g.setColour(OpenWavLookAndFeel::accentCyan.darker(0.3f));
+    g.drawEllipse(nodePos.x - nodeRadius, nodePos.y - nodeRadius, nodeRadius * 2.0f, nodeRadius * 2.0f, 1.5f);
+
+    // Live Audition / Hit Dot animation
+    if (lastHitVel >= 0)
+    {
+        uint32_t now = juce::Time::getMillisecondCounter();
+        float ageMs = static_cast<float>(now - lastHitTimeMs);
+        float alpha = juce::jlimit(0.0f, 1.0f, 1.0f - (ageMs / 1200.0f));
+
+        if (alpha > 0.01f)
+        {
+            float inNorm = static_cast<float>(lastHitVel) / 127.0f;
+            float hitX = graphArea.getX() + inNorm * graphArea.getWidth();
+            float hitY = graphArea.getBottom() - lastHitResponse * graphArea.getHeight();
+
+            // Animated pulsing halo
+            g.setColour(juce::Colours::white.withAlpha(0.25f * alpha));
+            g.fillEllipse(hitX - 9.0f, hitY - 9.0f, 18.0f, 18.0f);
+
+            g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.85f * alpha));
+            g.fillEllipse(hitX - 5.0f, hitY - 5.0f, 10.0f, 10.0f);
+
+            g.setColour(juce::Colours::white.withAlpha(alpha));
+            g.fillEllipse(hitX - 2.5f, hitY - 2.5f, 5.0f, 5.0f);
+
+            // Small badge showing input and output
+            int outV = juce::jlimit(0, 127, static_cast<int>(lastHitResponse * 127.0f + 0.5f));
+            juce::String badge = juce::String(lastHitVel) + " → " + juce::String(outV);
+            g.setFont(juce::Font(8.5f, juce::Font::bold));
+            g.setColour(OpenWavLookAndFeel::bgDark.withAlpha(0.85f * alpha));
+            float badgeW = 38.0f;
+            float badgeX = juce::jlimit(graphArea.getX(), graphArea.getRight() - badgeW, hitX - badgeW * 0.5f);
+            float badgeY = (hitY - 18.0f < graphArea.getY()) ? (hitY + 8.0f) : (hitY - 17.0f);
+            g.fillRoundedRectangle(badgeX, badgeY, badgeW, 12.0f, 3.0f);
+            g.setColour(juce::Colours::white.withAlpha(alpha));
+            g.drawText(badge, badgeX, badgeY, badgeW, 12.0f, juce::Justification::centred);
+        }
+    }
+
+    // Border around graph
+    g.setColour(OpenWavLookAndFeel::borderColour.withAlpha(0.4f));
+    g.drawRect(graphArea, 1.0f);
+
+    // Coordinate axis tags
+    g.setFont(juce::Font(7.5f));
+    g.setColour(OpenWavLookAndFeel::textSecondary.withAlpha(0.5f));
+    g.drawText("IN: 0", graphArea.getX(), graphArea.getBottom() + 1.0f, 24.0f, 9.0f, juce::Justification::left);
+    g.drawText("127", graphArea.getRight() - 18.0f, graphArea.getBottom() + 1.0f, 18.0f, 9.0f, juce::Justification::right);
+    g.drawText("OUT: 127", graphArea.getX() + 2.0f, graphArea.getY() + 2.0f, 40.0f, 8.0f, juce::Justification::left);
+}
+
+void VelocityCurveComponent::mouseDown(const juce::MouseEvent& e)
+{
+    auto graphArea = getGraphArea();
+    auto nodePos = getNodePosition(graphArea);
+    if (e.position.getDistanceFrom(nodePos) <= 12.0f)
+    {
+        isDraggingNode = true;
+    }
+    else if (graphArea.contains(e.position))
+    {
+        isDraggingNode = true;
+        mouseDrag(e);
+    }
+}
+
+void VelocityCurveComponent::mouseDrag(const juce::MouseEvent& e)
+{
+    if (isDraggingNode)
+    {
+        auto graphArea = getGraphArea();
+        float normX = juce::jlimit(0.0f, 1.0f, (e.position.x - graphArea.getX()) / graphArea.getWidth());
+        float normY = juce::jlimit(0.0f, 1.0f, 1.0f - (e.position.y - graphArea.getY()) / graphArea.getHeight());
+
+        float expectedLinear = normX;
+        float diff = normY - expectedLinear;
+        float newCurve = juce::jlimit(-1.0f, 1.0f, diff * 3.5f);
+        curve = newCurve;
+        curveMode = 0;
+
+        if (e.mods.isShiftDown())
+        {
+            sensitivity = juce::jlimit(0.0f, 1.0f, normY);
+        }
+
+        repaint();
+        if (onCurveChanged)
+            onCurveChanged(sensitivity, curve, curveMode);
+    }
+}
+
+void VelocityCurveComponent::mouseUp(const juce::MouseEvent&)
+{
+    isDraggingNode = false;
+    repaint();
+}
+
+void VelocityCurveComponent::mouseMove(const juce::MouseEvent& e)
+{
+    auto graphArea = getGraphArea();
+    auto nodePos = getNodePosition(graphArea);
+    bool nearNode = (e.position.getDistanceFrom(nodePos) <= 10.0f);
+    if (nearNode != isHoveringNode)
+    {
+        isHoveringNode = nearNode;
+        repaint();
+    }
+    hoverPos = e.position;
+}
+
+void VelocityCurveComponent::mouseExit(const juce::MouseEvent&)
+{
+    isHoveringNode = false;
+    repaint();
+}
+
+// ─────────────────────────────────────────────────────────
+//  SampleMapComponent Implementation
+// ─────────────────────────────────────────────────────────
 SampleMapComponent::SampleMapComponent(AudioEngine& engine)
     : audioEngine(engine)
 {
@@ -206,9 +534,254 @@ SampleMapComponent::SampleMapComponent(AudioEngine& engine)
     setupKnob(sustainKnob, sustainLabel, "Sustain", 0.0, 1.0, 0.01, 1.0);
     setupKnob(releaseKnob, releaseLabel, "Release", 0.0, 5000.0, 1.0, 200.0);
 
+    // ── Velocity Curve Button & Studio Controls ──────────────
+    velCurveButton.setColour(juce::TextButton::buttonColourId, OpenWavLookAndFeel::accentCyan.withAlpha(0.20f));
+    velCurveButton.setColour(juce::TextButton::textColourOffId, OpenWavLookAndFeel::accentCyan);
+    velCurveButton.setTooltip("Toggle Visual Velocity Curve & Sensitivity Editor");
+    updateVelocityCurveButtonText();
+    velCurveButton.onClick = [this] {
+        if (inspectorActiveTab == 1)
+            inspectorActiveTab = 0;
+        else
+            inspectorActiveTab = 1;
+        inspectorTabZonesBtn.setToggleState(inspectorActiveTab == 0, juce::dontSendNotification);
+        inspectorTabVelBtn.setToggleState(inspectorActiveTab == 1, juce::dontSendNotification);
+        resized();
+        repaint();
+    };
+    addAndMakeVisible(velCurveButton);
+
+    // Inspector Tab Switchers
+    inspectorTabZonesBtn.setRadioGroupId(9901);
+    inspectorTabZonesBtn.setClickingTogglesState(true);
+    inspectorTabZonesBtn.setToggleState(true, juce::dontSendNotification);
+    inspectorTabZonesBtn.onClick = [this] {
+        inspectorActiveTab = 0;
+        inspectorTabZonesBtn.setToggleState(true, juce::dontSendNotification);
+        inspectorTabVelBtn.setToggleState(false, juce::dontSendNotification);
+        resized();
+        repaint();
+    };
+    addAndMakeVisible(inspectorTabZonesBtn);
+
+    inspectorTabVelBtn.setRadioGroupId(9901);
+    inspectorTabVelBtn.setClickingTogglesState(true);
+    inspectorTabVelBtn.onClick = [this] {
+        inspectorActiveTab = 1;
+        inspectorTabZonesBtn.setToggleState(false, juce::dontSendNotification);
+        inspectorTabVelBtn.setToggleState(true, juce::dontSendNotification);
+        resized();
+        repaint();
+    };
+    addAndMakeVisible(inspectorTabVelBtn);
+
+    // Visual Velocity Curve View
+    addAndMakeVisible(velocityCurveView);
+    velocityCurveView.onCurveChanged = [this](float newSens, float newCurve, int newMode) {
+        if (velocityScopeIsZone && selectedZoneIndex >= 0 && selectedZoneIndex < (int)zones.size())
+        {
+            zones[selectedZoneIndex].velocitySensitivity = newSens;
+        }
+        else
+        {
+            globalVelocitySensitivity = newSens;
+            globalVelocityCurve = newCurve;
+            globalVelocityCurveMode = newMode;
+        }
+        velSensitivitySlider.setValue(newSens * 100.0, juce::dontSendNotification);
+        velCurveSlider.setValue(newCurve * 100.0, juce::dontSendNotification);
+        updateVelocityCurveButtonText();
+        if (onStateChanged) onStateChanged();
+    };
+
+    velocityCurveView.onVelocityHit = [this](int inV, int outV, float dbGain) {
+        velReadoutLabel.setText("In: " + juce::String(inV) + "  →  Out: " + juce::String(outV) +
+                                " (" + (dbGain >= 0.0f ? "+" : "") + juce::String(dbGain, 1) + " dB)",
+                                juce::dontSendNotification);
+    };
+
+    // Preset Buttons
+    auto setupPresetBtn = [this](juce::TextButton& btn, int mode, const juce::String& tooltip) {
+        btn.setColour(juce::TextButton::buttonColourId, OpenWavLookAndFeel::bgDark);
+        btn.setColour(juce::TextButton::textColourOffId, OpenWavLookAndFeel::textPrimary);
+        btn.setTooltip(tooltip);
+        btn.onClick = [this, mode] { applyVelocityPreset(mode); };
+        addAndMakeVisible(btn);
+    };
+    setupPresetBtn(velLinBtn, 0, "Linear 1:1 dynamic response");
+    setupPresetBtn(velSoftBtn, 1, "Soft / Exponential curve (requires harder strike for loud volume)");
+    setupPresetBtn(velHardBtn, 2, "Hard / Logarithmic curve (reaches loud volume easily)");
+    setupPresetBtn(velSCurveBtn, 3, "S-Curve dynamic transfer response");
+    setupPresetBtn(velFixedBtn, 4, "Fixed volume (0% velocity sensitivity / constant output)");
+
+    // Sliders
+    velSensitivityLabel.setFont(juce::Font(10.5f));
+    velSensitivityLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::textSecondary);
+    addAndMakeVisible(velSensitivityLabel);
+
+    velSensitivitySlider.setSliderStyle(juce::Slider::LinearHorizontal);
+    velSensitivitySlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 42, 18);
+    velSensitivitySlider.setTextValueSuffix("%");
+    velSensitivitySlider.setRange(0.0, 100.0, 1.0);
+    velSensitivitySlider.setValue(100.0, juce::dontSendNotification);
+    velSensitivitySlider.addListener(this);
+    addAndMakeVisible(velSensitivitySlider);
+
+    velCurveLabel.setFont(juce::Font(10.5f));
+    velCurveLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::textSecondary);
+    addAndMakeVisible(velCurveLabel);
+
+    velCurveSlider.setSliderStyle(juce::Slider::LinearHorizontal);
+    velCurveSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 42, 18);
+    velCurveSlider.setTextValueSuffix("%");
+    velCurveSlider.setRange(-100.0, 100.0, 1.0);
+    velCurveSlider.setValue(0.0, juce::dontSendNotification);
+    velCurveSlider.addListener(this);
+    addAndMakeVisible(velCurveSlider);
+
+    velFloorLabel.setFont(juce::Font(10.5f));
+    velFloorLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::textSecondary);
+    addAndMakeVisible(velFloorLabel);
+
+    velFloorSlider.setSliderStyle(juce::Slider::LinearHorizontal);
+    velFloorSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 42, 18);
+    velFloorSlider.setRange(0.0, 127.0, 1.0);
+    velFloorSlider.setValue(0.0, juce::dontSendNotification);
+    velFloorSlider.addListener(this);
+    addAndMakeVisible(velFloorSlider);
+
+    velScopeButton.setColour(juce::TextButton::buttonColourId, OpenWavLookAndFeel::bgDark);
+    velScopeButton.setColour(juce::TextButton::textColourOffId, OpenWavLookAndFeel::accentCyan);
+    velScopeButton.setTooltip("Toggle whether velocity sensitivity applies globally or to selected zone");
+    velScopeButton.onClick = [this] {
+        velocityScopeIsZone = !velocityScopeIsZone;
+        velScopeButton.setButtonText(velocityScopeIsZone ? "Scope: Zone" : "Scope: Global");
+        updateVelocityCurveUI();
+    };
+    addAndMakeVisible(velScopeButton);
+
+    velReadoutLabel.setFont(juce::Font(10.0f));
+    velReadoutLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::accentCyan);
+    velReadoutLabel.setJustificationType(juce::Justification::centred);
+    addAndMakeVisible(velReadoutLabel);
+
+    velTestAuditionBtn.setColour(juce::TextButton::buttonColourId, OpenWavLookAndFeel::accentCyan.withAlpha(0.25f));
+    velTestAuditionBtn.setColour(juce::TextButton::textColourOffId, OpenWavLookAndFeel::accentCyan);
+    velTestAuditionBtn.setTooltip("Play a test note at velocity 100 to audition the curve response");
+    velTestAuditionBtn.onClick = [this] {
+        int noteToPlay = (selectedZoneIndex >= 0 && selectedZoneIndex < (int)zones.size()) ? zones[selectedZoneIndex].rootNote : 60;
+        triggerKeybedNote(noteToPlay, 100.0f / 127.0f, 100);
+    };
+    addAndMakeVisible(velTestAuditionBtn);
+
     activeNoteVelocities.fill(-1);
 
     lookAndFeelChanged();
+}
+
+void SampleMapComponent::updateVelocityCurveButtonText()
+{
+    int sensPercent = juce::roundToInt(globalVelocitySensitivity * 100.0f);
+    juce::String modeName;
+    switch (globalVelocityCurveMode)
+    {
+        case 0: modeName = (std::abs(globalVelocityCurve) < 0.02f) ? "Lin" : (globalVelocityCurve > 0 ? "Exp" : "Log"); break;
+        case 1: modeName = "Soft"; break;
+        case 2: modeName = "Hard"; break;
+        case 3: modeName = "S-Curv"; break;
+        case 4: modeName = "Fixed"; break;
+        default: modeName = "Custom"; break;
+    }
+
+    velCurveButton.setButtonText("Vel: " + juce::String(sensPercent) + "% (" + modeName + ")");
+}
+
+void SampleMapComponent::applyVelocityPreset(int mode)
+{
+    globalVelocityCurveMode = mode;
+    velocityCurveView.setCurveMode(mode);
+
+    if (mode == 0) // Linear
+    {
+        globalVelocityCurve = 0.0f;
+        globalVelocitySensitivity = 1.0f;
+        globalVelocityMinFloor = 0;
+    }
+    else if (mode == 1) // Soft (Exp)
+    {
+        globalVelocityCurve = 0.5f;
+        globalVelocitySensitivity = 1.0f;
+    }
+    else if (mode == 2) // Hard (Log)
+    {
+        globalVelocityCurve = -0.5f;
+        globalVelocitySensitivity = 1.0f;
+    }
+    else if (mode == 3) // S-Curve
+    {
+        globalVelocityCurve = 0.0f;
+        globalVelocitySensitivity = 1.0f;
+    }
+    else if (mode == 4) // Fixed (Flat)
+    {
+        globalVelocityCurve = 0.0f;
+        globalVelocitySensitivity = 0.0f;
+    }
+
+    velSensitivitySlider.setValue(globalVelocitySensitivity * 100.0, juce::dontSendNotification);
+    velCurveSlider.setValue(globalVelocityCurve * 100.0, juce::dontSendNotification);
+    velFloorSlider.setValue(globalVelocityMinFloor, juce::dontSendNotification);
+
+    velocityCurveView.setSensitivity(globalVelocitySensitivity);
+    velocityCurveView.setCurve(globalVelocityCurve);
+    velocityCurveView.setMinFloor(globalVelocityMinFloor);
+
+    updateVelocityCurveButtonText();
+    if (onStateChanged) onStateChanged();
+    repaint();
+}
+
+void SampleMapComponent::updateVelocityCurveUI()
+{
+    float currentSens = globalVelocitySensitivity;
+    if (velocityScopeIsZone && selectedZoneIndex >= 0 && selectedZoneIndex < static_cast<int>(zones.size()))
+    {
+        currentSens = zones[selectedZoneIndex].velocitySensitivity;
+        velScopeButton.setButtonText("Scope: Zone " + juce::String(selectedZoneIndex + 1));
+    }
+    else if (velocityScopeIsZone)
+    {
+        velScopeButton.setButtonText("Scope: Zone");
+    }
+    else
+    {
+        velScopeButton.setButtonText("Scope: Global");
+    }
+
+    velSensitivitySlider.setValue(currentSens * 100.0, juce::dontSendNotification);
+    velCurveSlider.setValue(globalVelocityCurve * 100.0, juce::dontSendNotification);
+    velFloorSlider.setValue(globalVelocityMinFloor, juce::dontSendNotification);
+
+    velocityCurveView.setSensitivity(currentSens);
+    velocityCurveView.setCurve(globalVelocityCurve);
+    velocityCurveView.setCurveMode(globalVelocityCurveMode);
+    velocityCurveView.setMinFloor(globalVelocityMinFloor);
+
+    updateVelocityCurveButtonText();
+}
+
+float SampleMapComponent::computeEffectiveVelocity(float inVelocity, const SampleMapZone* zone) const
+{
+    float zoneSens = -1.0f;
+    if (zone != nullptr)
+        zoneSens = zone->velocitySensitivity;
+
+    SampleMapState s;
+    s.velocitySensitivity = globalVelocitySensitivity;
+    s.velocityCurve = globalVelocityCurve;
+    s.velocityCurveMode = globalVelocityCurveMode;
+    s.velocityMinFloor = globalVelocityMinFloor;
+    return s.computeVelocityResponse(inVelocity, zoneSens);
 }
 
 void SampleMapComponent::lookAndFeelChanged()
@@ -301,6 +874,7 @@ void SampleMapComponent::handleNoteOn(juce::MidiKeyboardState*, int midiChannel,
             recentHitDots.end()
         );
         recentHitDots.push_back({ midiNoteNumber, velInt, now });
+        velocityCurveView.triggerHit(velInt);
 
         if (matchingZoneIdx >= 0)
         {
@@ -364,6 +938,8 @@ void SampleMapComponent::timerCallback()
         }),
         recentHitDots.end()
     );
+
+    velocityCurveView.updateHitFade();
 
     if (recentHitDots.empty() && !hasHeld)
     {
@@ -873,6 +1449,7 @@ void SampleMapComponent::selectZone(int index, bool addToSelection)
     {
         selectedZoneIndex = -1;
     }
+    updateVelocityCurveUI();
     resized();
     repaint();
 }
@@ -881,6 +1458,7 @@ void SampleMapComponent::deselectAllZones()
 {
     selectedZoneIndices.clear();
     selectedZoneIndex = -1;
+    updateVelocityCurveUI();
     resized();
     repaint();
 }
@@ -1585,14 +2163,17 @@ void SampleMapComponent::triggerKeybedNote(int note, float velocity, int velInt)
                 audioEngine.loadFile(fileToLoad, false, true);
             }
 
-            audioEngine.playZoneVoice(fileToLoad, note, z.rootNote, z.fineTuneCents, z.gainDb, velocity,
+            float effectiveVelocity = computeEffectiveVelocity(velocity, &z);
+            audioEngine.playZoneVoice(fileToLoad, note, z.rootNote, z.fineTuneCents, z.gainDb, effectiveVelocity,
                                       z.attackMs / 1000.0f, z.decayMs / 1000.0f, z.sustainLevel, z.releaseMs / 1000.0f,
                                       oneShotButton.getToggleState() || audioEngine.isOneShotEnabled(),
                                       loopButton.getToggleState() || audioEngine.isLooping());
 
+            velocityCurveView.triggerHit(velInt);
+
             auditionNote = note;
             int ch = midiChannelSetting > 0 ? midiChannelSetting : 2;
-            audioEngine.getKeyboardState().noteOn(ch, note, velocity);
+            audioEngine.getKeyboardState().noteOn(ch, note, effectiveVelocity);
             resized();
             repaint();
         }
@@ -2124,6 +2705,9 @@ void SampleMapComponent::resized()
     midiChannelButton.setBounds(topRow.removeFromRight(88));
     topRow.removeFromRight(gap);
 
+    velCurveButton.setBounds(topRow.removeFromRight(96));
+    topRow.removeFromRight(gap);
+
     addSampleButton.setBounds(topRow.removeFromLeft(78));
     topRow.removeFromLeft(gap);
     lorisResynthButton.setBounds(topRow.removeFromLeft(90));
@@ -2166,54 +2750,186 @@ void SampleMapComponent::resized()
     releaseLabel.setVisible(false);
 
     // ── Inspector Panel Layout ─────────────────────────
-    auto inspectorArea = getInspectorBounds().reduced(14, 10);
+    auto inspectorArea = getInspectorBounds().reduced(12, 10);
     int rowH = 20;
     int labelW = 85;
     int rowGap = 4;
 
-    inspectorTitle.setBounds(inspectorArea.removeFromTop(22).toNearestInt());
-    inspectorArea.removeFromTop(4);
+    // Inspector Tab Switchers: [ Zones ] [ Vel Curve ]
+    auto tabRow = inspectorArea.removeFromTop(22);
+    int tabW = (tabRow.getWidth() - 6) / 2;
+    inspectorTabZonesBtn.setBounds(tabRow.removeFromLeft(tabW).toNearestInt());
+    tabRow.removeFromLeft(6);
+    inspectorTabVelBtn.setBounds(tabRow.toNearestInt());
+    inspectorArea.removeFromTop(8);
 
-    if (selectedZoneIndex >= 0 && selectedZoneIndex < static_cast<int>(zones.size()))
+    if (inspectorActiveTab == 1)
     {
-        const auto& z = zones[selectedZoneIndex];
-        sampleNameValue.setText(z.sampleName, juce::dontSendNotification);
-        inspectorArea.removeFromTop(rowH);
+        // ── VELOCITY RESPONSE CURVE TAB ──
+        rootNoteTitle.setVisible(false); rootNoteSlider.setVisible(false);
+        keyLowTitle.setVisible(false); keyLowSlider.setVisible(false);
+        keyHighTitle.setVisible(false); keyHighSlider.setVisible(false);
+        velLowTitle.setVisible(false); velLowSlider.setVisible(false);
+        velHighTitle.setVisible(false); velHighSlider.setVisible(false);
+        rrTitle.setVisible(false); rrSlider.setVisible(false);
+        tuneTitle.setVisible(false); tuneSlider.setVisible(false);
+        gainTitle.setVisible(false); gainSlider.setVisible(false);
+        attackTitle.setVisible(false); attackSlider.setVisible(false);
+        decayTitle.setVisible(false); decaySlider.setVisible(false);
+        sustainTitle.setVisible(false); sustainSlider.setVisible(false);
+        releaseTitle.setVisible(false); releaseSlider.setVisible(false);
+        reverbTitle.setVisible(false); reverbSlider.setVisible(false);
+        inspectorDeleteButton.setVisible(false);
+        sampleNameValue.setVisible(false);
 
-        auto setupRow = [&](juce::Label& lbl, juce::Slider& slider, double val) {
-            auto r = inspectorArea.removeFromTop(rowH);
-            inspectorArea.removeFromTop(rowGap);
-            lbl.setBounds(r.removeFromLeft(labelW).toNearestInt());
+        inspectorTitle.setVisible(true);
+        inspectorTitle.setText("Velocity Response Curve", juce::dontSendNotification);
+        inspectorTitle.setBounds(inspectorArea.removeFromTop(20).toNearestInt());
+        inspectorArea.removeFromTop(4);
+
+        // Scope & Audition row
+        auto scopeRow = inspectorArea.removeFromTop(22);
+        velScopeButton.setVisible(true);
+        velScopeButton.setBounds(scopeRow.removeFromLeft(105).toNearestInt());
+        scopeRow.removeFromLeft(6);
+        velTestAuditionBtn.setVisible(true);
+        velTestAuditionBtn.setBounds(scopeRow.toNearestInt());
+        inspectorArea.removeFromTop(8);
+
+        // Visual Curve Component
+        velocityCurveView.setVisible(true);
+        int curveH = std::min(130, static_cast<int>(inspectorArea.getHeight()) - 150);
+        if (curveH < 90) curveH = 90;
+        velocityCurveView.setBounds(inspectorArea.removeFromTop(curveH).toNearestInt());
+        inspectorArea.removeFromTop(8);
+
+        // Preset buttons row: Lin | Soft | Hard | S-Curv | Fixed
+        auto presetRow = inspectorArea.removeFromTop(20);
+        int btnW = (presetRow.getWidth() - 16) / 5;
+        velLinBtn.setVisible(true); velLinBtn.setBounds(presetRow.removeFromLeft(btnW).toNearestInt()); presetRow.removeFromLeft(4);
+        velSoftBtn.setVisible(true); velSoftBtn.setBounds(presetRow.removeFromLeft(btnW).toNearestInt()); presetRow.removeFromLeft(4);
+        velHardBtn.setVisible(true); velHardBtn.setBounds(presetRow.removeFromLeft(btnW).toNearestInt()); presetRow.removeFromLeft(4);
+        velSCurveBtn.setVisible(true); velSCurveBtn.setBounds(presetRow.removeFromLeft(btnW).toNearestInt()); presetRow.removeFromLeft(4);
+        velFixedBtn.setVisible(true); velFixedBtn.setBounds(presetRow.toNearestInt());
+        inspectorArea.removeFromTop(8);
+
+        // Sliders
+        auto setupSliderRow = [&](juce::Label& lbl, juce::Slider& sld) {
+            lbl.setVisible(true);
+            sld.setVisible(true);
+            auto r = inspectorArea.removeFromTop(20);
+            inspectorArea.removeFromTop(4);
+            lbl.setBounds(r.removeFromLeft(70).toNearestInt());
             r.removeFromLeft(4);
-            slider.setBounds(r.toNearestInt());
-            slider.setValue(val, juce::dontSendNotification);
+            sld.setBounds(r.toNearestInt());
         };
 
-        setupRow(rootNoteTitle, rootNoteSlider, z.rootNote);
-        setupRow(keyLowTitle, keyLowSlider, z.keyLow);
-        setupRow(keyHighTitle, keyHighSlider, z.keyHigh);
-        setupRow(velLowTitle, velLowSlider, z.velLow);
-        setupRow(velHighTitle, velHighSlider, z.velHigh);
-        setupRow(rrTitle, rrSlider, z.roundRobinIndex);
-        setupRow(tuneTitle, tuneSlider, z.fineTuneCents);
-        setupRow(gainTitle, gainSlider, z.gainDb);
+        setupSliderRow(velSensitivityLabel, velSensitivitySlider);
+        setupSliderRow(velCurveLabel, velCurveSlider);
+        setupSliderRow(velFloorLabel, velFloorSlider);
 
-        inspectorArea.removeFromTop(6);
-        setupRow(attackTitle, attackSlider, z.attackMs);
-        setupRow(decayTitle, decaySlider, z.decayMs);
-        setupRow(sustainTitle, sustainSlider, z.sustainLevel);
-        setupRow(releaseTitle, releaseSlider, z.releaseMs);
-        setupRow(reverbTitle, reverbSlider, audioEngine.getSamplerReverbAmount() * 100.0f);
-
-        inspectorArea.removeFromTop(8);
-        inspectorDeleteButton.setVisible(true);
-        inspectorDeleteButton.setBounds(inspectorArea.removeFromTop(24).toNearestInt());
+        inspectorArea.removeFromTop(4);
+        velReadoutLabel.setVisible(true);
+        velReadoutLabel.setBounds(inspectorArea.removeFromTop(18).toNearestInt());
     }
     else
     {
-        inspectorDeleteButton.setVisible(false);
-        sampleNameValue.setText("No Zone Selected", juce::dontSendNotification);
-        sampleNameValue.setBounds(inspectorArea.removeFromTop(rowH).toNearestInt());
+        // ── ZONE PARAMETERS TAB ──
+        velLinBtn.setVisible(false);
+        velSoftBtn.setVisible(false);
+        velHardBtn.setVisible(false);
+        velSCurveBtn.setVisible(false);
+        velFixedBtn.setVisible(false);
+        velSensitivityLabel.setVisible(false); velSensitivitySlider.setVisible(false);
+        velCurveLabel.setVisible(false); velCurveSlider.setVisible(false);
+        velFloorLabel.setVisible(false); velFloorSlider.setVisible(false);
+        velScopeButton.setVisible(false);
+        velTestAuditionBtn.setVisible(false);
+        velReadoutLabel.setVisible(false);
+
+        inspectorTitle.setVisible(true);
+        inspectorTitle.setText("Zone Parameters", juce::dontSendNotification);
+        inspectorTitle.setBounds(inspectorArea.removeFromTop(20).toNearestInt());
+        inspectorArea.removeFromTop(4);
+
+        if (selectedZoneIndex >= 0 && selectedZoneIndex < static_cast<int>(zones.size()))
+        {
+            sampleNameValue.setVisible(true);
+            const auto& z = zones[selectedZoneIndex];
+            sampleNameValue.setText(z.sampleName, juce::dontSendNotification);
+            inspectorArea.removeFromTop(rowH);
+
+            auto setupRow = [&](juce::Label& lbl, juce::Slider& slider, double val) {
+                lbl.setVisible(true);
+                slider.setVisible(true);
+                auto r = inspectorArea.removeFromTop(rowH);
+                inspectorArea.removeFromTop(rowGap);
+                lbl.setBounds(r.removeFromLeft(labelW).toNearestInt());
+                r.removeFromLeft(4);
+                slider.setBounds(r.toNearestInt());
+                slider.setValue(val, juce::dontSendNotification);
+            };
+
+            setupRow(rootNoteTitle, rootNoteSlider, z.rootNote);
+            setupRow(keyLowTitle, keyLowSlider, z.keyLow);
+            setupRow(keyHighTitle, keyHighSlider, z.keyHigh);
+            setupRow(velLowTitle, velLowSlider, z.velLow);
+            setupRow(velHighTitle, velHighSlider, z.velHigh);
+            setupRow(rrTitle, rrSlider, z.roundRobinIndex);
+            setupRow(tuneTitle, tuneSlider, z.fineTuneCents);
+            setupRow(gainTitle, gainSlider, z.gainDb);
+
+            inspectorArea.removeFromTop(4);
+            setupRow(attackTitle, attackSlider, z.attackMs);
+            setupRow(decayTitle, decaySlider, z.decayMs);
+            setupRow(sustainTitle, sustainSlider, z.sustainLevel);
+            setupRow(releaseTitle, releaseSlider, z.releaseMs);
+            setupRow(reverbTitle, reverbSlider, audioEngine.getSamplerReverbAmount() * 100.0f);
+
+            inspectorArea.removeFromTop(6);
+            inspectorDeleteButton.setVisible(true);
+            inspectorDeleteButton.setBounds(inspectorArea.removeFromTop(22).toNearestInt());
+
+            if (inspectorArea.getHeight() >= 80)
+            {
+                inspectorArea.removeFromTop(6);
+                velocityCurveView.setVisible(true);
+                velocityCurveView.setBounds(inspectorArea.removeFromTop(std::min(90, static_cast<int>(inspectorArea.getHeight()))).toNearestInt());
+            }
+            else
+            {
+                velocityCurveView.setVisible(false);
+            }
+        }
+        else
+        {
+            rootNoteTitle.setVisible(false); rootNoteSlider.setVisible(false);
+            keyLowTitle.setVisible(false); keyLowSlider.setVisible(false);
+            keyHighTitle.setVisible(false); keyHighSlider.setVisible(false);
+            velLowTitle.setVisible(false); velLowSlider.setVisible(false);
+            velHighTitle.setVisible(false); velHighSlider.setVisible(false);
+            rrTitle.setVisible(false); rrSlider.setVisible(false);
+            tuneTitle.setVisible(false); tuneSlider.setVisible(false);
+            gainTitle.setVisible(false); gainSlider.setVisible(false);
+            attackTitle.setVisible(false); attackSlider.setVisible(false);
+            decayTitle.setVisible(false); decaySlider.setVisible(false);
+            sustainTitle.setVisible(false); sustainSlider.setVisible(false);
+            releaseTitle.setVisible(false); releaseSlider.setVisible(false);
+            reverbTitle.setVisible(false); reverbSlider.setVisible(false);
+            inspectorDeleteButton.setVisible(false);
+
+            sampleNameValue.setVisible(true);
+            sampleNameValue.setText("No Zone Selected", juce::dontSendNotification);
+            sampleNameValue.setBounds(inspectorArea.removeFromTop(rowH).toNearestInt());
+            inspectorArea.removeFromTop(10);
+
+            velocityCurveView.setVisible(true);
+            int curveH = std::min(120, static_cast<int>(inspectorArea.getHeight()) - 40);
+            if (curveH > 60)
+            {
+                velocityCurveView.setBounds(inspectorArea.removeFromTop(curveH).toNearestInt());
+            }
+        }
     }
 }
 
@@ -2222,7 +2938,42 @@ void SampleMapComponent::resized()
 // ─────────────────────────────────────────────────────────
 void SampleMapComponent::sliderValueChanged(juce::Slider* slider)
 {
-    if (slider == &attackKnob || slider == &attackSlider)
+    if (slider == &velSensitivitySlider)
+    {
+        float val = static_cast<float>(slider->getValue() / 100.0);
+        if (velocityScopeIsZone && selectedZoneIndex >= 0 && selectedZoneIndex < static_cast<int>(zones.size()))
+            zones[selectedZoneIndex].velocitySensitivity = val;
+        else
+            globalVelocitySensitivity = val;
+
+        velocityCurveView.setSensitivity(val);
+        updateVelocityCurveButtonText();
+        if (onStateChanged) onStateChanged();
+        repaint();
+        return;
+    }
+    else if (slider == &velCurveSlider)
+    {
+        float val = static_cast<float>(slider->getValue() / 100.0);
+        globalVelocityCurve = val;
+        globalVelocityCurveMode = 0;
+        velocityCurveView.setCurve(val);
+        velocityCurveView.setCurveMode(0);
+        updateVelocityCurveButtonText();
+        if (onStateChanged) onStateChanged();
+        repaint();
+        return;
+    }
+    else if (slider == &velFloorSlider)
+    {
+        int val = static_cast<int>(slider->getValue());
+        globalVelocityMinFloor = val;
+        velocityCurveView.setMinFloor(val);
+        if (onStateChanged) onStateChanged();
+        repaint();
+        return;
+    }
+    else if (slider == &attackKnob || slider == &attackSlider)
     {
         float val = static_cast<float>(slider->getValue());
         globalAttackMs = val;
@@ -2340,6 +3091,22 @@ void SampleMapComponent::buttonClicked(juce::Button* button)
     else if (button == &saveMapButton) saveSampleMapToFile();
     else if (button == &loadMapButton) loadSampleMapFromFile();
     else if (button == &exportZipButton) exportSampleMapToZip();
+    else if (button == &velLinBtn) applyVelocityPreset(0);
+    else if (button == &velSoftBtn) applyVelocityPreset(1);
+    else if (button == &velHardBtn) applyVelocityPreset(2);
+    else if (button == &velSCurveBtn) applyVelocityPreset(3);
+    else if (button == &velFixedBtn) applyVelocityPreset(4);
+    else if (button == &velScopeButton)
+    {
+        velocityScopeIsZone = !velocityScopeIsZone;
+        velScopeButton.setButtonText(velocityScopeIsZone ? "Scope: Zone" : "Scope: Global");
+        updateVelocityCurveUI();
+    }
+    else if (button == &velTestAuditionBtn)
+    {
+        int noteToPlay = (selectedZoneIndex >= 0 && selectedZoneIndex < static_cast<int>(zones.size())) ? zones[selectedZoneIndex].rootNote : 60;
+        triggerKeybedNote(noteToPlay, 100.0f / 127.0f, 100);
+    }
 }
 
 bool SampleMapComponent::keyPressed(const juce::KeyPress& key)
@@ -2418,6 +3185,7 @@ SampleMapState SampleMapComponent::getState() const
         zs.decayMs = z.decayMs;
         zs.sustainLevel = z.sustainLevel;
         zs.releaseMs = z.releaseMs;
+        zs.velocitySensitivity = z.velocitySensitivity;
         s.zones.push_back(zs);
     }
     s.globalAttackMs = globalAttackMs;
@@ -2428,6 +3196,10 @@ SampleMapState SampleMapComponent::getState() const
     s.pitchTrackingEnabled = audioEngine.isPitchTrackingEnabled();
     s.roundRobinMode = roundRobinMode;
     s.midiChannel = midiChannelSetting;
+    s.velocitySensitivity = globalVelocitySensitivity;
+    s.velocityCurve = globalVelocityCurve;
+    s.velocityCurveMode = globalVelocityCurveMode;
+    s.velocityMinFloor = globalVelocityMinFloor;
     return s;
 }
 
@@ -2454,6 +3226,7 @@ void SampleMapComponent::setState(const SampleMapState& state)
         z.decayMs = zs.decayMs;
         z.sustainLevel = zs.sustainLevel;
         z.releaseMs = zs.releaseMs;
+        z.velocitySensitivity = zs.velocitySensitivity;
         z.isSelected = false;
         zones.push_back(z);
     }
@@ -2480,6 +3253,12 @@ void SampleMapComponent::setState(const SampleMapState& state)
 
     midiChannelSetting = state.midiChannel > 0 ? state.midiChannel : 2;
     updateMidiChannelButtonText();
+
+    globalVelocitySensitivity = state.velocitySensitivity;
+    globalVelocityCurve = state.velocityCurve;
+    globalVelocityCurveMode = state.velocityCurveMode;
+    globalVelocityMinFloor = state.velocityMinFloor;
+    updateVelocityCurveUI();
 
     if (!zones.empty())
     {

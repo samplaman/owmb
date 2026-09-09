@@ -113,6 +113,7 @@ struct SampleMapZoneState
     float decayMs { 100.0f };
     float sustainLevel { 1.0f };
     float releaseMs { 200.0f };
+    float velocitySensitivity { 1.0f };
 
     juce::var toVar() const
     {
@@ -131,6 +132,7 @@ struct SampleMapZoneState
         obj->setProperty("decayMs", decayMs);
         obj->setProperty("sustainLevel", sustainLevel);
         obj->setProperty("releaseMs", releaseMs);
+        obj->setProperty("velocitySensitivity", velocitySensitivity);
         return juce::var(obj);
     }
 
@@ -157,6 +159,10 @@ struct SampleMapZoneState
         z.decayMs = static_cast<float>(obj->getProperty("decayMs"));
         z.sustainLevel = static_cast<float>(obj->getProperty("sustainLevel"));
         z.releaseMs = static_cast<float>(obj->getProperty("releaseMs"));
+        if (obj->hasProperty("velocitySensitivity"))
+            z.velocitySensitivity = static_cast<float>(obj->getProperty("velocitySensitivity"));
+        else
+            z.velocitySensitivity = 1.0f;
         return z;
     }
 
@@ -177,6 +183,7 @@ struct SampleMapZoneState
         xml->setAttribute("decayMs", static_cast<double>(decayMs));
         xml->setAttribute("sustainLevel", static_cast<double>(sustainLevel));
         xml->setAttribute("releaseMs", static_cast<double>(releaseMs));
+        xml->setAttribute("velocitySensitivity", static_cast<double>(velocitySensitivity));
         return xml;
     }
 
@@ -228,6 +235,7 @@ struct SampleMapZoneState
         z.decayMs = static_cast<float>(xml.getDoubleAttribute("decayMs", 100.0));
         z.sustainLevel = static_cast<float>(xml.getDoubleAttribute("sustainLevel", 1.0));
         z.releaseMs = static_cast<float>(xml.getDoubleAttribute("releaseMs", 200.0));
+        z.velocitySensitivity = static_cast<float>(xml.getDoubleAttribute("velocitySensitivity", 1.0));
         return z;
     }
 };
@@ -243,6 +251,70 @@ struct SampleMapState
     bool pitchTrackingEnabled { true };
     int roundRobinMode { 0 }; // 0 = Cycle, 1 = Random, 2 = Off
     int midiChannel { 2 };    // Default to MIDI Channel 2
+    float velocitySensitivity { 1.0f }; // 0.0 (flat/fixed) to 1.0 (full dynamic range)
+    float velocityCurve { 0.0f };       // -1.0 (Hard/Log) to +1.0 (Soft/Exp), 0 = Linear
+    int velocityCurveMode { 0 };        // 0 = Linear, 1 = Soft/Exp, 2 = Hard/Log, 3 = S-Curve, 4 = Fixed
+    int velocityMinFloor { 0 };         // 0 to 127
+
+    float computeVelocityResponse(float inVelocity, float zoneSensitivity = -1.0f) const
+    {
+        if (inVelocity <= 0.0001f) return 0.0f;
+
+        float v = juce::jlimit(0.0f, 1.0f, inVelocity);
+        float sens = (zoneSensitivity >= 0.0f) ? zoneSensitivity : velocitySensitivity;
+        sens = juce::jlimit(0.0f, 1.0f, sens);
+
+        float curved = v;
+        if (velocityCurveMode == 4) // Fixed / Flat
+        {
+            curved = 1.0f;
+        }
+        else if (velocityCurveMode == 3) // S-Curve
+        {
+            curved = v * v * (3.0f - 2.0f * v);
+            if (std::abs(velocityCurve) > 0.01f)
+            {
+                float c = juce::jlimit(-1.0f, 1.0f, velocityCurve);
+                if (c > 0.0f)
+                    curved = std::pow(curved, 1.0f + 2.5f * c);
+                else
+                    curved = std::pow(curved, 1.0f / (1.0f - 2.5f * c));
+            }
+        }
+        else
+        {
+            float c = juce::jlimit(-1.0f, 1.0f, velocityCurve);
+            if (velocityCurveMode == 1 && c <= 0.0f) c = 0.5f;       // Soft preset default
+            else if (velocityCurveMode == 2 && c >= 0.0f) c = -0.5f; // Hard preset default
+
+            if (c > 0.001f)
+            {
+                float gamma = 1.0f + 2.5f * c;
+                curved = std::pow(v, gamma);
+            }
+            else if (c < -0.001f)
+            {
+                float gamma = 1.0f / (1.0f - 2.5f * c);
+                curved = std::pow(v, gamma);
+            }
+            else
+            {
+                curved = v;
+            }
+        }
+
+        // Blend according to sensitivity: 0 = constant 1.0 (flat), 1 = full dynamic response
+        float out = (1.0f - sens) + sens * curved;
+
+        // Apply min floor
+        if (velocityMinFloor > 0)
+        {
+            float floorNorm = juce::jlimit(0.0f, 1.0f, static_cast<float>(velocityMinFloor) / 127.0f);
+            out = floorNorm + (1.0f - floorNorm) * out;
+        }
+
+        return juce::jlimit(0.0f, 1.0f, out);
+    }
 
     juce::var toVar() const
     {
@@ -259,6 +331,10 @@ struct SampleMapState
         obj->setProperty("pitchTrackingEnabled", pitchTrackingEnabled);
         obj->setProperty("roundRobinMode", roundRobinMode);
         obj->setProperty("midiChannel", midiChannel);
+        obj->setProperty("velocitySensitivity", velocitySensitivity);
+        obj->setProperty("velocityCurve", velocityCurve);
+        obj->setProperty("velocityCurveMode", velocityCurveMode);
+        obj->setProperty("velocityMinFloor", velocityMinFloor);
         return juce::var(obj);
     }
 
@@ -283,6 +359,10 @@ struct SampleMapState
         if (obj->hasProperty("roundRobinMode")) s.roundRobinMode = static_cast<int>(obj->getProperty("roundRobinMode"));
         if (obj->hasProperty("midiChannel")) s.midiChannel = static_cast<int>(obj->getProperty("midiChannel"));
         else s.midiChannel = 2;
+        if (obj->hasProperty("velocitySensitivity")) s.velocitySensitivity = static_cast<float>(obj->getProperty("velocitySensitivity"));
+        if (obj->hasProperty("velocityCurve")) s.velocityCurve = static_cast<float>(obj->getProperty("velocityCurve"));
+        if (obj->hasProperty("velocityCurveMode")) s.velocityCurveMode = static_cast<int>(obj->getProperty("velocityCurveMode"));
+        if (obj->hasProperty("velocityMinFloor")) s.velocityMinFloor = static_cast<int>(obj->getProperty("velocityMinFloor"));
         return s;
     }
 
@@ -298,6 +378,10 @@ struct SampleMapState
         xml->setAttribute("pitchTrackingEnabled", pitchTrackingEnabled ? 1 : 0);
         xml->setAttribute("roundRobinMode", roundRobinMode);
         xml->setAttribute("midiChannel", midiChannel);
+        xml->setAttribute("velocitySensitivity", static_cast<double>(velocitySensitivity));
+        xml->setAttribute("velocityCurve", static_cast<double>(velocityCurve));
+        xml->setAttribute("velocityCurveMode", velocityCurveMode);
+        xml->setAttribute("velocityMinFloor", velocityMinFloor);
 
         auto baseDir = targetFile.getParentDirectory();
         for (const auto& z : zones)
@@ -327,6 +411,10 @@ struct SampleMapState
         s.pitchTrackingEnabled = xml.getBoolAttribute("pitchTrackingEnabled", true);
         s.roundRobinMode = xml.getIntAttribute("roundRobinMode", 0);
         s.midiChannel = xml.getIntAttribute("midiChannel", 2);
+        s.velocitySensitivity = static_cast<float>(xml.getDoubleAttribute("velocitySensitivity", 1.0));
+        s.velocityCurve = static_cast<float>(xml.getDoubleAttribute("velocityCurve", 0.0));
+        s.velocityCurveMode = xml.getIntAttribute("velocityCurveMode", 0);
+        s.velocityMinFloor = xml.getIntAttribute("velocityMinFloor", 0);
 
         auto baseDir = sourceFile.getParentDirectory();
         for (auto* child : xml.getChildIterator())
