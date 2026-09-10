@@ -89,8 +89,7 @@ juce_add_binary_data(OpenWavAssets
         "${CMAKE_CURRENT_SOURCE_DIR}/owmbico.png"
         "${CMAKE_CURRENT_SOURCE_DIR}/mainpixeldrainlogo_cropped.png"
         "${CMAKE_CURRENT_SOURCE_DIR}/splashit.png"
-        "${CMAKE_CURRENT_SOURCE_DIR}/scratched-metal_albedo.png"
-        "${CMAKE_CURRENT_SOURCE_DIR}/export_mask.png"
+        "${CMAKE_CURRENT_SOURCE_DIR}/samplesonics.com.png"
 )
 
 target_sources(OpenWav PRIVATE
@@ -221,12 +220,9 @@ if (APPLE)
                 "${CMAKE_CURRENT_SOURCE_DIR}/Mac/OWMB.icns"
                 "$<TARGET_FILE_DIR:OpenWav_Standalone>/../Resources/Icon.icns"
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${CMAKE_CURRENT_SOURCE_DIR}/scratched-metal_albedo.png"
-                "$<TARGET_FILE_DIR:OpenWav_Standalone>/../Resources/scratched-metal_albedo.png"
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${CMAKE_CURRENT_SOURCE_DIR}/export_mask.png"
-                "$<TARGET_FILE_DIR:OpenWav_Standalone>/../Resources/export_mask.png"
-            COMMENT "Updating macOS Standalone Icon.icns and metal texture/mask assets"
+                "${CMAKE_CURRENT_SOURCE_DIR}/samplesonics.com.png"
+                "$<TARGET_FILE_DIR:OpenWav_Standalone>/../Resources/samplesonics.com.png"
+            COMMENT "Updating macOS Standalone Icon.icns and SampleSonics logo asset"
         )
     endif()
     if (TARGET OpenWav_VST3)
@@ -235,12 +231,9 @@ if (APPLE)
                 "${CMAKE_CURRENT_SOURCE_DIR}/Mac/OWMB.icns"
                 "$<TARGET_FILE_DIR:OpenWav_VST3>/../Resources/Icon.icns"
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${CMAKE_CURRENT_SOURCE_DIR}/scratched-metal_albedo.png"
-                "$<TARGET_FILE_DIR:OpenWav_VST3>/../Resources/scratched-metal_albedo.png"
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${CMAKE_CURRENT_SOURCE_DIR}/export_mask.png"
-                "$<TARGET_FILE_DIR:OpenWav_VST3>/../Resources/export_mask.png"
-            COMMENT "Updating macOS VST3 Icon.icns and metal texture/mask assets"
+                "${CMAKE_CURRENT_SOURCE_DIR}/samplesonics.com.png"
+                "$<TARGET_FILE_DIR:OpenWav_VST3>/../Resources/samplesonics.com.png"
+            COMMENT "Updating macOS VST3 Icon.icns and SampleSonics logo asset"
         )
     endif()
     if (TARGET OpenWav_AU)
@@ -249,12 +242,9 @@ if (APPLE)
                 "${CMAKE_CURRENT_SOURCE_DIR}/Mac/OWMB.icns"
                 "$<TARGET_FILE_DIR:OpenWav_AU>/../Resources/Icon.icns"
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${CMAKE_CURRENT_SOURCE_DIR}/scratched-metal_albedo.png"
-                "$<TARGET_FILE_DIR:OpenWav_AU>/../Resources/scratched-metal_albedo.png"
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${CMAKE_CURRENT_SOURCE_DIR}/export_mask.png"
-                "$<TARGET_FILE_DIR:OpenWav_AU>/../Resources/export_mask.png"
-            COMMENT "Updating macOS AU Icon.icns and metal texture/mask assets"
+                "${CMAKE_CURRENT_SOURCE_DIR}/samplesonics.com.png"
+                "$<TARGET_FILE_DIR:OpenWav_AU>/../Resources/samplesonics.com.png"
+            COMMENT "Updating macOS AU Icon.icns and SampleSonics logo asset"
         )
     endif()
 endif()

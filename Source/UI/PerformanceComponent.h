@@ -94,9 +94,7 @@ public:
     void syncKnobValues();
 
 private:
-    void drawAgedMetalTexture(juce::Graphics& g, const juce::Rectangle<float>& bounds);
-    void drawWornPaintAndScuffs(juce::Graphics& g, const juce::Rectangle<float>& bounds, float earWidth);
-    void drawStudioStickers(juce::Graphics& g, const juce::Rectangle<float>& bounds, float earWidth);
+    void drawSampleSonicsLogo(juce::Graphics& g, const juce::Rectangle<float>& bounds, float earWidth);
 
     std::shared_ptr<RackEffectBase> effect;
     int index { 0 };
