@@ -90,6 +90,7 @@ juce_add_binary_data(OpenWavAssets
         "${CMAKE_CURRENT_SOURCE_DIR}/mainpixeldrainlogo_cropped.png"
         "${CMAKE_CURRENT_SOURCE_DIR}/splashit.png"
         "${CMAKE_CURRENT_SOURCE_DIR}/scratched-metal_albedo.png"
+        "${CMAKE_CURRENT_SOURCE_DIR}/export_mask.png"
 )
 
 target_sources(OpenWav PRIVATE
@@ -222,7 +223,10 @@ if (APPLE)
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "${CMAKE_CURRENT_SOURCE_DIR}/scratched-metal_albedo.png"
                 "$<TARGET_FILE_DIR:OpenWav_Standalone>/../Resources/scratched-metal_albedo.png"
-            COMMENT "Updating macOS Standalone Icon.icns and scratched metal texture asset"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${CMAKE_CURRENT_SOURCE_DIR}/export_mask.png"
+                "$<TARGET_FILE_DIR:OpenWav_Standalone>/../Resources/export_mask.png"
+            COMMENT "Updating macOS Standalone Icon.icns and metal texture/mask assets"
         )
     endif()
     if (TARGET OpenWav_VST3)
@@ -233,7 +237,10 @@ if (APPLE)
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "${CMAKE_CURRENT_SOURCE_DIR}/scratched-metal_albedo.png"
                 "$<TARGET_FILE_DIR:OpenWav_VST3>/../Resources/scratched-metal_albedo.png"
-            COMMENT "Updating macOS VST3 Icon.icns and scratched metal texture asset"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${CMAKE_CURRENT_SOURCE_DIR}/export_mask.png"
+                "$<TARGET_FILE_DIR:OpenWav_VST3>/../Resources/export_mask.png"
+            COMMENT "Updating macOS VST3 Icon.icns and metal texture/mask assets"
         )
     endif()
     if (TARGET OpenWav_AU)
@@ -244,7 +251,10 @@ if (APPLE)
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "${CMAKE_CURRENT_SOURCE_DIR}/scratched-metal_albedo.png"
                 "$<TARGET_FILE_DIR:OpenWav_AU>/../Resources/scratched-metal_albedo.png"
-            COMMENT "Updating macOS AU Icon.icns and scratched metal texture asset"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${CMAKE_CURRENT_SOURCE_DIR}/export_mask.png"
+                "$<TARGET_FILE_DIR:OpenWav_AU>/../Resources/export_mask.png"
+            COMMENT "Updating macOS AU Icon.icns and metal texture/mask assets"
         )
     endif()
 endif()
