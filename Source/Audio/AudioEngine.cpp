@@ -104,14 +104,25 @@ AudioEngine::AudioEngine()
 
 AudioEngine::~AudioEngine()
 {
+    isShuttingDown.store(true, std::memory_order_release);
+    engineAliveToken->store(false, std::memory_order_release);
+    currentLoadId++;
     stopTimer();
     stop();
     stopRecording();
-    currentLoadId++;
     thumbnail.setSource(nullptr);
     thumbnailCache.clear();
     backgroundThread.signalThreadShouldExit();
-    backgroundThread.stopThread(100);
+    backgroundThread.stopThread(200);
+
+    // Wait briefly for any active preload workers to observe isShuttingDown and exit
+    int waitLimit = 50;
+    while (activePreloadThreads.load(std::memory_order_acquire) > 0 && --waitLimit >= 0)
+    {
+        juce::Thread::sleep(10);
+    }
+
+    listeners.clear();
 }
 
 void AudioEngine::timerCallback()
@@ -506,8 +517,7 @@ void AudioEngine::processNextAudioBlock(juce::AudioBuffer<float>& outputBuffer, 
     // 1. Drain Lock-Free Commands
     drainCommandsOnAudioThread();
 
-    // 2. Process MIDI Keyboard buffer (invokes handleNoteOn / handleNoteOff)
-    keyboardState.processNextMidiBuffer(midiMessages, 0, outputBuffer.getNumSamples(), true);
+    // 2. Incoming MIDI note events are cleanly processed in OpenWavAudioProcessor::processBlock
 
     // 2b. Drain commands immediately so note on events start rendering in the current block
     drainCommandsOnAudioThread();
@@ -897,9 +907,21 @@ void AudioEngine::processNextAudioBlock(juce::AudioBuffer<float>& outputBuffer, 
 
 void AudioEngine::preloadSampleFiles(const std::vector<juce::File>& files)
 {
-    std::thread([this, files]() {
+    if (isShuttingDown.load(std::memory_order_acquire))
+        return;
+
+    activePreloadThreads.fetch_add(1, std::memory_order_relaxed);
+    std::thread([this, files, token = engineAliveToken]() {
+        struct ThreadExitGuard {
+            std::atomic<int>& counter;
+            ~ThreadExitGuard() { counter.fetch_sub(1, std::memory_order_relaxed); }
+        } guard { activePreloadThreads };
+
         for (const auto& file : files)
         {
+            if (!token->load(std::memory_order_acquire) || isShuttingDown.load(std::memory_order_relaxed))
+                break;
+
             if (!file.existsAsFile()) continue;
 
             juce::String filePath = file.getFullPathName();
@@ -913,6 +935,9 @@ void AudioEngine::preloadSampleFiles(const std::vector<juce::File>& files)
                 }
             }
 
+            if (!token->load(std::memory_order_acquire) || isShuttingDown.load(std::memory_order_relaxed))
+                break;
+
             std::unique_ptr<juce::AudioFormatReader> reader(formatManager.createReaderFor(file));
             if (reader != nullptr && reader->lengthInSamples > 0 && reader->numChannels > 0)
             {
@@ -922,6 +947,9 @@ void AudioEngine::preloadSampleFiles(const std::vector<juce::File>& files)
                 if (cached->rootNote < 0 || cached->rootNote > 127) cached->rootNote = 60;
                 cached->buffer.setSize(static_cast<int>(reader->numChannels), static_cast<int>(reader->lengthInSamples));
                 reader->read(&cached->buffer, 0, static_cast<int>(reader->lengthInSamples), 0, true, true);
+
+                if (!token->load(std::memory_order_acquire) || isShuttingDown.load(std::memory_order_relaxed))
+                    break;
 
                 const juce::ScopedLock sl(cacheLock);
                 if (sampleCache.size() > 200) sampleCache.clear();
@@ -1007,7 +1035,9 @@ void AudioEngine::playZoneVoice(const juce::File& file, int triggerMidiNote, int
     cmd.boolVal2 = isOneShot || oneShotEnabled.load(std::memory_order_relaxed);
     pushCommand(cmd);
 
-    juce::MessageManager::callAsync([this, triggerMidiNote]() {
+    juce::MessageManager::callAsync([this, token = engineAliveToken, triggerMidiNote]() {
+        if (!token->load(std::memory_order_acquire) || isShuttingDown.load(std::memory_order_relaxed))
+            return;
         int sliceIdx = (triggerMidiNote >= 36 && triggerMidiNote < 100) ? (triggerMidiNote - 36) : -1;
         listeners.call([sliceIdx](AudioEngineListener& l) {
             l.activeSliceTriggered(sliceIdx);
@@ -1032,7 +1062,7 @@ void AudioEngine::stopAllVoices()
     }
 }
 
-void AudioEngine::triggerNoteOn(int midiNoteNumber, float /*velocity*/)
+void AudioEngine::triggerNoteOn(int midiNoteNumber, float velocity)
 {
     if (!midiInputEnabled.load(std::memory_order_relaxed))
         return;
@@ -1046,13 +1076,15 @@ void AudioEngine::triggerNoteOn(int midiNoteNumber, float /*velocity*/)
     if (master == nullptr || master->buffer.getNumSamples() == 0)
         return;
 
+    float effectiveGain = juce::jlimit(0.0f, 1.0f, velocity);
+
     EngineCommand cmd;
     cmd.type = EngineCommandType::PlayZoneVoice;
     cmd.sampleData = master;
     cmd.intVal1 = midiNoteNumber;
     cmd.intVal2 = master->rootNote;
     cmd.floatVal1 = 0.0f;
-    cmd.floatVal2 = 1.0f;
+    cmd.floatVal2 = effectiveGain;
     cmd.floatVal3 = 0.005f;
     cmd.floatVal4 = 0.1f;
     cmd.floatVal5 = 1.0f;
@@ -1061,7 +1093,9 @@ void AudioEngine::triggerNoteOn(int midiNoteNumber, float /*velocity*/)
     cmd.boolVal2 = oneShotEnabled.load(std::memory_order_relaxed);
     pushCommand(cmd);
 
-    juce::MessageManager::callAsync([this] {
+    juce::MessageManager::callAsync([this, token = engineAliveToken] {
+        if (!token->load(std::memory_order_acquire) || isShuttingDown.load(std::memory_order_relaxed))
+            return;
         listeners.call([](AudioEngineListener& l) { l.playbackStateChanged(true); });
     });
 }
@@ -1083,7 +1117,9 @@ bool AudioEngine::loadFile(const juce::File& audioFile, bool autoPlay, bool isSa
     sampleStartRatioAtomic.store(0.0, std::memory_order_relaxed);
     sampleEndRatioAtomic.store(1.0, std::memory_order_relaxed);
 
-    std::thread([this, audioFile, autoPlay, loadId]() {
+    std::thread([this, audioFile, autoPlay, loadId, token = engineAliveToken]() {
+        if (!token->load(std::memory_order_acquire) || isShuttingDown.load(std::memory_order_relaxed))
+            return;
         if (loadId != currentLoadId.load(std::memory_order_relaxed))
             return;
 
@@ -1185,10 +1221,12 @@ bool AudioEngine::loadFile(const juce::File& audioFile, bool autoPlay, bool isSa
             }
         }
 
-        if (loadId != currentLoadId.load(std::memory_order_relaxed))
+        if (loadId != currentLoadId.load(std::memory_order_relaxed) || !token->load(std::memory_order_acquire) || isShuttingDown.load(std::memory_order_relaxed))
             return;
 
-        juce::MessageManager::callAsync([this, audioFile, autoPlay, loadId, sampleData, fileSampleRate, peaks = std::move(peaks)]() mutable {
+        juce::MessageManager::callAsync([this, token, audioFile, autoPlay, loadId, sampleData, fileSampleRate, peaks = std::move(peaks)]() mutable {
+            if (!token->load(std::memory_order_acquire) || isShuttingDown.load(std::memory_order_relaxed))
+                return;
             if (loadId != currentLoadId.load(std::memory_order_relaxed))
                 return;
 

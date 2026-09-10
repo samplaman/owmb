@@ -293,7 +293,7 @@ public:
     void playMetronomeClick(bool isAccent = false);
     void setInputParametricEq(const std::array<float, 9>& freqs, const std::array<float, 9>& gains, bool lowCut);
 
-    void triggerNoteOn(int midiNoteNumber, float velocity);
+    void triggerNoteOn(int midiNoteNumber, float velocity = 1.0f);
     void triggerNoteOff(int midiNoteNumber);
 
     void addListener(AudioEngineListener* listener);
@@ -405,6 +405,10 @@ private:
 
     juce::ListenerList<AudioEngineListener> listeners;
     bool lastNotifiedPlayingState { false };
+
+    std::atomic<bool> isShuttingDown { false };
+    std::shared_ptr<std::atomic<bool>> engineAliveToken = std::make_shared<std::atomic<bool>>(true);
+    std::atomic<int> activePreloadThreads { 0 };
 };
 
 } // namespace openwav

@@ -13,6 +13,7 @@ OpenWavAudioProcessor::OpenWavAudioProcessor()
 
 OpenWavAudioProcessor::~OpenWavAudioProcessor()
 {
+    audioEngine.stopAllVoices();
 }
 
 EditComponentState OpenWavAudioProcessor::getEditState() const
@@ -40,14 +41,6 @@ void OpenWavAudioProcessor::setSampleMapState(const SampleMapState& s)
         sampleMapState = s;
         fullPluginState.sampleMap = s;
     }
-    std::vector<juce::File> filesToPreload;
-    for (const auto& z : s.zones)
-    {
-        if (z.filePath.isNotEmpty())
-            filesToPreload.push_back(juce::File(z.filePath));
-    }
-    if (!filesToPreload.empty())
-        audioEngine.preloadSampleFiles(filesToPreload);
 }
 
 PluginFullState OpenWavAudioProcessor::getFullPluginState() const
@@ -56,7 +49,7 @@ PluginFullState OpenWavAudioProcessor::getFullPluginState() const
     return fullPluginState;
 }
 
-void OpenWavAudioProcessor::setFullPluginState(const PluginFullState& s)
+void OpenWavAudioProcessor::setFullPluginState(const PluginFullState& s, bool preloadSamples)
 {
     {
         const juce::ScopedLock sl(stateLock);
@@ -65,14 +58,17 @@ void OpenWavAudioProcessor::setFullPluginState(const PluginFullState& s)
         sampleMapState = s.sampleMap;
     }
 
-    std::vector<juce::File> filesToPreload;
-    for (const auto& z : s.sampleMap.zones)
+    if (preloadSamples)
     {
-        if (z.filePath.isNotEmpty())
-            filesToPreload.push_back(juce::File(z.filePath));
+        std::vector<juce::File> filesToPreload;
+        for (const auto& z : s.sampleMap.zones)
+        {
+            if (z.filePath.isNotEmpty())
+                filesToPreload.push_back(juce::File(z.filePath));
+        }
+        if (!filesToPreload.empty())
+            audioEngine.preloadSampleFiles(filesToPreload);
     }
-    if (!filesToPreload.empty())
-        audioEngine.preloadSampleFiles(filesToPreload);
 }
 
 void OpenWavAudioProcessor::handleNoteOn(juce::MidiKeyboardState*, int midiChannel, int midiNoteNumber, float velocity)
@@ -80,7 +76,7 @@ void OpenWavAudioProcessor::handleNoteOn(juce::MidiKeyboardState*, int midiChann
     if (midiNoteNumber < 0 || midiNoteNumber > 127)
         return;
 
-    int velInt = juce::jlimit(0, 127, static_cast<int>(velocity * 127.0f));
+    int velInt = juce::jlimit(0, 127, static_cast<int>(std::round(velocity * 127.0f)));
 
     SampleMapState currentSampleMap;
     {
@@ -90,8 +86,9 @@ void OpenWavAudioProcessor::handleNoteOn(juce::MidiKeyboardState*, int midiChann
 
     int mapChannel = currentSampleMap.midiChannel > 0 ? currentSampleMap.midiChannel : 2;
     bool isSampleMapChannel = (midiChannel == mapChannel || currentSampleMap.midiChannel == 0);
+    bool hasMappedZones = !currentSampleMap.zones.empty();
 
-    if (isSampleMapChannel)
+    if (isSampleMapChannel && hasMappedZones)
     {
         bool zoneTriggered = false;
 
@@ -174,8 +171,9 @@ void OpenWavAudioProcessor::handleNoteOff(juce::MidiKeyboardState*, int midiChan
 
     int mapChannel = currentSampleMap.midiChannel > 0 ? currentSampleMap.midiChannel : 2;
     bool isSampleMapChannel = (midiChannel == mapChannel || currentSampleMap.midiChannel == 0);
+    bool hasMappedZones = !currentSampleMap.zones.empty();
 
-    if (isSampleMapChannel)
+    if (isSampleMapChannel && hasMappedZones)
     {
         audioEngine.stopZoneVoice(midiNoteNumber);
         audioEngine.getKeyboardState().noteOff(mapChannel, midiNoteNumber, 0.0f);
@@ -295,7 +293,7 @@ void OpenWavAudioProcessor::setStateInformation(const void* data, int sizeInByte
         if (stateVar.isObject())
         {
             auto fullState = PluginFullState::fromVar(stateVar);
-            setFullPluginState(fullState);
+            setFullPluginState(fullState, true);
 
             if (auto* ed = dynamic_cast<OpenWavAudioProcessorEditor*>(getActiveEditor()))
             {

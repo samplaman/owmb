@@ -113,7 +113,7 @@ struct SampleMapZoneState
     float decayMs { 100.0f };
     float sustainLevel { 1.0f };
     float releaseMs { 200.0f };
-    float velocitySensitivity { 1.0f };
+    float velocitySensitivity { -1.0f };
 
     juce::var toVar() const
     {
@@ -162,7 +162,7 @@ struct SampleMapZoneState
         if (obj->hasProperty("velocitySensitivity"))
             z.velocitySensitivity = static_cast<float>(obj->getProperty("velocitySensitivity"));
         else
-            z.velocitySensitivity = 1.0f;
+            z.velocitySensitivity = -1.0f;
         return z;
     }
 
@@ -235,7 +235,7 @@ struct SampleMapZoneState
         z.decayMs = static_cast<float>(xml.getDoubleAttribute("decayMs", 100.0));
         z.sustainLevel = static_cast<float>(xml.getDoubleAttribute("sustainLevel", 1.0));
         z.releaseMs = static_cast<float>(xml.getDoubleAttribute("releaseMs", 200.0));
-        z.velocitySensitivity = static_cast<float>(xml.getDoubleAttribute("velocitySensitivity", 1.0));
+        z.velocitySensitivity = static_cast<float>(xml.getDoubleAttribute("velocitySensitivity", -1.0));
         return z;
     }
 };

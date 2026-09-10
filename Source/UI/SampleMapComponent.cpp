@@ -746,7 +746,8 @@ void SampleMapComponent::updateVelocityCurveUI()
     float currentSens = globalVelocitySensitivity;
     if (velocityScopeIsZone && selectedZoneIndex >= 0 && selectedZoneIndex < static_cast<int>(zones.size()))
     {
-        currentSens = zones[selectedZoneIndex].velocitySensitivity;
+        float zSens = zones[selectedZoneIndex].velocitySensitivity;
+        currentSens = (zSens >= 0.0f) ? zSens : globalVelocitySensitivity;
         velScopeButton.setButtonText("Scope: Zone " + juce::String(selectedZoneIndex + 1));
     }
     else if (velocityScopeIsZone)
@@ -794,37 +795,90 @@ SampleMapComponent::~SampleMapComponent()
     stopTimer();
     audioEngine.getKeyboardState().removeListener(this);
     audioEngine.removeListener(this);
+
+    attackKnob.removeListener(this);
+    decayKnob.removeListener(this);
+    sustainKnob.removeListener(this);
+    releaseKnob.removeListener(this);
+    velSensitivitySlider.removeListener(this);
+    velCurveSlider.removeListener(this);
+    velFloorSlider.removeListener(this);
+    rootNoteSlider.removeListener(this);
+    keyLowSlider.removeListener(this);
+    keyHighSlider.removeListener(this);
+    velLowSlider.removeListener(this);
+    velHighSlider.removeListener(this);
+    rrSlider.removeListener(this);
+    tuneSlider.removeListener(this);
+    gainSlider.removeListener(this);
+    attackSlider.removeListener(this);
+    decaySlider.removeListener(this);
+    sustainSlider.removeListener(this);
+    releaseSlider.removeListener(this);
+    reverbSlider.removeListener(this);
+
+    addSampleButton.removeListener(this);
+    lorisResynthButton.removeListener(this);
+    deleteSelectedButton.removeListener(this);
+    autoMapPitchButton.removeListener(this);
+    autoMapChromaticButton.removeListener(this);
+    autoMapVelButton.removeListener(this);
+    autoMapRRButton.removeListener(this);
+    clearMapButton.removeListener(this);
+    saveMapButton.removeListener(this);
+    loadMapButton.removeListener(this);
+    exportZipButton.removeListener(this);
+    roundRobinButton.removeListener(this);
+    pitchTrackButton.removeListener(this);
+    oneShotButton.removeListener(this);
+    loopButton.removeListener(this);
+    openFxRackButton.removeListener(this);
+    velCurveButton.removeListener(this);
+    midiChannelButton.removeListener(this);
+    velScopeButton.removeListener(this);
+    velTestAuditionBtn.removeListener(this);
+    inspectorDeleteButton.removeListener(this);
+    inspectorTabZonesBtn.removeListener(this);
+    inspectorTabVelBtn.removeListener(this);
 }
 
 void SampleMapComponent::sampleLoaded(const juce::String& /*filePath*/)
 {
-    juce::MessageManager::callAsync([this] {
-        resized();
-        repaint();
+    juce::Component::SafePointer<SampleMapComponent> safeThis(this);
+    juce::MessageManager::callAsync([safeThis] {
+        if (safeThis == nullptr) return;
+        safeThis->resized();
+        safeThis->repaint();
     });
 }
 
 void SampleMapComponent::pitchTrackingStateChanged(bool enabled)
 {
-    juce::MessageManager::callAsync([this, enabled] {
-        pitchTrackButton.setToggleState(enabled, juce::dontSendNotification);
-        pitchTrackButton.setButtonText(enabled ? "Pitch Track: ON" : "Pitch Track: OFF");
+    juce::Component::SafePointer<SampleMapComponent> safeThis(this);
+    juce::MessageManager::callAsync([safeThis, enabled] {
+        if (safeThis == nullptr) return;
+        safeThis->pitchTrackButton.setToggleState(enabled, juce::dontSendNotification);
+        safeThis->pitchTrackButton.setButtonText(enabled ? "Pitch Track: ON" : "Pitch Track: OFF");
     });
 }
 
 void SampleMapComponent::oneShotStateChanged(bool enabled)
 {
-    juce::MessageManager::callAsync([this, enabled] {
-        oneShotButton.setToggleState(enabled, juce::dontSendNotification);
-        oneShotButton.setButtonText(enabled ? "One Shot: ON" : "One Shot: OFF");
+    juce::Component::SafePointer<SampleMapComponent> safeThis(this);
+    juce::MessageManager::callAsync([safeThis, enabled] {
+        if (safeThis == nullptr) return;
+        safeThis->oneShotButton.setToggleState(enabled, juce::dontSendNotification);
+        safeThis->oneShotButton.setButtonText(enabled ? "One Shot: ON" : "One Shot: OFF");
     });
 }
 
 void SampleMapComponent::loopingStateChanged(bool enabled)
 {
-    juce::MessageManager::callAsync([this, enabled] {
-        loopButton.setToggleState(enabled, juce::dontSendNotification);
-        loopButton.setButtonText(enabled ? "Loop: ON" : "Loop: OFF");
+    juce::Component::SafePointer<SampleMapComponent> safeThis(this);
+    juce::MessageManager::callAsync([safeThis, enabled] {
+        if (safeThis == nullptr) return;
+        safeThis->loopButton.setToggleState(enabled, juce::dontSendNotification);
+        safeThis->loopButton.setButtonText(enabled ? "Loop: ON" : "Loop: OFF");
     });
 }
 
@@ -844,7 +898,7 @@ void SampleMapComponent::handleNoteOn(juce::MidiKeyboardState*, int midiChannel,
 
     if (midiNoteNumber >= 0 && midiNoteNumber < 128)
     {
-        int velInt = juce::jlimit(0, 127, static_cast<int>(velocity * 127.0f));
+        int velInt = juce::jlimit(0, 127, static_cast<int>(std::round(velocity * 127.0f)));
 
         int matchingZoneIdx = -1;
         juce::File fileToLoad;
@@ -883,19 +937,21 @@ void SampleMapComponent::handleNoteOn(juce::MidiKeyboardState*, int midiChannel,
             selectedZoneIndices.insert(matchingZoneIdx);
         }
 
-        juce::MessageManager::callAsync([this, fileToLoad] {
-            if (!isTimerRunning())
-                startTimerHz(30);
+        juce::Component::SafePointer<SampleMapComponent> safeThis(this);
+        juce::MessageManager::callAsync([safeThis, fileToLoad] {
+            if (safeThis == nullptr) return;
+            if (!safeThis->isTimerRunning())
+                safeThis->startTimerHz(30);
 
             if (fileToLoad.existsAsFile())
             {
-                if (audioEngine.getCurrentFile() != fileToLoad)
+                if (safeThis->audioEngine.getCurrentFile() != fileToLoad)
                 {
-                    audioEngine.loadFile(fileToLoad, false, true);
+                    safeThis->audioEngine.loadFile(fileToLoad, false, true);
                 }
             }
-            resized();
-            repaint();
+            safeThis->resized();
+            safeThis->repaint();
         });
     }
 }
@@ -910,10 +966,12 @@ void SampleMapComponent::handleNoteOff(juce::MidiKeyboardState*, int midiChannel
     {
         activeMidiNotes[static_cast<size_t>(midiNoteNumber)] = false;
         activeNoteVelocities[static_cast<size_t>(midiNoteNumber)] = -1;
-        juce::MessageManager::callAsync([this] {
-            if (!isTimerRunning())
-                startTimerHz(30);
-            repaint();
+        juce::Component::SafePointer<SampleMapComponent> safeThis(this);
+        juce::MessageManager::callAsync([safeThis] {
+            if (safeThis == nullptr) return;
+            if (!safeThis->isTimerRunning())
+                safeThis->startTimerHz(30);
+            safeThis->repaint();
         });
     }
 }

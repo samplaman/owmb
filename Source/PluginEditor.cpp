@@ -155,8 +155,10 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
   resized();
   repaint();
 
-  juce::MessageManager::callAsync([this] {
-    grabKeyboardFocus();
+  juce::Component::SafePointer<OpenWavAudioProcessorEditor> safeThis(this);
+  juce::MessageManager::callAsync([safeThis] {
+    if (safeThis != nullptr)
+      safeThis->grabKeyboardFocus();
   });
 }
 
@@ -171,6 +173,9 @@ OpenWavAudioProcessorEditor::~OpenWavAudioProcessorEditor() {
   tagPanel.removeListener(this);
   sampleTable.removeListener(this);
   sampleCloud.removeListener(this);
+  if (auto *dw = findParentComponentOfClass<juce::DocumentWindow>()) {
+    dw->setLookAndFeel(nullptr);
+  }
   juce::LookAndFeel::setDefaultLookAndFeel(nullptr);
   setLookAndFeel(nullptr);
 }

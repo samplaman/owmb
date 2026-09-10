@@ -59,7 +59,7 @@ public:
     void setSampleMapState(const SampleMapState& s);
 
     PluginFullState getFullPluginState() const;
-    void setFullPluginState(const PluginFullState& s);
+    void setFullPluginState(const PluginFullState& s, bool preloadSamples = false);
 
 private:
     TagDatabaseManager dbManager;

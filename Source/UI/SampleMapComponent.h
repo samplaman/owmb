@@ -30,7 +30,7 @@ struct SampleMapZone
     float decayMs { 100.0f };     // 0 to 2000 ms
     float sustainLevel { 1.0f };  // 0 to 1.0
     float releaseMs { 200.0f };   // 0 to 5000 ms
-    float velocitySensitivity { 1.0f }; // 0.0 to 1.0
+    float velocitySensitivity { -1.0f }; // -1.0 = inherit global, 0.0 to 1.0 = zone override
     bool isSelected { false };
 };
 
