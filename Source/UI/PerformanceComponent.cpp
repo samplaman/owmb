@@ -35,9 +35,11 @@ void RackKnobLookAndFeel::drawRotarySlider(juce::Graphics& g, int x, int y, int 
     g.setGradientFill(dialGrad);
     g.fillEllipse(rx, ry, rw, rw);
 
-    // 3. Dial outer metallic rim
-    g.setColour(juce::Colour(70, 76, 88));
+    // 3. Dial outer metallic rim with vintage knurling/weathering
+    g.setColour(juce::Colour(72, 78, 90));
     g.drawEllipse(rx, ry, rw, rw, 1.2f);
+    g.setColour(juce::Colour(22, 24, 28));
+    g.drawEllipse(rx + 1.0f, ry + 1.0f, rw - 2.0f, rw - 2.0f, 0.8f);
 
     // 4. Background Track Arc
     juce::Path bgArc;
@@ -64,6 +66,9 @@ void RackKnobLookAndFeel::drawRotarySlider(juce::Graphics& g, int x, int y, int 
     g.fillEllipse(centreX - innerR, centreY - innerR, innerR * 2.0f, innerR * 2.0f);
     g.setColour(juce::Colour(55, 60, 70));
     g.drawEllipse(centreX - innerR, centreY - innerR, innerR * 2.0f, innerR * 2.0f, 1.0f);
+    // Subtle inner aged groove
+    g.setColour(juce::Colour(16, 18, 22).withAlpha(0.85f));
+    g.drawEllipse(centreX - innerR + 1.0f, centreY - innerR + 1.0f, (innerR - 1.0f) * 2.0f, (innerR - 1.0f) * 2.0f, 0.7f);
 
     // 7. Rotary Pointer needle
     juce::Path p;
@@ -303,13 +308,13 @@ void RackUnitComponent::paint(juce::Graphics& g)
     auto bounds = getLocalBounds().toFloat();
     bool isBypassed = effect ? effect->getBypassed() : false;
 
-    // Outer Chassis Gradient
+    // 1. Outer Chassis Gradient
     juce::ColourGradient chassisGrad(juce::Colour(34, 38, 44), 0.0f, bounds.getY(),
                                      juce::Colour(22, 24, 28), 0.0f, bounds.getBottom(), false);
     g.setGradientFill(chassisGrad);
     g.fillRoundedRectangle(bounds, 5.0f);
 
-    // 19" Rack Mounting Ears (Left & Right 38px)
+    // 2. 19" Rack Mounting Ears (Left & Right 38px)
     float earWidth = 38.0f;
     juce::Rectangle<float> leftEar(bounds.getX(), bounds.getY(), earWidth, bounds.getHeight());
     juce::Rectangle<float> rightEar(bounds.getRight() - earWidth, bounds.getY(), earWidth, bounds.getHeight());
@@ -318,12 +323,15 @@ void RackUnitComponent::paint(juce::Graphics& g)
     g.fillRect(leftEar);
     g.fillRect(rightEar);
 
-    // Seams separating rack ears from module faceplate
+    // 3. Aged Brushed Metal Texture & Micro-Grain & Grime Patina
+    drawAgedMetalTexture(g, bounds);
+
+    // 4. Seams separating rack ears from module faceplate
     g.setColour(juce::Colour(45, 49, 57));
     g.drawVerticalLine(static_cast<int>(leftEar.getRight()), bounds.getY(), bounds.getBottom());
     g.drawVerticalLine(static_cast<int>(rightEar.getX()), bounds.getY(), bounds.getBottom());
 
-    // Rack Mount Screw Rivets
+    // 5. Rack Mount Screw Rivets
     auto drawScrew = [&g](float cx, float cy) {
         float r = 5.5f;
         g.setColour(juce::Colour(12, 14, 16));
@@ -341,7 +349,7 @@ void RackUnitComponent::paint(juce::Graphics& g)
     drawScrew(rightEar.getCentreX(), bounds.getY() + 18.0f);
     drawScrew(rightEar.getCentreX(), bounds.getBottom() - 18.0f);
 
-    // Top Accent Color Strip
+    // 6. Top Accent Color Strip
     if (effect)
     {
         auto accent = effect->getAccentColour();
@@ -350,15 +358,362 @@ void RackUnitComponent::paint(juce::Graphics& g)
         g.fillRoundedRectangle(bounds.getX() + earWidth, bounds.getY(), bounds.getWidth() - earWidth * 2.0f, 3.0f, 1.5f);
     }
 
-    // Outer Bevel / Border
+    // 7. Worn Paint, Screw Washer Grinds, Edge Chipping & Scratches
+    drawWornPaintAndScuffs(g, bounds, earWidth);
+
+    // 8. Authentic Vintage Studio Stickers (Dymo Tape, Masking Tape, QC Stamp)
+    drawStudioStickers(g, bounds, earWidth);
+
+    // 9. Outer Bevel / Border
     g.setColour(juce::Colour(52, 58, 68));
     g.drawRoundedRectangle(bounds.reduced(0.5f), 5.0f, 1.0f);
 
-    // If bypassed, draw subtle darkening overlay
+    // 10. If bypassed, draw subtle darkening overlay
     if (isBypassed)
     {
         g.setColour(juce::Colours::black.withAlpha(0.35f));
         g.fillRoundedRectangle(bounds.reduced(earWidth, 0.0f), 0.0f);
+    }
+}
+
+void RackUnitComponent::drawAgedMetalTexture(juce::Graphics& g, const juce::Rectangle<float>& bounds)
+{
+    float earWidth = 38.0f;
+    auto faceplate = bounds.reduced(earWidth, 0.0f);
+
+    // 1. Brushed Aluminum Horizontal Grain Lines (deterministic micro-grain)
+    int numLines = static_cast<int>(faceplate.getHeight());
+    for (int y = 0; y < numLines; y += 2)
+    {
+        uint32_t hash = static_cast<uint32_t>((y * 1103515245 + index * 12345 + 101) & 0x7FFFFFFF);
+        float alpha = (hash % 100) / 100.0f;
+
+        if (alpha > 0.62f)
+        {
+            float brightAlpha = (alpha - 0.62f) * 0.09f;
+            g.setColour(juce::Colours::white.withAlpha(brightAlpha));
+            g.drawHorizontalLine(static_cast<int>(faceplate.getY() + y), faceplate.getX(), faceplate.getRight());
+        }
+        else if (alpha < 0.38f)
+        {
+            float darkAlpha = (0.38f - alpha) * 0.11f;
+            g.setColour(juce::Colours::black.withAlpha(darkAlpha));
+            g.drawHorizontalLine(static_cast<int>(faceplate.getY() + y), faceplate.getX(), faceplate.getRight());
+        }
+    }
+
+    // 2. Patina & Grime Vignette along Edges and Seams
+    juce::ColourGradient topEdgeGrad(juce::Colour(8, 10, 12).withAlpha(0.65f), 0.0f, faceplate.getY(),
+                                     juce::Colour(8, 10, 12).withAlpha(0.0f), 0.0f, faceplate.getY() + 14.0f, false);
+    g.setGradientFill(topEdgeGrad);
+    g.fillRect(faceplate.withHeight(14.0f));
+
+    juce::ColourGradient botEdgeGrad(juce::Colour(6, 8, 10).withAlpha(0.70f), 0.0f, faceplate.getBottom(),
+                                     juce::Colour(6, 8, 10).withAlpha(0.0f), 0.0f, faceplate.getBottom() - 16.0f, false);
+    g.setGradientFill(botEdgeGrad);
+    g.fillRect(faceplate.withY(faceplate.getBottom() - 16.0f).withHeight(16.0f));
+
+    // Corner grime accumulation
+    auto drawCornerGrime = [&](float cx, float cy, float radius) {
+        juce::ColourGradient cg(juce::Colour(10, 12, 14).withAlpha(0.55f), cx, cy,
+                                juce::Colour(10, 12, 14).withAlpha(0.0f), cx + radius, cy + radius, true);
+        g.setGradientFill(cg);
+        g.fillEllipse(cx - radius, cy - radius, radius * 2.0f, radius * 2.0f);
+    };
+
+    drawCornerGrime(faceplate.getX(), faceplate.getY(), 32.0f);
+    drawCornerGrime(faceplate.getRight(), faceplate.getY(), 32.0f);
+    drawCornerGrime(faceplate.getX(), faceplate.getBottom(), 36.0f);
+    drawCornerGrime(faceplate.getRight(), faceplate.getBottom(), 36.0f);
+}
+
+void RackUnitComponent::drawWornPaintAndScuffs(juce::Graphics& g, const juce::Rectangle<float>& bounds, float earWidth)
+{
+    juce::Rectangle<float> leftEar(bounds.getX(), bounds.getY(), earWidth, bounds.getHeight());
+    juce::Rectangle<float> rightEar(bounds.getRight() - earWidth, bounds.getY(), earWidth, bounds.getHeight());
+
+    // 1. Screw Washer Circular Scrape Marks (Grinded raw metal where screw washers rotated)
+    auto drawWasherScuff = [&](float cx, float cy, int seed) {
+        float r = 8.5f;
+        // Inner bare aluminum washer ring
+        g.setColour(juce::Colour(170, 175, 185).withAlpha(0.50f));
+        g.drawEllipse(cx - r, cy - r, r * 2.0f, r * 2.0f, 1.3f);
+
+        // Circular grind arc marks
+        juce::Path arc1;
+        float startAngle = (seed % 10) * 0.6f;
+        arc1.addCentredArc(cx, cy, r - 1.0f, r - 1.0f, 0.0f, startAngle, startAngle + 2.2f, true);
+        g.setColour(juce::Colour(215, 220, 230).withAlpha(0.65f));
+        g.strokePath(arc1, juce::PathStrokeType(1.1f));
+
+        // Dark oxidation edge outside the washer ring
+        g.setColour(juce::Colour(12, 14, 16).withAlpha(0.70f));
+        g.drawEllipse(cx - (r + 1.2f), cy - (r + 1.2f), (r + 1.2f) * 2.0f, (r + 1.2f) * 2.0f, 0.8f);
+
+        // A tiny chipped paint fleck near the screw hole
+        float chipAngle = (seed % 7) * 0.9f;
+        float chipX = cx + (r + 1.5f) * std::cos(chipAngle);
+        float chipY = cy + (r + 1.5f) * std::sin(chipAngle);
+        g.setColour(juce::Colour(155, 160, 170).withAlpha(0.75f));
+        g.fillEllipse(chipX - 1.2f, chipY - 1.0f, 2.4f, 2.0f);
+        g.setColour(juce::Colour(220, 225, 235).withAlpha(0.85f));
+        g.fillEllipse(chipX - 0.6f, chipY - 0.5f, 1.2f, 1.0f);
+    };
+
+    drawWasherScuff(leftEar.getCentreX(), bounds.getY() + 18.0f, index * 7 + 1);
+    drawWasherScuff(leftEar.getCentreX(), bounds.getBottom() - 18.0f, index * 7 + 2);
+    drawWasherScuff(rightEar.getCentreX(), bounds.getY() + 18.0f, index * 7 + 3);
+    drawWasherScuff(rightEar.getCentreX(), bounds.getBottom() - 18.0f, index * 7 + 4);
+
+    // 2. Chipped Paint along Ear Seams & Outer Edges
+    auto drawPaintChip = [&](float x, float y, float w, float h) {
+        // Dark chipped crater
+        g.setColour(juce::Colour(8, 10, 12).withAlpha(0.85f));
+        g.fillRoundedRectangle(x - 0.5f, y - 0.5f, w + 1.0f, h + 1.0f, 1.0f);
+        // Raw metallic aluminum exposed
+        g.setColour(juce::Colour(150, 155, 165));
+        g.fillRoundedRectangle(x, y, w, h, 0.8f);
+        // Specular highlight on upper/left edge of chip
+        g.setColour(juce::Colour(225, 230, 240).withAlpha(0.75f));
+        g.drawLine(x, y, x + w * 0.7f, y, 0.9f);
+        g.drawLine(x, y, x, y + h * 0.7f, 0.9f);
+    };
+
+    // Vertical seam chipping (left seam)
+    float seamLeftX = leftEar.getRight();
+    drawPaintChip(seamLeftX - 1.2f, bounds.getY() + 24.0f + (index * 13 % 35), 2.8f, 5.0f);
+    drawPaintChip(seamLeftX - 0.8f, bounds.getBottom() - 40.0f - (index * 9 % 25), 2.2f, 4.0f);
+
+    // Vertical seam chipping (right seam)
+    float seamRightX = rightEar.getX();
+    drawPaintChip(seamRightX - 1.5f, bounds.getY() + 38.0f + (index * 11 % 30), 2.7f, 4.5f);
+    drawPaintChip(seamRightX - 1.0f, bounds.getBottom() - 32.0f - (index * 17 % 28), 2.4f, 5.5f);
+
+    // Outer perimeter edge wear
+    drawPaintChip(bounds.getX() + 12.0f + (index * 19 % 20), bounds.getY() + 0.5f, 6.5f, 1.8f);
+    drawPaintChip(bounds.getRight() - 35.0f - (index * 23 % 20), bounds.getBottom() - 2.2f, 7.0f, 1.8f);
+
+    // 3. Hairline Faceplate Scratches
+    auto drawScratch = [&](float x1, float y1, float x2, float y2) {
+        // Shadow line
+        g.setColour(juce::Colour(10, 12, 14).withAlpha(0.55f));
+        g.drawLine(x1, y1 + 0.8f, x2, y2 + 0.8f, 0.9f);
+        // Bright metallic scratch
+        g.setColour(juce::Colour(180, 185, 195).withAlpha(0.40f));
+        g.drawLine(x1, y1, x2, y2, 0.8f);
+    };
+
+    // Deterministic scratches across the faceplate
+    float faceW = bounds.getWidth() - earWidth * 2.0f;
+    float scX1 = bounds.getX() + earWidth + 20.0f + ((index * 79) % static_cast<int>(faceW * 0.4f));
+    float scY1 = bounds.getY() + 35.0f + ((index * 37) % 30);
+    drawScratch(scX1, scY1, scX1 + 28.0f, scY1 + 9.0f);
+
+    float scX2 = bounds.getX() + earWidth + faceW * 0.55f + ((index * 53) % static_cast<int>(faceW * 0.35f));
+    float scY2 = bounds.getY() + 75.0f + ((index * 41) % 35);
+    drawScratch(scX2, scY2, scX2 + 35.0f, scY2 - 7.0f);
+
+    // 4. Weathered Accent Strip Distress
+    if (effect)
+    {
+        float accentY = bounds.getY();
+        float chipAx1 = bounds.getX() + earWidth + 60.0f + ((index * 47) % 120);
+        float chipAx2 = bounds.getRight() - earWidth - 80.0f - ((index * 31) % 100);
+
+        g.setColour(juce::Colour(24, 26, 30));
+        g.fillRect(chipAx1, accentY, 3.5f, 3.0f);
+        g.fillRect(chipAx2, accentY, 4.0f, 3.0f);
+
+        // Bare aluminum fleck in the chip
+        g.setColour(juce::Colour(160, 165, 175));
+        g.fillRect(chipAx1 + 0.8f, accentY + 0.5f, 1.8f, 2.0f);
+        g.fillRect(chipAx2 + 1.0f, accentY + 0.5f, 2.0f, 2.0f);
+    }
+}
+
+void RackUnitComponent::drawStudioStickers(juce::Graphics& g, const juce::Rectangle<float>& bounds, float earWidth)
+{
+    int stickerSeed = (index + 1) * 17;
+    int style = index % 3; // 0: Dymo Embossed Tape, 1: Masking Tape, 2: QC Inspection Stamp
+
+    bool placeOnLeft = (index % 2 == 0);
+    float stickerW = 80.0f;
+    float stickerH = 16.0f;
+    float sx = placeOnLeft ? (bounds.getX() + earWidth + 10.0f)
+                           : (bounds.getRight() - earWidth - stickerW - 10.0f);
+    float sy = bounds.getBottom() - stickerH - 8.0f;
+
+    if (style == 0) // Dymo Embossed Tape
+    {
+        stickerW = 76.0f;
+        stickerH = 15.0f;
+        sx = placeOnLeft ? (bounds.getX() + earWidth + 12.0f) : (bounds.getRight() - earWidth - stickerW - 12.0f);
+        sy = bounds.getBottom() - stickerH - 7.0f;
+
+        float rot = (placeOnLeft ? -0.022f : 0.018f) * ((stickerSeed % 5) - 2);
+
+        juce::Graphics::ScopedSaveState ss(g);
+        g.addTransform(juce::AffineTransform::rotation(rot, sx + stickerW * 0.5f, sy + stickerH * 0.5f));
+
+        // Drop shadow
+        g.setColour(juce::Colours::black.withAlpha(0.45f));
+        g.fillRoundedRectangle(sx + 1.2f, sy + 1.8f, stickerW, stickerH, 1.5f);
+
+        // Dymo plastic tape color (alternates between black, vintage red, retro blue)
+        juce::Colour tapeColor = (index % 4 == 0) ? juce::Colour(24, 26, 28)
+                               : ((index % 4 == 1) ? juce::Colour(160, 32, 32)
+                                                   : juce::Colour(28, 64, 130));
+
+        // 45-degree clipped ends
+        juce::Path tapePath;
+        float cut = 2.5f;
+        tapePath.startNewSubPath(sx + cut, sy);
+        tapePath.lineTo(sx + stickerW - cut, sy);
+        tapePath.lineTo(sx + stickerW, sy + cut);
+        tapePath.lineTo(sx + stickerW, sy + stickerH - cut);
+        tapePath.lineTo(sx + stickerW - cut, sy + stickerH);
+        tapePath.lineTo(sx + cut, sy + stickerH);
+        tapePath.lineTo(sx, sy + stickerH - cut);
+        tapePath.lineTo(sx, sy + cut);
+        tapePath.closeSubPath();
+
+        g.setColour(tapeColor);
+        g.fillPath(tapePath);
+
+        // Gloss highlight reflection on top half
+        g.setColour(juce::Colours::white.withAlpha(0.18f));
+        g.fillRect(sx + cut, sy + 1.0f, stickerW - cut * 2.0f, stickerH * 0.45f);
+
+        // Tape subtle border rim
+        g.setColour(tapeColor.brighter(0.25f));
+        g.strokePath(tapePath, juce::PathStrokeType(0.8f));
+
+        // Embossed White Letters (Raised 3D appearance)
+        juce::String dymoText;
+        switch (index % 6)
+        {
+            case 0: dymoText = "HOT TUBE"; break;
+            case 1: dymoText = "CALIBRATED"; break;
+            case 2: dymoText = "DO NOT TOUCH"; break;
+            case 3: dymoText = "REC LEVEL"; break;
+            case 4: dymoText = "VINTAGE SPEC"; break;
+            default: dymoText = "UNIT #0" + juce::String(index + 1); break;
+        }
+
+        g.setFont(juce::Font(juce::Font::getDefaultMonospacedFontName(), 9.5f, juce::Font::bold));
+        // Letter bevel shadow
+        g.setColour(juce::Colour(10, 12, 14).withAlpha(0.6f));
+        g.drawText(dymoText, juce::Rectangle<float>(sx + 1.0f, sy + 1.0f, stickerW, stickerH), juce::Justification::centred, false);
+        // Letter white embossed face
+        g.setColour(juce::Colour(248, 250, 252));
+        g.drawText(dymoText, juce::Rectangle<float>(sx, sy, stickerW, stickerH), juce::Justification::centred, false);
+    }
+    else if (style == 1) // Torn Studio Masking Tape
+    {
+        stickerW = 86.0f;
+        stickerH = 17.0f;
+        sx = placeOnLeft ? (bounds.getX() + earWidth + 14.0f) : (bounds.getRight() - earWidth - stickerW - 14.0f);
+        sy = bounds.getBottom() - stickerH - 7.0f;
+
+        float rot = (placeOnLeft ? 0.020f : -0.024f) * ((stickerSeed % 5) - 2);
+
+        juce::Graphics::ScopedSaveState ss(g);
+        g.addTransform(juce::AffineTransform::rotation(rot, sx + stickerW * 0.5f, sy + stickerH * 0.5f));
+
+        // Ragged torn ends path
+        juce::Path tapePath;
+        tapePath.startNewSubPath(sx + 3.0f, sy);
+        tapePath.lineTo(sx + stickerW - 3.0f, sy);
+        // Torn right end
+        tapePath.lineTo(sx + stickerW, sy + 4.0f);
+        tapePath.lineTo(sx + stickerW - 2.0f, sy + 8.0f);
+        tapePath.lineTo(sx + stickerW + 1.0f, sy + 13.0f);
+        tapePath.lineTo(sx + stickerW - 3.0f, sy + stickerH);
+        // Bottom edge
+        tapePath.lineTo(sx + 3.0f, sy + stickerH);
+        // Torn left end
+        tapePath.lineTo(sx, sy + 12.0f);
+        tapePath.lineTo(sx + 2.0f, sy + 7.0f);
+        tapePath.lineTo(sx - 1.0f, sy + 3.0f);
+        tapePath.closeSubPath();
+
+        // Drop shadow
+        g.setColour(juce::Colours::black.withAlpha(0.35f));
+        g.fillPath(tapePath, juce::AffineTransform::translation(1.0f, 1.5f));
+
+        // Aged semi-translucent cream masking tape
+        g.setColour(juce::Colour(236, 227, 203).withAlpha(0.92f));
+        g.fillPath(tapePath);
+
+        // Subtle fiber texture
+        g.setColour(juce::Colour(215, 203, 175).withAlpha(0.40f));
+        for (float fx = sx + 8.0f; fx < sx + stickerW - 8.0f; fx += 5.0f)
+        {
+            g.drawVerticalLine(static_cast<int>(fx), sy + 2.0f, sy + stickerH - 2.0f);
+        }
+
+        // Handwritten marker / pen text
+        juce::String markerText;
+        switch (index % 6)
+        {
+            case 0: markerText = "CH 1-2 INSERT"; break;
+            case 1: markerText = "FAT TONE!"; break;
+            case 2: markerText = "SET & FORGET"; break;
+            case 3: markerText = "KEEP UNDER +3"; break;
+            case 4: markerText = "DRUM BUS"; break;
+            default: markerText = "OWMB 1984"; break;
+        }
+
+        g.setFont(juce::Font(10.0f).italicised().boldened());
+        g.setColour(juce::Colour(25, 32, 50).withAlpha(0.85f));
+        g.drawText(markerText, juce::Rectangle<float>(sx, sy, stickerW, stickerH), juce::Justification::centred, false);
+    }
+    else // Vintage QC / Inspection Stamp Sticker
+    {
+        stickerW = 62.0f;
+        stickerH = 22.0f;
+        sx = placeOnLeft ? (bounds.getX() + earWidth + 14.0f) : (bounds.getRight() - earWidth - stickerW - 14.0f);
+        sy = bounds.getBottom() - stickerH - 6.0f;
+
+        float rot = (placeOnLeft ? -0.030f : 0.026f);
+
+        juce::Graphics::ScopedSaveState ss(g);
+        g.addTransform(juce::AffineTransform::rotation(rot, sx + stickerW * 0.5f, sy + stickerH * 0.5f));
+
+        // Drop shadow
+        g.setColour(juce::Colours::black.withAlpha(0.40f));
+        g.fillRoundedRectangle(sx + 1.2f, sy + 1.5f, stickerW, stickerH, 3.0f);
+
+        // Yellowed aged paper background
+        g.setColour(juce::Colour(244, 237, 210));
+        g.fillRoundedRectangle(sx, sy, stickerW, stickerH, 3.0f);
+
+        // Faded red stamp border
+        g.setColour(juce::Colour(175, 45, 45).withAlpha(0.70f));
+        g.drawRoundedRectangle(sx + 2.0f, sy + 2.0f, stickerW - 4.0f, stickerH - 4.0f, 2.0f, 1.0f);
+
+        // Stamped QC text
+        g.setFont(juce::Font(juce::Font::getDefaultSansSerifFontName(), 8.5f, juce::Font::bold));
+        g.setColour(juce::Colour(175, 45, 45).withAlpha(0.85f));
+        g.drawText("PASSED QC #" + juce::String(12 + (index * 7) % 80),
+                   juce::Rectangle<float>(sx, sy + 2.0f, stickerW, 10.0f), juce::Justification::centred, false);
+
+        g.setFont(juce::Font(juce::Font::getDefaultSansSerifFontName(), 7.5f, juce::Font::plain));
+        g.setColour(juce::Colour(55, 60, 70).withAlpha(0.80f));
+        g.drawText("CALIBRATED '84",
+                   juce::Rectangle<float>(sx, sy + 11.0f, stickerW, 9.0f), juce::Justification::centred, false);
+
+        // Dog-eared folded top-right corner
+        juce::Path fold;
+        float foldSize = 5.0f;
+        fold.startNewSubPath(sx + stickerW - foldSize, sy);
+        fold.lineTo(sx + stickerW, sy + foldSize);
+        fold.lineTo(sx + stickerW - foldSize, sy + foldSize);
+        fold.closeSubPath();
+        g.setColour(juce::Colour(218, 210, 185));
+        g.fillPath(fold);
+        g.setColour(juce::Colour(150, 140, 120));
+        g.strokePath(fold, juce::PathStrokeType(0.6f));
     }
 }
 
