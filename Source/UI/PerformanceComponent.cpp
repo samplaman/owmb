@@ -60,6 +60,26 @@ static juce::Image getScratchedMetalAlbedoTexture()
     return cachedTexture;
 }
 
+static juce::Image getScaledScratchedMetalTile(int targetHeight)
+{
+    static juce::Image cachedScaledTile;
+    static int cachedHeight = 0;
+
+    if (cachedHeight == targetHeight && cachedScaledTile.isValid())
+        return cachedScaledTile;
+
+    auto fullImg = getScratchedMetalAlbedoTexture();
+    if (!fullImg.isValid())
+        return {};
+
+    if (targetHeight <= 0)
+        targetHeight = 132;
+
+    cachedScaledTile = fullImg.rescaled(targetHeight, targetHeight, juce::Graphics::ResamplingQuality::highResamplingQuality);
+    cachedHeight = targetHeight;
+    return cachedScaledTile;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 //  RackKnobLookAndFeel Implementation
 // ─────────────────────────────────────────────────────────────────────────────
@@ -436,63 +456,63 @@ void RackUnitComponent::drawAgedMetalTexture(juce::Graphics& g, const juce::Rect
     float earWidth = 38.0f;
     auto faceplate = bounds.reduced(earWidth, 0.0f);
 
-    // 1. High-Resolution Scratched Metal Albedo PBR Texture (from included 2048x2048 asset)
-    auto metalImg = getScratchedMetalAlbedoTexture();
-    if (metalImg.isValid())
+    // 1. High-Resolution Scratched Metal Texture (Scaled down & tiled horizontally across X)
+    int targetH = juce::roundToInt(faceplate.getHeight());
+    if (targetH <= 0) targetH = 132;
+
+    auto tileImg = getScaledScratchedMetalTile(targetH);
+    if (tileImg.isValid())
     {
-        int texW = metalImg.getWidth();
-        int texH = metalImg.getHeight();
+        float tileW = static_cast<float>(tileImg.getWidth());
+        float tileH = static_cast<float>(tileImg.getHeight());
 
-        // Sample deterministic high-res slice per rack unit slot onto the main faceplate
-        int fpW = static_cast<int>(faceplate.getWidth());
-        int fpH = static_cast<int>(faceplate.getHeight());
-        if (fpW > 0 && fpH > 0)
+        // Tile horizontally on X across the faceplate
+        g.saveState();
+        g.reduceClipRegion(faceplate.toNearestInt());
+        g.setOpacity(0.65f);
+
+        // Offset start X per slot index so each rack unit has a distinct seamless phase
+        float xOffset = fmodf(static_cast<float>(index * 79), tileW);
+        float startX = faceplate.getX() - xOffset;
+
+        for (float y = faceplate.getY(); y < faceplate.getBottom(); y += tileH)
         {
-            int srcW = std::min(texW, fpW);
-            int srcH = std::min(texH, fpH);
-            int maxOffX = std::max(1, texW - srcW);
-            int maxOffY = std::max(1, texH - srcH);
-            int srcX = (index * 359 + 71) % maxOffX;
-            int srcY = (index * 263 + 127) % maxOffY;
-
-            g.saveState();
-            g.reduceClipRegion(faceplate.toNearestInt());
-            // 0.65 opacity blends authentic metal scratch detail seamlessly with the dark chassis gradient
-            g.setOpacity(0.65f);
-            g.drawImage(metalImg,
-                        static_cast<int>(faceplate.getX()), static_cast<int>(faceplate.getY()), fpW, fpH,
-                        srcX, srcY, srcW, srcH);
-            g.restoreState();
-        }
-
-        // Also sample scratched metal texture onto the 19" rack ears
-        auto drawEarMetal = [&](const juce::Rectangle<float>& earRect, int earSeed) {
-            int ew = static_cast<int>(earRect.getWidth());
-            int eh = static_cast<int>(earRect.getHeight());
-            if (ew > 0 && eh > 0)
+            for (float x = startX; x < faceplate.getRight(); x += tileW)
             {
-                int srcW = std::min(texW, ew);
-                int srcH = std::min(texH, eh);
-                int maxOffX = std::max(1, texW - srcW);
-                int maxOffY = std::max(1, texH - srcH);
-                int srcX = (index * 197 + earSeed * 89 + 31) % maxOffX;
-                int srcY = (index * 163 + earSeed * 53 + 47) % maxOffY;
-
-                g.saveState();
-                juce::Path earClip;
-                earClip.addRoundedRectangle(bounds, 5.0f);
-                g.reduceClipRegion(earClip);
-                g.reduceClipRegion(earRect.toNearestInt());
-                g.setOpacity(0.50f);
-                g.drawImage(metalImg,
-                            static_cast<int>(earRect.getX()), static_cast<int>(earRect.getY()), ew, eh,
-                            srcX, srcY, srcW, srcH);
-                g.restoreState();
+                g.drawImage(tileImg,
+                            juce::roundToInt(x), juce::roundToInt(y),
+                            juce::roundToInt(tileW), juce::roundToInt(tileH),
+                            0, 0, tileImg.getWidth(), tileImg.getHeight());
             }
+        }
+        g.restoreState();
+
+        // Also tile on X across the 19" rack ears
+        auto drawEarTiles = [&](const juce::Rectangle<float>& earRect, int earSeed) {
+            g.saveState();
+            juce::Path earClip;
+            earClip.addRoundedRectangle(bounds, 5.0f);
+            g.reduceClipRegion(earClip);
+            g.reduceClipRegion(earRect.toNearestInt());
+            g.setOpacity(0.48f);
+
+            float earOffset = fmodf(static_cast<float>(index * 53 + earSeed * 37), tileW);
+            float earStartX = earRect.getX() - earOffset;
+            for (float y = earRect.getY(); y < earRect.getBottom(); y += tileH)
+            {
+                for (float x = earStartX; x < earRect.getRight(); x += tileW)
+                {
+                    g.drawImage(tileImg,
+                                juce::roundToInt(x), juce::roundToInt(y),
+                                juce::roundToInt(tileW), juce::roundToInt(tileH),
+                                0, 0, tileImg.getWidth(), tileImg.getHeight());
+                }
+            }
+            g.restoreState();
         };
 
-        drawEarMetal(juce::Rectangle<float>(bounds.getX(), bounds.getY(), earWidth, bounds.getHeight()), 1);
-        drawEarMetal(juce::Rectangle<float>(bounds.getRight() - earWidth, bounds.getY(), earWidth, bounds.getHeight()), 2);
+        drawEarTiles(juce::Rectangle<float>(bounds.getX(), bounds.getY(), earWidth, bounds.getHeight()), 1);
+        drawEarTiles(juce::Rectangle<float>(bounds.getRight() - earWidth, bounds.getY(), earWidth, bounds.getHeight()), 2);
     }
 
     // 2. Brushed Aluminum Horizontal Grain Lines (deterministic micro-grain)
