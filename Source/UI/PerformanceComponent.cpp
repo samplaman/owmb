@@ -2,8 +2,63 @@
 #include <cmath>
 #include <algorithm>
 
+#if __has_include(<BinaryData.h>)
+ #include <BinaryData.h>
+#endif
+
 namespace openwav
 {
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Scratched Metal Texture Resource Loader
+// ─────────────────────────────────────────────────────────────────────────────
+static juce::Image getScratchedMetalAlbedoTexture()
+{
+    static juce::Image cachedTexture;
+    static bool attemptedLoad = false;
+
+    if (attemptedLoad)
+        return cachedTexture;
+
+    attemptedLoad = true;
+
+#if defined(JUCE_BINARYDATA_H_INCLUDED) || __has_include(<BinaryData.h>)
+    int dataSize = 0;
+    const char* data = BinaryData::getNamedResource("scratched_metal_albedo_png", dataSize);
+    if (data == nullptr)
+        data = BinaryData::getNamedResource("scratched-metal_albedo.png", dataSize);
+    if (data == nullptr)
+        data = BinaryData::getNamedResource("scratchedmetal_albedo_png", dataSize);
+
+    if (data != nullptr && dataSize > 0)
+    {
+        cachedTexture = juce::ImageFileFormat::loadFrom(data, static_cast<size_t>(dataSize));
+        if (cachedTexture.isValid())
+            return cachedTexture;
+    }
+#endif
+
+    // Fallback file paths for standalone run, test harnesses, or development
+    const juce::String filename = "scratched-metal_albedo.png";
+    const juce::File searchPaths[] = {
+        juce::File::getCurrentWorkingDirectory().getChildFile(filename),
+        juce::File::getSpecialLocation(juce::File::currentExecutableFile).getParentDirectory().getChildFile(filename),
+        juce::File::getSpecialLocation(juce::File::currentExecutableFile).getParentDirectory().getParentDirectory().getChildFile("Resources").getChildFile(filename),
+        juce::File("/Users/eoinodowd/Desktop/owmb latest").getChildFile(filename)
+    };
+
+    for (const auto& f : searchPaths)
+    {
+        if (f.existsAsFile())
+        {
+            cachedTexture = juce::ImageFileFormat::loadFrom(f);
+            if (cachedTexture.isValid())
+                return cachedTexture;
+        }
+    }
+
+    return cachedTexture;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  RackKnobLookAndFeel Implementation
@@ -381,7 +436,66 @@ void RackUnitComponent::drawAgedMetalTexture(juce::Graphics& g, const juce::Rect
     float earWidth = 38.0f;
     auto faceplate = bounds.reduced(earWidth, 0.0f);
 
-    // 1. Brushed Aluminum Horizontal Grain Lines (deterministic micro-grain)
+    // 1. High-Resolution Scratched Metal Albedo PBR Texture (from included 2048x2048 asset)
+    auto metalImg = getScratchedMetalAlbedoTexture();
+    if (metalImg.isValid())
+    {
+        int texW = metalImg.getWidth();
+        int texH = metalImg.getHeight();
+
+        // Sample deterministic high-res slice per rack unit slot onto the main faceplate
+        int fpW = static_cast<int>(faceplate.getWidth());
+        int fpH = static_cast<int>(faceplate.getHeight());
+        if (fpW > 0 && fpH > 0)
+        {
+            int srcW = std::min(texW, fpW);
+            int srcH = std::min(texH, fpH);
+            int maxOffX = std::max(1, texW - srcW);
+            int maxOffY = std::max(1, texH - srcH);
+            int srcX = (index * 359 + 71) % maxOffX;
+            int srcY = (index * 263 + 127) % maxOffY;
+
+            g.saveState();
+            g.reduceClipRegion(faceplate.toNearestInt());
+            // 0.65 opacity blends authentic metal scratch detail seamlessly with the dark chassis gradient
+            g.setOpacity(0.65f);
+            g.drawImage(metalImg,
+                        static_cast<int>(faceplate.getX()), static_cast<int>(faceplate.getY()), fpW, fpH,
+                        srcX, srcY, srcW, srcH);
+            g.restoreState();
+        }
+
+        // Also sample scratched metal texture onto the 19" rack ears
+        auto drawEarMetal = [&](const juce::Rectangle<float>& earRect, int earSeed) {
+            int ew = static_cast<int>(earRect.getWidth());
+            int eh = static_cast<int>(earRect.getHeight());
+            if (ew > 0 && eh > 0)
+            {
+                int srcW = std::min(texW, ew);
+                int srcH = std::min(texH, eh);
+                int maxOffX = std::max(1, texW - srcW);
+                int maxOffY = std::max(1, texH - srcH);
+                int srcX = (index * 197 + earSeed * 89 + 31) % maxOffX;
+                int srcY = (index * 163 + earSeed * 53 + 47) % maxOffY;
+
+                g.saveState();
+                juce::Path earClip;
+                earClip.addRoundedRectangle(bounds, 5.0f);
+                g.reduceClipRegion(earClip);
+                g.reduceClipRegion(earRect.toNearestInt());
+                g.setOpacity(0.50f);
+                g.drawImage(metalImg,
+                            static_cast<int>(earRect.getX()), static_cast<int>(earRect.getY()), ew, eh,
+                            srcX, srcY, srcW, srcH);
+                g.restoreState();
+            }
+        };
+
+        drawEarMetal(juce::Rectangle<float>(bounds.getX(), bounds.getY(), earWidth, bounds.getHeight()), 1);
+        drawEarMetal(juce::Rectangle<float>(bounds.getRight() - earWidth, bounds.getY(), earWidth, bounds.getHeight()), 2);
+    }
+
+    // 2. Brushed Aluminum Horizontal Grain Lines (deterministic micro-grain)
     int numLines = static_cast<int>(faceplate.getHeight());
     for (int y = 0; y < numLines; y += 2)
     {
@@ -390,19 +504,19 @@ void RackUnitComponent::drawAgedMetalTexture(juce::Graphics& g, const juce::Rect
 
         if (alpha > 0.62f)
         {
-            float brightAlpha = (alpha - 0.62f) * 0.09f;
+            float brightAlpha = (alpha - 0.62f) * 0.08f;
             g.setColour(juce::Colours::white.withAlpha(brightAlpha));
             g.drawHorizontalLine(static_cast<int>(faceplate.getY() + y), faceplate.getX(), faceplate.getRight());
         }
         else if (alpha < 0.38f)
         {
-            float darkAlpha = (0.38f - alpha) * 0.11f;
+            float darkAlpha = (0.38f - alpha) * 0.09f;
             g.setColour(juce::Colours::black.withAlpha(darkAlpha));
             g.drawHorizontalLine(static_cast<int>(faceplate.getY() + y), faceplate.getX(), faceplate.getRight());
         }
     }
 
-    // 2. Patina & Grime Vignette along Edges and Seams
+    // 3. Patina & Grime Vignette along Edges and Seams
     juce::ColourGradient topEdgeGrad(juce::Colour(8, 10, 12).withAlpha(0.65f), 0.0f, faceplate.getY(),
                                      juce::Colour(8, 10, 12).withAlpha(0.0f), 0.0f, faceplate.getY() + 14.0f, false);
     g.setGradientFill(topEdgeGrad);

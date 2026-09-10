@@ -89,6 +89,7 @@ juce_add_binary_data(OpenWavAssets
         "${CMAKE_CURRENT_SOURCE_DIR}/owmbico.png"
         "${CMAKE_CURRENT_SOURCE_DIR}/mainpixeldrainlogo_cropped.png"
         "${CMAKE_CURRENT_SOURCE_DIR}/splashit.png"
+        "${CMAKE_CURRENT_SOURCE_DIR}/scratched-metal_albedo.png"
 )
 
 target_sources(OpenWav PRIVATE
@@ -218,7 +219,10 @@ if (APPLE)
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "${CMAKE_CURRENT_SOURCE_DIR}/Mac/OWMB.icns"
                 "$<TARGET_FILE_DIR:OpenWav_Standalone>/../Resources/Icon.icns"
-            COMMENT "Updating macOS Standalone Icon.icns with full resolution iconset"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${CMAKE_CURRENT_SOURCE_DIR}/scratched-metal_albedo.png"
+                "$<TARGET_FILE_DIR:OpenWav_Standalone>/../Resources/scratched-metal_albedo.png"
+            COMMENT "Updating macOS Standalone Icon.icns and scratched metal texture asset"
         )
     endif()
     if (TARGET OpenWav_VST3)
@@ -226,7 +230,10 @@ if (APPLE)
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "${CMAKE_CURRENT_SOURCE_DIR}/Mac/OWMB.icns"
                 "$<TARGET_FILE_DIR:OpenWav_VST3>/../Resources/Icon.icns"
-            COMMENT "Updating macOS VST3 Icon.icns with full resolution iconset"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${CMAKE_CURRENT_SOURCE_DIR}/scratched-metal_albedo.png"
+                "$<TARGET_FILE_DIR:OpenWav_VST3>/../Resources/scratched-metal_albedo.png"
+            COMMENT "Updating macOS VST3 Icon.icns and scratched metal texture asset"
         )
     endif()
     if (TARGET OpenWav_AU)
@@ -234,7 +241,10 @@ if (APPLE)
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "${CMAKE_CURRENT_SOURCE_DIR}/Mac/OWMB.icns"
                 "$<TARGET_FILE_DIR:OpenWav_AU>/../Resources/Icon.icns"
-            COMMENT "Updating macOS AU Icon.icns with full resolution iconset"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${CMAKE_CURRENT_SOURCE_DIR}/scratched-metal_albedo.png"
+                "$<TARGET_FILE_DIR:OpenWav_AU>/../Resources/scratched-metal_albedo.png"
+            COMMENT "Updating macOS AU Icon.icns and scratched metal texture asset"
         )
     endif()
 endif()
