@@ -638,6 +638,7 @@ void PerformanceComponent::showAddEffectMenu()
     m.addSubMenu("Spatial & Time", spatialMenu);
 
     juce::PopupMenu dynamicsMenu;
+    dynamicsMenu.addItem(17, "Global ADSR Envelope");
     dynamicsMenu.addItem(3, "Analog Saturation");
     dynamicsMenu.addItem(4, "VCA Compressor");
     dynamicsMenu.addItem(5, "3-Band Parametric EQ");
@@ -681,6 +682,7 @@ void PerformanceComponent::showAddEffectMenu()
             case 14: type = PerformanceEffectType::AmpCabinet; break;
             case 15: type = PerformanceEffectType::Phaser; break;
             case 16: type = PerformanceEffectType::RingModulator; break;
+            case 17: type = PerformanceEffectType::ADSREnvelope; break;
             default: return;
         }
 

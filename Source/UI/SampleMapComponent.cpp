@@ -500,39 +500,12 @@ SampleMapComponent::SampleMapComponent(AudioEngine& engine)
     setupSlider(tuneSlider, tuneTitle, "Fine Tune:", -100.0, 100.0, 1.0, 0.0);
     setupSlider(gainSlider, gainTitle, "Gain (dB):", -24.0, 12.0, 0.5, 0.0);
 
-    setupSlider(attackSlider, attackTitle, "Attack (ms):", 0.0, 2000.0, 1.0, 5.0);
-    setupSlider(decaySlider, decayTitle, "Decay (ms):", 0.0, 2000.0, 1.0, 100.0);
-    setupSlider(sustainSlider, sustainTitle, "Sustain (%):", 0.0, 1.0, 0.01, 1.0);
-    setupSlider(releaseSlider, releaseTitle, "Release (ms):", 0.0, 5000.0, 1.0, 200.0);
-    setupSlider(reverbSlider, reverbTitle, "Reverb (%):", 0.0, 100.0, 1.0, 0.0);
-
     inspectorDeleteButton.setColour(juce::TextButton::buttonColourId, OpenWavLookAndFeel::favoriteRed.darker(0.3f));
     inspectorDeleteButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
     inspectorDeleteButton.onClick = [this] {
         deleteSelectedZones();
     };
     addChildComponent(inspectorDeleteButton);
-
-    // ── ADSR Rotary Knobs (Top Bar beside Clear Map) ──
-    auto setupKnob = [this](juce::Slider& s, juce::Label& lbl, const juce::String& text, double minV, double maxV, double stepV, double defV) {
-        lbl.setFont(juce::Font(11.0f).boldened());
-        lbl.setText(text, juce::dontSendNotification);
-        lbl.setJustificationType(juce::Justification::centred);
-        lbl.setColour(juce::Label::textColourId, OpenWavLookAndFeel::accentCyan);
-        addAndMakeVisible(lbl);
-
-        s.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
-        s.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 48, 14);
-        s.setRange(minV, maxV, stepV);
-        s.setValue(defV, juce::dontSendNotification);
-        s.addListener(this);
-        addAndMakeVisible(s);
-    };
-
-    setupKnob(attackKnob, attackLabel, "Attack", 0.0, 2000.0, 1.0, 5.0);
-    setupKnob(decayKnob, decayLabel, "Decay", 0.0, 2000.0, 1.0, 100.0);
-    setupKnob(sustainKnob, sustainLabel, "Sustain", 0.0, 1.0, 0.01, 1.0);
-    setupKnob(releaseKnob, releaseLabel, "Release", 0.0, 5000.0, 1.0, 200.0);
 
     // ── Velocity Curve Button & Studio Controls ──────────────
     velCurveButton.setColour(juce::TextButton::buttonColourId, OpenWavLookAndFeel::accentCyan.withAlpha(0.20f));
@@ -796,10 +769,6 @@ SampleMapComponent::~SampleMapComponent()
     audioEngine.getKeyboardState().removeListener(this);
     audioEngine.removeListener(this);
 
-    attackKnob.removeListener(this);
-    decayKnob.removeListener(this);
-    sustainKnob.removeListener(this);
-    releaseKnob.removeListener(this);
     velSensitivitySlider.removeListener(this);
     velCurveSlider.removeListener(this);
     velFloorSlider.removeListener(this);
@@ -811,11 +780,6 @@ SampleMapComponent::~SampleMapComponent()
     rrSlider.removeListener(this);
     tuneSlider.removeListener(this);
     gainSlider.removeListener(this);
-    attackSlider.removeListener(this);
-    decaySlider.removeListener(this);
-    sustainSlider.removeListener(this);
-    releaseSlider.removeListener(this);
-    reverbSlider.removeListener(this);
 
     addSampleButton.removeListener(this);
     lorisResynthButton.removeListener(this);
@@ -1497,11 +1461,6 @@ void SampleMapComponent::selectZone(int index, bool addToSelection)
         {
             audioEngine.loadFile(f, false, true);
         }
-
-        attackKnob.setValue(z.attackMs, juce::dontSendNotification);
-        decayKnob.setValue(z.decayMs, juce::dontSendNotification);
-        sustainKnob.setValue(z.sustainLevel, juce::dontSendNotification);
-        releaseKnob.setValue(z.releaseMs, juce::dontSendNotification);
     }
     else
     {
@@ -2798,15 +2757,6 @@ void SampleMapComponent::resized()
     topRow.removeFromLeft(gap);
     openFxRackButton.setBounds(topRow.removeFromLeft(82));
 
-    attackKnob.setVisible(false);
-    attackLabel.setVisible(false);
-    decayKnob.setVisible(false);
-    decayLabel.setVisible(false);
-    sustainKnob.setVisible(false);
-    sustainLabel.setVisible(false);
-    releaseKnob.setVisible(false);
-    releaseLabel.setVisible(false);
-
     // ── Inspector Panel Layout ─────────────────────────
     auto inspectorArea = getInspectorBounds().reduced(12, 10);
     int rowH = 20;
@@ -2832,11 +2782,6 @@ void SampleMapComponent::resized()
         rrTitle.setVisible(false); rrSlider.setVisible(false);
         tuneTitle.setVisible(false); tuneSlider.setVisible(false);
         gainTitle.setVisible(false); gainSlider.setVisible(false);
-        attackTitle.setVisible(false); attackSlider.setVisible(false);
-        decayTitle.setVisible(false); decaySlider.setVisible(false);
-        sustainTitle.setVisible(false); sustainSlider.setVisible(false);
-        releaseTitle.setVisible(false); releaseSlider.setVisible(false);
-        reverbTitle.setVisible(false); reverbSlider.setVisible(false);
         inspectorDeleteButton.setVisible(false);
         sampleNameValue.setVisible(false);
 
@@ -2937,22 +2882,15 @@ void SampleMapComponent::resized()
             setupRow(tuneTitle, tuneSlider, z.fineTuneCents);
             setupRow(gainTitle, gainSlider, z.gainDb);
 
-            inspectorArea.removeFromTop(4);
-            setupRow(attackTitle, attackSlider, z.attackMs);
-            setupRow(decayTitle, decaySlider, z.decayMs);
-            setupRow(sustainTitle, sustainSlider, z.sustainLevel);
-            setupRow(releaseTitle, releaseSlider, z.releaseMs);
-            setupRow(reverbTitle, reverbSlider, audioEngine.getSamplerReverbAmount() * 100.0f);
-
-            inspectorArea.removeFromTop(6);
+            inspectorArea.removeFromTop(8);
             inspectorDeleteButton.setVisible(true);
-            inspectorDeleteButton.setBounds(inspectorArea.removeFromTop(22).toNearestInt());
+            inspectorDeleteButton.setBounds(inspectorArea.removeFromTop(24).toNearestInt());
 
-            if (inspectorArea.getHeight() >= 80)
+            if (inspectorArea.getHeight() >= 70)
             {
-                inspectorArea.removeFromTop(6);
+                inspectorArea.removeFromTop(8);
                 velocityCurveView.setVisible(true);
-                velocityCurveView.setBounds(inspectorArea.removeFromTop(std::min(90, static_cast<int>(inspectorArea.getHeight()))).toNearestInt());
+                velocityCurveView.setBounds(inspectorArea.removeFromTop(std::min(110, static_cast<int>(inspectorArea.getHeight()))).toNearestInt());
             }
             else
             {
@@ -2969,11 +2907,6 @@ void SampleMapComponent::resized()
             rrTitle.setVisible(false); rrSlider.setVisible(false);
             tuneTitle.setVisible(false); tuneSlider.setVisible(false);
             gainTitle.setVisible(false); gainSlider.setVisible(false);
-            attackTitle.setVisible(false); attackSlider.setVisible(false);
-            decayTitle.setVisible(false); decaySlider.setVisible(false);
-            sustainTitle.setVisible(false); sustainSlider.setVisible(false);
-            releaseTitle.setVisible(false); releaseSlider.setVisible(false);
-            reverbTitle.setVisible(false); reverbSlider.setVisible(false);
             inspectorDeleteButton.setVisible(false);
 
             sampleNameValue.setVisible(true);
@@ -3031,62 +2964,6 @@ void SampleMapComponent::sliderValueChanged(juce::Slider* slider)
         repaint();
         return;
     }
-    else if (slider == &attackKnob || slider == &attackSlider)
-    {
-        float val = static_cast<float>(slider->getValue());
-        globalAttackMs = val;
-        attackKnob.setValue(val, juce::dontSendNotification);
-        attackSlider.setValue(val, juce::dontSendNotification);
-        for (int sIdx : selectedZoneIndices)
-        {
-            if (sIdx >= 0 && sIdx < static_cast<int>(zones.size()))
-                zones[sIdx].attackMs = val;
-        }
-        repaint();
-        return;
-    }
-    else if (slider == &decayKnob || slider == &decaySlider)
-    {
-        float val = static_cast<float>(slider->getValue());
-        globalDecayMs = val;
-        decayKnob.setValue(val, juce::dontSendNotification);
-        decaySlider.setValue(val, juce::dontSendNotification);
-        for (int sIdx : selectedZoneIndices)
-        {
-            if (sIdx >= 0 && sIdx < static_cast<int>(zones.size()))
-                zones[sIdx].decayMs = val;
-        }
-        repaint();
-        return;
-    }
-    else if (slider == &sustainKnob || slider == &sustainSlider)
-    {
-        float val = static_cast<float>(slider->getValue());
-        globalSustainLevel = val;
-        sustainKnob.setValue(val, juce::dontSendNotification);
-        sustainSlider.setValue(val, juce::dontSendNotification);
-        for (int sIdx : selectedZoneIndices)
-        {
-            if (sIdx >= 0 && sIdx < static_cast<int>(zones.size()))
-                zones[sIdx].sustainLevel = val;
-        }
-        repaint();
-        return;
-    }
-    else if (slider == &releaseKnob || slider == &releaseSlider)
-    {
-        float val = static_cast<float>(slider->getValue());
-        globalReleaseMs = val;
-        releaseKnob.setValue(val, juce::dontSendNotification);
-        releaseSlider.setValue(val, juce::dontSendNotification);
-        for (int sIdx : selectedZoneIndices)
-        {
-            if (sIdx >= 0 && sIdx < static_cast<int>(zones.size()))
-                zones[sIdx].releaseMs = val;
-        }
-        repaint();
-        return;
-    }
 
     if (selectedZoneIndex < 0 || selectedZoneIndex >= static_cast<int>(zones.size()))
         return;
@@ -3101,13 +2978,6 @@ void SampleMapComponent::sliderValueChanged(juce::Slider* slider)
     else if (slider == &rrSlider) z.roundRobinIndex = static_cast<int>(rrSlider.getValue());
     else if (slider == &tuneSlider) z.fineTuneCents = static_cast<float>(tuneSlider.getValue());
     else if (slider == &gainSlider) z.gainDb = static_cast<float>(gainSlider.getValue());
-    else if (slider == &reverbSlider)
-    {
-        float val = static_cast<float>(reverbSlider.getValue() / 100.0f);
-        audioEngine.setSamplerReverbAmount(val);
-        repaint();
-        return;
-    }
 
     repaint();
     if (onStateChanged) onStateChanged();
@@ -3294,12 +3164,6 @@ void SampleMapComponent::setState(const SampleMapState& state)
     globalSustainLevel = state.globalSustainLevel;
     globalReleaseMs = state.globalReleaseMs;
 
-    attackKnob.setValue(globalAttackMs, juce::dontSendNotification);
-    decayKnob.setValue(globalDecayMs, juce::dontSendNotification);
-    sustainKnob.setValue(globalSustainLevel, juce::dontSendNotification);
-    releaseKnob.setValue(globalReleaseMs, juce::dontSendNotification);
-
-    reverbSlider.setValue(state.samplerReverbAmount, juce::dontSendNotification);
     audioEngine.setSamplerReverbAmount(state.samplerReverbAmount);
 
     audioEngine.setPitchTrackingEnabled(state.pitchTrackingEnabled);

@@ -37,7 +37,8 @@ enum class PerformanceEffectType : int
     StereoImager,
     AutoWah,
     RingModulator,
-    AmpCabinet
+    AmpCabinet,
+    ADSREnvelope
 };
 
 struct EffectParamInfo
@@ -662,6 +663,49 @@ private:
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+//  17. Global ADSR Gain Envelope
+// ─────────────────────────────────────────────────────────────────────────────
+class RackADSREnvelope : public RackEffectBase
+{
+public:
+    RackADSREnvelope();
+    void prepare(double sampleRate, int maxBlockSize) override;
+    void reset() override;
+    void process(juce::AudioBuffer<float>& buffer) override;
+
+    PerformanceEffectType getType() const override { return PerformanceEffectType::ADSREnvelope; }
+    juce::String getName() const override { return "Global ADSR Envelope"; }
+    juce::Colour getAccentColour() const override { return juce::Colour(245, 166, 35); }
+
+    std::vector<EffectParamInfo> getParameterInfos() const override;
+    void setParameter(const juce::String& paramId, float value) override;
+    float getParameter(const juce::String& paramId) const override;
+
+    juce::StringArray getPresetNames() const override;
+    void loadPreset(int presetIndex) override;
+
+    float getTelemetryMeter() const override { return currentTelemetryMeter.load(std::memory_order_relaxed); }
+
+    float getAttackSec() const { return attackMs.load(std::memory_order_relaxed) / 1000.0f; }
+    float getDecaySec() const { return decayMs.load(std::memory_order_relaxed) / 1000.0f; }
+    float getSustainLevel() const { return sustainPercent.load(std::memory_order_relaxed) / 100.0f; }
+    float getReleaseSec() const { return releaseMs.load(std::memory_order_relaxed) / 1000.0f; }
+
+private:
+    std::atomic<float> attackMs { 5.0f };
+    std::atomic<float> decayMs { 200.0f };
+    std::atomic<float> sustainPercent { 100.0f };
+    std::atomic<float> releaseMs { 300.0f };
+    std::atomic<float> punchPercent { 0.0f };
+    std::atomic<float> gainDb { 0.0f };
+
+    std::atomic<float> currentTelemetryMeter { 0.0f };
+
+    float fastEnv[2] { 0.0f, 0.0f };
+    float slowEnv[2] { 0.0f, 0.0f };
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 //  PerformanceRackDSP: Lock-Free Multi-Effect Signal Chain Manager
 // ─────────────────────────────────────────────────────────────────────────────
 class PerformanceRackDSP
@@ -692,6 +736,8 @@ public:
     int getNumEffects() const;
     std::shared_ptr<RackEffectBase> getEffect(int index) const;
     std::vector<std::shared_ptr<RackEffectBase>> getEffectsSnapshot() const;
+
+    bool getActiveADSREnvelope(float& attackSec, float& decaySec, float& sustainLevel, float& releaseSec) const;
 
     static std::shared_ptr<RackEffectBase> createEffect(PerformanceEffectType type);
 

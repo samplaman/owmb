@@ -237,16 +237,6 @@ private:
 
     juce::TextButton inspectorDeleteButton { "Delete Selected Zone" };
 
-    // ADSR Envelope Rotary Knobs (Top Bar beside Clear Map)
-    juce::Label attackLabel { {}, "Attack" };
-    juce::Slider attackKnob;
-    juce::Label decayLabel { {}, "Decay" };
-    juce::Slider decayKnob;
-    juce::Label sustainLabel { {}, "Sustain" };
-    juce::Slider sustainKnob;
-    juce::Label releaseLabel { {}, "Release" };
-    juce::Slider releaseKnob;
-
     float globalAttackMs { 5.0f };
     float globalDecayMs { 100.0f };
     float globalSustainLevel { 1.0f };
@@ -271,16 +261,6 @@ private:
     juce::Slider tuneSlider;
     juce::Label gainTitle { {}, "Gain (dB):" };
     juce::Slider gainSlider;
-    juce::Label attackTitle { {}, "Attack (ms):" };
-    juce::Slider attackSlider;
-    juce::Label decayTitle { {}, "Decay (ms):" };
-    juce::Slider decaySlider;
-    juce::Label sustainTitle { {}, "Sustain (%):" };
-    juce::Slider sustainSlider;
-    juce::Label releaseTitle { {}, "Release (ms):" };
-    juce::Slider releaseSlider;
-    juce::Label reverbTitle { {}, "Reverb (%):" };
-    juce::Slider reverbSlider;
 
     bool isZoneSelected(int index) const { return selectedZoneIndices.count(index) > 0; }
     void selectZone(int index, bool addToSelection = false);

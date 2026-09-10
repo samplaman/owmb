@@ -707,10 +707,26 @@ void AudioEngine::processNextAudioBlock(juce::AudioBuffer<float>& outputBuffer, 
         zoneBuffer.setSize(outChannels, numSamples, false, false, true);
     zoneBuffer.clear();
 
+    float rackAtk = 0.005f, rackDec = 0.2f, rackSus = 1.0f, rackRel = 0.3f;
+    bool hasRackAdsr = performanceRack.getActiveADSREnvelope(rackAtk, rackDec, rackSus, rackRel);
+    juce::ADSR::Parameters rackAdsrParams;
+    if (hasRackAdsr)
+    {
+        rackAdsrParams.attack = rackAtk;
+        rackAdsrParams.decay = rackDec;
+        rackAdsrParams.sustain = rackSus;
+        rackAdsrParams.release = rackRel;
+    }
+
     for (auto& slot : voicePool)
     {
         if (!slot.active || slot.sample == nullptr)
             continue;
+
+        if (slot.isZoneVoice && hasRackAdsr)
+        {
+            slot.adsr.setParameters(rackAdsrParams);
+        }
 
         const auto& voiceBuf = slot.sample->buffer;
         int voiceChannels = voiceBuf.getNumChannels();
@@ -1020,6 +1036,20 @@ void AudioEngine::playZoneVoice(const juce::File& file, int triggerMidiNote, int
 
     if (cached == nullptr || cached->buffer.getNumSamples() == 0) return;
 
+    float effectiveAttack = attackSec;
+    float effectiveDecay = decaySec;
+    float effectiveSustain = sustainLevel;
+    float effectiveRelease = releaseSec;
+
+    float rackAtk, rackDec, rackSus, rackRel;
+    if (performanceRack.getActiveADSREnvelope(rackAtk, rackDec, rackSus, rackRel))
+    {
+        effectiveAttack = rackAtk;
+        effectiveDecay = rackDec;
+        effectiveSustain = rackSus;
+        effectiveRelease = rackRel;
+    }
+
     EngineCommand cmd;
     cmd.type = EngineCommandType::PlayZoneVoice;
     cmd.sampleData = cached;
@@ -1027,10 +1057,10 @@ void AudioEngine::playZoneVoice(const juce::File& file, int triggerMidiNote, int
     cmd.intVal2 = rootNote;
     cmd.floatVal1 = fineTuneCents;
     cmd.floatVal2 = velocity * std::pow(10.0f, gainDb / 20.0f);
-    cmd.floatVal3 = attackSec;
-    cmd.floatVal4 = decaySec;
-    cmd.floatVal5 = sustainLevel;
-    cmd.floatVal6 = releaseSec;
+    cmd.floatVal3 = effectiveAttack;
+    cmd.floatVal4 = effectiveDecay;
+    cmd.floatVal5 = effectiveSustain;
+    cmd.floatVal6 = effectiveRelease;
     cmd.boolVal1 = isLooping;
     cmd.boolVal2 = isOneShot || oneShotEnabled.load(std::memory_order_relaxed);
     pushCommand(cmd);

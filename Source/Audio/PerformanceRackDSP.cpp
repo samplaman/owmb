@@ -2340,6 +2340,160 @@ void RackAmpCabinet::process(juce::AudioBuffer<float>& buffer)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+//  17. Global ADSR Gain Envelope Implementation
+// ─────────────────────────────────────────────────────────────────────────────
+RackADSREnvelope::RackADSREnvelope()
+{
+    loadPreset(0);
+}
+
+void RackADSREnvelope::prepare(double sampleRate, int /*maxBlockSize*/)
+{
+    currentSampleRate = sampleRate > 0.0 ? sampleRate : 44100.0;
+    reset();
+}
+
+void RackADSREnvelope::reset()
+{
+    fastEnv[0] = fastEnv[1] = 0.0f;
+    slowEnv[0] = slowEnv[1] = 0.0f;
+    currentTelemetryMeter.store(0.0f, std::memory_order_relaxed);
+}
+
+std::vector<EffectParamInfo> RackADSREnvelope::getParameterInfos() const
+{
+    return {
+        { "attack",  "Attack",  0.1f, 5000.0f,  5.0f,   "ms", false, {} },
+        { "decay",   "Decay",   1.0f, 5000.0f,  200.0f, "ms", false, {} },
+        { "sustain", "Sustain", 0.0f, 100.0f,   100.0f, "%",  false, {} },
+        { "release", "Release", 1.0f, 10000.0f, 300.0f, "ms", false, {} },
+        { "punch",   "Punch",   0.0f, 100.0f,   0.0f,   "%",  false, {} },
+        { "gain",    "Gain",   -24.0f, 12.0f,   0.0f,   "dB", false, {} }
+    };
+}
+
+void RackADSREnvelope::setParameter(const juce::String& paramId, float value)
+{
+    if (paramId == "attack")       attackMs.store(juce::jlimit(0.1f, 5000.0f, value), std::memory_order_relaxed);
+    else if (paramId == "decay")   decayMs.store(juce::jlimit(1.0f, 5000.0f, value), std::memory_order_relaxed);
+    else if (paramId == "sustain") sustainPercent.store(juce::jlimit(0.0f, 100.0f, value), std::memory_order_relaxed);
+    else if (paramId == "release") releaseMs.store(juce::jlimit(1.0f, 10000.0f, value), std::memory_order_relaxed);
+    else if (paramId == "punch")   punchPercent.store(juce::jlimit(0.0f, 100.0f, value), std::memory_order_relaxed);
+    else if (paramId == "gain")    gainDb.store(juce::jlimit(-24.0f, 12.0f, value), std::memory_order_relaxed);
+}
+
+float RackADSREnvelope::getParameter(const juce::String& paramId) const
+{
+    if (paramId == "attack")       return attackMs.load(std::memory_order_relaxed);
+    if (paramId == "decay")        return decayMs.load(std::memory_order_relaxed);
+    if (paramId == "sustain")      return sustainPercent.load(std::memory_order_relaxed);
+    if (paramId == "release")      return releaseMs.load(std::memory_order_relaxed);
+    if (paramId == "punch")        return punchPercent.load(std::memory_order_relaxed);
+    if (paramId == "gain")         return gainDb.load(std::memory_order_relaxed);
+    return 0.0f;
+}
+
+juce::StringArray RackADSREnvelope::getPresetNames() const
+{
+    return {
+        "Default Linear",
+        "Fast Percussive / Staccato",
+        "Pluck & Tight Key",
+        "Smooth Pad & Swell",
+        "Slow Ambient Drone",
+        "Organ Gate (Zero Rel)",
+        "Punchy Snare & Clap",
+        "Long Lush Reverb Tail"
+    };
+}
+
+void RackADSREnvelope::loadPreset(int presetIndex)
+{
+    switch (presetIndex)
+    {
+        case 0: // Default Linear
+            setParameter("attack", 5.0f); setParameter("decay", 200.0f); setParameter("sustain", 100.0f); setParameter("release", 300.0f); setParameter("punch", 0.0f); setParameter("gain", 0.0f);
+            break;
+        case 1: // Fast Percussive / Staccato
+            setParameter("attack", 0.5f); setParameter("decay", 120.0f); setParameter("sustain", 0.0f); setParameter("release", 80.0f); setParameter("punch", 35.0f); setParameter("gain", 0.0f);
+            break;
+        case 2: // Pluck & Tight Key
+            setParameter("attack", 1.0f); setParameter("decay", 350.0f); setParameter("sustain", 25.0f); setParameter("release", 180.0f); setParameter("punch", 20.0f); setParameter("gain", 0.0f);
+            break;
+        case 3: // Smooth Pad & Swell
+            setParameter("attack", 650.0f); setParameter("decay", 800.0f); setParameter("sustain", 85.0f); setParameter("release", 1200.0f); setParameter("punch", 0.0f); setParameter("gain", 1.0f);
+            break;
+        case 4: // Slow Ambient Drone
+            setParameter("attack", 1800.0f); setParameter("decay", 1500.0f); setParameter("sustain", 90.0f); setParameter("release", 3500.0f); setParameter("punch", 0.0f); setParameter("gain", 2.0f);
+            break;
+        case 5: // Organ Gate (Zero Rel)
+            setParameter("attack", 2.0f); setParameter("decay", 50.0f); setParameter("sustain", 100.0f); setParameter("release", 10.0f); setParameter("punch", 0.0f); setParameter("gain", 0.0f);
+            break;
+        case 6: // Punchy Snare & Clap
+            setParameter("attack", 0.1f); setParameter("decay", 240.0f); setParameter("sustain", 0.0f); setParameter("release", 150.0f); setParameter("punch", 60.0f); setParameter("gain", 1.5f);
+            break;
+        case 7: // Long Lush Reverb Tail
+            setParameter("attack", 10.0f); setParameter("decay", 500.0f); setParameter("sustain", 70.0f); setParameter("release", 4500.0f); setParameter("punch", 10.0f); setParameter("gain", 0.0f);
+            break;
+        default: break;
+    }
+}
+
+void RackADSREnvelope::process(juce::AudioBuffer<float>& buffer)
+{
+    if (isBypassed.load(std::memory_order_relaxed) || buffer.getNumSamples() == 0)
+        return;
+
+    int numChannels = buffer.getNumChannels();
+    int numSamples = buffer.getNumSamples();
+
+    float punch = punchPercent.load(std::memory_order_relaxed) * 0.01f;
+    float gainLinear = std::pow(10.0f, gainDb.load(std::memory_order_relaxed) / 20.0f);
+
+    float fastCoeff = std::exp(-1.0f / (0.005f * static_cast<float>(currentSampleRate)));
+    float slowCoeff = std::exp(-1.0f / (0.040f * static_cast<float>(currentSampleRate)));
+
+    float sumSq = 0.0f;
+
+    for (int ch = 0; ch < numChannels; ++ch)
+    {
+        auto* channelData = buffer.getWritePointer(ch);
+        int stateIdx = (ch == 0) ? 0 : 1;
+        float fEnv = fastEnv[stateIdx];
+        float sEnv = slowEnv[stateIdx];
+
+        for (int i = 0; i < numSamples; ++i)
+        {
+            float s = channelData[i];
+            float absS = std::abs(s);
+
+            fEnv = absS + fastCoeff * (fEnv - absS);
+            sEnv = absS + slowCoeff * (sEnv - absS);
+
+            if (punch > 0.001f)
+            {
+                float diff = fEnv - sEnv;
+                if (diff > 0.0f)
+                {
+                    s += s * (diff * punch * 2.5f);
+                }
+            }
+
+            s *= gainLinear;
+            channelData[i] = s;
+            sumSq += s * s;
+        }
+
+        fastEnv[stateIdx] = fEnv;
+        slowEnv[stateIdx] = sEnv;
+    }
+
+    float rms = std::sqrt(sumSq / static_cast<float>(std::max(1, numChannels * numSamples)));
+    float curMeter = currentTelemetryMeter.load(std::memory_order_relaxed);
+    currentTelemetryMeter.store(curMeter * 0.75f + rms * 0.25f, std::memory_order_relaxed);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 //  PerformanceRackDSP Implementation
 // ─────────────────────────────────────────────────────────────────────────────
 PerformanceRackDSP::PerformanceRackDSP()
@@ -2427,6 +2581,7 @@ std::shared_ptr<RackEffectBase> PerformanceRackDSP::createEffect(PerformanceEffe
         case PerformanceEffectType::AutoWah:      return std::make_shared<RackAutoWah>();
         case PerformanceEffectType::RingModulator:return std::make_shared<RackRingModulator>();
         case PerformanceEffectType::AmpCabinet:   return std::make_shared<RackAmpCabinet>();
+        case PerformanceEffectType::ADSREnvelope: return std::make_shared<RackADSREnvelope>();
         default: break;
     }
     return nullptr;
@@ -2489,6 +2644,26 @@ std::vector<std::shared_ptr<RackEffectBase>> PerformanceRackDSP::getEffectsSnaps
 {
     const juce::SpinLock::ScopedLockType sl(chainLock);
     return activeChain;
+}
+
+bool PerformanceRackDSP::getActiveADSREnvelope(float& attackSec, float& decaySec, float& sustainLevel, float& releaseSec) const
+{
+    if (masterBypassed.load(std::memory_order_relaxed))
+        return false;
+
+    const juce::SpinLock::ScopedLockType sl(chainLock);
+    for (const auto& fx : activeChain)
+    {
+        if (fx && fx->getType() == PerformanceEffectType::ADSREnvelope && !fx->getBypassed())
+        {
+            attackSec = fx->getParameter("attack") / 1000.0f;
+            decaySec = fx->getParameter("decay") / 1000.0f;
+            sustainLevel = fx->getParameter("sustain") / 100.0f;
+            releaseSec = fx->getParameter("release") / 1000.0f;
+            return true;
+        }
+    }
+    return false;
 }
 
 juce::StringArray PerformanceRackDSP::getRackTemplateNames() const
