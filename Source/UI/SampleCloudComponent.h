@@ -65,6 +65,7 @@ public:
         float radius { 4.0f };
         juce::Colour colour;
         juce::String primaryTag;
+        juce::String canonicalCategory;
         float hoverScale { 1.0f };
     };
 
@@ -96,6 +97,7 @@ public:
     void mouseDrag(const juce::MouseEvent& e) override;
     void mouseUp(const juce::MouseEvent& e) override;
     void mouseMove(const juce::MouseEvent& e) override;
+    void mouseExit(const juce::MouseEvent& e) override;
     void mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel) override;
     void mouseDoubleClick(const juce::MouseEvent& e) override;
 
@@ -121,6 +123,7 @@ private:
         void mouseDrag(const juce::MouseEvent& e) override;
         void mouseUp(const juce::MouseEvent& e) override;
         void mouseMove(const juce::MouseEvent& e) override;
+        void mouseExit(const juce::MouseEvent& e) override;
         void mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel) override;
         void mouseDoubleClick(const juce::MouseEvent& e) override;
 
@@ -132,11 +135,14 @@ private:
     void resetZoomAndPan();
     juce::Colour getColourForTag(const juce::String& tag) const;
     juce::String getPrimaryCategoryTag(const std::set<juce::String>& tags) const;
+    static juce::String getAtlasCategoryName(const juce::String& tag);
+    static juce::String getCanonicalAtlasCategory(const MediaItem& item);
 
     void runLayoutAsync(std::vector<MediaItem> items);
     std::pair<std::vector<TagCluster>, std::vector<std::pair<size_t, size_t>>> calculateClusterLayoutInternal(std::vector<CloudNode>& nodesCopy);
     void rebuildGpuBuffers();
     void showContextMenuForNode(int nodeIndex);
+    int findHitNodeAt(juce::Point<float> pos) const;
 
     TagDatabaseManager& dbManager;
     AudioEngine& audioEngine;
@@ -147,6 +153,9 @@ private:
 
     int hoveredNodeIndex { -1 };
     int selectedNodeIndex { -1 };
+    int animatedHoverNodeIndex { -1 };
+    float currentHoverScale { 1.0f };
+    float targetHoverScale { 1.0f };
 
     float rotX { 0.35f };
     float rotY { 0.45f };
@@ -157,7 +166,10 @@ private:
     float targetZoomScale { 1.0f };
     Vector3D cameraCenterPos { 0.0f, 0.0f, 0.0f };
     Vector3D targetCameraCenterPos { 0.0f, 0.0f, 0.0f };
+    Vector3D cameraVelocity { 0.0f, 0.0f, 0.0f };
     Vector3D dragStartCenter { 0.0f, 0.0f, 0.0f };
+
+    static float smoothDamp(float current, float target, float& currentVelocity, float smoothTime, float dt);
     juce::Point<float> mouseDragStartPos { 0.0f, 0.0f };
     float dragStartRotX { 0.0f };
     float dragStartRotY { 0.0f };
@@ -169,7 +181,9 @@ private:
     juce::TextButton resetZoomButton { "Reset View" };
     juce::TextButton viewModeButton  { "2D" };
     juce::TextButton autoRotateButton { "Stop Spin" };
+    juce::TextButton hoverPlayButton { "Mouseover: Off" };
     bool autoRotate { true };
+    bool hoverPlayEnabled { false };
 
     juce::ListenerList<SampleCloudListener> listeners;
     float revealAlpha { 0.0f };
@@ -212,6 +226,56 @@ private:
     void flyToCluster(int clusterIdx);
     float reticleAngle { 0.0f };
     float pulseRadar { 0.0f };
+
+    // Waves Cosmos Style Quick-Audition & Similar Samples Dock
+    struct SimilarItemEntry {
+        int nodeIndex { -1 };
+        MediaItem item;
+        double similarity { 0.0 };
+        bool isBrighter { false };
+        juce::Rectangle<float> bounds;
+    };
+
+    void updateSimilarStack();
+    void drawMiniWaveform(juce::Graphics& g, const juce::Rectangle<float>& bounds,
+                          const MediaItem& item, juce::Colour waveColour);
+
+    bool showSimilarStack { false };
+    std::vector<SimilarItemEntry> similarAbove;
+    std::vector<SimilarItemEntry> similarBelow;
+    int hoveredSimilarIndex { -100 }; // -3..-1: above, 0: center, 1..3: below
+    bool isHoveringPlayButton { false };
+    bool isHoveringUpArrow { false };
+    bool isHoveringDownArrow { false };
+    bool isHoveringExpandChevron { false };
+    bool isHoveringFavoriteStar { false };
+    bool isHoveringMainPill { false };
+
+    juce::Rectangle<float> mainPillBounds;
+    juce::Rectangle<float> playButtonBounds;
+    juce::Rectangle<float> upArrowBounds;
+    juce::Rectangle<float> downArrowBounds;
+    juce::Rectangle<float> expandChevronBounds;
+    juce::Rectangle<float> favoriteStarBounds;
+    juce::Rectangle<float> overallDockBounds;
+    juce::Rectangle<float> getDockDeadzone() const;
+    bool isClickConsumedByUI { false };
+
+    float maxMapPanX { 800.0f };
+    float maxMapPanY { 700.0f };
+    float maxMapPanZ { 500.0f };
+    uint32_t lastDockToggleTime { 0 };
+    void updateMapBounds();
+
+    std::vector<int> recentSelectionHistory;
+
+    bool isDraggingDockSample { false };
+    juce::Point<float> dockDragStartPos;
+    juce::String dockDragFilePath;
+    int dockDragNodeIndex { -1 };
+
+    juce::Point<float> lastMapNodeClickPos { -1000.0f, -1000.0f };
+    uint32_t lastMapNodeClickTimeMs { 0 };
 
     juce::Matrix3D<float> lastViewProjectionMatrix;
 

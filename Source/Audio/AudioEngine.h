@@ -106,6 +106,7 @@ enum class EngineCommandType : int
     Play,
     Pause,
     Stop,
+    RestartPreview,
     SeekRatio,
     SetLooping,
     SetGain,
@@ -176,6 +177,9 @@ public:
     void play();
     void pause();
     void stop();
+    void restartPlayback();
+    void auditionFile(const juce::File& audioFile);
+    void auditionHover(const juce::File& audioFile);
     void clearMasterSample();
     void setPositionRatio(double ratio); // 0.0 - 1.0
     void setLooping(bool shouldLoop);
@@ -354,6 +358,9 @@ private:
     std::atomic<double> currentFileSampleRateAtomic { 44100.0 };
 
     juce::File currentFile;
+    juce::File loadedMasterFile;
+    std::atomic<bool> loadInProgress { false };
+    std::atomic<bool> pendingAutoPlay { false };
     bool autoPlayOnSelect { true };
     std::atomic<uint64_t> currentLoadId { 0 };
 
@@ -405,6 +412,28 @@ private:
 
     juce::ListenerList<AudioEngineListener> listeners;
     bool lastNotifiedPlayingState { false };
+
+    class HoverAuditionWorker : public juce::Thread
+    {
+    public:
+        explicit HoverAuditionWorker(AudioEngine& ownerEngine)
+            : juce::Thread("OpenWavHoverAudition"), owner(ownerEngine) {}
+        void run() override { owner.runHoverAuditionLoop(); }
+    private:
+        AudioEngine& owner;
+    };
+
+    void runHoverAuditionLoop();
+    void cancelPendingHoverAudition();
+
+    juce::AudioFormatManager hoverFormatManager;
+    juce::CriticalSection hoverLock;
+    juce::WaitableEvent hoverWakeEvent;
+    juce::File pendingHoverFile;
+    uint64_t hoverRequestSeq { 0 };
+    uint64_t hoverProcessedSeq { 0 };
+    std::atomic<uint64_t> hoverCancelGeneration { 0 };
+    HoverAuditionWorker hoverWorker { *this };
 
     std::atomic<bool> isShuttingDown { false };
     std::shared_ptr<std::atomic<bool>> engineAliveToken = std::make_shared<std::atomic<bool>>(true);

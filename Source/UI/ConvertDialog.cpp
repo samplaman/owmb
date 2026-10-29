@@ -306,17 +306,31 @@ public:
         newItem.dateAddedMs = destFile.getLastModificationTime().toMilliseconds();
         newItem.id = juce::String::toHexString(destFile.getFullPathName().hashCode64());
         
-        newItem.tags = TagDatabaseManager::inferTagsFromPath(destFile.getFullPathName());
-        newItem.tags.insert("#Converted");
-        for (const auto& tag : currentItem.tags)
-            newItem.tags.insert(tag);
-
         newItem.sampleRate = dstSR;
         newItem.numChannels = numChannels;
         newItem.bitDepth = dstBits;
-        
+
         double totalOutputSamples = requiresResampling ? static_cast<double>(numSamples64) / speedRatio : static_cast<double>(numSamples64);
         newItem.durationSeconds = totalOutputSamples / dstSR;
+
+        newItem.zcr = currentItem.zcr;
+        newItem.highFreqRatio = currentItem.highFreqRatio;
+        newItem.decayRatio = currentItem.decayRatio;
+        newItem.crestFactor = currentItem.crestFactor;
+        newItem.bpm = currentItem.bpm;
+
+        newItem.tags = TagDatabaseManager::inferTagsFromPath(destFile.getFullPathName(), newItem.durationSeconds, newItem.numChannels);
+        newItem.tags.insert("#Converted");
+        for (const auto& tag : currentItem.tags)
+        {
+            if (tag != "#Wav" && tag != "#MP3" && tag != "#FLAC" && tag != "#OGG" && tag != "#AIFF" &&
+                tag != "#Stereo" && tag != "#Mono" && tag != "#Short" && tag != "#Long")
+            {
+                newItem.tags.insert(tag);
+            }
+        }
+        TagDatabaseManager::sanitizeItem(newItem);
+        newItem.precomputeCachedStrings();
 
         dbManager.addOrUpdateItem(newItem);
         dbManager.saveToFile();

@@ -61,9 +61,17 @@ public:
     void notifyIndexUpdated();
     void notifyTagsUpdated();
 
-    // Tag & Metadata Auto-Inference Helper
+    // Tag, Category & Metadata Auto-Inference Helpers (Single Source of Truth)
     static std::set<juce::String> inferTagsFromPath(const juce::String& filePath, double durationSeconds = 0.0, int numChannels = 0);
     static void sanitizeTags(std::set<juce::String>& tags);
+    static void sanitizeItem(MediaItem& item);
+    static bool isTechnicalOrModifierTag(const juce::String& tag);
+    static bool hasSemanticCategoryTag(const std::set<juce::String>& tags);
+    static juce::String getPrimaryCategoryTag(const std::set<juce::String>& tags);
+    static juce::String getCanonicalCategory(const juce::String& tag);
+    static juce::String getCanonicalCategoryForItem(const MediaItem& item);
+    static bool areCategoriesCompatible(const juce::String& catA, const juce::String& catB);
+    static void classifyFromAudioFeatures(MediaItem& item);
     static double extractBpmFromFilename(const juce::String& text);
     static double calculateAcousticDistance(const MediaItem& a, const MediaItem& b);
     static float calculateMatchPercentage(const MediaItem& a, const MediaItem& b);

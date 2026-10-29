@@ -28,9 +28,9 @@ jobs:
           - os: windows-latest
             os_name: Windows-11-x64
             cmake_args: ""
-          - os: macos-14
+          - os: macos-15
             os_name: macOS-Universal
-            cmake_args: '-DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET="10.15"'
+            cmake_args: '-DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET="11.0"'
           - os: ubuntu-latest
             os_name: Linux-Distros-x64
             cmake_args: ""

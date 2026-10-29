@@ -29,6 +29,8 @@ struct MetalUniforms {
     float pad1;
     float viewportWidth;
     float viewportHeight;
+    int hoveredVertexIndex;
+    float hoverScale;
 };
 
 class MetalCloudView {

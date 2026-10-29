@@ -10,6 +10,7 @@ if (-not $cmakePath) {
         "${env:ProgramFiles}\CMake\bin\cmake.exe",
         "${env:ProgramFiles(x86)}\CMake\bin\cmake.exe",
         "${env:LocalAppData}\Programs\CMake\bin\cmake.exe",
+        "${env:LocalAppData}\Microsoft\WinGet\Links\cmake.exe",
         "C:\ProgramData\chocolatey\bin\cmake.exe"
     )
     foreach ($p in $commonPaths) {

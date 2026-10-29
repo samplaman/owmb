@@ -4,6 +4,40 @@
 namespace openwav
 {
 
+namespace
+{
+class ClickableFolderLabel : public juce::Label
+{
+public:
+    ClickableFolderLabel(const juce::String& text, std::function<void()> clickCb)
+        : juce::Label({}, text), onClick(std::move(clickCb))
+    {
+        setMouseCursor(juce::MouseCursor::PointingHandCursor);
+    }
+
+    void mouseEnter(const juce::MouseEvent&) override
+    {
+        setColour(juce::Label::textColourId, OpenWavLookAndFeel::accentCyan);
+        repaint();
+    }
+
+    void mouseExit(const juce::MouseEvent&) override
+    {
+        setColour(juce::Label::textColourId, OpenWavLookAndFeel::textPrimary);
+        repaint();
+    }
+
+    void mouseUp(const juce::MouseEvent& e) override
+    {
+        if (e.mouseWasClicked() && !e.mods.isPopupMenu() && onClick)
+            onClick();
+    }
+
+private:
+    std::function<void()> onClick;
+};
+} // namespace
+
 static bool isBpmTag(const juce::String& tag)
 {
     juce::String t = tag.trim();
@@ -292,21 +326,36 @@ void TagPanelComponent::refreshFolders()
         juce::String displayName = f.getFileName();
         if (displayName.isEmpty()) displayName = folderPath;
 
-        auto* lbl = new juce::Label({}, displayName);
+        auto* lbl = new ClickableFolderLabel(displayName, [this, folderPath] {
+            listeners.call([folderPath](TagPanelListener& l) {
+                l.scannedFolderClicked(folderPath);
+            });
+        });
         lbl->setFont(juce::Font(11.0f).boldened());
-        lbl->setColour(juce::Label::textColourId, juce::Colours::white);
-        lbl->setTooltip(folderPath);
+        lbl->setColour(juce::Label::textColourId, OpenWavLookAndFeel::textPrimary);
+        lbl->setTooltip(folderPath + "\nClick to open in Scanned Folders view");
         folderLabels.add(lbl);
         folderListContainer.addAndMakeVisible(lbl);
 
         auto* removeBtn = new juce::TextButton("X");
         removeBtn->setTooltip("Remove folder: " + folderPath);
-        removeBtn->onClick = [this, folderPath] {
-            dbManager.removeScanFolder(folderPath);
-            
-            juce::NativeMessageBox::showMessageBoxAsync(juce::AlertWindow::InfoIcon,
-                                                   "Folder Removed",
-                                                   "Successfully removed folder:\n" + folderPath);
+        removeBtn->onClick = [this, folderPath, displayName] {
+            juce::Component::SafePointer<TagPanelComponent> safeThis(this);
+            auto options = juce::MessageBoxOptions::makeOptionsOkCancel(
+                juce::MessageBoxIconType::WarningIcon,
+                "Remove Scanned Folder",
+                "Are you sure you want to remove \"" + displayName + "\" from Scanned Folders?\n\n" +
+                    folderPath +
+                    "\n\nIts indexed samples will be removed from the OWMB library (your audio files on disk will not be deleted).",
+                "Remove Folder",
+                "Cancel",
+                this);
+            juce::AlertWindow::showAsync(options, [safeThis, folderPath](int result) {
+                if (result == 1 && safeThis != nullptr)
+                {
+                    safeThis->dbManager.removeScanFolder(folderPath);
+                }
+            });
         };
         folderRemoveButtons.add(removeBtn);
         folderListContainer.addAndMakeVisible(removeBtn);

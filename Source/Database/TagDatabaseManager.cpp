@@ -1,5 +1,7 @@
 #include "TagDatabaseManager.h"
 #include <algorithm>
+#include <cmath>
+#include <cstring>
 
 namespace openwav
 {
@@ -388,25 +390,60 @@ void TagDatabaseManager::reTagAllItems(std::function<void(float progress, int pr
                 {
                     auto& item = it->second;
 
-                    // Preserve user-added custom tags (tags that don't start with '#')
-                    std::set<juce::String> customUserTags;
+                    // Preserve user-added custom tags (without '#') and audio-analysis structural/character tags
+                    std::set<juce::String> preservedTags;
+                    juce::String priorDspCategory;
+                    bool hadLoopTag = (item.tags.find("#Loop") != item.tags.end());
+                    bool hadOneShotTag = (item.tags.find("#OneShot") != item.tags.end());
+
                     for (const auto& t : item.tags)
                     {
-                        if (!t.startsWith("#"))
-                            customUserTags.insert(t);
+                        if (!t.startsWith("#") ||
+                            t == "#OneShot" || t == "#Loop" || t == "#Silent" ||
+                            t == "#Punchy" || t == "#Bright" || t == "#Warm" || t == "#Converted")
+                        {
+                            preservedTags.insert(t);
+                        }
                     }
 
-                    // Extract BPM from filename if not already set or if explicitly specified in filename
-                    double fnBpm = extractBpmFromFilename(juce::File(item.filePath).getFileNameWithoutExtension());
-                    if (fnBpm > 0.0)
+                    if (hasSemanticCategoryTag(item.tags))
+                    {
+                        priorDspCategory = getPrimaryCategoryTag(item.tags);
+                    }
+
+                    juce::File f(item.filePath);
+                    double fnBpm = extractBpmFromFilename(f.getFileNameWithoutExtension());
+                    if (fnBpm <= 0.0)
+                    {
+                        fnBpm = extractBpmFromFilename(f.getParentDirectory().getFileName());
+                    }
+
+                    if (fnBpm >= 40.0 && fnBpm <= 260.0)
                     {
                         item.bpm = fnBpm;
                     }
+                    else if (!hadLoopTag && (hadOneShotTag || (item.durationSeconds > 0.0 && item.durationSeconds < 1.35)))
+                    {
+                        item.bpm = 0.0;
+                    }
 
                     item.tags = inferTagsFromPath(item.filePath, item.durationSeconds, item.numChannels);
-                    for (const auto& ct : customUserTags)
+                    for (const auto& pt : preservedTags)
                     {
-                        item.tags.insert(ct);
+                        item.tags.insert(pt);
+                    }
+
+                    // Re-apply audio-feature classification if path/filename gave no semantic category
+                    if (!hasSemanticCategoryTag(item.tags))
+                    {
+                        if (item.crestFactor > 0.0 || item.highFreqRatio > 0.0 || item.zcr > 0.0)
+                        {
+                            classifyFromAudioFeatures(item);
+                        }
+                        else if (priorDspCategory.isNotEmpty() && priorDspCategory.startsWith("#"))
+                        {
+                            item.tags.insert(priorDspCategory);
+                        }
                     }
 
                     if (item.bpm >= 40.0 && item.bpm <= 260.0)
@@ -414,7 +451,7 @@ void TagDatabaseManager::reTagAllItems(std::function<void(float progress, int pr
                         item.tags.insert("#" + juce::String(juce::roundToInt(item.bpm)) + "BPM");
                     }
 
-                    sanitizeTags(item.tags);
+                    sanitizeItem(item);
                     item.precomputeCachedStrings();
                 }
             }
@@ -580,48 +617,271 @@ double TagDatabaseManager::extractBpmFromFilename(const juce::String& text)
     return 0.0;
 }
 
+static juce::String normalizePitchRoot(const juce::String& raw)
+{
+    if (raw.isEmpty() || raw.length() > 2)
+        return {};
+
+    juce::juce_wchar c0 = juce::CharacterFunctions::toUpperCase(raw[0]);
+    if (c0 < 'A' || c0 > 'G')
+        return {};
+
+    if (raw.length() == 1)
+        return juce::String::charToString(c0);
+
+    juce::juce_wchar c1 = raw[1];
+    if (c1 == '#')
+    {
+        if (c0 == 'E' || c0 == 'B') return {};
+        return juce::String::charToString(c0) + "#";
+    }
+    if (c1 == 'b' || c1 == 'B')
+    {
+        if (c0 == 'C' || c0 == 'F') return {};
+        return juce::String::charToString(c0) + "b";
+    }
+    return {};
+}
+
+static bool isTokenLikelyBpm(const juce::String& tok)
+{
+    juce::String low = tok.toLowerCase();
+    if (low.endsWith("bpm"))
+        low = low.dropLastCharacters(3);
+    else if (low.startsWith("bpm"))
+        low = low.substring(3);
+
+    if (low.isEmpty() || (low.startsWith("0") && low.length() > 1))
+        return false;
+
+    for (int i = 0; i < low.length(); ++i)
+    {
+        if (!juce::CharacterFunctions::isDigit(low[i]) && low[i] != '.')
+            return false;
+    }
+
+    double v = low.getDoubleValue();
+    return v >= 60.0 && v <= 220.0;
+}
+
+static bool isFmSynthesisWord(const juce::String& lowTok)
+{
+    return lowTok == "synth" || lowTok == "synths" || lowTok == "bass" || lowTok == "sub" ||
+           lowTok == "lead" || lowTok == "leads" || lowTok == "pad" || lowTok == "pads" ||
+           lowTok == "pluck" || lowTok == "plucks" || lowTok == "arp" || lowTok == "bell" ||
+           lowTok == "bells" || lowTok == "keys" || lowTok == "piano" || lowTok == "epiano" ||
+           lowTok == "rhodes" || lowTok == "organ" || lowTok == "kick" || lowTok == "snare" ||
+           lowTok == "hat" || lowTok == "hihat" || lowTok == "perc" || lowTok == "drum" ||
+           lowTok == "drums" || lowTok == "tom" || lowTok == "clap" || lowTok == "stab" ||
+           lowTok == "hit" || lowTok == "fx" || lowTok == "808" || lowTok == "operator";
+}
+
 static juce::String extractKeyFromFilename(const juce::String& text)
 {
-    // Search for patterns like _C#m_, _Am_, _F_maj_, _D_min_, Key C, Key-Am, 128_Fm
+    if (text.isEmpty())
+        return {};
+
+    // Normalize common delimiters while preserving original letter casing for FM/dB disambiguation
     juce::String clean = text;
-    clean = clean.replaceCharacter('-', '_').replaceCharacter('.', '_').replaceCharacter(' ', '_');
+    const char delims[] = { '-', '.', ' ', '(', ')', '[', ']', '{', '}' };
+    for (char d : delims)
+        clean = clean.replaceCharacter(d, '_');
 
-    juce::StringArray tokens;
-    tokens.addTokens(clean, "_", "\"'");
+    juce::StringArray rawTokens;
+    rawTokens.addTokens(clean, "_", "\"'");
 
-    const char* keys[] = {
-        "Cmaj", "Cmin", "C#maj", "C#min", "Dbmaj", "Dbmin", "Dmaj", "Dmin",
-        "D#maj", "D#min", "Ebmaj", "Ebmin", "Emaj", "Emin", "Fmaj", "Fmin",
-        "F#maj", "F#min", "Gbmaj", "Gbmin", "Gmaj", "Gmin", "G#maj", "G#min",
-        "Abmaj", "Abmin", "Amaj", "Amin", "A#maj", "A#min", "Bbmaj", "Bbmin",
-        "Bmaj", "Bmin",
-        "C", "Cm", "C#", "C#m", "Db", "Dbm", "D", "Dm", "D#", "D#m",
-        "Eb", "Ebm", "E", "Em", "F", "Fm", "F#", "F#m", "Gb", "Gbm",
-        "G", "Gm", "G#", "G#m", "Ab", "Abm", "A", "Am", "A#", "A#m",
-        "Bb", "Bbm", "B", "Bm"
-    };
-
-    for (const auto& tok : tokens)
+    std::vector<juce::String> tokens;
+    tokens.reserve(static_cast<size_t>(rawTokens.size()));
+    for (const auto& rt : rawTokens)
     {
-        juce::String t = tok.trim();
-        if (t.isEmpty()) continue;
+        auto trimmed = rt.trim();
+        if (trimmed.isNotEmpty())
+            tokens.push_back(trimmed);
+    }
 
-        for (const char* k : keys)
+    if (tokens.empty())
+        return {};
+
+    const int n = static_cast<int>(tokens.size());
+    juce::String fullLower = text.toLowerCase();
+
+    // Pass 1: Explicit two-token combinations (e.g. "Key_C", "Key_Am", "F_maj", "D_min", "C#_minor")
+    for (int i = 0; i < n - 1; ++i)
+    {
+        juce::String t0Low = tokens[i].toLowerCase();
+        juce::String t1 = tokens[i + 1];
+        juce::String t1Low = t1.toLowerCase();
+
+        // "Key C", "Key Am", "Root F#"
+        if (t0Low == "key" || t0Low == "root" || t0Low == "pitch")
         {
-            if (t.equalsIgnoreCase(k))
+            if (i + 2 < n)
             {
-                juce::String keyTag = juce::String(k);
-                if (keyTag.endsWithIgnoreCase("maj"))
-                    keyTag = keyTag.dropLastCharacters(3) + "_Major";
-                else if (keyTag.endsWithIgnoreCase("min"))
-                    keyTag = keyTag.dropLastCharacters(3) + "_Minor";
-                else if (keyTag.endsWith("m") && keyTag.length() <= 3)
-                    keyTag = keyTag.dropLastCharacters(1) + "_Minor";
+                juce::String r2 = normalizePitchRoot(t1);
+                juce::String t2Low = tokens[i + 2].toLowerCase();
+                if (r2.isNotEmpty() && (t2Low == "maj" || t2Low == "major"))
+                    return "#Key_" + r2 + "_Major";
+                if (r2.isNotEmpty() && (t2Low == "min" || t2Low == "minor" || t2Low == "m"))
+                    return "#Key_" + r2 + "_Minor";
+            }
 
-                return "#Key_" + keyTag;
+            if (t1Low.endsWith("maj") || t1Low.endsWith("major"))
+            {
+                int drop = t1Low.endsWith("major") ? 5 : 3;
+                juce::String r = normalizePitchRoot(t1.dropLastCharacters(drop));
+                if (r.isNotEmpty()) return "#Key_" + r + "_Major";
+            }
+            if (t1Low.endsWith("min") || t1Low.endsWith("minor"))
+            {
+                int drop = t1Low.endsWith("minor") ? 5 : 3;
+                juce::String r = normalizePitchRoot(t1.dropLastCharacters(drop));
+                if (r.isNotEmpty()) return "#Key_" + r + "_Minor";
+            }
+            if (t1Low.endsWith("m") && t1.length() >= 2 && t1.length() <= 3)
+            {
+                juce::String r = normalizePitchRoot(t1.dropLastCharacters(1));
+                if (r.isNotEmpty()) return "#Key_" + r + "_Minor";
+            }
+            juce::String r = normalizePitchRoot(t1);
+            if (r.isNotEmpty())
+                return "#Key_" + r;
+        }
+
+        // "F_maj", "D_min", "F#_minor", "Bb_major"
+        juce::String r0 = normalizePitchRoot(tokens[i]);
+        if (r0.isNotEmpty())
+        {
+            if (t1Low == "maj" || t1Low == "major")
+                return "#Key_" + r0 + "_Major";
+            if (t1Low == "min" || t1Low == "minor")
+                return "#Key_" + r0 + "_Minor";
+        }
+    }
+
+    // Pass 2: Unambiguous single-token keys (maj/min suffixes, minor 'm', accidentals C#/Bb, or tuned root+octave F#1/G1)
+    for (int i = 0; i < n; ++i)
+    {
+        const juce::String& tok = tokens[i];
+        juce::String low = tok.toLowerCase();
+
+        if (low.endsWith("major") || low.endsWith("maj"))
+        {
+            int drop = low.endsWith("major") ? 5 : 3;
+            juce::String r = normalizePitchRoot(tok.dropLastCharacters(drop));
+            if (r.isNotEmpty()) return "#Key_" + r + "_Major";
+        }
+
+        if (low.endsWith("minor") || low.endsWith("min"))
+        {
+            int drop = low.endsWith("minor") ? 5 : 3;
+            juce::String r = normalizePitchRoot(tok.dropLastCharacters(drop));
+            if (r.isNotEmpty()) return "#Key_" + r + "_Minor";
+        }
+
+        // Minor shorthand: Cm, C#m, Dbm, Fm, Am, Gm...
+        if (low.endsWith("m") && tok.length() >= 2 && tok.length() <= 3)
+        {
+            // Disambiguate "FM" synthesis (e.g. FM_Bass, FM_Pluck, FM_Synth) from F Minor
+            if (low == "fm")
+            {
+                bool nextIsSynthWord = (i + 1 < n) && isFmSynthesisWord(tokens[i + 1].toLowerCase());
+                if (nextIsSynthWord && (tok == "FM" || i == 0))
+                    continue;
+            }
+            // Disambiguate English "I am" or "AM/FM"
+            if (low == "am")
+            {
+                if ((i > 0 && tokens[i - 1].equalsIgnoreCase("i")) ||
+                    (i + 1 < n && tokens[i + 1].equalsIgnoreCase("fm")) ||
+                    (i > 0 && tokens[i - 1].equalsIgnoreCase("fm")))
+                    continue;
+            }
+
+            juce::String r = normalizePitchRoot(tok.dropLastCharacters(1));
+            if (r.isNotEmpty())
+                return "#Key_" + r + "_Minor";
+        }
+
+        // Sharp / Flat root without suffix: C#, Db, F#, Gm, Bb, Eb, Ab
+        if (tok.length() == 2 && (tok[1] == '#' || tok[1] == 'b' || tok[1] == 'B'))
+        {
+            // Disambiguate decibels ("dB", "-6_db", "0_db") from D-flat ("Db")
+            if (low == "db")
+            {
+                if (tok == "dB" || tok == "db")
+                    continue;
+                if (i > 0 && juce::CharacterFunctions::isDigit(tokens[i - 1].getLastCharacter()))
+                    continue;
+            }
+            juce::String r = normalizePitchRoot(tok);
+            if (r.isNotEmpty())
+                return "#Key_" + r;
+        }
+
+        // Root note with octave number: e.g. F#1, C#2, Bb1, G1, F1, C3
+        if (tok.length() >= 2 && tok.length() <= 3 && juce::CharacterFunctions::isDigit(tok.getLastCharacter()))
+        {
+            int oct = tok.getLastCharacter() - '0';
+            if (oct >= 0 && oct <= 6)
+            {
+                juce::String notePart = tok.dropLastCharacters(1);
+                if (notePart.length() == 2) // Accidental + octave (e.g. F#1, Bb2) is unambiguous
+                {
+                    if (!notePart.equalsIgnoreCase("db") || notePart == "Db")
+                    {
+                        juce::String r = normalizePitchRoot(notePart);
+                        if (r.isNotEmpty())
+                            return "#Key_" + r;
+                    }
+                }
+                else if (notePart.length() == 1 && oct >= 1 && oct <= 5 && i > 0)
+                {
+                    // Natural + octave (e.g. Kick_G1, Bass_E1, Piano_C4), avoiding vinyl track prefixes A1/B2 at i==0
+                    bool hasTunedContext = fullLower.contains("kick") || fullLower.contains("808") ||
+                                           fullLower.contains("bass") || fullLower.contains("sub") ||
+                                           fullLower.contains("piano") || fullLower.contains("keys") ||
+                                           fullLower.contains("synth") || fullLower.contains("pluck") ||
+                                           fullLower.contains("pad") || fullLower.contains("lead") ||
+                                           fullLower.contains("tom") || fullLower.contains("bell") ||
+                                           fullLower.contains("harp") || fullLower.contains("guitar");
+                    if (hasTunedContext)
+                    {
+                        juce::String r = normalizePitchRoot(notePart);
+                        if (r.isNotEmpty())
+                            return "#Key_" + r;
+                    }
+                }
             }
         }
     }
+
+    // Pass 3: Bare single-letter keys (A..G) ONLY when directly adjacent to a BPM token in non-unpitched context
+    // Prevents false positives like "Kick_A.wav", "Snare_B.wav", "A_Warm_Pad.wav", "G_Funk.wav"
+    bool isUnpitchedPerc = fullLower.contains("snare") || fullLower.contains("clap") || fullLower.contains("snap") ||
+                           fullLower.contains("hat") || fullLower.contains("hihat") || fullLower.contains("shaker") ||
+                           fullLower.contains("tamb") || fullLower.contains("crash") || fullLower.contains("ride") ||
+                           fullLower.contains("cymbal") || fullLower.contains("rim") || fullLower.contains("cowbell") ||
+                           fullLower.contains("conga") || fullLower.contains("bongo") || fullLower.contains("foley") ||
+                           fullLower.contains("impact") || fullLower.contains("riser") || fullLower.contains("sweep");
+
+    if (!isUnpitchedPerc)
+    {
+        for (int i = 0; i < n; ++i)
+        {
+            if (tokens[i].length() == 1)
+            {
+                juce::String r = normalizePitchRoot(tokens[i]);
+                if (r.isNotEmpty())
+                {
+                    bool prevIsBpm = (i > 0) && isTokenLikelyBpm(tokens[i - 1]);
+                    bool nextIsBpm = (i + 1 < n) && isTokenLikelyBpm(tokens[i + 1]);
+                    if (prevIsBpm || nextIsBpm)
+                        return "#Key_" + r;
+                }
+            }
+        }
+    }
+
     return {};
 }
 
@@ -632,7 +892,9 @@ static bool isKeywordMatch(const juce::String& textLower, const char* keywordStr
     if (kwLen == 0) return false;
 
     // Short keywords (<=4 chars or specific ambiguous words) require strict token/word boundary separation
-    bool isShortAbbrev = (kwLen <= 4 || kw == "fill" || kw == "reese" || kw == "chant" || kw == "synth" || kw == "house" || kw == "drill" || kw == "lofi" || kw == "stem");
+    bool isShortAbbrev = (kwLen <= 4 || kw == "fill" || kw == "reese" || kw == "chant" ||
+                          kw == "synth" || kw == "house" || kw == "drill" || kw == "lofi" ||
+                          kw == "stem" || kw == "clave" || kw == "conga" || kw == "bongo");
 
     int pos = 0;
     while ((pos = textLower.indexOf(pos, kw)) != -1)
@@ -665,17 +927,377 @@ static bool isKeywordMatch(const juce::String& textLower, const char* keywordStr
         if (startOk && endOk)
             return true;
 
-        pos += kwLen;
+        pos += 1;
     }
 
     return false;
 }
 
+bool TagDatabaseManager::isTechnicalOrModifierTag(const juce::String& tag)
+{
+    if (tag.isEmpty()) return true;
+    if (tag.startsWithIgnoreCase("#Key_") || (tag.startsWith("#") && tag.endsWithIgnoreCase("BPM") && tag.length() > 4))
+        return true;
+
+    static const std::set<juce::String> nonCategoryTags = {
+        "#Wav", "#MP3", "#FLAC", "#OGG", "#AIFF",
+        "#Stereo", "#Mono", "#Short", "#Long",
+        "#OneShot", "#Loop", "#Silent", "#Converted",
+        "#Punchy", "#Bright", "#Warm",
+        "#Dry", "#Wet", "#Acoustic", "#Digital", "#Fill", "#Stem",
+        "#Pizzicato", "#Staccato", "#Spiccato", "#Legato", "#Tremolo",
+        "#808", "#909",
+        "#BoomBap", "#Trap", "#HipHop", "#TechHouse", "#DeepHouse", "#House",
+        "#Techno", "#Trance", "#DnB", "#Dubstep", "#FutureBass", "#LoFi",
+        "#Ambient", "#Cinematic", "#Drill", "#Synthwave", "#Pop", "#Rock", "#Funk", "#Soul"
+    };
+    return nonCategoryTags.find(tag) != nonCategoryTags.end();
+}
+
+bool TagDatabaseManager::hasSemanticCategoryTag(const std::set<juce::String>& tags)
+{
+    for (const auto& t : tags)
+    {
+        if (t.startsWith("#") && !isTechnicalOrModifierTag(t))
+            return true;
+    }
+    return false;
+}
+
+juce::String TagDatabaseManager::getPrimaryCategoryTag(const std::set<juce::String>& tags)
+{
+    if (tags.empty())
+        return "Untagged";
+
+    // Single Source of Truth priority order across OWMB (Database, Cloud Map, Similarity, Table)
+    static const std::vector<juce::String> priorityList = {
+        // 1. Drums & Percussion (Specific before general; always beats #808/#909 modifier!)
+        "#SubKick", "#Kick",
+        "#Rimshot", "#Snare", "#Clap", "#Snap",
+        "#OpenHat", "#ClosedHat", "#HiHat",
+        "#Tom", "#Crash", "#Ride", "#Cymbal",
+        "#Cowbell", "#Conga", "#Bongo", "#Shaker", "#Tambourine", "#Percussion",
+
+        // 2. Bass (Specific before general)
+        "#SubBass", "#ReeseBass", "#SlapBass", "#SynthBass", "#808Bass", "#Bass",
+
+        // 3. Keys & Guitars
+        "#Piano", "#Rhodes", "#Organ", "#Keys",
+        "#AcousticGuitar", "#ElectricGuitar", "#Guitar",
+
+        // 4. Orchestral, Strings, Brass, Woodwinds, Mallets & Choir
+        "#Violin", "#Viola", "#Cello", "#Contrabass", "#Strings",
+        "#FrenchHorn", "#Trumpet", "#Trombone", "#Tuba", "#Brass",
+        "#Piccolo", "#Flute", "#Oboe", "#EnglishHorn", "#Clarinet", "#Bassoon", "#Sax", "#Woodwinds",
+        "#Timpani", "#TubularBells", "#Glockenspiel", "#Xylophone", "#Marimba", "#Bell", "#Gong", "#Harp", "#Choir",
+        "#Ensemble", "#Orchestral",
+
+        // 5. Vocals
+        "#Acapella", "#VocalChop", "#Chant", "#Speech", "#Vocal",
+
+        // 6. Synths
+        "#Lead", "#Pluck", "#Arp", "#Pad", "#Synth",
+
+        // 7. FX & Textures
+        "#SubDrop", "#Impact", "#Riser", "#Downlifter", "#Sweep", "#Glitch", "#Vinyl", "#Foley", "#Atmosphere", "#Texture", "#FX",
+
+        // 8. Typed Loops & Generic Loop
+        "#DrumLoop", "#TopLoop", "#PercLoop", "#BassLoop", "#VocalLoop", "#MelodicLoop", "#Loop",
+
+        // 9. Drum Machine / Structural Fallbacks
+        "#808", "#909", "#OneShot"
+    };
+
+    for (const auto& prio : priorityList)
+    {
+        if (tags.find(prio) != tags.end())
+            return prio;
+    }
+
+    for (const auto& t : tags)
+    {
+        if (!t.endsWithIgnoreCase("BPM") && !t.startsWithIgnoreCase("#Key_") &&
+            t != "#Wav" && t != "#MP3" && t != "#FLAC" && t != "#OGG" && t != "#AIFF" &&
+            t != "#Stereo" && t != "#Mono" && t != "#Short" && t != "#Long" &&
+            t != "#Punchy" && t != "#Bright" && t != "#Warm" &&
+            t != "#Dry" && t != "#Wet" && t != "#Silent" && t != "#Converted")
+        {
+            return t;
+        }
+    }
+
+    return *tags.begin();
+}
+
+juce::String TagDatabaseManager::getCanonicalCategory(const juce::String& tag)
+{
+    juce::String t = tag.trim().toLowerCase();
+    if (t.startsWith("#"))
+        t = t.substring(1);
+
+    if (t.isEmpty() || t == "untagged")
+        return "other";
+
+    if (t == "subkick" || t == "kick") return "kick";
+    if (t == "snare") return "snare";
+    if (t == "rimshot" || t == "rim" || t == "clave") return "clave/rim";
+    if (t == "clap") return "clap";
+    if (t == "snap") return "snap";
+    if (t == "closedhat" || t == "closed_hat" || t == "closed-hat") return "hihat closed";
+    if (t == "openhat" || t == "open_hat" || t == "open-hat") return "hihat open";
+    if (t == "hihat" || t == "hat") return "hihat";
+    if (t == "tom") return "tom";
+    if (t == "crash") return "crash";
+    if (t == "ride") return "ride";
+    if (t == "cymbal") return "cymbal";
+    if (t == "shaker" || t == "tambourine" || t == "tamb") return "tambourine shaker";
+    if (t == "cowbell") return "cowbell";
+    if (t == "conga" || t == "bongo") return "bongo/conga";
+    if (t == "percussion" || t == "perc" || t == "percloop" || t == "toploop") return "percussion";
+
+    if (t == "subbass" || t == "synthbass" || t == "reesebass" || t == "slapbass" ||
+        t == "808bass" || t == "bass" || t == "bassloop" || t == "808")
+        return "bass";
+
+    if (t == "piano" || t == "rhodes" || t == "organ" || t == "keys") return "keys";
+    if (t == "acousticguitar" || t == "electricguitar" || t == "guitar" || t == "gtr") return "guitar";
+
+    if (t == "violin" || t == "viola" || t == "cello" || t == "contrabass" || t == "strings" || t == "string")
+        return "strings";
+    if (t == "frenchhorn" || t == "trumpet" || t == "trombone" || t == "tuba" || t == "brass" || t == "horn")
+        return "brass";
+    if (t == "piccolo" || t == "flute" || t == "oboe" || t == "englishhorn" ||
+        t == "clarinet" || t == "bassoon" || t == "sax" || t == "woodwinds" || t == "woodwind")
+        return "woodwinds";
+    if (t == "timpani" || t == "tubularbells" || t == "glockenspiel" || t == "xylophone" ||
+        t == "marimba" || t == "bell" || t == "gong" || t == "harp" || t == "ensemble" || t == "orchestral")
+        return "orchestral";
+
+    if (t == "acapella" || t == "vocalchop" || t == "chant" || t == "speech" ||
+        t == "vocal" || t == "vox" || t == "vocalloop" || t == "choir")
+        return "vocal";
+
+    if (t == "lead" || t == "pad" || t == "pluck" || t == "arp" || t == "synth" || t == "melodicloop")
+        return "synth";
+
+    if (t == "subdrop" || t == "impact" || t == "riser" || t == "downlifter" || t == "sweep" ||
+        t == "glitch" || t == "vinyl" || t == "foley" || t == "atmosphere" || t == "texture" ||
+        t == "fx" || t == "sfx")
+        return "fx";
+
+    if (t == "drumloop" || t == "loop" || t == "909") return "loop";
+    if (t == "oneshot" || t == "one_shot") return "other";
+
+    // Substring fallback for custom user tags (e.g. "my_kick", "warm pad")
+    if (t.contains("kick")) return "kick";
+    if (t.contains("snare")) return "snare";
+    if (t.contains("clap")) return "clap";
+    if (t.contains("closed") && t.contains("hat")) return "hihat closed";
+    if (t.contains("open") && t.contains("hat")) return "hihat open";
+    if (t.contains("hihat") || isKeywordMatch(t, "hat")) return "hihat";
+    if (isKeywordMatch(t, "tom")) return "tom";
+    if (isKeywordMatch(t, "rim") || t.contains("rimshot") || t.contains("clave")) return "clave/rim";
+    if (t.contains("crash")) return "crash";
+    if (t.contains("ride")) return "ride";
+    if (t.contains("cymbal")) return "cymbal";
+    if (t.contains("shaker") || t.contains("tamb")) return "tambourine shaker";
+    if (t.contains("cowbell")) return "cowbell";
+    if (t.contains("conga") || t.contains("bongo")) return "bongo/conga";
+    if (t.contains("perc")) return "percussion";
+    if (t.contains("bass")) return "bass";
+    if (t.contains("piano") || t.contains("rhodes") || t.contains("organ") || t.contains("keys")) return "keys";
+    if (t.contains("guitar") || t.contains("gtr")) return "guitar";
+    if (t.contains("string") || t.contains("violin") || t.contains("cello") || t.contains("viola")) return "strings";
+    if (t.contains("brass") || t.contains("trumpet") || t.contains("trombone") || t.contains("horn")) return "brass";
+    if (t.contains("flute") || t.contains("clarinet") || t.contains("oboe") || t.contains("sax") || t.contains("woodwind")) return "woodwinds";
+    if (t.contains("vocal") || t.contains("vox") || t.contains("choir") || t.contains("acapella")) return "vocal";
+    if (t.contains("synth") || t.contains("lead") || t.contains("pad") || t.contains("pluck") || t.contains("arp")) return "synth";
+    if (t.contains("riser") || t.contains("sweep") || t.contains("impact") || t.contains("glitch") || t.contains("foley") || isKeywordMatch(t, "fx")) return "fx";
+    if (t.contains("loop")) return "loop";
+
+    return t;
+}
+
+juce::String TagDatabaseManager::getCanonicalCategoryForItem(const MediaItem& item)
+{
+    // 1. Evaluate using strict priority order (never alphabetical std::set iteration!)
+    if (!item.tags.empty())
+    {
+        juce::String primary = getPrimaryCategoryTag(item.tags);
+        if (primary != "Untagged" && primary != "#OneShot" && !isTechnicalOrModifierTag(primary))
+        {
+            juce::String cat = getCanonicalCategory(primary);
+            if (cat != "other")
+                return cat;
+        }
+        // Handle standalone #808 or #Loop when no specific instrument tag is present
+        if (primary == "#808") return "bass";
+        if (primary == "#Loop") return "loop";
+    }
+
+    // 2. Word-boundary-safe path inference fallback if item had not been tagged yet
+    if (item.filePath.isNotEmpty())
+    {
+        auto inferred = inferTagsFromPath(item.filePath, item.durationSeconds, item.numChannels);
+        juce::String primary = getPrimaryCategoryTag(inferred);
+        if (primary != "Untagged" && primary != "#OneShot")
+        {
+            juce::String cat = getCanonicalCategory(primary);
+            if (cat != "other")
+                return cat;
+        }
+    }
+
+    // 3. Sample-rate-normalized DSP feature fallback
+    if (item.durationSeconds > 0.0 && (item.crestFactor > 0.0 || item.highFreqRatio > 0.0 || item.zcr > 0.0))
+    {
+        MediaItem temp = item;
+        classifyFromAudioFeatures(temp);
+        juce::String primary = getPrimaryCategoryTag(temp.tags);
+        if (primary != "Untagged" && primary != "#OneShot")
+        {
+            juce::String cat = getCanonicalCategory(primary);
+            if (cat != "other")
+                return cat;
+        }
+    }
+
+    return "other";
+}
+
+bool TagDatabaseManager::areCategoriesCompatible(const juce::String& catA, const juce::String& catB)
+{
+    if (catA == catB)
+        return true;
+
+    // Treat generic "hihat" as compatible with closed/open hi-hats
+    if ((catA == "hihat" && (catB == "hihat closed" || catB == "hihat open")) ||
+        (catB == "hihat" && (catA == "hihat closed" || catA == "hihat open")))
+        return true;
+
+    // Treat crash/ride/cymbal family as compatible when searching metallic cymbals
+    if ((catA == "cymbal" && (catB == "crash" || catB == "ride")) ||
+        (catB == "cymbal" && (catA == "crash" || catA == "ride")))
+        return true;
+
+    return false;
+}
+
+void TagDatabaseManager::classifyFromAudioFeatures(MediaItem& item)
+{
+    if (hasSemanticCategoryTag(item.tags))
+        return;
+
+    const bool isLoop = (item.tags.find("#Loop") != item.tags.end()) ||
+                        (item.durationSeconds >= 1.35 && item.decayRatio >= 0.26);
+
+    if (!isLoop)
+    {
+        if (item.durationSeconds <= 1.10 && item.decayRatio < 0.28 &&
+            item.highFreqRatio < 0.22 && item.zcr < 0.060 && item.crestFactor > 2.2)
+        {
+            item.tags.insert("#Kick");
+        }
+        else if (item.durationSeconds > 0.45 && item.highFreqRatio < 0.20 &&
+                 item.zcr < 0.055 && item.decayRatio >= 0.20)
+        {
+            item.tags.insert("#Bass");
+        }
+        else if (item.highFreqRatio >= 1.05 || item.zcr >= 0.20)
+        {
+            if (item.durationSeconds <= 0.28 && item.decayRatio < 0.20)
+                item.tags.insert("#ClosedHat");
+            else if (item.durationSeconds <= 1.10)
+                item.tags.insert("#OpenHat");
+            else
+                item.tags.insert("#Cymbal");
+        }
+        else if (item.highFreqRatio >= 0.42 && item.highFreqRatio < 1.05 && item.zcr >= 0.075)
+        {
+            if (item.decayRatio < 0.16 && item.durationSeconds < 0.55)
+                item.tags.insert("#Clap");
+            else
+                item.tags.insert("#Snare");
+        }
+        else if (item.highFreqRatio < 0.35 && item.zcr < 0.085 &&
+                 item.crestFactor > 3.0 && item.durationSeconds <= 1.10 && item.decayRatio < 0.30)
+        {
+            item.tags.insert("#Tom");
+        }
+        else if (item.crestFactor > 3.5 && item.durationSeconds <= 0.90)
+        {
+            item.tags.insert("#Percussion");
+        }
+        else if (item.durationSeconds >= 0.85 && item.decayRatio >= 0.45)
+        {
+            if (item.highFreqRatio >= 0.55)
+                item.tags.insert("#FX");
+            else
+                item.tags.insert("#Pad");
+        }
+        else if (item.decayRatio < 0.24)
+        {
+            item.tags.insert("#Pluck");
+        }
+        else
+        {
+            item.tags.insert("#Synth");
+        }
+    }
+    else
+    {
+        if (item.highFreqRatio < 0.14 && item.zcr < 0.045)
+        {
+            item.tags.insert("#BassLoop");
+            item.tags.insert("#Bass");
+        }
+        else if (item.crestFactor > 3.4 && item.highFreqRatio > 0.30)
+        {
+            item.tags.insert("#DrumLoop");
+        }
+        else
+        {
+            item.tags.insert("#MelodicLoop");
+            item.tags.insert("#Synth");
+        }
+    }
+}
+
 void TagDatabaseManager::sanitizeTags(std::set<juce::String>& tags)
 {
-    bool hasBass = (tags.find("#Bass") != tags.end() || tags.find("#SubBass") != tags.end() ||
-                    tags.find("#SynthBass") != tags.end() || tags.find("#ReeseBass") != tags.end() ||
-                    tags.find("#SlapBass") != tags.end() || tags.find("#808Bass") != tags.end());
+    // 1. Format / Channel / Length hygiene
+    if (tags.find("#Stereo") != tags.end() && tags.find("#Mono") != tags.end())
+        tags.erase("#Mono");
+    if (tags.find("#Short") != tags.end() && tags.find("#Long") != tags.end())
+        tags.erase("#Long");
+
+    // 2. Typed Loops imply #Loop and exclude #OneShot
+    bool hasTypedLoop = (tags.find("#DrumLoop") != tags.end() || tags.find("#TopLoop") != tags.end() ||
+                         tags.find("#PercLoop") != tags.end() || tags.find("#BassLoop") != tags.end() ||
+                         tags.find("#VocalLoop") != tags.end() || tags.find("#MelodicLoop") != tags.end());
+    if (hasTypedLoop)
+    {
+        tags.insert("#Loop");
+        tags.erase("#OneShot");
+    }
+    else if (tags.find("#Loop") != tags.end() && tags.find("#OneShot") != tags.end())
+    {
+        if (tags.find("#Short") != tags.end())
+            tags.erase("#Loop");
+        else
+            tags.erase("#OneShot");
+    }
+
+    // 3.SubKick beats falsely inferred #SubBass (e.g. "Sub_Kick_01.wav")
+    if (tags.find("#SubKick") != tags.end())
+    {
+        tags.erase("#SubBass");
+    }
+
+    bool hasSpecificBass = (tags.find("#SubBass") != tags.end() || tags.find("#SynthBass") != tags.end() ||
+                            tags.find("#ReeseBass") != tags.end() || tags.find("#SlapBass") != tags.end() ||
+                            tags.find("#808Bass") != tags.end());
+    bool hasBass = hasSpecificBass || (tags.find("#Bass") != tags.end());
 
     bool hasKeys = (tags.find("#Piano") != tags.end() || tags.find("#Rhodes") != tags.end() ||
                     tags.find("#Organ") != tags.end() || tags.find("#Keys") != tags.end());
@@ -703,16 +1325,14 @@ void TagDatabaseManager::sanitizeTags(std::set<juce::String>& tags)
                      tags.find("#VocalChop") != tags.end() || tags.find("#Chant") != tags.end() ||
                      tags.find("#Speech") != tags.end());
 
-    bool hasSynth = (tags.find("#Synth") != tags.end() || tags.find("#Lead") != tags.end() ||
-                     tags.find("#Pad") != tags.end() || tags.find("#Pluck") != tags.end() ||
-                     tags.find("#Arp") != tags.end());
+    bool hasSpecificSynth = (tags.find("#Lead") != tags.end() || tags.find("#Pad") != tags.end() ||
+                             tags.find("#Pluck") != tags.end() || tags.find("#Arp") != tags.end());
 
-    bool hasFX = (tags.find("#FX") != tags.end() || tags.find("#Riser") != tags.end() ||
-                  tags.find("#Downlifter") != tags.end() || tags.find("#SubDrop") != tags.end() ||
-                  tags.find("#Impact") != tags.end() || tags.find("#Sweep") != tags.end() ||
-                  tags.find("#Foley") != tags.end() || tags.find("#Vinyl") != tags.end() ||
-                  tags.find("#Atmosphere") != tags.end() || tags.find("#Texture") != tags.end() ||
-                  tags.find("#Glitch") != tags.end());
+    bool hasSpecificFX = (tags.find("#Riser") != tags.end() || tags.find("#Downlifter") != tags.end() ||
+                          tags.find("#SubDrop") != tags.end() || tags.find("#Impact") != tags.end() ||
+                          tags.find("#Sweep") != tags.end() || tags.find("#Foley") != tags.end() ||
+                          tags.find("#Vinyl") != tags.end() || tags.find("#Atmosphere") != tags.end() ||
+                          tags.find("#Texture") != tags.end() || tags.find("#Glitch") != tags.end());
 
     bool hasOtherDrums = (tags.find("#Snare") != tags.end() || tags.find("#Rimshot") != tags.end() ||
                           tags.find("#Clap") != tags.end() || tags.find("#Snap") != tags.end() ||
@@ -723,34 +1343,52 @@ void TagDatabaseManager::sanitizeTags(std::set<juce::String>& tags)
                           tags.find("#Tambourine") != tags.end() || tags.find("#Cowbell") != tags.end() ||
                           tags.find("#Conga") != tags.end() || tags.find("#Bongo") != tags.end());
 
-    bool hasMusicalKey = false;
-    for (const auto& t : tags)
+    bool hasKick = (tags.find("#Kick") != tags.end() || tags.find("#SubKick") != tags.end());
+    bool isLoopSample = (tags.find("#Loop") != tags.end() || hasTypedLoop);
+
+    // 4. Multi-drum loops (e.g. "Kick_Snare_Loop.wav") become #DrumLoop rather than a single drum one-shot
+    if (isLoopSample && hasKick && hasOtherDrums)
     {
-        if (t.startsWith("#Key_"))
-        {
-            hasMusicalKey = true;
-            break;
-        }
+        tags.insert("#DrumLoop");
+        tags.erase("#Kick");
+        tags.erase("#SubKick");
+        tags.erase("#Snare");
+        tags.erase("#Rimshot");
+        tags.erase("#Clap");
+        tags.erase("#Snap");
+        tags.erase("#HiHat");
+        tags.erase("#OpenHat");
+        tags.erase("#ClosedHat");
+        hasKick = false;
+        hasOtherDrums = false;
     }
 
-    bool hasNonKickInstrumentOrFX = hasBass || hasKeys || hasGuitar || hasOrchestral || hasVocal || hasSynth || hasFX || hasOtherDrums;
-
-    if (hasNonKickInstrumentOrFX)
+    // 5. Note: Tuned kicks (#Key_* + #Kick) MUST KEEP #Kick!
+    // Only remove #Kick when an incompatible melodic/vocal/specific-FX/bass/other-drum instrument is present.
+    // Generic #Synth or #FX on a kick (e.g. "Synth_Kick.wav", "FX_Kick.wav") yields to #Kick!
+    bool hasIncompatibleWithKick = hasBass || hasKeys || hasGuitar || hasOrchestral ||
+                                   hasVocal || hasSpecificSynth || hasSpecificFX || hasOtherDrums;
+    if (hasIncompatibleWithKick)
     {
         tags.erase("#Kick");
         tags.erase("#SubKick");
-    }
-    else if (hasMusicalKey)
-    {
-        if (tags.find("#808") == tags.end())
-        {
-            tags.erase("#Kick");
-            tags.erase("#SubKick");
-        }
+        hasKick = false;
     }
 
-    // Drum sub-category mutual exclusivity
-    if (tags.find("#Kick") != tags.end() || tags.find("#SubKick") != tags.end())
+    // 6. Hi-Hat specificity cleanup
+    if (tags.find("#OpenHat") != tags.end() && tags.find("#ClosedHat") != tags.end())
+    {
+        tags.erase("#OpenHat");
+        tags.erase("#ClosedHat");
+        tags.insert("#HiHat");
+    }
+    else if (tags.find("#OpenHat") != tags.end() || tags.find("#ClosedHat") != tags.end())
+    {
+        tags.erase("#HiHat");
+    }
+
+    // 7. Drum & Instrument mutual exclusivity
+    if (hasKick)
     {
         tags.erase("#Snare");
         tags.erase("#Rimshot");
@@ -762,12 +1400,14 @@ void TagDatabaseManager::sanitizeTags(std::set<juce::String>& tags)
         tags.erase("#Tom");
         tags.erase("#Percussion");
         tags.erase("#FX");
+        tags.erase("#Synth");
     }
     else if (tags.find("#Snare") != tags.end() || tags.find("#Rimshot") != tags.end() ||
              tags.find("#Clap") != tags.end() || tags.find("#Snap") != tags.end())
     {
         tags.erase("#Percussion");
         tags.erase("#FX");
+        tags.erase("#Synth");
         tags.erase("#HiHat");
         tags.erase("#OpenHat");
         tags.erase("#ClosedHat");
@@ -777,6 +1417,7 @@ void TagDatabaseManager::sanitizeTags(std::set<juce::String>& tags)
     {
         tags.erase("#Percussion");
         tags.erase("#FX");
+        tags.erase("#Synth");
         tags.erase("#Tom");
     }
     else if (tags.find("#Tom") != tags.end())
@@ -790,7 +1431,7 @@ void TagDatabaseManager::sanitizeTags(std::set<juce::String>& tags)
         tags.erase("#FX");
     }
 
-    // Ensure only one #*BPM tag exists and remove BPM tags from one-shots
+    // 8. Ensure only one #*BPM tag exists and remove BPM tags from pure one-shots
     bool isOneShotSample = (tags.find("#OneShot") != tags.end() || tags.find("#Short") != tags.end() ||
                             tags.find("#Kick") != tags.end() || tags.find("#SubKick") != tags.end() ||
                             tags.find("#Snare") != tags.end() || tags.find("#Clap") != tags.end() ||
@@ -798,10 +1439,10 @@ void TagDatabaseManager::sanitizeTags(std::set<juce::String>& tags)
                             tags.find("#OpenHat") != tags.end() || tags.find("#Tom") != tags.end() ||
                             tags.find("#Crash") != tags.end() || tags.find("#Ride") != tags.end() ||
                             tags.find("#Rimshot") != tags.end() || tags.find("#Snap") != tags.end() ||
-                            tags.find("#Impact") != tags.end() || tags.find("#Foley") != tags.end());
+                            tags.find("#Cowbell") != tags.end() || tags.find("#Impact") != tags.end() ||
+                            tags.find("#Foley") != tags.end());
 
-    bool isExplicitLoopSample = (tags.find("#Loop") != tags.end() || tags.find("#Arp") != tags.end() ||
-                                 tags.find("#DrumLoop") != tags.end());
+    bool isExplicitLoopSample = (tags.find("#Loop") != tags.end() || tags.find("#Arp") != tags.end() || hasTypedLoop);
 
     juce::String chosenBpmTag;
     std::vector<juce::String> bpmTagsToRemove;
@@ -828,11 +1469,74 @@ void TagDatabaseManager::sanitizeTags(std::set<juce::String>& tags)
     }
 }
 
+void TagDatabaseManager::sanitizeItem(MediaItem& item)
+{
+    sanitizeTags(item.tags);
+
+    // Keep item.bpm 100% synchronized with sanitized #*BPM tags
+    double tagBpm = 0.0;
+    for (const auto& t : item.tags)
+    {
+        if (t.startsWith("#") && t.endsWithIgnoreCase("BPM") && t.length() > 4)
+        {
+            tagBpm = t.substring(1, t.length() - 3).getDoubleValue();
+            break;
+        }
+    }
+
+    if (tagBpm <= 0.0)
+    {
+        // BPM tag was stripped (e.g. one-shot sample) or absent -> clear stale numeric BPM
+        item.bpm = 0.0;
+    }
+    else if (item.bpm <= 0.0)
+    {
+        item.bpm = tagBpm;
+    }
+}
+
+static bool hasKickNegation(const juce::String& s)
+{
+    return s.contains("nokick") || s.contains("no_kick") || s.contains("no-kick") ||
+           s.contains("no kick") || s.contains("kickless") || s.contains("without_kick") ||
+           s.contains("without kick") || s.contains("kick_free");
+}
+
+static bool hasStandaloneBassKeyword(const juce::String& textLower)
+{
+    // Remove compound non-bass-instrument phrases before testing "bass"
+    juce::String cleaned = textLower;
+    const char* compounds[] = {
+        "bassdrum", "bassdrums", "bass_drum", "bass_drums", "bass-drum", "bass-drums", "bass drum", "bass drums",
+        "drumandbass", "drum_and_bass", "drum-and-bass", "drum_n_bass", "drum-n-bass", "drum n bass",
+        "futurebass", "future_bass", "future-bass", "future bass",
+        "doublebass", "double_bass", "double-bass", "contrabass"
+    };
+    for (const char* c : compounds)
+        cleaned = cleaned.replace(c, "_");
+
+    return isKeywordMatch(cleaned, "bass") || isKeywordMatch(cleaned, "basses");
+}
+
+static bool hasStandaloneSubKeyword(const juce::String& textLower)
+{
+    juce::String cleaned = textLower;
+    const char* compounds[] = {
+        "subkick", "subkicks", "sub_kick", "sub_kicks", "sub-kick", "sub-kicks", "sub kick", "sub kicks",
+        "subdrop", "subdrops", "sub_drop", "sub_drops", "sub-drop", "sub-drops", "sub drop", "sub drops"
+    };
+    for (const char* c : compounds)
+        cleaned = cleaned.replace(c, "_");
+
+    return isKeywordMatch(cleaned, "sub");
+}
+
 std::set<juce::String> TagDatabaseManager::inferTagsFromPath(const juce::String& filePath, double durationSeconds, int numChannels)
 {
     std::set<juce::String> tags;
     juce::File file(filePath);
-    juce::String fileNameLower = file.getFileNameWithoutExtension().toLowerCase();
+    juce::String fileNameNoExt = file.getFileNameWithoutExtension();
+    juce::String fileNameLower = fileNameNoExt.toLowerCase();
     juce::String extLower = file.getFileExtension().toLowerCase();
 
     // 1. File extension tag
@@ -853,14 +1557,14 @@ std::set<juce::String> TagDatabaseManager::inferTagsFromPath(const juce::String&
     }
 
     // 3. Musical Key Detection
-    juce::String keyTag = extractKeyFromFilename(file.getFileNameWithoutExtension());
+    juce::String keyTag = extractKeyFromFilename(fileNameNoExt);
     if (keyTag.isNotEmpty())
     {
         tags.insert(keyTag);
     }
 
     // 4. BPM Tag Extraction from Filename (e.g. 128BPM, 120_bpm, 95bpm, 174_DNB, BPM125)
-    double extractedBpm = extractBpmFromFilename(file.getFileNameWithoutExtension());
+    double extractedBpm = extractBpmFromFilename(fileNameNoExt);
     if (extractedBpm <= 0.0)
     {
         // Also check immediate parent folder if filename has no BPM
@@ -875,59 +1579,93 @@ std::set<juce::String> TagDatabaseManager::inferTagsFromPath(const juce::String&
     // 5. Comprehensive Keyword Rules Dictionary
     struct KeywordRule { const char* keyword; const char* tag; bool isCategory; };
     const KeywordRule rules[] = {
-        // Drums & Percussion (Singular & Plural)
+        // Drums & Percussion (Compound forms + Singular & Plural)
         { "subkick", "#SubKick", true }, { "subkicks", "#SubKick", true },
-        { "kick", "#Kick", true }, { "kicks", "#Kick", true },
+        { "sub_kick", "#SubKick", true }, { "sub_kicks", "#SubKick", true },
+        { "sub-kick", "#SubKick", true }, { "sub-kicks", "#SubKick", true },
+        { "sub kick", "#SubKick", true }, { "sub kicks", "#SubKick", true },
         { "bassdrum", "#Kick", true }, { "bassdrums", "#Kick", true },
+        { "bass_drum", "#Kick", true }, { "bass_drums", "#Kick", true },
+        { "bass-drum", "#Kick", true }, { "bass-drums", "#Kick", true },
+        { "bass drum", "#Kick", true }, { "bass drums", "#Kick", true },
+        { "kick", "#Kick", true }, { "kicks", "#Kick", true },
         { "bd", "#Kick", true },
+
         { "rimshot", "#Rimshot", true }, { "rimshots", "#Rimshot", true },
+        { "rim_shot", "#Rimshot", true }, { "rim-shot", "#Rimshot", true },
+        { "sidestick", "#Rimshot", true }, { "side_stick", "#Rimshot", true }, { "side-stick", "#Rimshot", true },
+        { "clave", "#Rimshot", true }, { "claves", "#Rimshot", true },
+        { "woodblock", "#Rimshot", true }, { "wood_block", "#Rimshot", true },
         { "rim", "#Rimshot", true }, { "rims", "#Rimshot", true },
+
         { "snare", "#Snare", true }, { "snares", "#Snare", true },
         { "sd", "#Snare", true },
         { "clap", "#Clap", true }, { "claps", "#Clap", true },
         { "snap", "#Snap", true }, { "snaps", "#Snap", true },
+
         { "openhat", "#OpenHat", true }, { "openhats", "#OpenHat", true },
         { "open_hat", "#OpenHat", true }, { "open_hats", "#OpenHat", true },
         { "open-hat", "#OpenHat", true }, { "open-hats", "#OpenHat", true },
+        { "openhihat", "#OpenHat", true }, { "openhihats", "#OpenHat", true },
+        { "open_hihat", "#OpenHat", true }, { "open_hihats", "#OpenHat", true },
+        { "open-hihat", "#OpenHat", true }, { "open-hihats", "#OpenHat", true },
+        { "open_hi_hat", "#OpenHat", true }, { "open-hi-hat", "#OpenHat", true },
+        { "open_hh", "#OpenHat", true }, { "open-hh", "#OpenHat", true },
+        { "ophat", "#OpenHat", true }, { "op_hat", "#OpenHat", true }, { "op-hat", "#OpenHat", true },
+
         { "closedhat", "#ClosedHat", true }, { "closedhats", "#ClosedHat", true },
         { "closed_hat", "#ClosedHat", true }, { "closed_hats", "#ClosedHat", true },
         { "closed-hat", "#ClosedHat", true }, { "closed-hats", "#ClosedHat", true },
+        { "closedhihat", "#ClosedHat", true }, { "closedhihats", "#ClosedHat", true },
+        { "closed_hihat", "#ClosedHat", true }, { "closed_hihats", "#ClosedHat", true },
+        { "closed-hihat", "#ClosedHat", true }, { "closed-hihats", "#ClosedHat", true },
+        { "closed_hi_hat", "#ClosedHat", true }, { "closed-hi-hat", "#ClosedHat", true },
+        { "closed_hh", "#ClosedHat", true }, { "closed-hh", "#ClosedHat", true },
+        { "clhat", "#ClosedHat", true }, { "cl_hat", "#ClosedHat", true }, { "cl-hat", "#ClosedHat", true },
+
         { "hihat", "#HiHat", true }, { "hihats", "#HiHat", true },
+        { "hi_hat", "#HiHat", true }, { "hi_hats", "#HiHat", true },
+        { "hi-hat", "#HiHat", true }, { "hi-hats", "#HiHat", true },
         { "hat", "#HiHat", true }, { "hats", "#HiHat", true },
         { "hh", "#HiHat", true },
+
         { "tom", "#Tom", true }, { "toms", "#Tom", true },
         { "floortom", "#Tom", true }, { "floortoms", "#Tom", true },
+        { "floor_tom", "#Tom", true }, { "rack_tom", "#Tom", true },
         { "crash", "#Crash", true }, { "crashes", "#Crash", true },
         { "ride", "#Ride", true }, { "rides", "#Ride", true },
         { "cymbal", "#Cymbal", true }, { "cymbals", "#Cymbal", true },
         { "shaker", "#Shaker", true }, { "shakers", "#Shaker", true },
         { "tambourine", "#Tambourine", true }, { "tambourines", "#Tambourine", true },
         { "tamb", "#Tambourine", true },
-        { "cowbell", "#Cowbell", true }, { "cowbells", "#Cowbell", true },
+        { "cowbell", "#Cowbell", true }, { "cowbells", "#Cowbell", true }, { "cow_bell", "#Cowbell", true },
         { "conga", "#Conga", true }, { "congas", "#Conga", true },
         { "bongo", "#Bongo", true }, { "bongos", "#Bongo", true },
+        { "triangle", "#Percussion", true }, { "cabasa", "#Percussion", true },
+        { "agogo", "#Percussion", true }, { "guiro", "#Percussion", true },
+        { "djembe", "#Percussion", true }, { "cajon", "#Percussion", true },
+        { "tabla", "#Percussion", true }, { "timbale", "#Percussion", true }, { "timbales", "#Percussion", true },
         { "percussion", "#Percussion", true }, { "percussions", "#Percussion", true },
         { "perc", "#Percussion", true }, { "percs", "#Percussion", true },
         { "808", "#808", false }, { "909", "#909", false },
 
-        // Bass
+        // Bass (Note: standalone "sub" and "bass" checked via compound-safe guards below)
         { "subbass", "#SubBass", true }, { "sub_bass", "#SubBass", true }, { "sub-bass", "#SubBass", true },
-        { "synthbass", "#SynthBass", true }, { "synth_bass", "#SynthBass", true },
-        { "reesebass", "#ReeseBass", true }, { "reese", "#ReeseBass", true },
-        { "slapbass", "#SlapBass", true },
+        { "synthbass", "#SynthBass", true }, { "synth_bass", "#SynthBass", true }, { "synth-bass", "#SynthBass", true },
+        { "reesebass", "#ReeseBass", true }, { "reese_bass", "#ReeseBass", true }, { "reese", "#ReeseBass", true },
+        { "slapbass", "#SlapBass", true }, { "slap_bass", "#SlapBass", true }, { "slap-bass", "#SlapBass", true },
         { "808bass", "#808Bass", true }, { "808_bass", "#808Bass", true }, { "808-bass", "#808Bass", true }, { "808 bass", "#808Bass", true },
-        { "sub", "#SubBass", true }, { "bass", "#Bass", true }, { "basses", "#Bass", true },
 
         // Melodic & Harmonic Instruments
-        { "grandpiano", "#Piano", true }, { "piano", "#Piano", true }, { "pianos", "#Piano", true },
-        { "rhodes", "#Rhodes", true }, { "epiano", "#Rhodes", true },
+        { "grandpiano", "#Piano", true }, { "grand_piano", "#Piano", true }, { "piano", "#Piano", true }, { "pianos", "#Piano", true },
+        { "rhodes", "#Rhodes", true }, { "epiano", "#Rhodes", true }, { "e_piano", "#Rhodes", true }, { "wurlitzer", "#Rhodes", true },
         { "organ", "#Organ", true }, { "organs", "#Organ", true },
         { "keys", "#Keys", true }, { "keyboard", "#Keys", true }, { "keyboards", "#Keys", true },
-        { "acguitar", "#AcousticGuitar", true }, { "acousticguitar", "#AcousticGuitar", true }, { "nylon", "#AcousticGuitar", true },
-        { "elguitar", "#ElectricGuitar", true }, { "electricguitar", "#ElectricGuitar", true },
+        { "acguitar", "#AcousticGuitar", true }, { "acousticguitar", "#AcousticGuitar", true }, { "acoustic_guitar", "#AcousticGuitar", true }, { "nylon", "#AcousticGuitar", true },
+        { "elguitar", "#ElectricGuitar", true }, { "electricguitar", "#ElectricGuitar", true }, { "electric_guitar", "#ElectricGuitar", true },
         { "guitar", "#Guitar", true }, { "guitars", "#Guitar", true }, { "gtr", "#Guitar", true },
 
-        // Orchestral & Classical
+        // Orchestral & Classical (Unsafe 2-letter "fl", "cl", "cb" removed to prevent FL_Studio / CL_Hat / 808_CB collisions)
         { "orchestra", "#Orchestral", true }, { "orchestral", "#Orchestral", true },
         { "symphonic", "#Orchestral", true }, { "symphony", "#Orchestral", true },
         { "ensemble", "#Ensemble", true }, { "ensembles", "#Ensemble", true }, { "tutti", "#Orchestral", true },
@@ -936,7 +1674,8 @@ std::set<juce::String> TagDatabaseManager::inferTagsFromPath(const juce::String&
         { "violin", "#Violin", true }, { "violins", "#Violin", true }, { "vln", "#Violin", true },
         { "viola", "#Viola", true }, { "violas", "#Viola", true }, { "vla", "#Viola", true },
         { "cello", "#Cello", true }, { "cellos", "#Cello", true }, { "vc", "#Cello", true }, { "violoncello", "#Cello", true },
-        { "doublebass", "#Contrabass", true }, { "contrabass", "#Contrabass", true }, { "upright", "#Contrabass", true }, { "cb", "#Contrabass", true },
+        { "doublebass", "#Contrabass", true }, { "double_bass", "#Contrabass", true },
+        { "contrabass", "#Contrabass", true }, { "upright", "#Contrabass", true }, { "upright_bass", "#Contrabass", true },
         { "pizzicato", "#Pizzicato", false }, { "pizz", "#Pizzicato", false },
         { "staccato", "#Staccato", false }, { "stacc", "#Staccato", false },
         { "spiccato", "#Spiccato", false }, { "spicc", "#Spiccato", false },
@@ -950,10 +1689,10 @@ std::set<juce::String> TagDatabaseManager::inferTagsFromPath(const juce::String&
         { "trombone", "#Trombone", true }, { "trombones", "#Trombone", true }, { "tbn", "#Trombone", true },
         { "tuba", "#Tuba", true }, { "tubas", "#Tuba", true },
         { "brass", "#Brass", true },
-        { "piccolo", "#Piccolo", true }, { "flute", "#Flute", true }, { "flutes", "#Flute", true }, { "fl", "#Flute", true },
+        { "piccolo", "#Piccolo", true }, { "flute", "#Flute", true }, { "flutes", "#Flute", true }, { "flt", "#Flute", true },
         { "oboe", "#Oboe", true }, { "oboes", "#Oboe", true },
         { "englishhorn", "#EnglishHorn", true }, { "english_horn", "#EnglishHorn", true },
-        { "clarinet", "#Clarinet", true }, { "clarinets", "#Clarinet", true }, { "cl", "#Clarinet", true },
+        { "clarinet", "#Clarinet", true }, { "clarinets", "#Clarinet", true }, { "clar", "#Clarinet", true },
         { "bassoon", "#Bassoon", true }, { "bassoons", "#Bassoon", true }, { "contrabassoon", "#Bassoon", true },
         { "woodwind", "#Woodwinds", true }, { "woodwinds", "#Woodwinds", true },
 
@@ -978,6 +1717,7 @@ std::set<juce::String> TagDatabaseManager::inferTagsFromPath(const juce::String&
         // Vocals
         { "acapella", "#Acapella", true }, { "acapellas", "#Acapella", true },
         { "vocalchop", "#VocalChop", true }, { "vocalchops", "#VocalChop", true },
+        { "vocal_chop", "#VocalChop", true }, { "vocal_chops", "#VocalChop", true },
         { "voxchop", "#VocalChop", true }, { "voxchops", "#VocalChop", true },
         { "chant", "#Chant", true }, { "chants", "#Chant", true },
         { "speech", "#Speech", true }, { "spoken", "#Speech", true },
@@ -989,6 +1729,7 @@ std::set<juce::String> TagDatabaseManager::inferTagsFromPath(const juce::String&
         { "downlifter", "#Downlifter", true }, { "downlifters", "#Downlifter", true },
         { "faller", "#Downlifter", true }, { "fallers", "#Downlifter", true },
         { "subdrop", "#SubDrop", true }, { "subdrops", "#SubDrop", true },
+        { "sub_drop", "#SubDrop", true }, { "sub-drop", "#SubDrop", true },
         { "impact", "#Impact", true }, { "impacts", "#Impact", true },
         { "sweep", "#Sweep", true }, { "sweeps", "#Sweep", true },
         { "whoosh", "#Sweep", true }, { "whooshes", "#Sweep", true },
@@ -1010,7 +1751,7 @@ std::set<juce::String> TagDatabaseManager::inferTagsFromPath(const juce::String&
         { "trance", "#Trance", false },
         { "dnb", "#DnB", false }, { "drumandbass", "#DnB", false }, { "drum_n_bass", "#DnB", false },
         { "dubstep", "#Dubstep", false },
-        { "futurebass", "#FutureBass", false },
+        { "futurebass", "#FutureBass", false }, { "future_bass", "#FutureBass", false },
         { "lofi", "#LoFi", false }, { "lo-fi", "#LoFi", false },
         { "ambient", "#Ambient", false },
         { "cinematic", "#Cinematic", false },
@@ -1021,15 +1762,23 @@ std::set<juce::String> TagDatabaseManager::inferTagsFromPath(const juce::String&
         { "funk", "#Funk", false },
         { "soul", "#Soul", false },
 
-        // Types & Structs
-        { "drumloop", "#DrumLoop", false }, { "drumloops", "#DrumLoop", false },
-        { "drum_loop", "#DrumLoop", false }, { "drum_loops", "#DrumLoop", false },
-        { "toploop", "#TopLoop", false }, { "toploops", "#TopLoop", false },
-        { "top_loop", "#TopLoop", false }, { "top_loops", "#TopLoop", false },
-        { "melodicloop", "#MelodicLoop", false }, { "melodicloops", "#MelodicLoop", false },
-        { "vocalloop", "#VocalLoop", false }, { "vocalloops", "#VocalLoop", false },
-        { "percloop", "#PercLoop", false }, { "percloops", "#PercLoop", false },
-        { "bassloop", "#BassLoop", false }, { "bassloops", "#BassLoop", false },
+        // Typed Loops (Count as semantic categories so folder traversal won't overwrite e.g. Drum_Loop_128.wav)
+        { "drumloop", "#DrumLoop", true }, { "drumloops", "#DrumLoop", true },
+        { "drum_loop", "#DrumLoop", true }, { "drum_loops", "#DrumLoop", true },
+        { "drum-loop", "#DrumLoop", true }, { "drum-loops", "#DrumLoop", true },
+        { "toploop", "#TopLoop", true }, { "toploops", "#TopLoop", true },
+        { "top_loop", "#TopLoop", true }, { "top_loops", "#TopLoop", true },
+        { "top-loop", "#TopLoop", true }, { "top-loops", "#TopLoop", true },
+        { "melodicloop", "#MelodicLoop", true }, { "melodicloops", "#MelodicLoop", true },
+        { "melodic_loop", "#MelodicLoop", true }, { "melodic_loops", "#MelodicLoop", true },
+        { "vocalloop", "#VocalLoop", true }, { "vocalloops", "#VocalLoop", true },
+        { "vocal_loop", "#VocalLoop", true }, { "vocal_loops", "#VocalLoop", true },
+        { "percloop", "#PercLoop", true }, { "percloops", "#PercLoop", true },
+        { "perc_loop", "#PercLoop", true }, { "perc_loops", "#PercLoop", true },
+        { "bassloop", "#BassLoop", true }, { "bassloops", "#BassLoop", true },
+        { "bass_loop", "#BassLoop", true }, { "bass_loops", "#BassLoop", true },
+
+        // Modifiers & Structural Tags
         { "fill", "#Fill", false }, { "fills", "#Fill", false },
         { "stem", "#Stem", false }, { "stems", "#Stem", false },
         { "dry", "#Dry", false }, { "wet", "#Wet", false },
@@ -1039,23 +1788,28 @@ std::set<juce::String> TagDatabaseManager::inferTagsFromPath(const juce::String&
         { "beat", "#Loop", false }, { "beats", "#Loop", false },
         { "oneshot", "#OneShot", false }, { "oneshots", "#OneShot", false },
         { "one_shot", "#OneShot", false }, { "one_shots", "#OneShot", false },
+        { "one-shot", "#OneShot", false }, { "one-shots", "#OneShot", false },
         { "hit", "#OneShot", false }, { "hits", "#OneShot", false },
         { "stab", "#OneShot", false }, { "stabs", "#OneShot", false },
         { "acoustic", "#Acoustic", false }, { "digital", "#Digital", false }
     };
 
     bool hasFilenameCategory = false;
+    const bool kickNegatedInName = hasKickNegation(fileNameLower);
 
-    // Check filename first for high priority matching
+    // Check filename first for high-priority matching
     for (const auto& r : rules)
     {
-        // For short abbreviation "bd", only match if filename does not have melodic indicators/keys
+        if (kickNegatedInName && (std::strcmp(r.tag, "#Kick") == 0 || std::strcmp(r.tag, "#SubKick") == 0))
+            continue;
+
+        // For short abbreviation "bd", allow tuned kicks (e.g. BD_Fm.wav) while skipping melodic contexts
         if (std::strcmp(r.keyword, "bd") == 0)
         {
-            if (keyTag.isNotEmpty() || fileNameLower.contains("chord") || fileNameLower.contains("pad") ||
-                fileNameLower.contains("lead") || fileNameLower.contains("piano") || fileNameLower.contains("synth") ||
-                fileNameLower.contains("guitar") || fileNameLower.contains("vocal") || fileNameLower.contains("bass") ||
-                fileNameLower.contains("breakdown"))
+            if (fileNameLower.contains("chord") || fileNameLower.contains("pad") ||
+                fileNameLower.contains("lead") || fileNameLower.contains("piano") ||
+                fileNameLower.contains("guitar") || fileNameLower.contains("vocal") ||
+                hasStandaloneBassKeyword(fileNameLower) || fileNameLower.contains("breakdown"))
             {
                 continue;
             }
@@ -1069,10 +1823,44 @@ std::set<juce::String> TagDatabaseManager::inferTagsFromPath(const juce::String&
         }
     }
 
+    // Compound-safe checks for "bass", "sub", and drum-machine abbreviations ("cb", "oh", "ch")
+    const bool fnHasKick = (tags.find("#Kick") != tags.end() || tags.find("#SubKick") != tags.end());
+    if (!fnHasKick && hasStandaloneBassKeyword(fileNameLower))
+    {
+        tags.insert("#Bass");
+        hasFilenameCategory = true;
+    }
+    if (!fnHasKick && tags.find("#SubDrop") == tags.end() && hasStandaloneSubKeyword(fileNameLower))
+    {
+        tags.insert("#SubBass");
+        hasFilenameCategory = true;
+    }
+
+    // Drum-pack shorthand "CB" (808_CB / 909_CB), "OH" (Open Hat), "CH" (Closed Hat) with context guards
+    bool hasDrumMachineCtx = fileNameLower.contains("808") || fileNameLower.contains("909") ||
+                             fileNameLower.contains("707") || fileNameLower.contains("606") ||
+                             fileNameLower.contains("drum") || fileNameLower.contains("kit");
+    if (hasDrumMachineCtx && isKeywordMatch(fileNameLower, "cb"))
+    {
+        tags.insert("#Cowbell");
+        hasFilenameCategory = true;
+    }
+    if ((hasDrumMachineCtx || fileNameLower.contains("hat") || fileNameLower.contains("hh")) &&
+        !fileNameLower.contains("vocal") && !fileNameLower.contains("vox") && !fileNameLower.contains("choir"))
+    {
+        if (isKeywordMatch(fileNameLower, "oh"))
+        {
+            tags.insert("#OpenHat");
+            hasFilenameCategory = true;
+        }
+        else if (isKeywordMatch(fileNameLower, "ch"))
+        {
+            tags.insert("#ClosedHat");
+            hasFilenameCategory = true;
+        }
+    }
+
     // Inspect directory hierarchy level-by-level starting from the immediate parent
-    // Level 0: Immediate parent folder
-    // Level 1: Grandparent folder
-    // Level 2: Great-grandparent folder
     juce::File currentDir = file.getParentDirectory();
     for (int depth = 0; depth < 3 && currentDir != juce::File() && currentDir.getFullPathName().isNotEmpty(); ++depth)
     {
@@ -1092,8 +1880,10 @@ std::set<juce::String> TagDatabaseManager::inferTagsFromPath(const juce::String&
         {
             if (r.isCategory && !hasFilenameCategory)
             {
-                // In compound folders, don't blindly assign single categories
                 if (isCompoundFolder)
+                    continue;
+
+                if (kickNegatedInName && (std::strcmp(r.tag, "#Kick") == 0 || std::strcmp(r.tag, "#SubKick") == 0))
                     continue;
 
                 if (std::strcmp(r.keyword, "bd") == 0)
@@ -1114,6 +1904,31 @@ std::set<juce::String> TagDatabaseManager::inferTagsFromPath(const juce::String&
                 {
                     tags.insert(r.tag);
                 }
+            }
+        }
+
+        if (!hasFilenameCategory && !isCompoundFolder)
+        {
+            bool folderHasKick = (tags.find("#Kick") != tags.end() || tags.find("#SubKick") != tags.end());
+            if (!folderHasKick && hasStandaloneBassKeyword(dirNameLower))
+            {
+                tags.insert("#Bass");
+                folderMatchedCategory = true;
+            }
+            else if (!folderHasKick && tags.find("#SubDrop") == tags.end() && hasStandaloneSubKeyword(dirNameLower))
+            {
+                tags.insert("#SubBass");
+                folderMatchedCategory = true;
+            }
+            else if (dirNameLower == "oh" || dirNameLower == "open hats" || dirNameLower == "open hihats")
+            {
+                tags.insert("#OpenHat");
+                folderMatchedCategory = true;
+            }
+            else if (dirNameLower == "ch" || dirNameLower == "closed hats" || dirNameLower == "closed hihats")
+            {
+                tags.insert("#ClosedHat");
+                folderMatchedCategory = true;
             }
         }
 
@@ -1169,7 +1984,8 @@ void TagDatabaseManager::loadFromFile()
                     {
                         item.tags.insert("#" + juce::String(juce::roundToInt(item.bpm)) + "BPM");
                     }
-                    sanitizeTags(item.tags);
+                    sanitizeItem(item);
+                    item.precomputeCachedStrings();
                     itemsMap[item.id] = item;
                 }
             }
@@ -1293,9 +2109,22 @@ void TagDatabaseManager::removeScanFolder(const juce::String& folderPath)
         const juce::ScopedLock sl(lock);
         scanFolders.erase(folderPath);
 
+        juce::String normFolder = folderPath.trim().replaceCharacter('\\', '/');
+        while (normFolder.length() > 1 && normFolder.endsWithChar('/'))
+        {
+            if (normFolder.length() == 3 && normFolder[1] == ':')
+                break;
+            normFolder = normFolder.dropLastCharacters(1);
+        }
+
         for (auto it = itemsMap.begin(); it != itemsMap.end(); )
         {
-            if (it->second.filePath.startsWithIgnoreCase(folderPath))
+            juce::String normItem = it->second.filePath.replaceCharacter('\\', '/');
+            bool inFolder = normItem.equalsIgnoreCase(normFolder) ||
+                            (normItem.length() > normFolder.length() &&
+                             normItem.startsWithIgnoreCase(normFolder) &&
+                             (normFolder.endsWithChar('/') || normItem[normFolder.length()] == '/'));
+            if (inFolder)
                 it = itemsMap.erase(it);
             else
                 ++it;
@@ -1420,36 +2249,59 @@ void TagDatabaseManager::setUiScale(float scale)
 
 double TagDatabaseManager::calculateAcousticDistance(const MediaItem& a, const MediaItem& b)
 {
-    // Normalized feature differences
-    double d_zcr = (a.zcr - b.zcr) * 2.2;
-    double d_hfr = (a.highFreqRatio - b.highFreqRatio) * 1.5;
-    double d_dr = (a.decayRatio - b.decayRatio) * 1.8;
-    
-    double cf_a = juce::jlimit(1.0, 10.0, a.crestFactor);
-    double cf_b = juce::jlimit(1.0, 10.0, b.crestFactor);
-    double d_cf = (cf_a - cf_b) * 0.20;
+    // Normalized sample-rate-invariant feature differences
+    double d_zcr = (a.zcr - b.zcr) * 2.4;
+
+    // Log-compressed highFreqRatio (spans [0, 4.0], keeps kicks crisp while preventing noise-hat outlier blowup)
+    double hfrA = std::log1p(juce::jlimit(0.0, 4.0, a.highFreqRatio));
+    double hfrB = std::log1p(juce::jlimit(0.0, 4.0, b.highFreqRatio));
+    double d_hfr = (hfrA - hfrB) * 1.9;
+
+    double drA = juce::jlimit(0.0, 1.25, a.decayRatio);
+    double drB = juce::jlimit(0.0, 1.25, b.decayRatio);
+    double d_dr = (drA - drB) * 1.75;
+
+    double cf_a = juce::jlimit(1.0, 14.0, a.crestFactor);
+    double cf_b = juce::jlimit(1.0, 14.0, b.crestFactor);
+    double d_cf = (cf_a - cf_b) * 0.16;
 
     // Logarithmic duration ratio difference
     double logDurA = std::log10(std::max(0.02, a.durationSeconds) + 0.05);
     double logDurB = std::log10(std::max(0.02, b.durationSeconds) + 0.05);
-    double d_dur = (logDurA - logDurB) * 1.8;
+    double d_dur = (logDurA - logDurB) * 1.75;
 
-    // Channel mismatch penalty
-    double d_ch = (a.numChannels != b.numChannels) ? 0.35 : 0.0;
+    // Mild channel mismatch penalty (mono vs dual-mono drum samples remain close)
+    double d_ch = (a.numChannels > 0 && b.numChannels > 0 && a.numChannels != b.numChannels) ? 0.10 : 0.0;
 
     double baseDist = std::sqrt(d_zcr * d_zcr + d_hfr * d_hfr + d_dr * d_dr + d_cf * d_cf + d_dur * d_dur + d_ch * d_ch);
 
-    // Tag & Category Overlap Weighting Bonus
-    int sharedTags = 0;
-    for (const auto& t : a.tags)
+    // Semantic Category & Acoustic Character Overlap Bonus (excludes #Wav, #Stereo, #OneShot format tags!)
+    double tagDiscount = 0.0;
+    juce::String catA = getCanonicalCategoryForItem(a);
+    juce::String catB = getCanonicalCategoryForItem(b);
+    if (catA != "other" && areCategoriesCompatible(catA, catB))
     {
-        if (b.tags.find(t) != b.tags.end() && !t.endsWithIgnoreCase("BPM") && !t.startsWithIgnoreCase("#Key_"))
-        {
-            sharedTags++;
-        }
+        tagDiscount += (catA == catB) ? 0.20 : 0.12;
     }
 
-    double tagDiscount = std::min(0.40, sharedTags * 0.12);
+    int sharedSemanticTags = 0;
+    for (const auto& t : a.tags)
+    {
+        if (b.tags.find(t) == b.tags.end())
+            continue;
+
+        // Ignore pure container/channel/length tags that carry zero timbral similarity
+        if (t == "#Wav" || t == "#MP3" || t == "#FLAC" || t == "#OGG" || t == "#AIFF" ||
+            t == "#Stereo" || t == "#Mono" || t == "#Short" || t == "#Long" ||
+            t == "#OneShot" || t == "#Loop" || t == "#Converted" ||
+            t.endsWithIgnoreCase("BPM") || t.startsWithIgnoreCase("#Key_"))
+        {
+            continue;
+        }
+        sharedSemanticTags++;
+    }
+
+    tagDiscount = std::min(0.38, tagDiscount + sharedSemanticTags * 0.07);
     return std::max(0.0, baseDist - tagDiscount);
 }
 

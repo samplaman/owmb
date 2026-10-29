@@ -256,10 +256,10 @@ void AnalysisComponent::paintRadarChart(juce::Graphics& g, juce::Rectangle<float
     };
 
     std::vector<Descriptor> descriptors = {
-        { "ZCR",       currentItem.zcr,           0.5  },
-        { "HF Ratio",  currentItem.highFreqRatio,  1.0  },
-        { "Decay",     currentItem.decayRatio,     1.0  },
-        { "Crest",     currentItem.crestFactor,    30.0 }
+        { "ZCR",       currentItem.zcr,           0.50 },
+        { "HF Ratio",  currentItem.highFreqRatio,  2.20 },
+        { "Decay",     currentItem.decayRatio,     1.00 },
+        { "Crest",     currentItem.crestFactor,    18.0 }
     };
 
     int numAxes = static_cast<int>(descriptors.size());

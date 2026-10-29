@@ -16,6 +16,7 @@ class TagPanelListener
 public:
     virtual ~TagPanelListener() = default;
     virtual void tagFilterSelectionChanged(const std::set<juce::String>& selectedTags, bool matchAllTags, bool favoritesOnly) = 0;
+    virtual void scannedFolderClicked(const juce::String& /*folderPath*/) {}
 };
 
 class TagPanelComponent : public juce::Component,

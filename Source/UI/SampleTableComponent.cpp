@@ -910,6 +910,9 @@ void SampleTableComponent::selectItemById(const juce::String& itemId, bool trigg
     if (itemId.isEmpty())
         return;
 
+    if (!triggerPlayback && currentSelectedItemId == itemId && table.getSelectedRow() >= 0)
+        return;
+
     currentSelectedItemId = itemId;
 
     for (size_t i = 0; i < allFilteredItems.size(); ++i)

@@ -71,6 +71,7 @@ HeaderBarComponent::HeaderBarComponent(TagDatabaseManager& db, LibraryScanner& s
     };
 
     setupViewBtn(btnListView, "List", "List View", ViewMode::List);
+    setupViewBtn(btnFoldersView, "Folders", "Scanned Folders View", ViewMode::Folders);
     setupViewBtn(btnCloudView, "Cloud", "Cloud View", ViewMode::Cloud);
     setupViewBtn(btnLibrariesView, "Library", "Library View", ViewMode::Libraries);
     setupViewBtn(btnRecordView, "Record", "Record View", ViewMode::Record);
@@ -118,7 +119,9 @@ void HeaderBarComponent::resized()
     area.removeFromLeft(20);
 
     // 3. Dynamic Search Editor
-    int searchWidth = juce::jlimit(140, 260, (area.getWidth() - 790) / 2 + 140);
+    const int neededForFiltersAndViews = 764;
+    int maxAvailForSearch = std::max(110, area.getWidth() - neededForFiltersAndViews - 8);
+    int searchWidth = juce::jlimit(110, 260, std::min(maxAvailForSearch, (area.getWidth() - 828) / 2 + 140));
     searchEditor.setBounds(area.removeFromLeft(searchWidth).withHeight(btnHeight));
     area.removeFromLeft(10);
 
@@ -137,9 +140,11 @@ void HeaderBarComponent::resized()
 
     area.removeFromLeft(10);
 
-    // 5. View Mode Toggle (List, Cloud, Library, Record, Analysis, Edit, Sample Map, Performance)
+    // 5. View Mode Toggle (List, Folders, Cloud, Library, Record, Analysis, Edit, Sample Map, Performance)
     const int viewBtnWidth = 34;
     btnListView.setBounds(area.removeFromLeft(viewBtnWidth).withHeight(btnHeight));
+    area.removeFromLeft(gap);
+    btnFoldersView.setBounds(area.removeFromLeft(viewBtnWidth).withHeight(btnHeight));
     area.removeFromLeft(gap);
     btnCloudView.setBounds(area.removeFromLeft(viewBtnWidth).withHeight(btnHeight));
     area.removeFromLeft(gap);
@@ -197,6 +202,7 @@ void HeaderBarComponent::setViewMode(ViewMode mode)
 {
     currentViewMode = mode;
     btnListView.setToggleState(mode == ViewMode::List, juce::dontSendNotification);
+    btnFoldersView.setToggleState(mode == ViewMode::Folders, juce::dontSendNotification);
     btnCloudView.setToggleState(mode == ViewMode::Cloud, juce::dontSendNotification);
     btnLibrariesView.setToggleState(mode == ViewMode::Libraries, juce::dontSendNotification);
     btnRecordView.setToggleState(mode == ViewMode::Record, juce::dontSendNotification);

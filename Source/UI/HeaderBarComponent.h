@@ -20,7 +20,8 @@ enum class ViewMode
     Analysis,
     Edit,
     SampleMap,
-    Performance
+    Performance,
+    Folders
 };
 
 class HeaderBarListener
@@ -90,6 +91,7 @@ private:
     juce::TextButton btnAiff { ".AIFF" };
 
     juce::TextButton btnListView { "List" };
+    juce::TextButton btnFoldersView { "Folders" };
     juce::TextButton btnCloudView { "Cloud" };
     juce::TextButton btnLibrariesView { "Library" };
     juce::TextButton btnRecordView { "Record" };

@@ -54,6 +54,8 @@ else()
     target_compile_options(loris PRIVATE -w)
 endif()
 
+option(OWMB_COPY_PLUGIN_AFTER_BUILD "Copy plugin to system folder after build" ON)
+
 # Declare Audio Plugin & Standalone application target
 juce_add_plugin(OpenWav
     COMPANY_NAME "OWMB"
@@ -73,7 +75,7 @@ juce_add_plugin(OpenWav
     NEEDS_MIDI_OUTPUT FALSE
     IS_MIDI_EFFECT FALSE
     EDITOR_WANTS_KEYBOARD_FOCUS TRUE
-    COPY_PLUGIN_AFTER_BUILD TRUE
+    COPY_PLUGIN_AFTER_BUILD ${OWMB_COPY_PLUGIN_AFTER_BUILD}
     FORMATS ${PLUGIN_FORMATS}
     PRODUCT_NAME "OWMB"
     ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/Mac/icon_512x512@2x.png"
@@ -114,6 +116,8 @@ target_sources(OpenWav PRIVATE
     Source/UI/TagPanelComponent.cpp
     Source/UI/SampleTableComponent.h
     Source/UI/SampleTableComponent.cpp
+    Source/UI/FolderBrowserComponent.h
+    Source/UI/FolderBrowserComponent.cpp
     Source/UI/SampleCloudComponent.h
     Source/UI/SampleCloudComponent.cpp
     Source/UI/LibrariesComponent.h

@@ -34,6 +34,8 @@ struct Uniforms {
     float3 fogColor;
     float pad1;
     float2 viewportSize;
+    int hoveredVertexIndex;
+    float hoverScale;
 };
 
 struct VertexOutput {
@@ -115,14 +117,7 @@ fragment float4 bgFragmentShader(BgVertexOut in [[stage_in]],
         cosmicColor = baseBg - pearlGlow * (1.0f - nebula * 0.5f);
     }
     
-    // Cinematic Radial Vignette
-    float vignette = clamp(1.0f - dist2 * 0.48f, 0.0f, 1.0f);
-    vignette = smoothstep(0.0f, 1.0f, vignette);
-    
-    float3 edgeTint = (uniforms.isLightMode > 0.5f) ? baseBg * 0.70f : baseBg * 0.12f;
-    float3 finalCol = mix(edgeTint, cosmicColor, vignette);
-    
-    return float4(finalCol, 1.0f);
+    return float4(cosmicColor, 1.0f);
 }
 
 // ACES Tone Mapping for rich HDR highlight roll-off
@@ -160,6 +155,7 @@ fragment float4 lineFragmentShader(LineVertexOutput in [[stage_in]]) {
 
 // Point Cloud Vertex Shader (Triple-Layer Optical Bloom)
 vertex VertexOutput cloudVertexShader(VertexInput in [[stage_in]],
+                                      uint vertexID [[vertex_id]],
                                       constant Uniforms& uniforms [[buffer(1)]]) {
     VertexOutput out;
     float4 viewPos = uniforms.viewMatrix * float4(in.position, 1.0f);
@@ -183,6 +179,15 @@ vertex VertexOutput cloudVertexShader(VertexInput in [[stage_in]],
     float3 vibrantCol = mix(float3(lum), col.rgb, 1.48f);
     vibrantCol = mix(float3(0.5f), vibrantCol, 1.18f);
 
+    float currentRad = in.radius;
+    if ((int)vertexID == uniforms.hoveredVertexIndex && uniforms.hoveredVertexIndex >= 0) {
+        currentRad *= uniforms.hoverScale;
+        vibrantCol = mix(vibrantCol, float3(1.0f), 0.40f);
+        col.a = 1.0f;
+    } else {
+        col.a *= uniforms.revealAlpha * depthFade * twinkle;
+    }
+
     // Atmospheric Flight Fog
     float fogDensity = 0.00032f;
     float fogFactor = clamp(exp(-viewDepth * fogDensity), 0.0f, 1.0f);
@@ -191,40 +196,33 @@ vertex VertexOutput cloudVertexShader(VertexInput in [[stage_in]],
     // ACES Filmic Tone Mapping with vivid highlight luminance
     float3 filmicRGB = filmicToneMap(foggedRGB * 1.35f);
 
-    col.a *= uniforms.revealAlpha * depthFade * twinkle;
     out.colour = float4(filmicRGB, col.a);
 
-    // Scale point size for high-res Retina display
-    float baseSize = max(3.2f, in.radius * 7500.0f / max(1.0f, viewDepth));
-    out.pointSize = clamp(baseSize * uniforms.scaleFactor, 2.0f, 511.0f);
+    // Bounded point size for crisp discs (like Atlas 2)
+    float baseSize = currentRad * 1600.0f / max(60.0f, viewDepth);
+    float clampedSize = clamp(baseSize, 6.0f, 22.0f);
+    if ((int)vertexID == uniforms.hoveredVertexIndex && uniforms.hoveredVertexIndex >= 0) {
+        clampedSize = clamp(baseSize * uniforms.hoverScale, 8.0f, 27.0f);
+    }
+    out.pointSize = clampedSize * uniforms.scaleFactor;
     return out;
 }
 
-// Point Cloud Fragment Shader (Triple-Layer Optical Bloom)
+// Point Cloud Fragment Shader (Atlas 2 Style Crisp Discs)
 fragment float4 cloudFragmentShader(VertexOutput in [[stage_in]],
                                     float2 pointCoord [[point_coord]]) {
     float2 p = pointCoord * 2.0f - float2(1.0f);
-    float r2 = dot(p, p);
-    if (r2 >= 1.0f) {
+    float dist = length(p);
+    if (dist >= 1.0f) {
         return float4(0.0f);
     }
 
-    // Layer 1: Intense Diamond Specular Core
-    float core = smoothstep(0.22f, 0.0f, r2);
+    float edgeAlpha = smoothstep(1.0f, 0.82f, dist);
+    float3 col = in.colour.rgb;
+    float highlight = smoothstep(0.55f, 0.0f, dist);
+    col = mix(col, float3(1.0f), highlight * 0.18f);
 
-    // Layer 2: Vibrant Chromatic Inner Glow
-    float innerGlow = exp(-r2 * 2.8f) * 0.80f;
-
-    // Layer 3: Wide Atmospheric Outer Halo
-    float outerHalo = exp(-r2 * 0.85f) * 0.35f;
-
-    // Perimeter Anti-Aliasing
-    float edgeAntiAlias = smoothstep(1.0f, 0.82f, r2);
-
-    float alpha = (core * 1.4f + innerGlow + outerHalo) * edgeAntiAlias;
-    float3 emissiveCol = in.colour.rgb * (1.0f + core * 0.85f);
-
-    return float4(emissiveCol, in.colour.a * clamp(alpha, 0.0f, 1.0f));
+    return float4(col, in.colour.a * edgeAlpha);
 }
 )";
 

@@ -364,15 +364,14 @@ void MobileTransferDialog::importFileToDatabase(const juce::File& file)
         item.bitDepth = 24;
     }
 
+    item.bpm = TagDatabaseManager::extractBpmFromFilename(file.getFileNameWithoutExtension());
     auto tags = TagDatabaseManager::inferTagsFromPath(file.getFullPathName(), item.durationSeconds, item.numChannels);
     tags.insert("field-recording");
     tags.insert("mobile");
     tags.insert("phone");
     tags.insert("lan-sync");
-    TagDatabaseManager::sanitizeTags(tags);
     item.tags = tags;
-
-    item.bpm = TagDatabaseManager::extractBpmFromFilename(file.getFileName());
+    TagDatabaseManager::sanitizeItem(item);
     item.precomputeCachedStrings();
 
     dbManager.addOrUpdateItem(item);

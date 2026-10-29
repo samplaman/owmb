@@ -80,12 +80,7 @@ static int getRootNoteFromWavSmplHeader(const juce::File& file)
 AudioEngine::AudioEngine()
 {
     formatManager.registerBasicFormats();
-#if JUCE_USE_FLAC
-    formatManager.registerFormat(new juce::FlacAudioFormat(), false);
-#endif
-#if JUCE_USE_OGGVORBIS
-    formatManager.registerFormat(new juce::OggVorbisAudioFormat(), false);
-#endif
+    hoverFormatManager.registerBasicFormats();
 
     float baseFreqs[9] = { 60.0f, 120.0f, 250.0f, 500.0f, 1000.0f, 2000.0f, 4000.0f, 8000.0f, 16000.0f };
     for (int i = 0; i < 9; ++i)
@@ -99,6 +94,7 @@ AudioEngine::AudioEngine()
     recordingBuffer.clear();
 
     backgroundThread.startThread(juce::Thread::Priority::high);
+    hoverWorker.startThread(juce::Thread::Priority::high);
     startTimerHz(30);
 }
 
@@ -106,6 +102,10 @@ AudioEngine::~AudioEngine()
 {
     isShuttingDown.store(true, std::memory_order_release);
     engineAliveToken->store(false, std::memory_order_release);
+    cancelPendingHoverAudition();
+    hoverWorker.signalThreadShouldExit();
+    hoverWakeEvent.signal();
+    hoverWorker.stopThread(500);
     currentLoadId++;
     stopTimer();
     stop();
@@ -206,6 +206,14 @@ void AudioEngine::drainCommandsOnAudioThread()
             case EngineCommandType::Stop:
             {
                 stopPlaybackInternal();
+                break;
+            }
+            case EngineCommandType::RestartPreview:
+            {
+                if (cmd.sampleData != nullptr)
+                    activePreviewSampleOnAudioThread = cmd.sampleData;
+                stopPlaybackInternal();
+                startPlaybackInternal(sampleStartRatioAtomic.load(std::memory_order_relaxed));
                 break;
             }
             case EngineCommandType::SeekRatio:
@@ -461,6 +469,7 @@ void AudioEngine::startPlaybackInternal(double startRatio)
         if (!slot.isZoneVoice && !slot.isMetronome)
         {
             slot.active = false;
+            slot.adsr.reset();
         }
     }
 
@@ -507,6 +516,7 @@ void AudioEngine::stopPlaybackInternal()
     for (auto& slot : voicePool)
     {
         slot.active = false;
+        slot.adsr.reset();
     }
     double totalLen = totalDurationAtomic.load(std::memory_order_relaxed);
     stoppedPositionSecs.store(sampleStartRatioAtomic.load(std::memory_order_relaxed) * totalLen, std::memory_order_relaxed);
@@ -1140,85 +1150,291 @@ void AudioEngine::triggerNoteOff(int midiNoteNumber)
 
 bool AudioEngine::loadFile(const juce::File& audioFile, bool autoPlay, bool isSamplerSample)
 {
+    cancelPendingHoverAudition();
     isLoadedInSampler.store(isSamplerSample, std::memory_order_relaxed);
+
+    // Fast Path A: Requested file is ALREADY the active master sample in memory -> zero-latency cut-off & restart!
+    {
+        const juce::ScopedLock sl(uiDataLock);
+        if (loadedMasterFile == audioFile && currentMasterSample != nullptr && currentMasterSample->buffer.getNumSamples() > 0)
+        {
+            currentFile = audioFile;
+            loadInProgress.store(false, std::memory_order_relaxed);
+            sampleStartRatioAtomic.store(0.0, std::memory_order_relaxed);
+            sampleEndRatioAtomic.store(1.0, std::memory_order_relaxed);
+            stoppedPositionSecs.store(0.0, std::memory_order_relaxed);
+
+            if (autoPlay)
+            {
+                restartPlayback();
+            }
+            else
+            {
+                stop();
+            }
+            return true;
+        }
+    }
+
+    const juce::String filePath = audioFile.getFullPathName();
+
+    // Fast Path B: Requested file is ALREADY in sampleCache -> cut off old audio & start new audio IMMEDIATELY!
+    std::shared_ptr<CachedSample> cachedSample;
+    {
+        const juce::ScopedLock sl(cacheLock);
+        auto it = sampleCache.find(filePath);
+        if (it != sampleCache.end() && it->second != nullptr && it->second->buffer.getNumSamples() > 0)
+        {
+            cachedSample = it->second;
+        }
+    }
+
+    if (cachedSample != nullptr)
+    {
+        currentFile = audioFile;
+        loadInProgress.store(false, std::memory_order_release);
+        auto loadId = ++currentLoadId;
+
+        sampleStartRatioAtomic.store(0.0, std::memory_order_relaxed);
+        sampleEndRatioAtomic.store(1.0, std::memory_order_relaxed);
+        stoppedPositionSecs.store(0.0, std::memory_order_relaxed);
+
+        const double fileSampleRate = cachedSample->sampleRate;
+        const int numSamples = cachedSample->buffer.getNumSamples();
+        const int numChannels = cachedSample->buffer.getNumChannels();
+
+        {
+            const juce::ScopedLock sl(uiDataLock);
+            currentMasterSample = cachedSample;
+            loadedMasterFile = audioFile;
+            currentFileSampleRateAtomic.store(fileSampleRate, std::memory_order_relaxed);
+            numChannelsAtomic.store(numChannels, std::memory_order_relaxed);
+
+            double engineSr = engineSampleRateAtomic.load(std::memory_order_relaxed);
+            if (engineSr <= 0.0) engineSr = 44100.0;
+            double ratio = (engineSr > 0.0) ? (fileSampleRate / engineSr) : 1.0;
+            double totalLen = (numSamples / ratio) / engineSr;
+            totalDurationAtomic.store(totalLen, std::memory_order_relaxed);
+        }
+
+        if (autoPlay)
+        {
+            EngineCommand cmd;
+            cmd.type = EngineCommandType::RestartPreview;
+            cmd.sampleData = cachedSample;
+            pushCommand(cmd);
+            lastNotifiedPlayingState = true;
+            listeners.call([](AudioEngineListener& l) { l.playbackStateChanged(true); });
+        }
+        else
+        {
+            EngineCommand stopCmd;
+            stopCmd.type = EngineCommandType::Stop;
+            pushCommand(stopCmd);
+
+            EngineCommand loadCmd;
+            loadCmd.type = EngineCommandType::LoadPreviewSample;
+            loadCmd.sampleData = cachedSample;
+            loadCmd.boolVal1 = false;
+            pushCommand(loadCmd);
+            lastNotifiedPlayingState = false;
+            listeners.call([](AudioEngineListener& l) { l.playbackStateChanged(false); });
+        }
+
+        // Update UI waveform peaks & edit buffers asynchronously without re-triggering audio
+        std::thread([this, audioFile, loadId, cachedSample, fileSampleRate, numSamples, numChannels, token = engineAliveToken]() {
+            if (!token->load(std::memory_order_acquire) || isShuttingDown.load(std::memory_order_relaxed))
+                return;
+            if (loadId != currentLoadId.load(std::memory_order_relaxed))
+                return;
+
+            WaveformPeaks peaks;
+            peaks.numChannels = numChannels;
+            peaks.numPoints = 2048;
+            peaks.minLeft.resize(2048, 0.0f);
+            peaks.maxLeft.resize(2048, 0.0f);
+            peaks.minRight.resize(2048, 0.0f);
+            peaks.maxRight.resize(2048, 0.0f);
+
+            for (int p = 0; p < 2048; ++p)
+            {
+                int sStart = static_cast<int>((static_cast<double>(p) / 2048.0) * numSamples);
+                int sEnd = static_cast<int>((static_cast<double>(p + 1) / 2048.0) * numSamples);
+                sEnd = juce::jlimit(sStart + 1, numSamples, sEnd);
+                int numRead = sEnd - sStart;
+
+                auto rL = cachedSample->buffer.findMinMax(0, sStart, numRead);
+                peaks.minLeft[p] = rL.getStart();
+                peaks.maxLeft[p] = rL.getEnd();
+
+                if (numChannels >= 2)
+                {
+                    auto rR = cachedSample->buffer.findMinMax(1, sStart, numRead);
+                    peaks.minRight[p] = rR.getStart();
+                    peaks.maxRight[p] = rR.getEnd();
+                }
+                else
+                {
+                    peaks.minRight[p] = peaks.minLeft[p];
+                    peaks.maxRight[p] = peaks.maxLeft[p];
+                }
+            }
+
+            if (loadId != currentLoadId.load(std::memory_order_relaxed) || !token->load(std::memory_order_acquire) || isShuttingDown.load(std::memory_order_relaxed))
+                return;
+
+            juce::MessageManager::callAsync([this, token, audioFile, loadId, cachedSample, fileSampleRate, peaks = std::move(peaks)]() mutable {
+                if (!token->load(std::memory_order_acquire) || isShuttingDown.load(std::memory_order_relaxed))
+                    return;
+                if (loadId != currentLoadId.load(std::memory_order_relaxed))
+                    return;
+
+                thumbnail.setSource(new juce::FileInputSource(audioFile));
+
+                {
+                    const juce::ScopedLock sl(uiDataLock);
+                    cachedWaveformPeaks = std::move(peaks);
+
+                    double engineSr = engineSampleRateAtomic.load(std::memory_order_relaxed);
+                    if (engineSr <= 0.0) engineSr = 44100.0;
+                    double ratio = (engineSr > 0.0) ? (fileSampleRate / engineSr) : 1.0;
+
+                    loadedVoice = std::make_shared<AudioVoice>();
+                    loadedVoice->buffer.makeCopyOf(cachedSample->buffer);
+                    loadedVoice->ratio = ratio;
+                    loadedVoice->rootNote = cachedSample->rootNote;
+                    loadedVoice->bufferSampleRate = fileSampleRate;
+
+                    originalEditBuffer.makeCopyOf(cachedSample->buffer);
+                    originalEditSampleRate = fileSampleRate;
+                    originalSnapshotValid = true;
+                }
+
+                listeners.call([fp = audioFile.getFullPathName()](AudioEngineListener& l) {
+                    l.sampleLoaded(fp);
+                });
+            });
+        }).detach();
+
+        return true;
+    }
+
+    // Path C: Uncached file on disk.
+    // If a disk read for this EXACT file is already in flight, coalesce instead of spawning duplicate loads!
+    if (currentFile == audioFile && loadInProgress.load(std::memory_order_acquire))
+    {
+        pendingAutoPlay.store(autoPlay, std::memory_order_relaxed);
+        EngineCommand stopCmd;
+        stopCmd.type = EngineCommandType::Stop;
+        pushCommand(stopCmd);
+        return true;
+    }
+
+    // Immediately silence any previous playback before starting disk read!
+    {
+        EngineCommand stopCmd;
+        stopCmd.type = EngineCommandType::Stop;
+        pushCommand(stopCmd);
+    }
+
     currentFile = audioFile;
+    pendingAutoPlay.store(autoPlay, std::memory_order_relaxed);
+    loadInProgress.store(true, std::memory_order_release);
     auto loadId = ++currentLoadId;
 
     sampleStartRatioAtomic.store(0.0, std::memory_order_relaxed);
     sampleEndRatioAtomic.store(1.0, std::memory_order_relaxed);
+    stoppedPositionSecs.store(0.0, std::memory_order_relaxed);
 
-    std::thread([this, audioFile, autoPlay, loadId, token = engineAliveToken]() {
+    std::thread([this, audioFile, loadId, token = engineAliveToken]() {
+        auto clearInProgressIfCurrent = [this, loadId]() {
+            if (loadId == currentLoadId.load(std::memory_order_relaxed))
+                loadInProgress.store(false, std::memory_order_release);
+        };
+
         if (!token->load(std::memory_order_acquire) || isShuttingDown.load(std::memory_order_relaxed))
             return;
         if (loadId != currentLoadId.load(std::memory_order_relaxed))
             return;
 
-        juce::String filePath = audioFile.getFullPathName();
-        std::shared_ptr<CachedSample> sampleData;
-        double fileSampleRate = 44100.0;
-        int numSamples = 0;
-        int numChannels = 0;
+        juce::String fp = audioFile.getFullPathName();
+        std::unique_ptr<juce::AudioFormatReader> reader(formatManager.createReaderFor(audioFile));
+        if (reader == nullptr || loadId != currentLoadId.load(std::memory_order_relaxed))
+        {
+            clearInProgressIfCurrent();
+            return;
+        }
 
+        double fileSampleRate = (reader->sampleRate > 0.0) ? reader->sampleRate : 44100.0;
+        int64_t numSamples64 = reader->lengthInSamples;
+        int numChannels = static_cast<int>(reader->numChannels);
+
+        if (numSamples64 <= 0 || numSamples64 > 0x7FFFFFFF || numChannels <= 0)
+        {
+            clearInProgressIfCurrent();
+            return;
+        }
+
+        int numSamples = static_cast<int>(numSamples64);
+        int rootNoteVal = getRootNoteFromWavSmplHeader(audioFile);
+        if (rootNoteVal < 0 || rootNoteVal > 127) rootNoteVal = 60;
+
+        if (loadId != currentLoadId.load(std::memory_order_relaxed))
+            return;
+
+        auto sampleData = std::make_shared<CachedSample>();
+        sampleData->sampleRate = fileSampleRate;
+        sampleData->rootNote = rootNoteVal;
+        sampleData->buffer.setSize(numChannels, numSamples);
+        reader->read(&sampleData->buffer, 0, numSamples, 0, true, true);
+
+        float loadMaxPeak = 0.0f;
+        for (int ch = 0; ch < numChannels; ++ch)
+        {
+            auto range = sampleData->buffer.findMinMax(ch, 0, numSamples);
+            float peak = std::max(std::abs(range.getStart()), std::abs(range.getEnd()));
+            if (peak > loadMaxPeak)
+                loadMaxPeak = peak;
+        }
+        if (loadMaxPeak > 1.0f)
+        {
+            sampleData->buffer.applyGain(1.0f / loadMaxPeak);
+        }
+
+        if (numSamples <= static_cast<int>(fileSampleRate * 15.0))
         {
             const juce::ScopedLock sl(cacheLock);
-            auto it = sampleCache.find(filePath);
-            if (it != sampleCache.end() && it->second != nullptr && it->second->buffer.getNumSamples() > 0)
-            {
-                sampleData = it->second;
-                fileSampleRate = sampleData->sampleRate;
-                numSamples = sampleData->buffer.getNumSamples();
-                numChannels = sampleData->buffer.getNumChannels();
-            }
+            while (sampleCache.size() >= 320)
+                sampleCache.erase(sampleCache.begin());
+            sampleCache[fp] = sampleData;
         }
 
-        if (sampleData == nullptr)
+        bool audioStartedEarly = false;
+        if (loadId == currentLoadId.load(std::memory_order_relaxed) &&
+            !isShuttingDown.load(std::memory_order_relaxed) &&
+            pendingAutoPlay.load(std::memory_order_relaxed))
         {
-            std::unique_ptr<juce::AudioFormatReader> reader(formatManager.createReaderFor(audioFile));
-            if (reader == nullptr || loadId != currentLoadId.load(std::memory_order_relaxed))
-                return;
-
-            fileSampleRate = (reader->sampleRate > 0.0) ? reader->sampleRate : 44100.0;
-            int64_t numSamples64 = reader->lengthInSamples;
-            numChannels = static_cast<int>(reader->numChannels);
-
-            if (numSamples64 <= 0 || numSamples64 > 0x7FFFFFFF || numChannels <= 0)
-                return;
-
-            numSamples = static_cast<int>(numSamples64);
-            int rootNoteVal = getRootNoteFromWavSmplHeader(audioFile);
-            if (rootNoteVal < 0 || rootNoteVal > 127) rootNoteVal = 60;
-
-            if (loadId != currentLoadId.load(std::memory_order_relaxed))
-                return;
-
-            sampleData = std::make_shared<CachedSample>();
-            sampleData->sampleRate = fileSampleRate;
-            sampleData->rootNote = rootNoteVal;
-            sampleData->buffer.setSize(numChannels, numSamples);
-            reader->read(&sampleData->buffer, 0, numSamples, 0, true, true);
-
-            // Auto-normalize if loaded audio peaks exceed 1.0f
-            float loadMaxPeak = 0.0f;
-            for (int ch = 0; ch < numChannels; ++ch)
             {
-                auto range = sampleData->buffer.findMinMax(ch, 0, numSamples);
-                float peak = std::max(std::abs(range.getStart()), std::abs(range.getEnd()));
-                if (peak > loadMaxPeak)
-                    loadMaxPeak = peak;
-            }
-            if (loadMaxPeak > 1.0f)
-            {
-                sampleData->buffer.applyGain(1.0f / loadMaxPeak);
+                const juce::ScopedLock sl(uiDataLock);
+                currentMasterSample = sampleData;
+                currentFileSampleRateAtomic.store(fileSampleRate, std::memory_order_relaxed);
+                numChannelsAtomic.store(numChannels, std::memory_order_relaxed);
+
+                double engineSr = engineSampleRateAtomic.load(std::memory_order_relaxed);
+                if (engineSr <= 0.0) engineSr = 44100.0;
+                double ratio = (engineSr > 0.0) ? (fileSampleRate / engineSr) : 1.0;
+                double totalLen = (numSamples / ratio) / engineSr;
+                totalDurationAtomic.store(totalLen, std::memory_order_relaxed);
+                stoppedPositionSecs.store(0.0, std::memory_order_relaxed);
             }
 
-            {
-                const juce::ScopedLock sl(cacheLock);
-                if (sampleCache.size() > 200) sampleCache.clear();
-                sampleCache[filePath] = sampleData;
-            }
+            EngineCommand cmd;
+            cmd.type = EngineCommandType::RestartPreview;
+            cmd.sampleData = sampleData;
+            pushCommand(cmd);
+            audioStartedEarly = true;
         }
 
-        // Precompute waveform peaks in background
         WaveformPeaks peaks;
         peaks.numChannels = numChannels;
         peaks.numPoints = 2048;
@@ -1254,17 +1470,20 @@ bool AudioEngine::loadFile(const juce::File& audioFile, bool autoPlay, bool isSa
         if (loadId != currentLoadId.load(std::memory_order_relaxed) || !token->load(std::memory_order_acquire) || isShuttingDown.load(std::memory_order_relaxed))
             return;
 
-        juce::MessageManager::callAsync([this, token, audioFile, autoPlay, loadId, sampleData, fileSampleRate, peaks = std::move(peaks)]() mutable {
+        juce::MessageManager::callAsync([this, token, audioFile, loadId, sampleData, fileSampleRate, audioStartedEarly, peaks = std::move(peaks)]() mutable {
             if (!token->load(std::memory_order_acquire) || isShuttingDown.load(std::memory_order_relaxed))
                 return;
             if (loadId != currentLoadId.load(std::memory_order_relaxed))
                 return;
 
             thumbnail.setSource(new juce::FileInputSource(audioFile));
+            const bool shouldAutoPlay = pendingAutoPlay.load(std::memory_order_relaxed);
 
             {
                 const juce::ScopedLock sl(uiDataLock);
                 currentMasterSample = sampleData;
+                loadedMasterFile = audioFile;
+                loadInProgress.store(false, std::memory_order_release);
                 cachedWaveformPeaks = std::move(peaks);
                 currentFileSampleRateAtomic.store(fileSampleRate, std::memory_order_relaxed);
                 numChannelsAtomic.store(sampleData->buffer.getNumChannels(), std::memory_order_relaxed);
@@ -1274,7 +1493,8 @@ bool AudioEngine::loadFile(const juce::File& audioFile, bool autoPlay, bool isSa
                 double ratio = (engineSr > 0.0) ? (fileSampleRate / engineSr) : 1.0;
                 double totalLen = (sampleData->buffer.getNumSamples() / ratio) / engineSr;
                 totalDurationAtomic.store(totalLen, std::memory_order_relaxed);
-                stoppedPositionSecs.store(0.0, std::memory_order_relaxed);
+                if (!audioStartedEarly)
+                    stoppedPositionSecs.store(0.0, std::memory_order_relaxed);
 
                 loadedVoice = std::make_shared<AudioVoice>();
                 loadedVoice->buffer.makeCopyOf(sampleData->buffer);
@@ -1287,15 +1507,36 @@ bool AudioEngine::loadFile(const juce::File& audioFile, bool autoPlay, bool isSa
                 originalSnapshotValid = true;
             }
 
-            EngineCommand cmd;
-            cmd.type = EngineCommandType::LoadPreviewSample;
-            cmd.sampleData = sampleData;
-            cmd.boolVal1 = autoPlay;
-            pushCommand(cmd);
+            if (shouldAutoPlay)
+            {
+                if (!audioStartedEarly)
+                {
+                    EngineCommand cmd;
+                    cmd.type = EngineCommandType::RestartPreview;
+                    cmd.sampleData = sampleData;
+                    pushCommand(cmd);
+                }
+                lastNotifiedPlayingState = true;
+            }
+            else
+            {
+                if (audioStartedEarly)
+                {
+                    EngineCommand stopCmd;
+                    stopCmd.type = EngineCommandType::Stop;
+                    pushCommand(stopCmd);
+                }
+                EngineCommand cmd;
+                cmd.type = EngineCommandType::LoadPreviewSample;
+                cmd.sampleData = sampleData;
+                cmd.boolVal1 = false;
+                pushCommand(cmd);
+                lastNotifiedPlayingState = false;
+            }
 
-            listeners.call([filePath = audioFile.getFullPathName(), autoPlay](AudioEngineListener& l) {
-                l.sampleLoaded(filePath);
-                l.playbackStateChanged(autoPlay);
+            listeners.call([fp2 = audioFile.getFullPathName(), shouldAutoPlay](AudioEngineListener& l) {
+                l.sampleLoaded(fp2);
+                l.playbackStateChanged(shouldAutoPlay);
             });
         });
     }).detach();
@@ -1363,6 +1604,8 @@ bool AudioEngine::loadAudioBuffer(const juce::String& displayName, const juce::A
     {
         const juce::ScopedLock sl(uiDataLock);
         currentMasterSample = sampleData;
+        loadedMasterFile = juce::File();
+        loadInProgress.store(false, std::memory_order_relaxed);
         cachedWaveformPeaks = std::move(peaks);
         currentFileSampleRateAtomic.store(sampleRate, std::memory_order_relaxed);
         numChannelsAtomic.store(numChannels, std::memory_order_relaxed);
@@ -1423,6 +1666,8 @@ void AudioEngine::play()
 
 void AudioEngine::pause()
 {
+    cancelPendingHoverAudition();
+
     EngineCommand cmd;
     cmd.type = EngineCommandType::Pause;
     pushCommand(cmd);
@@ -1433,6 +1678,9 @@ void AudioEngine::pause()
 
 void AudioEngine::stop()
 {
+    cancelPendingHoverAudition();
+    ++currentLoadId; // Immediately cancel any active or pending background load tasks!
+    loadInProgress.store(false, std::memory_order_release);
     stoppedPositionSecs.store(0.0, std::memory_order_relaxed);
     double totalLen = totalDurationAtomic.load(std::memory_order_relaxed);
     stoppedPositionSecs.store(sampleStartRatioAtomic.load(std::memory_order_relaxed) * totalLen, std::memory_order_relaxed);
@@ -1445,11 +1693,290 @@ void AudioEngine::stop()
     listeners.call([](AudioEngineListener& l) { l.playbackStateChanged(false); });
 }
 
+void AudioEngine::restartPlayback()
+{
+    cancelPendingHoverAudition();
+    if (loadInProgress.exchange(false, std::memory_order_acq_rel))
+    {
+        ++currentLoadId; // Cancel any pending uncached disk load
+    }
+    stoppedPositionSecs.store(0.0, std::memory_order_relaxed);
+    sampleStartRatioAtomic.store(0.0, std::memory_order_relaxed);
+
+    EngineCommand cmd;
+    cmd.type = EngineCommandType::RestartPreview;
+    {
+        const juce::ScopedLock sl(uiDataLock);
+        cmd.sampleData = currentMasterSample;
+    }
+    pushCommand(cmd);
+
+    lastNotifiedPlayingState = true;
+    listeners.call([](AudioEngineListener& l) {
+        l.playbackStateChanged(true);
+    });
+}
+
+void AudioEngine::auditionFile(const juce::File& audioFile)
+{
+    loadFile(audioFile, true, false);
+}
+
+void AudioEngine::cancelPendingHoverAudition()
+{
+    hoverCancelGeneration.fetch_add(1, std::memory_order_acq_rel);
+    const juce::ScopedLock sl(hoverLock);
+    pendingHoverFile = juce::File();
+    hoverProcessedSeq = hoverRequestSeq;
+}
+
+void AudioEngine::auditionHover(const juce::File& audioFile)
+{
+    const juce::String filePath = audioFile.getFullPathName();
+    if (isShuttingDown.load(std::memory_order_acquire) || filePath.isEmpty())
+        return;
+
+    isLoadedInSampler.store(false, std::memory_order_relaxed);
+    sampleStartRatioAtomic.store(0.0, std::memory_order_relaxed);
+    sampleEndRatioAtomic.store(1.0, std::memory_order_relaxed);
+    stoppedPositionSecs.store(0.0, std::memory_order_relaxed);
+
+    // 1. Zero-latency synchronous trigger if already master sample or in sampleCache
+    std::shared_ptr<CachedSample> cachedSample;
+    {
+        const juce::ScopedLock sl(uiDataLock);
+        if (loadedMasterFile == audioFile && currentMasterSample != nullptr && currentMasterSample->buffer.getNumSamples() > 0)
+        {
+            cachedSample = currentMasterSample;
+        }
+    }
+
+    if (cachedSample == nullptr)
+    {
+        const juce::ScopedLock sl(cacheLock);
+        auto it = sampleCache.find(filePath);
+        if (it != sampleCache.end() && it->second != nullptr && it->second->buffer.getNumSamples() > 0)
+        {
+            cachedSample = it->second;
+        }
+    }
+
+    if (cachedSample != nullptr)
+    {
+        cancelPendingHoverAudition();
+        if (loadInProgress.exchange(false, std::memory_order_acq_rel))
+            ++currentLoadId;
+
+        const double fileSampleRate = cachedSample->sampleRate;
+        const int numSamples = cachedSample->buffer.getNumSamples();
+        const int numChannels = cachedSample->buffer.getNumChannels();
+
+        {
+            const juce::ScopedLock sl(uiDataLock);
+            currentMasterSample = cachedSample;
+            if (loadedMasterFile != audioFile)
+                loadedMasterFile = juce::File();
+            currentFile = audioFile;
+            currentFileSampleRateAtomic.store(fileSampleRate, std::memory_order_relaxed);
+            numChannelsAtomic.store(numChannels, std::memory_order_relaxed);
+
+            double engineSr = engineSampleRateAtomic.load(std::memory_order_relaxed);
+            if (engineSr <= 0.0) engineSr = 44100.0;
+            double ratio = (engineSr > 0.0) ? (fileSampleRate / engineSr) : 1.0;
+            double totalLen = (numSamples / ratio) / engineSr;
+            totalDurationAtomic.store(totalLen, std::memory_order_relaxed);
+        }
+
+        EngineCommand cmd;
+        cmd.type = EngineCommandType::RestartPreview;
+        cmd.sampleData = cachedSample;
+        pushCommand(cmd);
+        return;
+    }
+
+    // 2. Uncached on disk: hand off non-blockingly to dedicated high-priority hoverWorker
+    // (never sends a premature Stop command and never waits on MessageManager::callAsync!)
+    if (loadInProgress.exchange(false, std::memory_order_acq_rel))
+        ++currentLoadId;
+
+    {
+        const juce::ScopedLock sl(hoverLock);
+        pendingHoverFile = audioFile;
+        ++hoverRequestSeq;
+    }
+    hoverWakeEvent.signal();
+}
+
+void AudioEngine::runHoverAuditionLoop()
+{
+    uint32_t lastPushMs = 0;
+
+    while (!hoverWorker.threadShouldExit() && !isShuttingDown.load(std::memory_order_acquire))
+    {
+        juce::File fileToLoad;
+        uint64_t seq = 0;
+        uint64_t cancelGen = 0;
+
+        {
+            const juce::ScopedLock sl(hoverLock);
+            if (hoverRequestSeq != hoverProcessedSeq)
+            {
+                fileToLoad = pendingHoverFile;
+                seq = hoverRequestSeq;
+                hoverProcessedSeq = seq;
+                cancelGen = hoverCancelGeneration.load(std::memory_order_acquire);
+            }
+        }
+
+        if (fileToLoad == juce::File())
+        {
+            hoverWakeEvent.wait(50);
+            continue;
+        }
+
+        const juce::String fp = fileToLoad.getFullPathName();
+        std::shared_ptr<CachedSample> sampleData;
+        bool isFullFileRead = false;
+
+        {
+            const juce::ScopedLock sl(cacheLock);
+            auto it = sampleCache.find(fp);
+            if (it != sampleCache.end() && it->second != nullptr && it->second->buffer.getNumSamples() > 0)
+            {
+                sampleData = it->second;
+                isFullFileRead = true;
+            }
+        }
+
+        if (sampleData == nullptr)
+        {
+            std::unique_ptr<juce::AudioFormatReader> reader(hoverFormatManager.createReaderFor(fileToLoad));
+            if (reader == nullptr)
+                continue;
+
+            const double fileSampleRate = (reader->sampleRate > 0.0) ? reader->sampleRate : 44100.0;
+            const int64_t totalLength64 = reader->lengthInSamples;
+            const int numChannels = static_cast<int>(reader->numChannels);
+            if (totalLength64 <= 0 || numChannels <= 0)
+                continue;
+
+            // Cap uncached hover preview decode at 15 seconds so even huge multi-minute stems decode in ~1ms
+            const int64_t maxPreviewFrames = static_cast<int64_t>(fileSampleRate * 15.0);
+            const int numSamples = static_cast<int>(std::min<int64_t>(totalLength64, std::min<int64_t>(maxPreviewFrames, 0x3FFFFFFF)));
+            isFullFileRead = (numSamples == totalLength64);
+
+            int rootNoteVal = getRootNoteFromWavSmplHeader(fileToLoad);
+            if (rootNoteVal < 0 || rootNoteVal > 127) rootNoteVal = 60;
+
+            auto loaded = std::make_shared<CachedSample>();
+            loaded->sampleRate = fileSampleRate;
+            loaded->rootNote = rootNoteVal;
+            loaded->buffer.setSize(numChannels, numSamples, false, false, true);
+
+            constexpr int chunkSize = 65536;
+            int offset = 0;
+            bool abortedMidRead = false;
+            while (offset < numSamples)
+            {
+                if (hoverWorker.threadShouldExit() || isShuttingDown.load(std::memory_order_acquire) ||
+                    hoverCancelGeneration.load(std::memory_order_acquire) != cancelGen)
+                {
+                    abortedMidRead = true;
+                    break;
+                }
+                if (offset > 0)
+                {
+                    const juce::ScopedLock sl(hoverLock);
+                    if (hoverRequestSeq != seq)
+                    {
+                        abortedMidRead = true;
+                        break;
+                    }
+                }
+                const int toRead = std::min(chunkSize, numSamples - offset);
+                reader->read(&loaded->buffer, offset, toRead, offset, true, true);
+                offset += toRead;
+            }
+
+            if (abortedMidRead)
+                continue;
+
+            float loadMaxPeak = 0.0f;
+            for (int ch = 0; ch < numChannels; ++ch)
+            {
+                auto range = loaded->buffer.findMinMax(ch, 0, numSamples);
+                float peak = std::max(std::abs(range.getStart()), std::abs(range.getEnd()));
+                if (peak > loadMaxPeak)
+                    loadMaxPeak = peak;
+            }
+            if (loadMaxPeak > 1.0f)
+            {
+                loaded->buffer.applyGain(1.0f / loadMaxPeak);
+            }
+
+            if (isFullFileRead && numSamples <= static_cast<int>(fileSampleRate * 10.0))
+            {
+                const juce::ScopedLock sl(cacheLock);
+                while (sampleCache.size() >= 320)
+                    sampleCache.erase(sampleCache.begin());
+                sampleCache[fp] = loaded;
+            }
+
+            sampleData = std::move(loaded);
+        }
+
+        if (hoverCancelGeneration.load(std::memory_order_acquire) != cancelGen ||
+            isShuttingDown.load(std::memory_order_acquire))
+        {
+            continue;
+        }
+
+        bool isLatestRequest = true;
+        {
+            const juce::ScopedLock sl(hoverLock);
+            isLatestRequest = (hoverRequestSeq == seq);
+        }
+
+        const uint32_t nowMs = juce::Time::getMillisecondCounter();
+        if (!isLatestRequest && (nowMs - lastPushMs) < 22)
+            continue;
+
+        lastPushMs = nowMs;
+
+        const double fileSr = sampleData->sampleRate;
+        const int nFrames = sampleData->buffer.getNumSamples();
+        const int nCh = sampleData->buffer.getNumChannels();
+
+        {
+            const juce::ScopedLock sl(uiDataLock);
+            currentMasterSample = sampleData;
+            if (loadedMasterFile != fileToLoad)
+                loadedMasterFile = juce::File();
+            currentFile = fileToLoad;
+            currentFileSampleRateAtomic.store(fileSr, std::memory_order_relaxed);
+            numChannelsAtomic.store(nCh, std::memory_order_relaxed);
+
+            double engineSr = engineSampleRateAtomic.load(std::memory_order_relaxed);
+            if (engineSr <= 0.0) engineSr = 44100.0;
+            double ratio = (engineSr > 0.0) ? (fileSr / engineSr) : 1.0;
+            double totalLen = (nFrames / ratio) / engineSr;
+            totalDurationAtomic.store(totalLen, std::memory_order_relaxed);
+        }
+
+        EngineCommand cmd;
+        cmd.type = EngineCommandType::RestartPreview;
+        cmd.sampleData = sampleData;
+        pushCommand(cmd);
+    }
+}
+
 void AudioEngine::clearMasterSample()
 {
     {
         const juce::ScopedLock sl(uiDataLock);
         currentMasterSample = nullptr;
+        loadedMasterFile = juce::File();
+        loadInProgress.store(false, std::memory_order_relaxed);
         loadedVoice = nullptr;
         currentFile = juce::File();
         totalDurationAtomic.store(0.0, std::memory_order_relaxed);
@@ -2679,7 +3206,11 @@ void AudioEngine::replaceEditedSampleInMemory()
     newSampleData->rootNote = loadedVoice->rootNote;
     newSampleData->buffer.makeCopyOf(loadedVoice->buffer);
 
-    currentMasterSample = newSampleData;
+    {
+        const juce::ScopedLock sl(uiDataLock);
+        currentMasterSample = newSampleData;
+        loadedMasterFile = currentFile;
+    }
 
     juce::String currentPath = currentFile.getFullPathName();
     if (currentPath.isNotEmpty())

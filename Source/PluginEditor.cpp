@@ -41,6 +41,7 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
       headerBar(p.getDatabaseManager(), p.getLibraryScanner()),
       tagPanel(p.getDatabaseManager()), leftPanelResizer(*this),
       sampleTable(p.getDatabaseManager(), p.getAudioEngine()),
+      folderBrowser(p.getDatabaseManager(), p.getLibraryScanner(), p.getAudioEngine()),
       sampleCloud(p.getDatabaseManager(), p.getAudioEngine()),
       librariesComponent(p.getDatabaseManager(), p.getLibraryScanner(),
                          p.getAudioEngine()),
@@ -68,12 +69,14 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
   headerBar.addListener(this);
   tagPanel.addListener(this);
   sampleTable.addListener(this);
+  folderBrowser.addListener(this);
   sampleCloud.addListener(this);
 
   addAndMakeVisible(headerBar);
   addAndMakeVisible(tagPanel);
   addAndMakeVisible(leftPanelResizer);
   addAndMakeVisible(sampleTable);
+  addChildComponent(folderBrowser);
   addChildComponent(sampleCloud);
   addChildComponent(librariesComponent);
   addChildComponent(recorderComponent);
@@ -104,6 +107,15 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
       similarityGraphPopup.showComparison(target, item, pos);
     else
       similarityGraphPopup.hidePopup();
+  };
+
+  folderBrowser.onAddFolderRequested = [this] {
+    addFolderRequested();
+  };
+
+  folderBrowser.onFoldersChanged = [this] {
+    tagPanel.refreshFolders();
+    triggerFilterUpdate();
   };
 
   sampleMapComponent.onStateChanged = [this] {
@@ -174,6 +186,7 @@ OpenWavAudioProcessorEditor::~OpenWavAudioProcessorEditor() {
   headerBar.removeListener(this);
   tagPanel.removeListener(this);
   sampleTable.removeListener(this);
+  folderBrowser.removeListener(this);
   sampleCloud.removeListener(this);
   tooltipWindow.reset();
   if (auto *dw = findParentComponentOfClass<juce::DocumentWindow>()) {
@@ -255,6 +268,7 @@ void OpenWavAudioProcessorEditor::resized() {
     tagPanel.setVisible(false);
     leftPanelResizer.setVisible(false);
     sampleTable.setVisible(false);
+    folderBrowser.setVisible(false);
     sampleCloud.setVisible(false);
     librariesComponent.setVisible(false);
     recorderComponent.setVisible(false);
@@ -279,6 +293,7 @@ void OpenWavAudioProcessorEditor::resized() {
   auto mode = headerBar.getCurrentViewMode();
 
   sampleTable.setVisible(false);
+  folderBrowser.setVisible(false);
   sampleCloud.setVisible(false);
   librariesComponent.setVisible(false);
   recorderComponent.setVisible(false);
@@ -291,6 +306,9 @@ void OpenWavAudioProcessorEditor::resized() {
     sampleCloud.setVisible(true);
     sampleCloud.setTransform(juce::AffineTransform());
     sampleCloud.setBounds(area);
+  } else if (mode == ViewMode::Folders) {
+    folderBrowser.setVisible(true);
+    folderBrowser.setBounds(area);
   } else if (mode == ViewMode::Libraries) {
     librariesComponent.setVisible(true);
     librariesComponent.setBounds(area);
@@ -322,11 +340,17 @@ void OpenWavAudioProcessorEditor::searchTextChanged(
 }
 
 void OpenWavAudioProcessorEditor::searchBarUpPressed() {
-  sampleTable.moveSelection(-1);
+  if (headerBar.getCurrentViewMode() == ViewMode::Folders)
+    folderBrowser.moveSelection(-1);
+  else
+    sampleTable.moveSelection(-1);
 }
 
 void OpenWavAudioProcessorEditor::searchBarDownPressed() {
-  sampleTable.moveSelection(1);
+  if (headerBar.getCurrentViewMode() == ViewMode::Folders)
+    folderBrowser.moveSelection(1);
+  else
+    sampleTable.moveSelection(1);
 }
 
 void OpenWavAudioProcessorEditor::timerCallback() {
@@ -373,6 +397,11 @@ void OpenWavAudioProcessorEditor::addFolderRequested() {
         }
 
         tagPanel.refreshFolders();
+        if (headerBar.getCurrentViewMode() == ViewMode::Folders) {
+          folderBrowser.setFilteredItems(sampleTable.getDisplayedItems(),
+                                         headerBar.getSearchText(),
+                                         tagPanel.getFavoritesOnly());
+        }
 
         if (!foldersToScan.empty()) {
           scanProgressDialog.setSilent(false);
@@ -619,7 +648,15 @@ void OpenWavAudioProcessorEditor::tagFilterSelectionChanged(
   triggerFilterUpdate();
 }
 
+void OpenWavAudioProcessorEditor::scannedFolderClicked(
+    const juce::String &folderPath) {
+  headerBar.setViewMode(ViewMode::Folders);
+  folderBrowser.revealAndExpandRootFolder(folderPath);
+}
+
 void OpenWavAudioProcessorEditor::sampleSelected(const MediaItem &item) {
+  sampleTable.selectItemById(item.id, false);
+  folderBrowser.selectItemById(item.id, false);
   sampleCloud.selectItemById(item.id);
   analysisComponent.setItem(item);
 }
@@ -631,6 +668,9 @@ void OpenWavAudioProcessorEditor::displayedItemsChanged(
     const std::vector<MediaItem> &items) {
   if (headerBar.getCurrentViewMode() == ViewMode::Cloud) {
     sampleCloud.setItems(items);
+  } else if (headerBar.getCurrentViewMode() == ViewMode::Folders) {
+    folderBrowser.setFilteredItems(items, headerBar.getSearchText(),
+                                   tagPanel.getFavoritesOnly());
   }
 }
 
@@ -716,6 +756,11 @@ void OpenWavAudioProcessorEditor::filesDropped(const juce::StringArray &files,
   }
 
   tagPanel.refreshFolders();
+  if (headerBar.getCurrentViewMode() == ViewMode::Folders) {
+    folderBrowser.setFilteredItems(sampleTable.getDisplayedItems(),
+                                   headerBar.getSearchText(),
+                                   tagPanel.getFavoritesOnly());
+  }
 
   if (!foldersToScan.empty()) {
     scanProgressDialog.setSilent(false);
@@ -726,7 +771,7 @@ void OpenWavAudioProcessorEditor::filesDropped(const juce::StringArray &files,
 void OpenWavAudioProcessorEditor::viewModeChanged(ViewMode mode) {
   audioProcessor.getAudioEngine().stop();
   resized();
-  if (mode == ViewMode::Cloud || mode == ViewMode::List) {
+  if (mode == ViewMode::Cloud || mode == ViewMode::List || mode == ViewMode::Folders) {
     triggerFilterUpdate();
   }
   if (mode == ViewMode::Edit) {
@@ -809,6 +854,7 @@ void OpenWavAudioProcessorEditor::mouseDown(const juce::MouseEvent &e) {
 
 void OpenWavAudioProcessorEditor::cloudSampleSelected(const MediaItem &item) {
   sampleTable.selectItemById(item.id, false);
+  folderBrowser.selectItemById(item.id, false);
   analysisComponent.setItem(item);
 }
 
@@ -826,6 +872,10 @@ void OpenWavAudioProcessorEditor::triggerFilterUpdate() {
 
   if (headerBar.getCurrentViewMode() == ViewMode::Cloud) {
     sampleCloud.setItems(sampleTable.getDisplayedItems());
+  } else if (headerBar.getCurrentViewMode() == ViewMode::Folders) {
+    folderBrowser.setFilteredItems(sampleTable.getDisplayedItems(),
+                                   headerBar.getSearchText(),
+                                   tagPanel.getFavoritesOnly());
   }
 }
 
@@ -976,7 +1026,7 @@ void OpenWavAudioProcessorEditor::restoreStateFromProcessor() {
   performanceComponent.setState(s.performance);
 
   // 6. Restore View Mode (never open directly in Cloud view)
-  if (s.currentViewMode >= 0 && s.currentViewMode <= 7) {
+  if (s.currentViewMode >= 0 && s.currentViewMode <= 8) {
     auto mode = static_cast<ViewMode>(s.currentViewMode);
     if (mode == ViewMode::Cloud)
       mode = ViewMode::List;

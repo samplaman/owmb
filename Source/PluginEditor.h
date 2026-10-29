@@ -10,6 +10,7 @@
 #include "UI/HeaderBarComponent.h"
 #include "UI/TagPanelComponent.h"
 #include "UI/SampleTableComponent.h"
+#include "UI/FolderBrowserComponent.h"
 #include "UI/SampleCloudComponent.h"
 #include "UI/LibrariesComponent.h"
 #include "UI/WaveformTransportComponent.h"
@@ -57,6 +58,7 @@ public:
 
     // TagPanelListener Callbacks
     void tagFilterSelectionChanged(const std::set<juce::String>& selectedTags, bool matchAllTags, bool favoritesOnly) override;
+    void scannedFolderClicked(const juce::String& folderPath) override;
 
     // SampleTableListener Callbacks
     void sampleSelected(const MediaItem& item) override;
@@ -122,6 +124,7 @@ private:
     int tagPanelWidth { 348 };
 
     SampleTableComponent sampleTable;
+    FolderBrowserComponent folderBrowser;
     SampleCloudComponent sampleCloud;
     LibrariesComponent librariesComponent;
     RecorderComponent recorderComponent;

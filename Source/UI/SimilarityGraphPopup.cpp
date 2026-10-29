@@ -72,21 +72,21 @@ void SimilarityGraphPopup::paint(juce::Graphics& g)
     g.setColour(OpenWavLookAndFeel::textSecondary);
     g.setFont(juce::Font(10.0f).boldened());
     float labelOffset = radius + 12.0f;
-    const juce::String labels[4] = { "FREQ", "DECAY", "ZCR", "ENERGY" };
+    const juce::String labels[4] = { "HF", "DECAY", "ZCR", "CREST" };
     for (int i = 0; i < 4; ++i)
     {
         float angle = juce::MathConstants<float>::pi * 0.25f + i * juce::MathConstants<float>::halfPi;
         auto p = center.translated(std::sin(angle) * labelOffset, -std::cos(angle) * labelOffset);
-        g.drawText(labels[i], juce::Rectangle<float>(40, 20).withCentre(p).toNearestInt(), juce::Justification::centred, false);
+        g.drawText(labels[i], juce::Rectangle<float>(44, 20).withCentre(p).toNearestInt(), juce::Justification::centred, false);
     }
     
-    // Get normalized feature arrays for target [0] and hovered [1]
+    // Normalized feature arrays using the exact same physical scales as AnalysisComponent
     auto getNormFeatures = [](const MediaItem& item) -> std::array<float, 4> {
         return {
-            juce::jlimit(0.0f, 1.0f, static_cast<float>(item.highFreqRatio)),           // FREQ
-            juce::jlimit(0.0f, 1.0f, static_cast<float>(item.decayRatio)),               // DECAY
-            juce::jlimit(0.0f, 1.0f, static_cast<float>(item.zcr)),                      // ZCR
-            juce::jlimit(0.0f, 1.0f, static_cast<float>(item.crestFactor / 10.0f))       // ENERGY (Crest factor inverted?)
+            juce::jlimit(0.0f, 1.0f, static_cast<float>(item.highFreqRatio / 2.20)),     // HF Ratio
+            juce::jlimit(0.0f, 1.0f, static_cast<float>(item.decayRatio / 1.00)),        // Decay
+            juce::jlimit(0.0f, 1.0f, static_cast<float>(item.zcr / 0.50)),               // ZCR
+            juce::jlimit(0.0f, 1.0f, static_cast<float>(item.crestFactor / 18.0))        // Crest (Transient Punch)
         };
     };
     
