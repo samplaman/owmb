@@ -156,6 +156,15 @@ AutoSamplerDialog::AutoSamplerDialog(std::function<void(const SampleMapState& re
             engine.cancelSampling();
             statusLabel.setText("Cancelling...", juce::dontSendNotification);
         }
+        else if (engine.isScanning())
+        {
+            engine.cancelScan();
+            progressValue = 0.0;
+            scanPluginsBtn.setEnabled(true);
+            refreshPluginCombo();
+            startBtn.setEnabled(loadedPlugin != nullptr);
+            statusLabel.setText("Scan cancelled.", juce::dontSendNotification);
+        }
         else if (auto* dw = findParentComponentOfClass<juce::DialogWindow>())
         {
             dw->exitModalState(0);

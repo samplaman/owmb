@@ -22,11 +22,11 @@ AutoSamplerEngine::AutoSamplerEngine()
 AutoSamplerEngine::~AutoSamplerEngine()
 {
     aliveToken->store(false, std::memory_order_release);
-    cancelScan();
+    stopTimer();
+    activeScanner.reset();
+    scanning.store(false, std::memory_order_release);
     cancelSampling();
 
-    if (scanThread && scanThread->joinable())
-        scanThread->join();
     if (sampleThread && sampleThread->joinable())
         sampleThread->join();
 }
@@ -106,7 +106,86 @@ std::vector<juce::PluginDescription> AutoSamplerEngine::getInstrumentPlugins() c
 
 void AutoSamplerEngine::cancelScan()
 {
-    cancelScanRequested.store(true, std::memory_order_release);
+    if (!scanning.load(std::memory_order_acquire))
+        return;
+
+    finishScan(true);
+}
+
+void AutoSamplerEngine::advanceScanFormat()
+{
+    activeScanner.reset();
+    auto deadMansFile = getDeadMansPedalFile();
+    int numFormats = formatManager.getNumFormats();
+
+    while (scanFormatIndex < numFormats)
+    {
+        auto* format = formatManager.getFormat(scanFormatIndex++);
+        if (format == nullptr)
+            continue;
+
+        auto paths = format->getDefaultLocationsToSearch();
+        activeScanner = std::make_unique<juce::PluginDirectoryScanner>(
+            knownPluginList, *format, paths, true, deadMansFile, false);
+        break;
+    }
+}
+
+void AutoSamplerEngine::finishScan(bool cancelled)
+{
+    stopTimer();
+    activeScanner.reset();
+    scanFormatIndex = 0;
+
+    if (aliveToken->load(std::memory_order_acquire))
+        saveKnownPlugins();
+
+    int foundCount = static_cast<int>(getInstrumentPlugins().size());
+    scanning.store(false, std::memory_order_release);
+
+    auto cb = std::move(scanCompletionCb);
+    scanProgressCb = nullptr;
+    scanCompletionCb = nullptr;
+
+    if (cb && !cancelled && aliveToken->load(std::memory_order_acquire))
+        cb(foundCount);
+}
+
+void AutoSamplerEngine::timerCallback()
+{
+    if (!scanning.load(std::memory_order_acquire) || !aliveToken->load(std::memory_order_acquire))
+    {
+        stopTimer();
+        return;
+    }
+
+    if (activeScanner == nullptr)
+    {
+        finishScan(false);
+        return;
+    }
+
+    juce::String pluginName;
+    bool hasMore = false;
+    {
+        const juce::ScopedLock sl(pluginListLock);
+        hasMore = activeScanner->scanNextFile(true, pluginName);
+    }
+
+    int numFormats = std::max(1, formatManager.getNumFormats());
+    int currentFmtIdx = juce::jlimit(0, numFormats - 1, scanFormatIndex - 1);
+    float fmtProgress = activeScanner->getProgress();
+    float overallProgress = (static_cast<float>(currentFmtIdx) + fmtProgress) / static_cast<float>(numFormats);
+
+    if (scanProgressCb && pluginName.isNotEmpty())
+        scanProgressCb(overallProgress, pluginName);
+
+    if (!hasMore)
+    {
+        advanceScanFormat();
+        if (activeScanner == nullptr)
+            finishScan(false);
+    }
 }
 
 void AutoSamplerEngine::scanPluginsAsync(
@@ -116,66 +195,16 @@ void AutoSamplerEngine::scanPluginsAsync(
     if (scanning.load(std::memory_order_acquire))
         return;
 
-    if (scanThread && scanThread->joinable())
-        scanThread->join();
-
-    cancelScanRequested.store(false, std::memory_order_release);
     scanning.store(true, std::memory_order_release);
+    scanProgressCb = std::move(progressCb);
+    scanCompletionCb = std::move(completionCb);
+    scanFormatIndex = 0;
 
-    auto token = aliveToken;
-    scanThread = std::make_unique<std::thread>([this, token, progressCb, completionCb]() {
-        auto deadMansFile = getDeadMansPedalFile();
-        int numFormats = formatManager.getNumFormats();
-
-        for (int f = 0; f < numFormats; ++f)
-        {
-            if (cancelScanRequested.load(std::memory_order_acquire) || !token->load(std::memory_order_acquire))
-                break;
-
-            auto* format = formatManager.getFormat(f);
-            if (format == nullptr)
-                continue;
-
-            auto paths = format->getDefaultLocationsToSearch();
-            juce::PluginDirectoryScanner scanner(knownPluginList, *format, paths, true, deadMansFile, false);
-
-            juce::String pluginName;
-            while (!cancelScanRequested.load(std::memory_order_acquire) && token->load(std::memory_order_acquire))
-            {
-                bool hasMore = false;
-                {
-                    const juce::ScopedLock sl(pluginListLock);
-                    hasMore = scanner.scanNextFile(true, pluginName);
-                }
-
-                float prog = (static_cast<float>(f) + scanner.getProgress()) / static_cast<float>(std::max(1, numFormats));
-                if (progressCb && token->load(std::memory_order_acquire))
-                {
-                    juce::MessageManager::callAsync([token, progressCb, prog, pluginName]() {
-                        if (token->load(std::memory_order_acquire))
-                            progressCb(prog, pluginName);
-                    });
-                }
-
-                if (!hasMore)
-                    break;
-            }
-        }
-
-        if (token->load(std::memory_order_acquire))
-            saveKnownPlugins();
-
-        int foundCount = static_cast<int>(getInstrumentPlugins().size());
-        scanning.store(false, std::memory_order_release);
-
-        if (completionCb && token->load(std::memory_order_acquire))
-        {
-            juce::MessageManager::callAsync([token, completionCb, foundCount]() {
-                if (token->load(std::memory_order_acquire))
-                    completionCb(foundCount);
-            });
-        }
-    });
+    advanceScanFormat();
+    if (activeScanner != nullptr)
+        startTimer(1);
+    else
+        finishScan(false);
 }
 
 std::unique_ptr<juce::AudioPluginInstance> AutoSamplerEngine::createPluginInstance(

@@ -6,6 +6,7 @@
  #include <juce_audio_processors/juce_audio_processors.h>
  #include <juce_audio_formats/juce_audio_formats.h>
  #include <juce_core/juce_core.h>
+ #include <juce_events/juce_events.h>
 #endif
 
 #include "../Models/PluginState.h"
@@ -39,7 +40,7 @@ struct AutoSamplerConfig
     bool exportSfz { true };
 };
 
-class AutoSamplerEngine
+class AutoSamplerEngine : private juce::Timer
 {
 public:
     AutoSamplerEngine();
@@ -73,6 +74,10 @@ public:
     static juce::String midiNoteToName(int midiNote);
 
 private:
+    void timerCallback() override;
+    void advanceScanFormat();
+    void finishScan(bool cancelled);
+
     juce::File getKnownPluginsFile() const;
     juce::File getDeadMansPedalFile() const;
 
@@ -81,8 +86,10 @@ private:
     mutable juce::CriticalSection pluginListLock;
 
     std::atomic<bool> scanning { false };
-    std::atomic<bool> cancelScanRequested { false };
-    std::unique_ptr<std::thread> scanThread;
+    std::unique_ptr<juce::PluginDirectoryScanner> activeScanner;
+    int scanFormatIndex { 0 };
+    std::function<void(float, const juce::String&)> scanProgressCb;
+    std::function<void(int)> scanCompletionCb;
 
     std::atomic<bool> sampling { false };
     std::atomic<bool> cancelSampleRequested { false };
