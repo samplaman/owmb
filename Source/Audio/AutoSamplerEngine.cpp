@@ -272,6 +272,7 @@ void AutoSamplerEngine::startAutoSample(
 
             pluginInstance->setNonRealtime(true);
             pluginInstance->prepareToPlay(sr, kBlockSize);
+            pluginInstance->reset();
 
             const int sustainSamples = std::max(kBlockSize, static_cast<int>(config.sustainSeconds * sr));
             const int maxTailSamples = std::max(kBlockSize, static_cast<int>(config.maxTailSeconds * sr));
@@ -327,13 +328,16 @@ void AutoSamplerEngine::startAutoSample(
                             });
                         }
 
-                        // Reset plugin & flush short silence before note-on
-                        pluginInstance->reset();
+                        // Flush short silence before note-on without calling reset() between RR takes,
+                        // so instruments with internal round-robin or free-running drift advance naturally.
                         midiBuf.clear();
+                        if (rrIdx == 0)
+                            midiBuf.addEvent(juce::MidiMessage::allNotesOff(midiCh), 0);
                         for (int flush = 0; flush < 4; ++flush)
                         {
                             blockBuf.clear();
                             pluginInstance->processBlock(blockBuf, midiBuf);
+                            midiBuf.clear();
                         }
 
                         const int maxTotalSamples = sustainSamples + maxTailSamples;

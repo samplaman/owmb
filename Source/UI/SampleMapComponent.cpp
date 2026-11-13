@@ -1751,8 +1751,16 @@ void SampleMapComponent::autoMapRoundRobin()
             velGroups[{ zones[idx].velLow, zones[idx].velHigh }].push_back(idx);
         }
 
-        for (const auto& [velRange, rrIndices] : velGroups)
+        for (auto& [velRange, rrIndices] : velGroups)
         {
+            std::stable_sort(rrIndices.begin(), rrIndices.end(), [this](int a, int b) {
+                int rrA = parseRoundRobinFromFilename(zones[static_cast<size_t>(a)].sampleName);
+                int rrB = parseRoundRobinFromFilename(zones[static_cast<size_t>(b)].sampleName);
+                if (rrA != rrB)
+                    return rrA < rrB;
+                return zones[static_cast<size_t>(a)].roundRobinIndex < zones[static_cast<size_t>(b)].roundRobinIndex;
+            });
+
             for (size_t rr = 0; rr < rrIndices.size(); ++rr)
             {
                 zones[rrIndices[rr]].roundRobinIndex = static_cast<int>(rr + 1);
@@ -3369,6 +3377,7 @@ void SampleMapComponent::setState(const SampleMapState& state)
 
     roundRobinMode = state.roundRobinMode;
     roundRobinButton.setButtonText(roundRobinMode == 0 ? "RR: Cycle" : (roundRobinMode == 1 ? "RR: Random" : "RR: OFF"));
+    roundRobinButton.setTooltip("Round Robin Mode: " + roundRobinButton.getButtonText() + " (click to cycle)");
 
     midiChannelSetting = state.midiChannel > 0 ? state.midiChannel : 2;
     updateMidiChannelButtonText();
