@@ -98,6 +98,8 @@ juce_add_binary_data(OpenWavAssets
 target_sources(OpenWav PRIVATE
     Source/Models/MediaItem.h
     Source/Models/PluginState.h
+    Source/Models/SfzParser.h
+    Source/Models/SfzParser.cpp
     Source/Database/TagDatabaseManager.h
     Source/Database/TagDatabaseManager.cpp
     Source/Scanner/LibraryScanner.h

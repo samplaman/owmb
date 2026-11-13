@@ -2,6 +2,7 @@
 #include "OpenWavLookAndFeel.h"
 #include "LorisResynthesisDialog.h"
 #include "ShortcutManager.h"
+#include "../Models/SfzParser.h"
 #include <regex>
 // Rebuild trigger
 
@@ -1024,7 +1025,7 @@ bool SampleMapComponent::isInterestedInFileDrag(const juce::StringArray& files)
             file.hasFileExtension("aif") || file.hasFileExtension("aifc") ||
             file.hasFileExtension("ogg") || file.hasFileExtension("xml") ||
             file.hasFileExtension("samplemap") || file.hasFileExtension("owmap") ||
-            file.hasFileExtension("zip"))
+            file.hasFileExtension("sfz") || file.hasFileExtension("zip"))
             return true;
     }
     return false;
@@ -1037,7 +1038,7 @@ void SampleMapComponent::filesDropped(const juce::StringArray& files, int /*x*/,
         juce::File file(f);
         if (file.existsAsFile())
         {
-            if (file.hasFileExtension("xml") || file.hasFileExtension("samplemap") || file.hasFileExtension("owmap") || file.hasFileExtension("zip"))
+            if (file.hasFileExtension("xml") || file.hasFileExtension("samplemap") || file.hasFileExtension("owmap") || file.hasFileExtension("sfz") || file.hasFileExtension("zip"))
             {
                 if (loadSampleMapFile(file))
                     return;
@@ -1060,7 +1061,7 @@ void SampleMapComponent::itemDropped(const juce::DragAndDropTarget::SourceDetail
         juce::File file(description);
         if (file.existsAsFile())
         {
-            if (file.hasFileExtension("xml") || file.hasFileExtension("samplemap") || file.hasFileExtension("owmap") || file.hasFileExtension("zip"))
+            if (file.hasFileExtension("xml") || file.hasFileExtension("samplemap") || file.hasFileExtension("owmap") || file.hasFileExtension("sfz") || file.hasFileExtension("zip"))
             {
                 if (loadSampleMapFile(file))
                     return;
@@ -1739,16 +1740,18 @@ void SampleMapComponent::saveSampleMapToFile()
 void SampleMapComponent::loadSampleMapFromFile()
 {
     auto chooser = std::make_shared<juce::FileChooser>(
-        "Load Sample Map",
+        "Load Sample Map or SFZ",
         juce::File::getSpecialLocation(juce::File::userDocumentsDirectory),
-        "*.xml;*.samplemap;*.owmap;*.zip");
+        "*.xml;*.samplemap;*.owmap;*.sfz;*.zip");
 
+    juce::Component::SafePointer<SampleMapComponent> safeThis(this);
     chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
-                         [this, chooser](const juce::FileChooser& fc) {
+                         [safeThis, chooser](const juce::FileChooser& fc) {
+        if (safeThis == nullptr) return;
         auto result = fc.getResult();
         if (result.existsAsFile())
         {
-            loadSampleMapFile(result);
+            safeThis->loadSampleMapFile(result);
         }
     });
 }
@@ -1757,6 +1760,25 @@ bool SampleMapComponent::loadSampleMapFile(const juce::File& file)
 {
     if (!file.existsAsFile())
         return false;
+
+    if (file.hasFileExtension("sfz"))
+    {
+        SampleMapState sfzState;
+        juce::String sfzError;
+        if (!SfzParser::parseFile(file, sfzState, sfzError))
+        {
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::AlertWindow::WarningIcon,
+                "SFZ Import Failed",
+                sfzError.isNotEmpty() ? sfzError : "Could not parse SFZ file.");
+            return false;
+        }
+
+        setState(sfzState);
+        if (onStateChanged)
+            onStateChanged();
+        return true;
+    }
 
     if (file.hasFileExtension("zip"))
     {
@@ -1776,7 +1798,7 @@ bool SampleMapComponent::loadSampleMapFile(const juce::File& file)
         }
 
         juce::Array<juce::File> xmlFiles;
-        importBaseDir.findChildFiles(xmlFiles, juce::File::findFiles, true, "*.xml;*.samplemap;*.owmap");
+        importBaseDir.findChildFiles(xmlFiles, juce::File::findFiles, true, "*.xml;*.samplemap;*.owmap;*.sfz");
         if (xmlFiles.isEmpty())
             return false;
 
