@@ -346,87 +346,113 @@ SampleMapComponent::SampleMapComponent(AudioEngine& engine)
     audioEngine.getKeyboardState().addListener(this);
     audioEngine.addListener(this);
 
-    // ── Action Toolbar Buttons ─────────────────────────
+    // ── Action Toolbar Buttons (Icon-Only with Tooltips) ─
+    auto setupIconBtn = [](juce::TextButton& btn, const juce::String& tip) {
+        btn.setComponentID("iconOnlyBtn");
+        btn.setTooltip(tip);
+    };
+
+    setupIconBtn(addSampleButton, "Add Sample(s) to Map");
     addAndMakeVisible(addSampleButton);
     addSampleButton.addListener(this);
 
+    setupIconBtn(lorisResynthButton, "Loris Resynth: Resynthesize a sample across notes using Additive Modeling");
     addAndMakeVisible(lorisResynthButton);
     lorisResynthButton.addListener(this);
-    lorisResynthButton.setTooltip("Resynthesize a single sample across notes using Loris Additive Modeling");
     lorisResynthButton.setColour(juce::TextButton::textColourOffId, OpenWavLookAndFeel::accentCyan.brighter(0.2f));
 
+    setupIconBtn(deleteSelectedButton, "Delete Selected Zones (Delete/Backspace)");
     addAndMakeVisible(deleteSelectedButton);
     deleteSelectedButton.addListener(this);
-    deleteSelectedButton.setTooltip("Delete selected sample zones (or press Delete/Backspace)");
     deleteSelectedButton.setColour(juce::TextButton::textColourOffId, OpenWavLookAndFeel::favoriteRed.brighter(0.2f));
 
+    setupIconBtn(autoMapPitchButton, "Auto Map by Pitch");
     addAndMakeVisible(autoMapPitchButton);
     autoMapPitchButton.addListener(this);
 
+    setupIconBtn(autoMapChromaticButton, "Auto Map Chromatically");
     addAndMakeVisible(autoMapChromaticButton);
     autoMapChromaticButton.addListener(this);
 
+    setupIconBtn(autoMapVelButton, "Auto Map Velocity Layers");
     addAndMakeVisible(autoMapVelButton);
     autoMapVelButton.addListener(this);
 
+    setupIconBtn(autoMapRRButton, "Auto Map Round Robin Groups");
     addAndMakeVisible(autoMapRRButton);
     autoMapRRButton.addListener(this);
 
+    setupIconBtn(clearMapButton, "Clear All Zones");
     addAndMakeVisible(clearMapButton);
     clearMapButton.addListener(this);
 
+    setupIconBtn(saveMapButton, "Save Sample Map (.xml / .owmap)");
     addAndMakeVisible(saveMapButton);
     saveMapButton.addListener(this);
 
+    setupIconBtn(loadMapButton, "Load Sample Map / SFZ / ZIP");
     addAndMakeVisible(loadMapButton);
     loadMapButton.addListener(this);
 
+    setupIconBtn(exportZipButton, "Export Sample Map & Audio as .zip Bundle");
     addAndMakeVisible(exportZipButton);
     exportZipButton.addListener(this);
-    exportZipButton.setTooltip("Export complete sample map and audio samples as a .zip bundle");
 
+    roundRobinButton.setComponentID("iconOnlyBtn");
     roundRobinButton.setClickingTogglesState(false);
     roundRobinButton.setButtonText(roundRobinMode == 0 ? "RR: Cycle" : (roundRobinMode == 1 ? "RR: Random" : "RR: OFF"));
+    roundRobinButton.setTooltip("Round Robin Mode: " + roundRobinButton.getButtonText() + " (click to cycle)");
     roundRobinButton.onClick = [this] {
         roundRobinMode = (roundRobinMode + 1) % 3;
         roundRobinButton.setButtonText(roundRobinMode == 0 ? "RR: Cycle" : (roundRobinMode == 1 ? "RR: Random" : "RR: OFF"));
+        roundRobinButton.setTooltip("Round Robin Mode: " + roundRobinButton.getButtonText() + " (click to cycle)");
         if (onStateChanged) onStateChanged();
     };
     addAndMakeVisible(roundRobinButton);
 
+    pitchTrackButton.setComponentID("iconOnlyBtn");
     pitchTrackButton.setClickingTogglesState(true);
     bool ptEnabled = audioEngine.isPitchTrackingEnabled();
     pitchTrackButton.setToggleState(ptEnabled, juce::dontSendNotification);
     pitchTrackButton.setButtonText(ptEnabled ? "Pitch Track: ON" : "Pitch Track: OFF");
+    pitchTrackButton.setTooltip(pitchTrackButton.getButtonText());
     pitchTrackButton.onClick = [this] {
         bool enabled = pitchTrackButton.getToggleState();
         audioEngine.setPitchTrackingEnabled(enabled);
         pitchTrackButton.setButtonText(enabled ? "Pitch Track: ON" : "Pitch Track: OFF");
+        pitchTrackButton.setTooltip(pitchTrackButton.getButtonText());
     };
     addAndMakeVisible(pitchTrackButton);
 
+    oneShotButton.setComponentID("iconOnlyBtn");
     oneShotButton.setClickingTogglesState(true);
     bool osEnabled = audioEngine.isOneShotEnabled();
     oneShotButton.setToggleState(osEnabled, juce::dontSendNotification);
     oneShotButton.setButtonText(osEnabled ? "One Shot: ON" : "One Shot: OFF");
+    oneShotButton.setTooltip(oneShotButton.getButtonText());
     oneShotButton.onClick = [this] {
         bool enabled = oneShotButton.getToggleState();
         audioEngine.setOneShotEnabled(enabled);
         oneShotButton.setButtonText(enabled ? "One Shot: ON" : "One Shot: OFF");
+        oneShotButton.setTooltip(oneShotButton.getButtonText());
     };
     addAndMakeVisible(oneShotButton);
 
+    loopButton.setComponentID("iconOnlyBtn");
     loopButton.setClickingTogglesState(true);
     bool loopEnabled = audioEngine.isLooping();
     loopButton.setToggleState(loopEnabled, juce::dontSendNotification);
     loopButton.setButtonText(loopEnabled ? "Loop: ON" : "Loop: OFF");
+    loopButton.setTooltip(loopButton.getButtonText());
     loopButton.onClick = [this] {
         bool enabled = loopButton.getToggleState();
         audioEngine.setLooping(enabled);
         loopButton.setButtonText(enabled ? "Loop: ON" : "Loop: OFF");
+        loopButton.setTooltip(loopButton.getButtonText());
     };
     addAndMakeVisible(loopButton);
 
+    openFxRackButton.setComponentID("iconOnlyBtn");
     openFxRackButton.setColour(juce::TextButton::buttonColourId, OpenWavLookAndFeel::accentCyan.withAlpha(0.25f));
     openFxRackButton.setColour(juce::TextButton::textColourOffId, OpenWavLookAndFeel::accentCyan);
     openFxRackButton.setTooltip("Open Performance FX Rack for Sample Mapped Items");
@@ -436,6 +462,7 @@ SampleMapComponent::SampleMapComponent(AudioEngine& engine)
     };
     addAndMakeVisible(openFxRackButton);
 
+    instrumentModeButton.setComponentID("iconOnlyBtn");
     instrumentModeButton.setClickingTogglesState(true);
     instrumentModeButton.setColour(juce::TextButton::buttonOnColourId, OpenWavLookAndFeel::accentCyan.withAlpha(0.32f));
     instrumentModeButton.setColour(juce::TextButton::textColourOnId, OpenWavLookAndFeel::accentCyan);
@@ -479,6 +506,7 @@ SampleMapComponent::SampleMapComponent(AudioEngine& engine)
     };
     addChildComponent(instrumentView);
 
+    midiChannelButton.setComponentID("iconOnlyBtn");
     midiChannelButton.setColour(juce::TextButton::buttonColourId, OpenWavLookAndFeel::accentCyan.withAlpha(0.25f));
     midiChannelButton.setColour(juce::TextButton::textColourOffId, OpenWavLookAndFeel::accentCyan);
     midiChannelButton.setTooltip("Select incoming MIDI Channel for the Sample Mapper (Default: Channel 2)");
@@ -541,7 +569,7 @@ SampleMapComponent::SampleMapComponent(AudioEngine& engine)
     setupSlider(keyHighSlider, keyHighTitle, "Key High:", 0.0, 127.0, 1.0, 84.0);
     setupSlider(velLowSlider, velLowTitle, "Vel Low:", 0.0, 127.0, 1.0, 0.0);
     setupSlider(velHighSlider, velHighTitle, "Vel High:", 0.0, 127.0, 1.0, 127.0);
-    setupSlider(rrSlider, rrTitle, "Round Robin:", 1.0, 8.0, 1.0, 1.0);
+    setupSlider(rrSlider, rrTitle, "Round Robin:", 1.0, 32.0, 1.0, 1.0);
     setupSlider(tuneSlider, tuneTitle, "Fine Tune:", -100.0, 100.0, 1.0, 0.0);
     setupSlider(gainSlider, gainTitle, "Gain (dB):", -24.0, 12.0, 0.5, 0.0);
 
@@ -553,6 +581,7 @@ SampleMapComponent::SampleMapComponent(AudioEngine& engine)
     addChildComponent(inspectorDeleteButton);
 
     // ── Velocity Curve Button & Studio Controls ──────────────
+    velCurveButton.setComponentID("iconOnlyBtn");
     velCurveButton.setColour(juce::TextButton::buttonColourId, OpenWavLookAndFeel::accentCyan.withAlpha(0.20f));
     velCurveButton.setColour(juce::TextButton::textColourOffId, OpenWavLookAndFeel::accentCyan);
     velCurveButton.setTooltip("Toggle Visual Velocity Curve & Sensitivity Editor");
@@ -2216,51 +2245,80 @@ void SampleMapComponent::triggerKeybedNote(int note, float velocity, int velInt)
         return;
     }
 
-    int chosenIdx = -1;
-    if (matchingZoneIndices.size() == 1 || roundRobinMode == 2)
+    std::vector<int> distinctRrGroups;
+    for (int idx : matchingZoneIndices)
     {
-        chosenIdx = matchingZoneIndices[0];
+        int rr = zones[static_cast<size_t>(idx)].roundRobinIndex;
+        if (std::find(distinctRrGroups.begin(), distinctRrGroups.end(), rr) == distinctRrGroups.end())
+            distinctRrGroups.push_back(rr);
     }
-    else if (roundRobinMode == 1) // Random RR
-    {
-        chosenIdx = matchingZoneIndices[static_cast<size_t>(juce::Random::getSystemRandom().nextInt(static_cast<int>(matchingZoneIndices.size())))];
-    }
-    else // Cycle RR
-    {
-        std::sort(matchingZoneIndices.begin(), matchingZoneIndices.end(), [this](int a, int b) {
-            return zones[a].roundRobinIndex < zones[b].roundRobinIndex;
-        });
-        static std::map<int, int> rrCounters;
-        int count = rrCounters[note]++;
-        chosenIdx = matchingZoneIndices[static_cast<size_t>(count) % matchingZoneIndices.size()];
-    }
+    std::sort(distinctRrGroups.begin(), distinctRrGroups.end());
 
-    if (chosenIdx >= 0 && chosenIdx < static_cast<int>(zones.size()))
+    int chosenRrGroup = distinctRrGroups[0];
+    if (distinctRrGroups.size() > 1 && roundRobinMode != 2)
     {
-        selectedZoneIndex = chosenIdx;
-        selectedZoneIndices.clear();
-        selectedZoneIndices.insert(chosenIdx);
-
-        const auto& z = zones[chosenIdx];
-        juce::File fileToLoad(z.filePath);
-        if (fileToLoad.existsAsFile())
+        const int noteIdx = juce::jlimit(0, 127, note);
+        if (roundRobinMode == 1) // Random RR
         {
-            if (audioEngine.getCurrentFile() != fileToLoad)
+            int lastGroup = lastRandomRrGroup[static_cast<size_t>(noteIdx)];
+            int pick = juce::Random::getSystemRandom().nextInt(static_cast<int>(distinctRrGroups.size()));
+            if (distinctRrGroups[static_cast<size_t>(pick)] == lastGroup)
+                pick = (pick + 1) % static_cast<int>(distinctRrGroups.size());
+            chosenRrGroup = distinctRrGroups[static_cast<size_t>(pick)];
+            lastRandomRrGroup[static_cast<size_t>(noteIdx)] = chosenRrGroup;
+        }
+        else // Cycle RR
+        {
+            int count = rrCounters[static_cast<size_t>(noteIdx)]++;
+            chosenRrGroup = distinctRrGroups[static_cast<size_t>(count) % distinctRrGroups.size()];
+        }
+    }
+
+    std::vector<int> chosenIndices;
+    for (int idx : matchingZoneIndices)
+    {
+        if (zones[static_cast<size_t>(idx)].roundRobinIndex == chosenRrGroup)
+            chosenIndices.push_back(idx);
+    }
+
+    if (!chosenIndices.empty())
+    {
+        int primaryIdx = chosenIndices[0];
+        selectedZoneIndex = primaryIdx;
+        selectedZoneIndices.clear();
+        for (int idx : chosenIndices)
+            selectedZoneIndices.insert(idx);
+
+        bool loadedPrimary = false;
+        float primaryEffectiveVel = velocity;
+        for (int idx : chosenIndices)
+        {
+            const auto& z = zones[static_cast<size_t>(idx)];
+            juce::File fileToLoad(z.filePath);
+            if (fileToLoad.existsAsFile())
             {
-                audioEngine.loadFile(fileToLoad, false, true);
+                float effectiveVelocity = computeEffectiveVelocity(velocity, &z);
+                if (!loadedPrimary)
+                {
+                    if (audioEngine.getCurrentFile() != fileToLoad)
+                        audioEngine.loadFile(fileToLoad, false, true);
+                    primaryEffectiveVel = effectiveVelocity;
+                    loadedPrimary = true;
+                }
+
+                audioEngine.playZoneVoice(fileToLoad, note, z.rootNote, z.fineTuneCents, z.gainDb, effectiveVelocity,
+                                          z.attackMs / 1000.0f, z.decayMs / 1000.0f, z.sustainLevel, z.releaseMs / 1000.0f,
+                                          oneShotButton.getToggleState() || audioEngine.isOneShotEnabled(),
+                                          loopButton.getToggleState() || audioEngine.isLooping());
             }
+        }
 
-            float effectiveVelocity = computeEffectiveVelocity(velocity, &z);
-            audioEngine.playZoneVoice(fileToLoad, note, z.rootNote, z.fineTuneCents, z.gainDb, effectiveVelocity,
-                                      z.attackMs / 1000.0f, z.decayMs / 1000.0f, z.sustainLevel, z.releaseMs / 1000.0f,
-                                      oneShotButton.getToggleState() || audioEngine.isOneShotEnabled(),
-                                      loopButton.getToggleState() || audioEngine.isLooping());
-
+        if (loadedPrimary)
+        {
             velocityCurveView.triggerHit(velInt);
-
             auditionNote = note;
             int ch = midiChannelSetting > 0 ? midiChannelSetting : 2;
-            audioEngine.getKeyboardState().noteOn(ch, note, effectiveVelocity);
+            audioEngine.getKeyboardState().noteOn(ch, note, primaryEffectiveVel);
             resized();
             repaint();
         }
@@ -2785,49 +2843,50 @@ void SampleMapComponent::resized()
 {
     auto area = getLocalBounds().reduced(20, 16);
 
-    // ── Single Top Toolbar ──
+    // ── Single Top Toolbar (Compact Icon-Only Buttons) ──
     auto topRow = area.removeFromTop(28);
-    int gap = 5;
+    int gap = 4;
+    const int iconBtnW = 30;
 
-    midiChannelButton.setBounds(topRow.removeFromRight(88));
+    midiChannelButton.setBounds(topRow.removeFromRight(iconBtnW));
     topRow.removeFromRight(gap);
 
-    velCurveButton.setBounds(topRow.removeFromRight(96));
+    velCurveButton.setBounds(topRow.removeFromRight(iconBtnW));
     topRow.removeFromRight(gap);
 
-    addSampleButton.setBounds(topRow.removeFromLeft(78));
+    addSampleButton.setBounds(topRow.removeFromLeft(iconBtnW));
     topRow.removeFromLeft(gap);
-    lorisResynthButton.setBounds(topRow.removeFromLeft(90));
+    lorisResynthButton.setBounds(topRow.removeFromLeft(iconBtnW));
     topRow.removeFromLeft(gap);
-    deleteSelectedButton.setBounds(topRow.removeFromLeft(96));
+    deleteSelectedButton.setBounds(topRow.removeFromLeft(iconBtnW));
+    topRow.removeFromLeft(gap + 4);
+    autoMapPitchButton.setBounds(topRow.removeFromLeft(iconBtnW));
     topRow.removeFromLeft(gap);
-    autoMapPitchButton.setBounds(topRow.removeFromLeft(70));
+    autoMapChromaticButton.setBounds(topRow.removeFromLeft(iconBtnW));
     topRow.removeFromLeft(gap);
-    autoMapChromaticButton.setBounds(topRow.removeFromLeft(84));
+    autoMapVelButton.setBounds(topRow.removeFromLeft(iconBtnW));
     topRow.removeFromLeft(gap);
-    autoMapVelButton.setBounds(topRow.removeFromLeft(78));
+    autoMapRRButton.setBounds(topRow.removeFromLeft(iconBtnW));
     topRow.removeFromLeft(gap);
-    autoMapRRButton.setBounds(topRow.removeFromLeft(64));
+    clearMapButton.setBounds(topRow.removeFromLeft(iconBtnW));
+    topRow.removeFromLeft(gap + 4);
+    saveMapButton.setBounds(topRow.removeFromLeft(iconBtnW));
     topRow.removeFromLeft(gap);
-    clearMapButton.setBounds(topRow.removeFromLeft(64));
+    loadMapButton.setBounds(topRow.removeFromLeft(iconBtnW));
     topRow.removeFromLeft(gap);
-    saveMapButton.setBounds(topRow.removeFromLeft(66));
+    exportZipButton.setBounds(topRow.removeFromLeft(iconBtnW));
+    topRow.removeFromLeft(gap + 4);
+    roundRobinButton.setBounds(topRow.removeFromLeft(iconBtnW));
     topRow.removeFromLeft(gap);
-    loadMapButton.setBounds(topRow.removeFromLeft(66));
+    pitchTrackButton.setBounds(topRow.removeFromLeft(iconBtnW));
     topRow.removeFromLeft(gap);
-    exportZipButton.setBounds(topRow.removeFromLeft(78));
+    oneShotButton.setBounds(topRow.removeFromLeft(iconBtnW));
     topRow.removeFromLeft(gap);
-    roundRobinButton.setBounds(topRow.removeFromLeft(78));
+    loopButton.setBounds(topRow.removeFromLeft(iconBtnW));
+    topRow.removeFromLeft(gap + 4);
+    openFxRackButton.setBounds(topRow.removeFromLeft(iconBtnW));
     topRow.removeFromLeft(gap);
-    pitchTrackButton.setBounds(topRow.removeFromLeft(88));
-    topRow.removeFromLeft(gap);
-    oneShotButton.setBounds(topRow.removeFromLeft(84));
-    topRow.removeFromLeft(gap);
-    loopButton.setBounds(topRow.removeFromLeft(66));
-    topRow.removeFromLeft(gap);
-    openFxRackButton.setBounds(topRow.removeFromLeft(82));
-    topRow.removeFromLeft(gap);
-    instrumentModeButton.setBounds(topRow.removeFromLeft(86));
+    instrumentModeButton.setBounds(topRow.removeFromLeft(iconBtnW));
 
     if (instrumentModeActive)
     {

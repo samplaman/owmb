@@ -404,7 +404,7 @@ void applyOpcodesToZone(const OpcodeMap& opcodes,
 
     if (hasKey("seq_position"))
     {
-        zone.roundRobinIndex = juce::jlimit(1, 8, getStr("seq_position").getIntValue());
+        zone.roundRobinIndex = juce::jlimit(1, 32, getStr("seq_position").getIntValue());
         hasSeqRoundRobin = true;
     }
     else if (hasKey("lorand") || hasKey("hirand"))
@@ -502,6 +502,14 @@ bool SfzParser::parseFile(const juce::File& sfzFile, SampleMapState& outState, j
     bool hasSeqRR = false;
     bool hasRandRR = false;
 
+    struct RandRegionInfo
+    {
+        size_t zoneIndex;
+        float lorand;
+        float hirand;
+    };
+    std::vector<RandRegionInfo> randRegions;
+
     auto flushRegion = [&]() {
         if (currentSection != Section::Region)
             return;
@@ -524,6 +532,14 @@ bool SfzParser::parseFile(const juce::File& sfzFile, SampleMapState& outState, j
             anyPitchTrackZero = true;
         else
             allPitchTrackZero = false;
+
+        if (merged.find("seq_position") == merged.end() &&
+            (merged.find("lorand") != merged.end() || merged.find("hirand") != merged.end()))
+        {
+            float loR = (merged.find("lorand") != merged.end()) ? merged["lorand"].getFloatValue() : 0.0f;
+            float hiR = (merged.find("hirand") != merged.end()) ? merged["hirand"].getFloatValue() : 1.0f;
+            randRegions.push_back({ parsed.zones.size(), loR, hiR });
+        }
 
         parsed.zones.push_back(std::move(zone));
     };
@@ -605,6 +621,28 @@ bool SfzParser::parseFile(const juce::File& sfzFile, SampleMapState& outState, j
     {
         outError = "No valid <region> entries with sample paths were found in the SFZ file.";
         return false;
+    }
+
+    // Assign sequential roundRobinIndex values for lorand/hirand groups sharing key+velocity bounds
+    if (!randRegions.empty())
+    {
+        std::map<std::tuple<int, int, int, int>, std::vector<RandRegionInfo>> buckets;
+        for (const auto& rr : randRegions)
+        {
+            const auto& z = parsed.zones[rr.zoneIndex];
+            buckets[{ z.keyLow, z.keyHigh, z.velLow, z.velHigh }].push_back(rr);
+        }
+        for (auto& kv : buckets)
+        {
+            auto& vec = kv.second;
+            std::sort(vec.begin(), vec.end(), [](const RandRegionInfo& a, const RandRegionInfo& b) {
+                if (std::abs(a.lorand - b.lorand) > 1e-5f)
+                    return a.lorand < b.lorand;
+                return a.hirand < b.hirand;
+            });
+            for (size_t idx = 0; idx < vec.size(); ++idx)
+                parsed.zones[vec[idx].zoneIndex].roundRobinIndex = juce::jlimit(1, 32, static_cast<int>(idx) + 1);
+        }
     }
 
     if (anyPitchTrackZero && allPitchTrackZero)

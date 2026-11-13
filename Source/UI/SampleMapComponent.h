@@ -179,6 +179,8 @@ private:
     std::vector<SampleMapZone> zones;
     int selectedZoneIndex { -1 };
     int roundRobinMode { 0 }; // 0 = Cycle, 1 = Random, 2 = Off
+    std::array<int, 128> rrCounters {};
+    std::array<int, 128> lastRandomRrGroup {};
 
     // Action Toolbar
     juce::TextButton addSampleButton { "Add Sample" };
