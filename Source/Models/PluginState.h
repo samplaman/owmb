@@ -485,7 +485,7 @@ struct SampleMapState
     float samplerReverbAmount { 0.0f };
     bool pitchTrackingEnabled { true };
     int roundRobinMode { 0 }; // 0 = Cycle, 1 = Random, 2 = Off
-    int midiChannel { 2 };    // Default to MIDI Channel 2
+    int midiChannel { 0 };    // 0 = Omni (All Channels)
     float velocitySensitivity { 1.0f }; // 0.0 (flat/fixed) to 1.0 (full dynamic range)
     float velocityCurve { 0.0f };       // -1.0 (Hard/Log) to +1.0 (Soft/Exp), 0 = Linear
     int velocityCurveMode { 0 };        // 0 = Linear, 1 = Soft/Exp, 2 = Hard/Log, 3 = S-Curve, 4 = Fixed
@@ -595,7 +595,7 @@ struct SampleMapState
         if (obj->hasProperty("pitchTrackingEnabled")) s.pitchTrackingEnabled = static_cast<bool>(obj->getProperty("pitchTrackingEnabled"));
         if (obj->hasProperty("roundRobinMode")) s.roundRobinMode = static_cast<int>(obj->getProperty("roundRobinMode"));
         if (obj->hasProperty("midiChannel")) s.midiChannel = static_cast<int>(obj->getProperty("midiChannel"));
-        else s.midiChannel = 2;
+        else s.midiChannel = 0;
         if (obj->hasProperty("velocitySensitivity")) s.velocitySensitivity = static_cast<float>(obj->getProperty("velocitySensitivity"));
         if (obj->hasProperty("velocityCurve")) s.velocityCurve = static_cast<float>(obj->getProperty("velocityCurve"));
         if (obj->hasProperty("velocityCurveMode")) s.velocityCurveMode = static_cast<int>(obj->getProperty("velocityCurveMode"));
@@ -649,7 +649,7 @@ struct SampleMapState
         s.samplerReverbAmount = static_cast<float>(xml.getDoubleAttribute("samplerReverbAmount", 0.0));
         s.pitchTrackingEnabled = xml.getBoolAttribute("pitchTrackingEnabled", true);
         s.roundRobinMode = xml.getIntAttribute("roundRobinMode", 0);
-        s.midiChannel = xml.getIntAttribute("midiChannel", 2);
+        s.midiChannel = xml.getIntAttribute("midiChannel", 0);
         s.velocitySensitivity = static_cast<float>(xml.getDoubleAttribute("velocitySensitivity", 1.0));
         s.velocityCurve = static_cast<float>(xml.getDoubleAttribute("velocityCurve", 0.0));
         s.velocityCurveMode = xml.getIntAttribute("velocityCurveMode", 0);

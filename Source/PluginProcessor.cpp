@@ -40,6 +40,8 @@ void OpenWavAudioProcessor::setSampleMapState(const SampleMapState& s)
         const juce::ScopedLock sl(stateLock);
         sampleMapState = s;
         fullPluginState.sampleMap = s;
+        noteRoundRobinCounters.clear();
+        lastRandomZoneIndex.clear();
     }
 }
 
@@ -56,6 +58,8 @@ void OpenWavAudioProcessor::setFullPluginState(const PluginFullState& s, bool pr
         fullPluginState = s;
         editState = s.edit;
         sampleMapState = s.sampleMap;
+        noteRoundRobinCounters.clear();
+        lastRandomZoneIndex.clear();
     }
 
     if (preloadSamples)
@@ -84,11 +88,10 @@ void OpenWavAudioProcessor::handleNoteOn(juce::MidiKeyboardState*, int midiChann
         currentSampleMap = sampleMapState;
     }
 
-    int mapChannel = currentSampleMap.midiChannel > 0 ? currentSampleMap.midiChannel : 2;
-    bool isSampleMapChannel = (midiChannel == mapChannel || currentSampleMap.midiChannel == 0);
+    int mapChannel = (currentSampleMap.midiChannel > 0) ? currentSampleMap.midiChannel : (midiChannel > 0 ? midiChannel : 1);
     bool hasMappedZones = !currentSampleMap.zones.empty();
 
-    if (isSampleMapChannel && hasMappedZones)
+    if (hasMappedZones)
     {
         bool zoneTriggered = false;
 
@@ -171,11 +174,10 @@ void OpenWavAudioProcessor::handleNoteOff(juce::MidiKeyboardState*, int midiChan
         currentSampleMap = sampleMapState;
     }
 
-    int mapChannel = currentSampleMap.midiChannel > 0 ? currentSampleMap.midiChannel : 2;
-    bool isSampleMapChannel = (midiChannel == mapChannel || currentSampleMap.midiChannel == 0);
+    int mapChannel = (currentSampleMap.midiChannel > 0) ? currentSampleMap.midiChannel : (midiChannel > 0 ? midiChannel : 1);
     bool hasMappedZones = !currentSampleMap.zones.empty();
 
-    if (isSampleMapChannel && hasMappedZones)
+    if (hasMappedZones)
     {
         audioEngine.stopZoneVoice(midiNoteNumber);
         audioEngine.getKeyboardState().noteOff(mapChannel, midiNoteNumber, 0.0f);

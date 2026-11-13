@@ -181,6 +181,7 @@ private:
     int roundRobinMode { 0 }; // 0 = Cycle, 1 = Random, 2 = Off
     std::array<int, 128> rrCounters {};
     std::array<int, 128> lastRandomRrGroup {};
+    bool suppressNextKeyboardStateUi { false };
 
     // Action Toolbar
     juce::TextButton addSampleButton { "Add Sample" };
@@ -202,7 +203,7 @@ private:
     juce::TextButton instrumentModeButton { "Instrument" };
     juce::TextButton autoSampleButton { "Auto Sample" };
     juce::TextButton velCurveButton { "Vel: 100%" };
-    juce::TextButton midiChannelButton { "MIDI Ch: 2" };
+    juce::TextButton midiChannelButton { "MIDI: Omni" };
 
     bool instrumentModeActive { false };
     InstrumentViewComponent instrumentView;
@@ -213,7 +214,7 @@ private:
     void updateVelocityCurveUI();
     float computeEffectiveVelocity(float inVelocity, const SampleMapZone* zone = nullptr) const;
 
-    int midiChannelSetting { 2 };
+    int midiChannelSetting { 0 };
     float globalVelocitySensitivity { 1.0f };
     float globalVelocityCurve { 0.0f };
     int globalVelocityCurveMode { 0 };

@@ -405,6 +405,8 @@ SampleMapComponent::SampleMapComponent(AudioEngine& engine)
     roundRobinButton.setTooltip("Round Robin Mode: " + roundRobinButton.getButtonText() + " (click to cycle)");
     roundRobinButton.onClick = [this] {
         roundRobinMode = (roundRobinMode + 1) % 3;
+        rrCounters.fill(0);
+        lastRandomRrGroup.fill(0);
         roundRobinButton.setButtonText(roundRobinMode == 0 ? "RR: Cycle" : (roundRobinMode == 1 ? "RR: Random" : "RR: OFF"));
         roundRobinButton.setTooltip("Round Robin Mode: " + roundRobinButton.getButtonText() + " (click to cycle)");
         if (onStateChanged) onStateChanged();
@@ -529,7 +531,7 @@ SampleMapComponent::SampleMapComponent(AudioEngine& engine)
     midiChannelButton.setComponentID("iconOnlyBtn");
     midiChannelButton.setColour(juce::TextButton::buttonColourId, OpenWavLookAndFeel::accentCyan.withAlpha(0.25f));
     midiChannelButton.setColour(juce::TextButton::textColourOffId, OpenWavLookAndFeel::accentCyan);
-    midiChannelButton.setTooltip("Select incoming MIDI Channel for the Sample Mapper (Default: Channel 2)");
+    midiChannelButton.setTooltip("Select incoming MIDI Channel for the Sample Mapper (Default: Omni)");
     updateMidiChannelButtonText();
     midiChannelButton.onClick = [this] {
         juce::PopupMenu m;
@@ -950,68 +952,108 @@ void SampleMapComponent::updateMidiChannelButtonText()
 
 void SampleMapComponent::handleNoteOn(juce::MidiKeyboardState*, int midiChannel, int midiNoteNumber, float velocity)
 {
+    if (suppressNextKeyboardStateUi)
+        return;
+
     int targetCh = midiChannelSetting;
     if (targetCh > 0 && midiChannel > 0 && midiChannel != targetCh)
         return;
 
-    if (midiNoteNumber >= 0 && midiNoteNumber < 128)
-    {
-        int velInt = juce::jlimit(0, 127, static_cast<int>(std::round(velocity * 127.0f)));
+    if (midiNoteNumber < 0 || midiNoteNumber >= 128)
+        return;
 
-        int matchingZoneIdx = -1;
-        juce::File fileToLoad;
-        for (size_t i = 0; i < zones.size(); ++i)
+    int velInt = juce::jlimit(0, 127, static_cast<int>(std::round(velocity * 127.0f)));
+    juce::Component::SafePointer<SampleMapComponent> safeThis(this);
+    juce::MessageManager::callAsync([safeThis, midiNoteNumber, velInt] {
+        if (safeThis == nullptr)
+            return;
+
+        std::vector<int> matchingIndices;
+        for (size_t i = 0; i < safeThis->zones.size(); ++i)
         {
-            const auto& z = zones[i];
-            if (midiNoteNumber >= z.keyLow && midiNoteNumber <= z.keyHigh && velInt >= z.velLow && velInt <= z.velHigh && z.filePath.isNotEmpty())
+            const auto& z = safeThis->zones[i];
+            if (midiNoteNumber >= z.keyLow && midiNoteNumber <= z.keyHigh
+                && velInt >= z.velLow && velInt <= z.velHigh && z.filePath.isNotEmpty())
             {
-                matchingZoneIdx = static_cast<int>(i);
-                fileToLoad = juce::File(z.filePath);
-                break;
+                matchingIndices.push_back(static_cast<int>(i));
             }
         }
 
         // If sample map has zones, only respond to mapped areas at this velocity!
-        if (!zones.empty() && matchingZoneIdx < 0)
+        if (!safeThis->zones.empty() && matchingIndices.empty())
             return;
 
-        activeMidiNotes[static_cast<size_t>(midiNoteNumber)] = true;
-        activeNoteVelocities[static_cast<size_t>(midiNoteNumber)] = velInt;
-
-        uint32_t now = juce::Time::getMillisecondCounter();
-        recentHitDots.erase(
-            std::remove_if(recentHitDots.begin(), recentHitDots.end(), [midiNoteNumber](const HitDot& d) {
-                return d.note == midiNoteNumber;
-            }),
-            recentHitDots.end()
-        );
-        recentHitDots.push_back({ midiNoteNumber, velInt, now });
-        velocityCurveView.triggerHit(velInt);
-
-        if (matchingZoneIdx >= 0)
+        int chosenZoneIdx = -1;
+        juce::File fileToLoad;
+        if (!matchingIndices.empty())
         {
-            selectedZoneIndex = matchingZoneIdx;
-            selectedZoneIndices.clear();
-            selectedZoneIndices.insert(matchingZoneIdx);
-        }
-
-        juce::Component::SafePointer<SampleMapComponent> safeThis(this);
-        juce::MessageManager::callAsync([safeThis, fileToLoad] {
-            if (safeThis == nullptr) return;
-            if (!safeThis->isTimerRunning())
-                safeThis->startTimerHz(30);
-
-            if (fileToLoad.existsAsFile())
+            std::vector<int> distinctRrGroups;
+            for (int idx : matchingIndices)
             {
-                if (safeThis->audioEngine.getCurrentFile() != fileToLoad)
+                int rr = safeThis->zones[static_cast<size_t>(idx)].roundRobinIndex;
+                if (std::find(distinctRrGroups.begin(), distinctRrGroups.end(), rr) == distinctRrGroups.end())
+                    distinctRrGroups.push_back(rr);
+            }
+            std::sort(distinctRrGroups.begin(), distinctRrGroups.end());
+
+            int chosenRr = distinctRrGroups[0];
+            if (distinctRrGroups.size() > 1 && safeThis->roundRobinMode != 2)
+            {
+                if (safeThis->roundRobinMode == 1)
                 {
-                    safeThis->audioEngine.loadFile(fileToLoad, false, true);
+                    int lastGroup = safeThis->lastRandomRrGroup[static_cast<size_t>(midiNoteNumber)];
+                    int pick = juce::Random::getSystemRandom().nextInt(static_cast<int>(distinctRrGroups.size()));
+                    if (distinctRrGroups[static_cast<size_t>(pick)] == lastGroup)
+                        pick = (pick + 1) % static_cast<int>(distinctRrGroups.size());
+                    chosenRr = distinctRrGroups[static_cast<size_t>(pick)];
+                    safeThis->lastRandomRrGroup[static_cast<size_t>(midiNoteNumber)] = chosenRr;
+                }
+                else
+                {
+                    int count = safeThis->rrCounters[static_cast<size_t>(midiNoteNumber)]++;
+                    chosenRr = distinctRrGroups[static_cast<size_t>(count) % distinctRrGroups.size()];
                 }
             }
-            safeThis->resized();
-            safeThis->repaint();
-        });
-    }
+
+            safeThis->selectedZoneIndices.clear();
+            for (int idx : matchingIndices)
+            {
+                if (safeThis->zones[static_cast<size_t>(idx)].roundRobinIndex == chosenRr)
+                {
+                    if (chosenZoneIdx < 0)
+                        chosenZoneIdx = idx;
+                    safeThis->selectedZoneIndices.insert(idx);
+                }
+            }
+            if (chosenZoneIdx >= 0)
+            {
+                safeThis->selectedZoneIndex = chosenZoneIdx;
+                fileToLoad = juce::File(safeThis->zones[static_cast<size_t>(chosenZoneIdx)].filePath);
+            }
+        }
+
+        safeThis->activeMidiNotes[static_cast<size_t>(midiNoteNumber)] = true;
+        safeThis->activeNoteVelocities[static_cast<size_t>(midiNoteNumber)] = velInt;
+
+        uint32_t now = juce::Time::getMillisecondCounter();
+        safeThis->recentHitDots.erase(
+            std::remove_if(safeThis->recentHitDots.begin(), safeThis->recentHitDots.end(), [midiNoteNumber](const HitDot& d) {
+                return d.note == midiNoteNumber;
+            }),
+            safeThis->recentHitDots.end()
+        );
+        safeThis->recentHitDots.push_back({ midiNoteNumber, velInt, now });
+        safeThis->velocityCurveView.triggerHit(velInt);
+
+        if (!safeThis->isTimerRunning())
+            safeThis->startTimerHz(30);
+
+        if (fileToLoad.existsAsFile() && safeThis->audioEngine.getCurrentFile() != fileToLoad)
+            safeThis->audioEngine.loadFile(fileToLoad, false, true);
+
+        safeThis->resized();
+        safeThis->repaint();
+    });
 }
 
 void SampleMapComponent::handleNoteOff(juce::MidiKeyboardState*, int midiChannel, int midiNoteNumber, float /*velocity*/)
@@ -1768,6 +1810,8 @@ void SampleMapComponent::autoMapRoundRobin()
         }
     }
 
+    rrCounters.fill(0);
+    lastRandomRrGroup.fill(0);
     resized();
     repaint();
     if (onStateChanged) onStateChanged();
@@ -2140,8 +2184,29 @@ void SampleMapComponent::paintZoneGrid(juce::Graphics& g, juce::Rectangle<float>
         g.drawText("v" + juce::String(vel), inner.getRight() - 24.0f, y - 10.0f, 22.0f, 10.0f, juce::Justification::right);
     }
 
-    // Draw mapped zones
+    // Draw mapped zones (unselected first, selected on top; only top-most zone in an identical RR stack draws label)
+    struct StackInfo { int count = 0; int topIndex = -1; };
+    std::map<std::tuple<int, int, int, int>, StackInfo> stackMap;
     for (size_t i = 0; i < zones.size(); ++i)
+    {
+        const auto& z = zones[i];
+        auto key = std::make_tuple(z.keyLow, z.keyHigh, z.velLow, z.velHigh);
+        auto& info = stackMap[key];
+        info.count++;
+        if (isZoneSelected(static_cast<int>(i)) || !isZoneSelected(info.topIndex))
+            info.topIndex = static_cast<int>(i);
+    }
+
+    std::vector<size_t> drawOrder;
+    drawOrder.reserve(zones.size());
+    for (size_t i = 0; i < zones.size(); ++i)
+        if (!isZoneSelected(static_cast<int>(i)))
+            drawOrder.push_back(i);
+    for (size_t i = 0; i < zones.size(); ++i)
+        if (isZoneSelected(static_cast<int>(i)))
+            drawOrder.push_back(i);
+
+    for (size_t i : drawOrder)
     {
         const auto& z = zones[i];
         float x1 = xForNoteNumber(z.keyLow, inner);
@@ -2152,26 +2217,34 @@ void SampleMapComponent::paintZoneGrid(juce::Graphics& g, juce::Rectangle<float>
         juce::Rectangle<float> zRect(x1, y1, std::max(6.0f, x2 - x1), std::max(6.0f, y2 - y1));
 
         bool isSelected = isZoneSelected(static_cast<int>(i));
-        
+        const auto& stack = stackMap[std::make_tuple(z.keyLow, z.keyHigh, z.velLow, z.velHigh)];
+        bool isTopOfStack = (stack.topIndex == static_cast<int>(i));
+
         // Base color with slight hue shift for different Round Robin layers
         float hueShift = (z.roundRobinIndex > 1) ? (0.07f * (z.roundRobinIndex - 1)) : 0.0f;
         juce::Colour baseAccent = OpenWavLookAndFeel::accentCyan.withRotatedHue(hueShift);
         juce::Colour zoneCol = isSelected ? baseAccent : baseAccent.withAlpha(0.65f);
 
-        // Zone background fill
-        g.setColour(zoneCol.withAlpha(isSelected ? 0.28f : 0.16f));
-        g.fillRoundedRectangle(zRect, 4.0f);
+        // Zone background fill (avoid stacking alpha opaquely when multiple RR layers share identical bounds)
+        if (isTopOfStack || stack.count == 1)
+        {
+            g.setColour(zoneCol.withAlpha(isSelected ? 0.28f : 0.16f));
+            g.fillRoundedRectangle(zRect, 4.0f);
+        }
 
         // Zone border
         g.setColour(zoneCol);
         g.drawRoundedRectangle(zRect, 4.0f, isSelected ? 2.0f : 1.0f);
 
         // Root note indicator line
-        float rx = xForNoteNumber(z.rootNote, inner) + (xForNoteNumber(z.rootNote + 1, inner) - xForNoteNumber(z.rootNote, inner)) * 0.5f;
-        if (rx >= zRect.getX() && rx <= zRect.getRight())
+        if (isTopOfStack || stack.count == 1)
         {
-            g.setColour(OpenWavLookAndFeel::favoriteRed.withAlpha(0.8f));
-            g.drawLine(rx, zRect.getY(), rx, zRect.getBottom(), 1.5f);
+            float rx = xForNoteNumber(z.rootNote, inner) + (xForNoteNumber(z.rootNote + 1, inner) - xForNoteNumber(z.rootNote, inner)) * 0.5f;
+            if (rx >= zRect.getX() && rx <= zRect.getRight())
+            {
+                g.setColour(OpenWavLookAndFeel::favoriteRed.withAlpha(0.8f));
+                g.drawLine(rx, zRect.getY(), rx, zRect.getBottom(), 1.5f);
+            }
         }
 
         // Edge resize handles for selected zone card
@@ -2185,22 +2258,28 @@ void SampleMapComponent::paintZoneGrid(juce::Graphics& g, juce::Rectangle<float>
             g.fillRect(juce::Rectangle<float>(zRect.getCentreX() - handleSize * 0.5f, zRect.getBottom() - 2.0f, handleSize, 4.0f));
         }
 
-        // Zone text label & badges
-        g.setColour(OpenWavLookAndFeel::textPrimary);
-        g.setFont(juce::Font(10.0f).boldened());
-
-        juce::String labelText = z.sampleName;
-        juce::String tag;
-        if (z.roundRobinIndex > 1) tag += "RR" + juce::String(z.roundRobinIndex);
-        if (z.velLow > 0 || z.velHigh < 127)
+        // Zone text label & badges (draw only on the top/selected zone of an identical RR stack)
+        if (isTopOfStack || stack.count == 1)
         {
-            if (tag.isNotEmpty()) tag += " ";
-            tag += "v:" + juce::String(z.velLow) + "-" + juce::String(z.velHigh);
-        }
-        if (tag.isNotEmpty() && zRect.getHeight() > 24.0f)
-            labelText += " [" + tag + "]";
+            g.setColour(OpenWavLookAndFeel::textPrimary);
+            g.setFont(juce::Font(10.0f).boldened());
 
-        g.drawText(labelText, zRect.reduced(4.0f, 2.0f), juce::Justification::centred, true);
+            juce::String labelText = z.sampleName;
+            juce::String tag;
+            if (stack.count > 1)
+                tag += "RR" + juce::String(z.roundRobinIndex) + "/" + juce::String(stack.count);
+            else if (z.roundRobinIndex > 1)
+                tag += "RR" + juce::String(z.roundRobinIndex);
+            if (z.velLow > 0 || z.velHigh < 127)
+            {
+                if (tag.isNotEmpty()) tag += " ";
+                tag += "v:" + juce::String(z.velLow) + "-" + juce::String(z.velHigh);
+            }
+            if (tag.isNotEmpty() && zRect.getHeight() > 24.0f)
+                labelText += " [" + tag + "]";
+
+            g.drawText(labelText, zRect.reduced(4.0f, 2.0f), juce::Justification::centred, true);
+        }
     }
 
     // ── Velocity Recorded Hit Dots ──
@@ -2345,8 +2424,10 @@ void SampleMapComponent::triggerKeybedNote(int note, float velocity, int velInt)
         {
             velocityCurveView.triggerHit(velInt);
             auditionNote = note;
-            int ch = midiChannelSetting > 0 ? midiChannelSetting : 2;
+            int ch = midiChannelSetting > 0 ? midiChannelSetting : 1;
+            suppressNextKeyboardStateUi = true;
             audioEngine.getKeyboardState().noteOn(ch, note, primaryEffectiveVel);
+            suppressNextKeyboardStateUi = false;
             resized();
             repaint();
         }
@@ -2528,6 +2609,7 @@ void SampleMapComponent::mouseDown(const juce::MouseEvent& e)
                     return;
                 }
 
+                int targetIdx = i;
                 if (isMulti)
                 {
                     if (isZoneSelected(i))
@@ -2536,12 +2618,40 @@ void SampleMapComponent::mouseDown(const juce::MouseEvent& e)
                         selectedZoneIndices.insert(i);
                     selectedZoneIndex = i;
                 }
-                else if (!isZoneSelected(i))
+                else
                 {
-                    selectZone(i, false);
+                    // Collect any stacked RR zones sharing these exact bounds
+                    std::vector<int> stackIndices;
+                    for (int k = 0; k < static_cast<int>(zones.size()); ++k)
+                    {
+                        const auto& zk = zones[static_cast<size_t>(k)];
+                        if (zk.keyLow == z.keyLow && zk.keyHigh == z.keyHigh
+                            && zk.velLow == z.velLow && zk.velHigh == z.velHigh)
+                        {
+                            stackIndices.push_back(k);
+                        }
+                    }
+
+                    if (stackIndices.size() > 1 && isZoneSelected(selectedZoneIndex)
+                        && std::find(stackIndices.begin(), stackIndices.end(), selectedZoneIndex) != stackIndices.end())
+                    {
+                        auto it = std::find(stackIndices.begin(), stackIndices.end(), selectedZoneIndex);
+                        ++it;
+                        targetIdx = (it != stackIndices.end()) ? *it : stackIndices.front();
+                        selectZone(targetIdx, false);
+                    }
+                    else if (!isZoneSelected(i))
+                    {
+                        selectZone(i, false);
+                    }
+                    else
+                    {
+                        targetIdx = selectedZoneIndex;
+                    }
                 }
 
-                activeDragZone = i;
+                activeDragZone = targetIdx;
+                const auto& activeZone = zones[static_cast<size_t>(targetIdx)];
 
                 dragStartNote = noteNumberAtX(e.x, gridArea);
                 dragStartVel = velocityAtY(e.y, gridArea);
@@ -2552,19 +2662,21 @@ void SampleMapComponent::mouseDown(const juce::MouseEvent& e)
                         dragStartZones[sIdx] = zones[sIdx];
                 }
 
-                juce::File fileToLoad(z.filePath);
+                juce::File fileToLoad(activeZone.filePath);
                 if (fileToLoad.existsAsFile())
                 {
                     audioEngine.loadFile(fileToLoad, false, true);
-                    audioEngine.playZoneVoice(fileToLoad, z.rootNote, z.rootNote, z.fineTuneCents, z.gainDb, 0.8f,
-                                              z.attackMs / 1000.0f, z.decayMs / 1000.0f, z.sustainLevel, z.releaseMs / 1000.0f,
+                    audioEngine.playZoneVoice(fileToLoad, activeZone.rootNote, activeZone.rootNote, activeZone.fineTuneCents, activeZone.gainDb, 0.8f,
+                                              activeZone.attackMs / 1000.0f, activeZone.decayMs / 1000.0f, activeZone.sustainLevel, activeZone.releaseMs / 1000.0f,
                                               oneShotButton.getToggleState() || audioEngine.isOneShotEnabled(),
                                               loopButton.getToggleState() || audioEngine.isLooping());
                 }
-                auditionNote = z.rootNote;
+                auditionNote = activeZone.rootNote;
                 auditionVelocity = 100;
-                int ch = midiChannelSetting > 0 ? midiChannelSetting : 2;
+                int ch = midiChannelSetting > 0 ? midiChannelSetting : 1;
+                suppressNextKeyboardStateUi = true;
                 audioEngine.getKeyboardState().noteOn(ch, auditionNote, 0.8f);
+                suppressNextKeyboardStateUi = false;
 
                 float zoneW = zRect.getWidth();
                 float effectiveEdgeThreshold = (zoneW < 24.0f) ? std::min(3.0f, zoneW * 0.25f) : edgeThreshold;
@@ -2699,7 +2811,7 @@ void SampleMapComponent::mouseDrag(const juce::MouseEvent& e)
             if (auditionNote >= 0)
             {
                 audioEngine.stopZoneVoice(auditionNote);
-                int ch = midiChannelSetting > 0 ? midiChannelSetting : 2;
+                int ch = midiChannelSetting > 0 ? midiChannelSetting : 1;
                 audioEngine.getKeyboardState().noteOff(ch, auditionNote, 0.0f);
                 auditionNote = -1;
             }
@@ -2837,7 +2949,7 @@ void SampleMapComponent::mouseUp(const juce::MouseEvent& /*e*/)
 {
     if (auditionNote >= 0)
     {
-        int ch = midiChannelSetting > 0 ? midiChannelSetting : 2;
+        int ch = midiChannelSetting > 0 ? midiChannelSetting : 1;
         audioEngine.stopZoneVoice(auditionNote);
         audioEngine.getKeyboardState().noteOff(ch, auditionNote, 0.0f);
         audioEngine.triggerNoteOff(auditionNote);
@@ -3376,10 +3488,12 @@ void SampleMapComponent::setState(const SampleMapState& state)
     pitchTrackButton.setButtonText(state.pitchTrackingEnabled ? "Pitch Track: ON" : "Pitch Track: OFF");
 
     roundRobinMode = state.roundRobinMode;
+    rrCounters.fill(0);
+    lastRandomRrGroup.fill(0);
     roundRobinButton.setButtonText(roundRobinMode == 0 ? "RR: Cycle" : (roundRobinMode == 1 ? "RR: Random" : "RR: OFF"));
     roundRobinButton.setTooltip("Round Robin Mode: " + roundRobinButton.getButtonText() + " (click to cycle)");
 
-    midiChannelSetting = state.midiChannel > 0 ? state.midiChannel : 2;
+    midiChannelSetting = 0;
     updateMidiChannelButtonText();
 
     globalVelocitySensitivity = state.velocitySensitivity;
