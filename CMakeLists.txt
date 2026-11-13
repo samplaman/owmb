@@ -108,6 +108,8 @@ target_sources(OpenWav PRIVATE
     Source/Audio/AudioEngine.cpp
     Source/Audio/LorisResynthesizer.h
     Source/Audio/LorisResynthesizer.cpp
+    Source/Audio/AutoSamplerEngine.h
+    Source/Audio/AutoSamplerEngine.cpp
     Source/Audio/PerformanceRackDSP.h
     Source/Audio/PerformanceRackDSP.cpp
     Source/UI/OpenWavLookAndFeel.h
@@ -150,6 +152,8 @@ target_sources(OpenWav PRIVATE
     Source/UI/SliceConfigComponent.cpp
     Source/UI/LorisResynthesisDialog.h
     Source/UI/LorisResynthesisDialog.cpp
+    Source/UI/AutoSamplerDialog.h
+    Source/UI/AutoSamplerDialog.cpp
     Source/Network/MobileSyncManager.h
     Source/Network/MobileSyncManager.cpp
     Source/UI/StudioIcons.h
@@ -177,6 +181,8 @@ target_compile_definitions(OpenWav PRIVATE
     JUCE_USE_MP3AUDIOFORMAT=1
     JUCE_USE_FLAC=1
     JUCE_USE_OGGVORBIS=1
+    JUCE_PLUGINHOST_VST3=1
+    $<$<PLATFORM_ID:Darwin>:JUCE_PLUGINHOST_AU=1>
 )
 
 if (UNIX AND NOT APPLE)

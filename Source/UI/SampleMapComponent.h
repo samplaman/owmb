@@ -200,6 +200,7 @@ private:
     juce::TextButton loopButton { "Loop: OFF" };
     juce::TextButton openFxRackButton { "FX Rack" };
     juce::TextButton instrumentModeButton { "Instrument" };
+    juce::TextButton autoSampleButton { "Auto Sample" };
     juce::TextButton velCurveButton { "Vel: 100%" };
     juce::TextButton midiChannelButton { "MIDI Ch: 2" };
 

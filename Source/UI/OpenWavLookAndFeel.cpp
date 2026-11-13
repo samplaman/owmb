@@ -401,6 +401,8 @@ void OpenWavLookAndFeel::drawButtonText(juce::Graphics &g,
       svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 20C8 20 12 12 21 4\"/><line x1=\"3\" y1=\"20\" x2=\"21\" y2=\"20\"/><line x1=\"3\" y1=\"4\" x2=\"3\" y2=\"20\"/></svg>";
   } else if (text.startsWith("MIDI Ch:")) {
       svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"9\"/><circle cx=\"8\" cy=\"12\" r=\"1\" fill=\"currentColor\"/><circle cx=\"16\" cy=\"12\" r=\"1\" fill=\"currentColor\"/><circle cx=\"12\" cy=\"8\" r=\"1\" fill=\"currentColor\"/><circle cx=\"9.5\" cy=\"9.5\" r=\"1\" fill=\"currentColor\"/><circle cx=\"14.5\" cy=\"9.5\" r=\"1\" fill=\"currentColor\"/></svg>";
+  } else if (text == "Auto Sample") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"9\"/><circle cx=\"12\" cy=\"12\" r=\"3\" fill=\"currentColor\"/><line x1=\"12\" y1=\"2\" x2=\"12\" y2=\"5\"/><line x1=\"12\" y1=\"19\" x2=\"12\" y2=\"22\"/><line x1=\"2\" y1=\"12\" x2=\"5\" y2=\"12\"/><line x1=\"19\" y1=\"12\" x2=\"22\" y2=\"12\"/></svg>";
   }
 
   auto font = juce::Font(11.5f).boldened();

@@ -3,6 +3,7 @@
 #include "LorisResynthesisDialog.h"
 #include "ShortcutManager.h"
 #include "../Models/SfzParser.h"
+#include "AutoSamplerDialog.h"
 #include <regex>
 // Rebuild trigger
 
@@ -474,6 +475,25 @@ SampleMapComponent::SampleMapComponent(AudioEngine& engine)
         repaint();
     };
     addAndMakeVisible(instrumentModeButton);
+
+    autoSampleButton.setComponentID("iconOnlyBtn");
+    autoSampleButton.setColour(juce::TextButton::buttonColourId, OpenWavLookAndFeel::accentCyan.withAlpha(0.22f));
+    autoSampleButton.setColour(juce::TextButton::textColourOffId, OpenWavLookAndFeel::accentCyan);
+    autoSampleButton.setTooltip("Auto-Sample a VST3 / AU Instrument into the Sampler (Standalone)");
+    autoSampleButton.onClick = [this] {
+        juce::Component::SafePointer<SampleMapComponent> safeThis(this);
+        AutoSamplerDialog::showAsync(this, [safeThis](const SampleMapState& capturedState) {
+            if (safeThis == nullptr)
+                return;
+            safeThis->setState(capturedState);
+            if (safeThis->onStateChanged)
+                safeThis->onStateChanged();
+        });
+    };
+    if (juce::JUCEApplicationBase::isStandaloneApp())
+        addAndMakeVisible(autoSampleButton);
+    else
+        addChildComponent(autoSampleButton);
 
     instrumentView.onStateChanged = [this] {
         if (onStateChanged) onStateChanged();
@@ -2887,6 +2907,11 @@ void SampleMapComponent::resized()
     openFxRackButton.setBounds(topRow.removeFromLeft(iconBtnW));
     topRow.removeFromLeft(gap);
     instrumentModeButton.setBounds(topRow.removeFromLeft(iconBtnW));
+    if (juce::JUCEApplicationBase::isStandaloneApp())
+    {
+        topRow.removeFromLeft(gap);
+        autoSampleButton.setBounds(topRow.removeFromLeft(iconBtnW));
+    }
 
     if (instrumentModeActive)
     {
