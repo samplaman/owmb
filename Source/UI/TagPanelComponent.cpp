@@ -446,15 +446,23 @@ void TagPanelComponent::notifySelectionChanged()
 
 void TagPanelComponent::libraryIndexUpdated()
 {
-    juce::MessageManager::callAsync([this] {
-        refreshTags();
-        refreshFolders();
+    juce::Component::SafePointer<TagPanelComponent> safeThis(this);
+    juce::MessageManager::callAsync([safeThis] {
+        if (safeThis != nullptr)
+        {
+            safeThis->refreshTags();
+            safeThis->refreshFolders();
+        }
     });
 }
 
 void TagPanelComponent::tagsUpdated()
 {
-    juce::MessageManager::callAsync([this] { refreshTags(); });
+    juce::Component::SafePointer<TagPanelComponent> safeThis(this);
+    juce::MessageManager::callAsync([safeThis] {
+        if (safeThis != nullptr)
+            safeThis->refreshTags();
+    });
 }
 
 void TagPanelComponent::addListener(TagPanelListener* listener)

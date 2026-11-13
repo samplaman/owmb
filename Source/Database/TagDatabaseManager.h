@@ -8,6 +8,8 @@
 #endif
 
 #include "../Models/MediaItem.h"
+#include <atomic>
+#include <memory>
 #include <vector>
 #include <map>
 #include <set>
@@ -116,6 +118,7 @@ private:
     juce::String primaryColourHex;
     float uiScale = 1.0f;
     juce::ListenerList<TagDatabaseListener> listeners;
+    std::shared_ptr<std::atomic<bool>> aliveToken = std::make_shared<std::atomic<bool>>(true);
 };
 
 } // namespace openwav

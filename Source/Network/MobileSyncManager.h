@@ -93,6 +93,7 @@ private:
 
     std::atomic<bool> shouldStop { false };
     std::atomic<bool> receiverRunning { false };
+    std::shared_ptr<std::atomic<bool>> aliveToken = std::make_shared<std::atomic<bool>>(true);
 
     // Sockets
     std::unique_ptr<juce::DatagramSocket> udpDiscoverySocket;

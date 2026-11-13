@@ -526,12 +526,15 @@ void SampleTableComponent::paintCell(juce::Graphics& g, int rowNumber, int colum
     // Auto-stream more rows if user scrolls near the end of the rendered batch
     if (rowNumber >= renderedItemCount - 25 && renderedItemCount < static_cast<int>(allFilteredItems.size()))
     {
-        juce::MessageManager::callAsync([this]() {
-            int total = static_cast<int>(allFilteredItems.size());
-            if (renderedItemCount < total)
+        juce::Component::SafePointer<SampleTableComponent> safeThis(this);
+        juce::MessageManager::callAsync([safeThis]() {
+            if (safeThis == nullptr)
+                return;
+            int total = static_cast<int>(safeThis->allFilteredItems.size());
+            if (safeThis->renderedItemCount < total)
             {
-                renderedItemCount = std::min(total, renderedItemCount + RenderChunkIncrement);
-                table.updateContent();
+                safeThis->renderedItemCount = std::min(total, safeThis->renderedItemCount + RenderChunkIncrement);
+                safeThis->table.updateContent();
             }
         });
     }
@@ -1185,15 +1188,19 @@ juce::String SampleTableComponent::formatDuration(double seconds)
 
 void SampleTableComponent::libraryIndexUpdated()
 {
-    juce::MessageManager::callAsync([this] {
-        updateFilter(currentKeyword, currentSelectedTags, currentMatchAll, currentExtFilter, currentFavOnly);
+    juce::Component::SafePointer<SampleTableComponent> safeThis(this);
+    juce::MessageManager::callAsync([safeThis] {
+        if (safeThis != nullptr)
+            safeThis->updateFilter(safeThis->currentKeyword, safeThis->currentSelectedTags, safeThis->currentMatchAll, safeThis->currentExtFilter, safeThis->currentFavOnly);
     });
 }
 
 void SampleTableComponent::tagsUpdated()
 {
-    juce::MessageManager::callAsync([this] {
-        updateFilter(currentKeyword, currentSelectedTags, currentMatchAll, currentExtFilter, currentFavOnly);
+    juce::Component::SafePointer<SampleTableComponent> safeThis(this);
+    juce::MessageManager::callAsync([safeThis] {
+        if (safeThis != nullptr)
+            safeThis->updateFilter(safeThis->currentKeyword, safeThis->currentSelectedTags, safeThis->currentMatchAll, safeThis->currentExtFilter, safeThis->currentFavOnly);
     });
 }
 

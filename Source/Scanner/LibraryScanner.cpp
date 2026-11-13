@@ -23,7 +23,7 @@ LibraryScanner::LibraryScanner(TagDatabaseManager& dbManager)
 LibraryScanner::~LibraryScanner()
 {
     cancelScan();
-    stopThread(100);
+    stopThread(5000);
 }
 
 void LibraryScanner::addListener(ScannerListener* listener)
@@ -41,7 +41,7 @@ void LibraryScanner::startScan(const std::vector<juce::String>& folderPaths)
     if (isThreadRunning())
     {
         cancelScan();
-        stopThread(100);
+        stopThread(5000);
     }
 
     targetFolders = folderPaths;

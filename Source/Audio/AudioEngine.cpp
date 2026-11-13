@@ -537,8 +537,6 @@ void AudioEngine::processNextAudioBlock(juce::AudioBuffer<float>& outputBuffer, 
     int numSamples = outputBuffer.getNumSamples();
     bool monitorInput = !inputMuted.load(std::memory_order_relaxed);
 
-    juce::AudioBuffer<float> inputMonitorBuffer;
-
     if (inChannels > 0 && numSamples > 0)
     {
         if (monitorInput)
@@ -555,7 +553,8 @@ void AudioEngine::processNextAudioBlock(juce::AudioBuffer<float>& outputBuffer, 
             auto calcCoeffs = [fs = engineSr](int type, float f0, float gainDb, float Q) -> BiquadCoeffs {
                 BiquadCoeffs c;
                 if (fs <= 0.0) return c;
-                float w0 = 2.0f * juce::MathConstants<float>::pi * f0 / static_cast<float>(fs);
+                float clampedF0 = juce::jlimit(10.0f, static_cast<float>(fs) * 0.45f, f0);
+                float w0 = 2.0f * juce::MathConstants<float>::pi * clampedF0 / static_cast<float>(fs);
                 float cosW = std::cos(w0);
                 float sinW = std::sin(w0);
                 float alpha = sinW / (2.0f * Q);
@@ -639,13 +638,12 @@ void AudioEngine::processNextAudioBlock(juce::AudioBuffer<float>& outputBuffer, 
                 
                 if (std::abs(g) > 0.05f)
                 {
-                    auto c = calcCoeffs(1 + band, f, g, 1.414f);
+                    int filterType = (band == 0) ? 1 : (band == 8 ? 3 : 2);
+                    auto c = calcCoeffs(filterType, f, g, 1.414f);
                     for (int ch = 0; ch < inChannels; ++ch)
                         processFilter(outputBuffer.getWritePointer(ch), c, inputFilterStates[1 + band][std::min(ch, 1)]);
                 }
             }
-
-            inputMonitorBuffer.makeCopyOf(outputBuffer);
 
             float maxL = outputBuffer.getMagnitude(0, 0, numSamples);
             float maxR = (inChannels >= 2) ? outputBuffer.getMagnitude(1, 0, numSamples) : maxL;
@@ -695,15 +693,9 @@ void AudioEngine::processNextAudioBlock(juce::AudioBuffer<float>& outputBuffer, 
         }
     }
 
-    outputBuffer.clear();
-
-    if (monitorInput && inputMonitorBuffer.getNumChannels() > 0 && inputMonitorBuffer.getNumSamples() > 0)
+    if (!monitorInput)
     {
-        for (int ch = 0; ch < outputBuffer.getNumChannels(); ++ch)
-        {
-            int srcCh = std::min(ch, inputMonitorBuffer.getNumChannels() - 1);
-            outputBuffer.addFrom(ch, 0, inputMonitorBuffer, srcCh, 0, numSamples);
-        }
+        outputBuffer.clear();
     }
 
     // 4. Render Active Voices (Lock-Free!)

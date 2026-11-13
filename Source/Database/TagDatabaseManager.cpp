@@ -13,6 +13,7 @@ TagDatabaseManager::TagDatabaseManager()
 
 TagDatabaseManager::~TagDatabaseManager()
 {
+    aliveToken->store(false, std::memory_order_release);
     stopTimer();
     saveToFile();
 }
@@ -357,7 +358,11 @@ void TagDatabaseManager::clearAllData()
 void TagDatabaseManager::reTagAllItems(std::function<void(float progress, int processed, int total)> progressCallback,
                                        std::function<void()> completionCallback)
 {
-    juce::Thread::launch([this, progressCallback, completionCallback]() {
+    auto token = aliveToken;
+    juce::Thread::launch([this, token, progressCallback, completionCallback]() {
+        if (!token->load(std::memory_order_acquire))
+            return;
+
         std::vector<juce::String> itemIds;
         {
             const juce::ScopedLock sl(lock);
@@ -383,6 +388,9 @@ void TagDatabaseManager::reTagAllItems(std::function<void(float progress, int pr
 
         for (size_t i = 0; i < total; ++i)
         {
+            if (!token->load(std::memory_order_acquire))
+                return;
+
             {
                 const juce::ScopedLock sl(lock);
                 auto it = itemsMap.find(itemIds[i]);
@@ -467,7 +475,9 @@ void TagDatabaseManager::reTagAllItems(std::function<void(float progress, int pr
             }
         }
 
-        juce::MessageManager::callAsync([this, completionCallback] {
+        juce::MessageManager::callAsync([this, token, completionCallback] {
+            if (!token->load(std::memory_order_acquire))
+                return;
             notifyIndexUpdated();
             notifyTagsUpdated();
             saveToFile();

@@ -240,6 +240,241 @@ struct SampleMapZoneState
     }
 };
 
+struct InstrumentMacroTarget
+{
+    int targetKind { 1 }; // 0 = SamplerParam, 1 = RackEffectParam
+    juce::String paramId;
+    juce::String effectId;
+    int effectType { 0 };
+    juce::String displayName;
+    float minRange { 0.0f };
+    float maxRange { 1.0f };
+    bool inverted { false };
+
+    juce::var toVar() const
+    {
+        auto* obj = new juce::DynamicObject();
+        obj->setProperty("targetKind", targetKind);
+        obj->setProperty("paramId", paramId);
+        obj->setProperty("effectId", effectId);
+        obj->setProperty("effectType", effectType);
+        obj->setProperty("displayName", displayName);
+        obj->setProperty("minRange", minRange);
+        obj->setProperty("maxRange", maxRange);
+        obj->setProperty("inverted", inverted);
+        return juce::var(obj);
+    }
+
+    static InstrumentMacroTarget fromVar(const juce::var& v)
+    {
+        InstrumentMacroTarget t;
+        if (!v.isObject()) return t;
+        auto* obj = v.getDynamicObject();
+        if (!obj) return t;
+
+        if (obj->hasProperty("targetKind")) t.targetKind = static_cast<int>(obj->getProperty("targetKind"));
+        t.paramId = obj->getProperty("paramId").toString();
+        t.effectId = obj->getProperty("effectId").toString();
+        if (obj->hasProperty("effectType")) t.effectType = static_cast<int>(obj->getProperty("effectType"));
+        t.displayName = obj->getProperty("displayName").toString();
+        if (obj->hasProperty("minRange")) t.minRange = static_cast<float>(obj->getProperty("minRange"));
+        if (obj->hasProperty("maxRange")) t.maxRange = static_cast<float>(obj->getProperty("maxRange"));
+        if (obj->hasProperty("inverted")) t.inverted = static_cast<bool>(obj->getProperty("inverted"));
+        return t;
+    }
+
+    std::unique_ptr<juce::XmlElement> toXml() const
+    {
+        auto xml = std::make_unique<juce::XmlElement>("MacroTarget");
+        xml->setAttribute("targetKind", targetKind);
+        xml->setAttribute("paramId", paramId);
+        xml->setAttribute("effectId", effectId);
+        xml->setAttribute("effectType", effectType);
+        xml->setAttribute("displayName", displayName);
+        xml->setAttribute("minRange", static_cast<double>(minRange));
+        xml->setAttribute("maxRange", static_cast<double>(maxRange));
+        xml->setAttribute("inverted", inverted ? 1 : 0);
+        return xml;
+    }
+
+    static InstrumentMacroTarget fromXml(const juce::XmlElement& xml)
+    {
+        InstrumentMacroTarget t;
+        t.targetKind = xml.getIntAttribute("targetKind", 1);
+        t.paramId = xml.getStringAttribute("paramId");
+        t.effectId = xml.getStringAttribute("effectId");
+        t.effectType = xml.getIntAttribute("effectType", 0);
+        t.displayName = xml.getStringAttribute("displayName");
+        t.minRange = static_cast<float>(xml.getDoubleAttribute("minRange", 0.0));
+        t.maxRange = static_cast<float>(xml.getDoubleAttribute("maxRange", 1.0));
+        t.inverted = xml.getBoolAttribute("inverted", false);
+        return t;
+    }
+};
+
+struct InstrumentKnobState
+{
+    juce::String id;
+    juce::String label { "Macro" };
+    float value { 0.5f };
+    float defaultValue { 0.5f };
+    float xNorm { 0.5f };
+    float yNorm { 0.5f };
+    int sizePx { 84 };
+    int style { 0 }; // 0 = Modern Arc, 1 = Vintage Bakelite, 2 = Studio Minimal, 3 = Neon Ring
+    juce::String colourHex { "FF00D4FF" };
+    std::vector<InstrumentMacroTarget> targets;
+
+    juce::var toVar() const
+    {
+        auto* obj = new juce::DynamicObject();
+        obj->setProperty("id", id);
+        obj->setProperty("label", label);
+        obj->setProperty("value", value);
+        obj->setProperty("defaultValue", defaultValue);
+        obj->setProperty("xNorm", xNorm);
+        obj->setProperty("yNorm", yNorm);
+        obj->setProperty("sizePx", sizePx);
+        obj->setProperty("style", style);
+        obj->setProperty("colourHex", colourHex);
+        juce::Array<juce::var> targetArr;
+        for (const auto& t : targets)
+            targetArr.add(t.toVar());
+        obj->setProperty("targets", targetArr);
+        return juce::var(obj);
+    }
+
+    static InstrumentKnobState fromVar(const juce::var& v)
+    {
+        InstrumentKnobState k;
+        if (!v.isObject()) return k;
+        auto* obj = v.getDynamicObject();
+        if (!obj) return k;
+
+        k.id = obj->getProperty("id").toString();
+        if (obj->hasProperty("label")) k.label = obj->getProperty("label").toString();
+        if (obj->hasProperty("value")) k.value = static_cast<float>(obj->getProperty("value"));
+        if (obj->hasProperty("defaultValue")) k.defaultValue = static_cast<float>(obj->getProperty("defaultValue"));
+        if (obj->hasProperty("xNorm")) k.xNorm = static_cast<float>(obj->getProperty("xNorm"));
+        if (obj->hasProperty("yNorm")) k.yNorm = static_cast<float>(obj->getProperty("yNorm"));
+        if (obj->hasProperty("sizePx")) k.sizePx = static_cast<int>(obj->getProperty("sizePx"));
+        if (obj->hasProperty("style")) k.style = static_cast<int>(obj->getProperty("style"));
+        if (obj->hasProperty("colourHex")) k.colourHex = obj->getProperty("colourHex").toString();
+        if (obj->hasProperty("targets") && obj->getProperty("targets").isArray())
+        {
+            for (const auto& tv : *obj->getProperty("targets").getArray())
+                k.targets.push_back(InstrumentMacroTarget::fromVar(tv));
+        }
+        return k;
+    }
+
+    std::unique_ptr<juce::XmlElement> toXml() const
+    {
+        auto xml = std::make_unique<juce::XmlElement>("Knob");
+        xml->setAttribute("id", id);
+        xml->setAttribute("label", label);
+        xml->setAttribute("value", static_cast<double>(value));
+        xml->setAttribute("defaultValue", static_cast<double>(defaultValue));
+        xml->setAttribute("xNorm", static_cast<double>(xNorm));
+        xml->setAttribute("yNorm", static_cast<double>(yNorm));
+        xml->setAttribute("sizePx", sizePx);
+        xml->setAttribute("style", style);
+        xml->setAttribute("colourHex", colourHex);
+        for (const auto& t : targets)
+            xml->addChildElement(t.toXml().release());
+        return xml;
+    }
+
+    static InstrumentKnobState fromXml(const juce::XmlElement& xml)
+    {
+        InstrumentKnobState k;
+        k.id = xml.getStringAttribute("id");
+        k.label = xml.getStringAttribute("label", "Macro");
+        k.value = static_cast<float>(xml.getDoubleAttribute("value", 0.5));
+        k.defaultValue = static_cast<float>(xml.getDoubleAttribute("defaultValue", 0.5));
+        k.xNorm = static_cast<float>(xml.getDoubleAttribute("xNorm", 0.5));
+        k.yNorm = static_cast<float>(xml.getDoubleAttribute("yNorm", 0.5));
+        k.sizePx = xml.getIntAttribute("sizePx", 84);
+        k.style = xml.getIntAttribute("style", 0);
+        k.colourHex = xml.getStringAttribute("colourHex", "FF00D4FF");
+        for (auto* child : xml.getChildIterator())
+        {
+            if (child->hasTagName("MacroTarget"))
+                k.targets.push_back(InstrumentMacroTarget::fromXml(*child));
+        }
+        return k;
+    }
+};
+
+struct InstrumentPanelState
+{
+    juce::String instrumentName { "Custom Instrument" };
+    juce::String backgroundImagePath;
+    float backgroundDim { 0.35f };
+    int backgroundFitMode { 0 }; // 0 = Cover, 1 = Contain, 2 = Stretch
+    std::vector<InstrumentKnobState> knobs;
+
+    juce::var toVar() const
+    {
+        auto* obj = new juce::DynamicObject();
+        obj->setProperty("instrumentName", instrumentName);
+        obj->setProperty("backgroundImagePath", backgroundImagePath);
+        obj->setProperty("backgroundDim", backgroundDim);
+        obj->setProperty("backgroundFitMode", backgroundFitMode);
+        juce::Array<juce::var> knobArr;
+        for (const auto& k : knobs)
+            knobArr.add(k.toVar());
+        obj->setProperty("knobs", knobArr);
+        return juce::var(obj);
+    }
+
+    static InstrumentPanelState fromVar(const juce::var& v)
+    {
+        InstrumentPanelState inst;
+        if (!v.isObject()) return inst;
+        auto* obj = v.getDynamicObject();
+        if (!obj) return inst;
+
+        if (obj->hasProperty("instrumentName")) inst.instrumentName = obj->getProperty("instrumentName").toString();
+        inst.backgroundImagePath = obj->getProperty("backgroundImagePath").toString();
+        if (obj->hasProperty("backgroundDim")) inst.backgroundDim = static_cast<float>(obj->getProperty("backgroundDim"));
+        if (obj->hasProperty("backgroundFitMode")) inst.backgroundFitMode = static_cast<int>(obj->getProperty("backgroundFitMode"));
+        if (obj->hasProperty("knobs") && obj->getProperty("knobs").isArray())
+        {
+            for (const auto& kv : *obj->getProperty("knobs").getArray())
+                inst.knobs.push_back(InstrumentKnobState::fromVar(kv));
+        }
+        return inst;
+    }
+
+    std::unique_ptr<juce::XmlElement> toXml() const
+    {
+        auto xml = std::make_unique<juce::XmlElement>("Instrument");
+        xml->setAttribute("instrumentName", instrumentName);
+        xml->setAttribute("backgroundImagePath", backgroundImagePath);
+        xml->setAttribute("backgroundDim", static_cast<double>(backgroundDim));
+        xml->setAttribute("backgroundFitMode", backgroundFitMode);
+        for (const auto& k : knobs)
+            xml->addChildElement(k.toXml().release());
+        return xml;
+    }
+
+    static InstrumentPanelState fromXml(const juce::XmlElement& xml)
+    {
+        InstrumentPanelState inst;
+        inst.instrumentName = xml.getStringAttribute("instrumentName", "Custom Instrument");
+        inst.backgroundImagePath = xml.getStringAttribute("backgroundImagePath");
+        inst.backgroundDim = static_cast<float>(xml.getDoubleAttribute("backgroundDim", 0.35));
+        inst.backgroundFitMode = xml.getIntAttribute("backgroundFitMode", 0);
+        for (auto* child : xml.getChildIterator())
+        {
+            if (child->hasTagName("Knob"))
+                inst.knobs.push_back(InstrumentKnobState::fromXml(*child));
+        }
+        return inst;
+    }
+};
+
 struct SampleMapState
 {
     std::vector<SampleMapZoneState> zones;
@@ -255,6 +490,7 @@ struct SampleMapState
     float velocityCurve { 0.0f };       // -1.0 (Hard/Log) to +1.0 (Soft/Exp), 0 = Linear
     int velocityCurveMode { 0 };        // 0 = Linear, 1 = Soft/Exp, 2 = Hard/Log, 3 = S-Curve, 4 = Fixed
     int velocityMinFloor { 0 };         // 0 to 127
+    InstrumentPanelState instrument;
 
     float computeVelocityResponse(float inVelocity, float zoneSensitivity = -1.0f) const
     {
@@ -335,6 +571,7 @@ struct SampleMapState
         obj->setProperty("velocityCurve", velocityCurve);
         obj->setProperty("velocityCurveMode", velocityCurveMode);
         obj->setProperty("velocityMinFloor", velocityMinFloor);
+        obj->setProperty("instrument", instrument.toVar());
         return juce::var(obj);
     }
 
@@ -363,6 +600,7 @@ struct SampleMapState
         if (obj->hasProperty("velocityCurve")) s.velocityCurve = static_cast<float>(obj->getProperty("velocityCurve"));
         if (obj->hasProperty("velocityCurveMode")) s.velocityCurveMode = static_cast<int>(obj->getProperty("velocityCurveMode"));
         if (obj->hasProperty("velocityMinFloor")) s.velocityMinFloor = static_cast<int>(obj->getProperty("velocityMinFloor"));
+        if (obj->hasProperty("instrument")) s.instrument = InstrumentPanelState::fromVar(obj->getProperty("instrument"));
         return s;
     }
 
@@ -382,6 +620,7 @@ struct SampleMapState
         xml->setAttribute("velocityCurve", static_cast<double>(velocityCurve));
         xml->setAttribute("velocityCurveMode", velocityCurveMode);
         xml->setAttribute("velocityMinFloor", velocityMinFloor);
+        xml->addChildElement(instrument.toXml().release());
 
         auto baseDir = targetFile.getParentDirectory();
         for (const auto& z : zones)
@@ -404,7 +643,7 @@ struct SampleMapState
             return s;
 
         s.globalAttackMs = static_cast<float>(xml.getDoubleAttribute("globalAttackMs", 5.0));
-        s.globalDecayMs = static_cast<float>(xml.getDoubleAttribute("decayMs", 100.0));
+        s.globalDecayMs = static_cast<float>(xml.hasAttribute("globalDecayMs") ? xml.getDoubleAttribute("globalDecayMs", 100.0) : xml.getDoubleAttribute("decayMs", 100.0));
         s.globalSustainLevel = static_cast<float>(xml.getDoubleAttribute("globalSustainLevel", 1.0));
         s.globalReleaseMs = static_cast<float>(xml.getDoubleAttribute("globalReleaseMs", 200.0));
         s.samplerReverbAmount = static_cast<float>(xml.getDoubleAttribute("samplerReverbAmount", 0.0));
@@ -422,6 +661,10 @@ struct SampleMapState
             if (child->hasTagName("Zone") || child->hasTagName("zone"))
             {
                 s.zones.push_back(SampleMapZoneState::fromXml(*child, baseDir));
+            }
+            else if (child->hasTagName("Instrument"))
+            {
+                s.instrument = InstrumentPanelState::fromXml(*child);
             }
         }
         return s;

@@ -140,6 +140,8 @@ target_sources(OpenWav PRIVATE
     Source/UI/EditComponent.cpp
     Source/UI/SampleMapComponent.h
     Source/UI/SampleMapComponent.cpp
+    Source/UI/InstrumentViewComponent.h
+    Source/UI/InstrumentViewComponent.cpp
     Source/UI/PerformanceComponent.h
     Source/UI/PerformanceComponent.cpp
     Source/UI/SliceConfigComponent.h

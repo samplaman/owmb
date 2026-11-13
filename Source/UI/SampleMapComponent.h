@@ -9,6 +9,7 @@
 #include "../Audio/LorisResynthesizer.h"
 #include "../Models/MediaItem.h"
 #include "../Models/PluginState.h"
+#include "InstrumentViewComponent.h"
 #include <vector>
 
 namespace openwav
@@ -196,8 +197,12 @@ private:
     juce::TextButton oneShotButton { "One Shot: OFF" };
     juce::TextButton loopButton { "Loop: OFF" };
     juce::TextButton openFxRackButton { "FX Rack" };
+    juce::TextButton instrumentModeButton { "Instrument" };
     juce::TextButton velCurveButton { "Vel: 100%" };
     juce::TextButton midiChannelButton { "MIDI Ch: 2" };
+
+    bool instrumentModeActive { false };
+    InstrumentViewComponent instrumentView;
 
     void updateMidiChannelButtonText();
     void updateVelocityCurveButtonText();

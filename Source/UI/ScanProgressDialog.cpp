@@ -175,8 +175,10 @@ void ScanProgressDialog::mouseDown(const juce::MouseEvent& /*event*/)
 
 void ScanProgressDialog::scanStarted()
 {
-    juce::MessageManager::callAsync([this] {
-        showDialog();
+    juce::Component::SafePointer<ScanProgressDialog> safeThis(this);
+    juce::MessageManager::callAsync([safeThis] {
+        if (safeThis != nullptr)
+            safeThis->showDialog();
     });
 }
 
@@ -195,24 +197,27 @@ void ScanProgressDialog::scanFinished(int totalDiscovered)
     isScanning = false;
     isFinished = true;
 
-    juce::MessageManager::callAsync([this, totalDiscovered] {
-        titleLabel.setText("Scan Complete", juce::dontSendNotification);
+    juce::Component::SafePointer<ScanProgressDialog> safeThis(this);
+    juce::MessageManager::callAsync([safeThis, totalDiscovered] {
+        if (safeThis == nullptr)
+            return;
+
+        safeThis->titleLabel.setText("Scan Complete", juce::dontSendNotification);
         if (totalDiscovered > 0)
         {
-            statusLabel.setText("Successfully scanned " + juce::String(totalDiscovered) + " new audio file" + (totalDiscovered > 1 ? "s" : ""), juce::dontSendNotification);
+            safeThis->statusLabel.setText("Successfully scanned " + juce::String(totalDiscovered) + " new audio file" + (totalDiscovered > 1 ? "s" : ""), juce::dontSendNotification);
         }
         else
         {
-            statusLabel.setText("Library is up to date. No new files found.", juce::dontSendNotification);
+            safeThis->statusLabel.setText("Library is up to date. No new files found.", juce::dontSendNotification);
         }
-        currentFileLabel.setText("", juce::dontSendNotification);
-        estimatedTimeValueLabel.setText("00:00", juce::dontSendNotification);
-        actionButton.setButtonText("Close");
-        actionButton.setEnabled(true);
-        repaint();
+        safeThis->currentFileLabel.setText("", juce::dontSendNotification);
+        safeThis->estimatedTimeValueLabel.setText("00:00", juce::dontSendNotification);
+        safeThis->actionButton.setButtonText("Close");
+        safeThis->actionButton.setEnabled(true);
+        safeThis->repaint();
 
         // Auto-close dialogue after 1 second
-        juce::Component::SafePointer<ScanProgressDialog> safeThis(this);
         juce::Timer::callAfterDelay(1000, [safeThis] {
             if (safeThis != nullptr)
             {

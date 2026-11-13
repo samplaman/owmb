@@ -337,7 +337,8 @@ void VelocityCurveComponent::mouseExit(const juce::MouseEvent&)
 //  SampleMapComponent Implementation
 // ─────────────────────────────────────────────────────────
 SampleMapComponent::SampleMapComponent(AudioEngine& engine)
-    : audioEngine(engine)
+    : audioEngine(engine),
+      instrumentView(engine)
 {
     setOpaque(true);
     setWantsKeyboardFocus(true);
@@ -433,6 +434,49 @@ SampleMapComponent::SampleMapComponent(AudioEngine& engine)
             onOpenFxRackRequested();
     };
     addAndMakeVisible(openFxRackButton);
+
+    instrumentModeButton.setClickingTogglesState(true);
+    instrumentModeButton.setColour(juce::TextButton::buttonOnColourId, OpenWavLookAndFeel::accentCyan.withAlpha(0.32f));
+    instrumentModeButton.setColour(juce::TextButton::textColourOnId, OpenWavLookAndFeel::accentCyan);
+    instrumentModeButton.setTooltip("Switch between Zone Map and Custom Instrument Panel");
+    instrumentModeButton.onClick = [this] {
+        instrumentModeActive = instrumentModeButton.getToggleState();
+        instrumentView.setVisible(instrumentModeActive);
+        resized();
+        repaint();
+    };
+    addAndMakeVisible(instrumentModeButton);
+
+    instrumentView.onStateChanged = [this] {
+        if (onStateChanged) onStateChanged();
+    };
+    instrumentView.onOpenFxRackRequested = [this] {
+        if (onOpenFxRackRequested) onOpenFxRackRequested();
+    };
+    instrumentView.onSamplerParamMacroChanged = [this](const juce::String& paramId, float normVal) {
+        if (paramId == "attackMs")
+        {
+            globalAttackMs = 1.0f + normVal * 1999.0f;
+            for (auto& z : zones) z.attackMs = globalAttackMs;
+        }
+        else if (paramId == "decayMs")
+        {
+            globalDecayMs = 1.0f + normVal * 1999.0f;
+            for (auto& z : zones) z.decayMs = globalDecayMs;
+        }
+        else if (paramId == "sustain")
+        {
+            globalSustainLevel = normVal;
+            for (auto& z : zones) z.sustainLevel = globalSustainLevel;
+        }
+        else if (paramId == "releaseMs")
+        {
+            globalReleaseMs = 5.0f + normVal * 4995.0f;
+            for (auto& z : zones) z.releaseMs = globalReleaseMs;
+        }
+        if (onStateChanged) onStateChanged();
+    };
+    addChildComponent(instrumentView);
 
     midiChannelButton.setColour(juce::TextButton::buttonColourId, OpenWavLookAndFeel::accentCyan.withAlpha(0.25f));
     midiChannelButton.setColour(juce::TextButton::textColourOffId, OpenWavLookAndFeel::accentCyan);
@@ -1966,12 +2010,16 @@ void SampleMapComponent::paint(juce::Graphics& g)
 {
     g.fillAll(OpenWavLookAndFeel::bgDark);
 
-    auto gridArea = getGridBounds();
     auto keybedArea = getKeybedBounds();
+    paintKeybed(g, keybedArea);
+
+    if (instrumentModeActive)
+        return;
+
+    auto gridArea = getGridBounds();
     auto inspectorArea = getInspectorBounds();
 
     paintZoneGrid(g, gridArea);
-    paintKeybed(g, keybedArea);
 
     // Inspector card background
     g.setColour(OpenWavLookAndFeel::bgCard);
@@ -2756,6 +2804,46 @@ void SampleMapComponent::resized()
     loopButton.setBounds(topRow.removeFromLeft(66));
     topRow.removeFromLeft(gap);
     openFxRackButton.setBounds(topRow.removeFromLeft(82));
+    topRow.removeFromLeft(gap);
+    instrumentModeButton.setBounds(topRow.removeFromLeft(86));
+
+    if (instrumentModeActive)
+    {
+        inspectorTabZonesBtn.setVisible(false);
+        inspectorTabVelBtn.setVisible(false);
+        inspectorTitle.setVisible(false);
+        sampleNameValue.setVisible(false);
+        rootNoteTitle.setVisible(false); rootNoteSlider.setVisible(false);
+        keyLowTitle.setVisible(false); keyLowSlider.setVisible(false);
+        keyHighTitle.setVisible(false); keyHighSlider.setVisible(false);
+        velLowTitle.setVisible(false); velLowSlider.setVisible(false);
+        velHighTitle.setVisible(false); velHighSlider.setVisible(false);
+        rrTitle.setVisible(false); rrSlider.setVisible(false);
+        tuneTitle.setVisible(false); tuneSlider.setVisible(false);
+        gainTitle.setVisible(false); gainSlider.setVisible(false);
+        inspectorDeleteButton.setVisible(false);
+
+        velocityCurveView.setVisible(false);
+        velLinBtn.setVisible(false); velSoftBtn.setVisible(false); velHardBtn.setVisible(false);
+        velSCurveBtn.setVisible(false); velFixedBtn.setVisible(false);
+        velSensitivityLabel.setVisible(false); velSensitivitySlider.setVisible(false);
+        velCurveLabel.setVisible(false); velCurveSlider.setVisible(false);
+        velFloorLabel.setVisible(false); velFloorSlider.setVisible(false);
+        velScopeButton.setVisible(false); velReadoutLabel.setVisible(false);
+        velTestAuditionBtn.setVisible(false);
+
+        auto instArea = area;
+        instArea.removeFromTop(10);
+        auto keybed = getKeybedBounds();
+        instArea.setBottom(static_cast<int>(keybed.getY()) - 10);
+        instrumentView.setVisible(true);
+        instrumentView.setBounds(instArea);
+        return;
+    }
+
+    instrumentView.setVisible(false);
+    inspectorTabZonesBtn.setVisible(true);
+    inspectorTabVelBtn.setVisible(true);
 
     // ── Inspector Panel Layout ─────────────────────────
     auto inspectorArea = getInspectorBounds().reduced(12, 10);
@@ -2993,7 +3081,9 @@ void SampleMapComponent::buttonClicked(juce::Button* button)
             "*.wav;*.mp3;*.flac;*.ogg;*.aif;*.aiff;*.aifc;*.WAV;*.MP3;*.FLAC;*.OGG;*.AIF;*.AIFF;*.AIFC",
             true);
 
-        chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles | juce::FileBrowserComponent::canSelectMultipleItems, [this, chooser](const juce::FileChooser& fc) {
+        juce::Component::SafePointer<SampleMapComponent> safeThis(this);
+        chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles | juce::FileBrowserComponent::canSelectMultipleItems, [safeThis, chooser](const juce::FileChooser& fc) {
+            if (safeThis == nullptr) return;
             auto results = fc.getResults();
             if (results.isEmpty())
             {
@@ -3005,7 +3095,7 @@ void SampleMapComponent::buttonClicked(juce::Button* button)
 
             for (const auto& file : results)
             {
-                addSampleFile(file);
+                safeThis->addSampleFile(file);
             }
         });
     }
@@ -3128,6 +3218,7 @@ SampleMapState SampleMapComponent::getState() const
     s.velocityCurve = globalVelocityCurve;
     s.velocityCurveMode = globalVelocityCurveMode;
     s.velocityMinFloor = globalVelocityMinFloor;
+    s.instrument = instrumentView.getState();
     return s;
 }
 
@@ -3181,6 +3272,9 @@ void SampleMapComponent::setState(const SampleMapState& state)
     globalVelocityCurveMode = state.velocityCurveMode;
     globalVelocityMinFloor = state.velocityMinFloor;
     updateVelocityCurveUI();
+
+    instrumentView.setState(state.instrument);
+    instrumentView.applyAllMacros();
 
     if (!zones.empty())
     {
@@ -3241,11 +3335,13 @@ void SampleMapComponent::openLorisResynthesisDialog()
             "*.wav;*.mp3;*.flac;*.ogg;*.aif;*.aiff;*.aifc;*.WAV;*.MP3;*.FLAC;*.OGG;*.AIF;*.AIFF;*.AIFC",
             true);
 
-        chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles, [this, chooser](const juce::FileChooser& fc) {
+        juce::Component::SafePointer<SampleMapComponent> safeThis(this);
+        chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles, [safeThis, chooser](const juce::FileChooser& fc) {
+            if (safeThis == nullptr) return;
             auto result = fc.getResult();
             if (result.existsAsFile())
             {
-                openLorisResynthesisForSample(result);
+                safeThis->openLorisResynthesisForSample(result);
             }
         });
     }

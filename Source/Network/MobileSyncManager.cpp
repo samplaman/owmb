@@ -15,6 +15,7 @@ MobileSyncManager::MobileSyncManager(int defaultServicePort, int discoveryPort)
 
 MobileSyncManager::~MobileSyncManager()
 {
+    aliveToken->store(false, std::memory_order_release);
     stopServices();
 }
 
@@ -222,7 +223,9 @@ bool MobileSyncManager::probeDevice(const juce::String& host, int port)
 
                         if (isNew)
                         {
-                            juce::MessageManager::callAsync([this]() {
+                            auto token = aliveToken;
+                            juce::MessageManager::callAsync([this, token]() {
+                                if (!token->load(std::memory_order_acquire)) return;
                                 listeners.call(&MobileSyncListener::discoveredDevicesChanged);
                             });
                         }
@@ -237,7 +240,11 @@ bool MobileSyncManager::probeDevice(const juce::String& host, int port)
 
 void MobileSyncManager::scanLocalSubnet(std::function<void(bool foundAny)> onFinished)
 {
-    juce::Thread::launch([this, onFinished]() {
+    auto token = aliveToken;
+    juce::Thread::launch([this, token, onFinished]() {
+        if (!token->load(std::memory_order_acquire))
+            return;
+
         // First probe localhost in case testing on same machine
         probeDevice("127.0.0.1", targetServicePort);
 
@@ -246,8 +253,9 @@ void MobileSyncManager::scanLocalSubnet(std::function<void(bool foundAny)> onFin
         {
             if (onFinished != nullptr)
             {
-                juce::MessageManager::callAsync([this, onFinished]() {
-                    onFinished(!getDiscoveredDevices().empty());
+                bool foundAnyLocal = token->load(std::memory_order_acquire) && !getDiscoveredDevices().empty();
+                juce::MessageManager::callAsync([onFinished, foundAnyLocal]() {
+                    onFinished(foundAnyLocal);
                 });
             }
             return;
@@ -268,8 +276,8 @@ void MobileSyncManager::scanLocalSubnet(std::function<void(bool foundAny)> onFin
             int startIdx = t * perThread + 1;
             int endIdx = std::min(254, (t + 1) * perThread);
 
-            juce::Thread::launch([this, prefix, startIdx, endIdx, myLastOctet, completedCount, foundAny, numThreads, onFinished]() {
-                for (int i = startIdx; i <= endIdx && !shouldStop.load(); ++i)
+            juce::Thread::launch([this, token, prefix, startIdx, endIdx, myLastOctet, completedCount, foundAny, numThreads, onFinished]() {
+                for (int i = startIdx; i <= endIdx && token->load(std::memory_order_acquire) && !shouldStop.load(); ++i)
                 {
                     if (i == myLastOctet) continue;
                     juce::String targetIp = prefix + juce::String(i);
@@ -281,7 +289,7 @@ void MobileSyncManager::scanLocalSubnet(std::function<void(bool foundAny)> onFin
 
                 if (++(*completedCount) == numThreads)
                 {
-                    if (onFinished != nullptr)
+                    if (onFinished != nullptr && token->load(std::memory_order_acquire))
                     {
                         bool found = foundAny->load();
                         juce::MessageManager::callAsync([onFinished, found]() {
@@ -384,7 +392,9 @@ void MobileSyncManager::run()
 
                     if (isNewOrUpdated)
                     {
-                        juce::MessageManager::callAsync([this]() {
+                        auto token = aliveToken;
+                        juce::MessageManager::callAsync([this, token]() {
+                            if (!token->load(std::memory_order_acquire)) return;
                             listeners.call(&MobileSyncListener::discoveredDevicesChanged);
                         });
                     }
@@ -545,7 +555,9 @@ void MobileSyncManager::handleIncomingPushConnection(std::unique_ptr<juce::Strea
     client->write(okResp.toRawUTF8(), static_cast<int>(okResp.getNumBytesAsUTF8()));
 
     // Notify Listeners on MessageManager thread
-    juce::MessageManager::callAsync([this, destFile]() {
+    auto token = aliveToken;
+    juce::MessageManager::callAsync([this, token, destFile]() {
+        if (!token->load(std::memory_order_acquire)) return;
         listeners.call(&MobileSyncListener::fileReceivedFromPhone, destFile);
     });
 }

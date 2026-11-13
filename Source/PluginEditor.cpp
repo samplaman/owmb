@@ -224,7 +224,7 @@ void OpenWavAudioProcessorEditor::LeftPanelResizerBar::mouseDrag(
 
 void OpenWavAudioProcessorEditor::setTagPanelWidth(int newWidth) {
   int minW = 160;
-  int maxW = std::min(600, getWidth() - 300);
+  int maxW = std::max(minW, std::min(600, getWidth() - 300));
   int clampedW = juce::jlimit(minW, maxW, newWidth);
 
   if (tagPanelWidth != clampedW) {
@@ -368,11 +368,14 @@ void OpenWavAudioProcessorEditor::addFolderRequested() {
       "Select Audio Folder to Scan...",
       juce::File::getSpecialLocation(juce::File::userHomeDirectory), "*", true);
 
+  juce::Component::SafePointer<OpenWavAudioProcessorEditor> safeThis(this);
   chooser->launchAsync(
       juce::FileBrowserComponent::openMode |
           juce::FileBrowserComponent::canSelectDirectories |
           juce::FileBrowserComponent::canSelectMultipleItems,
-      [this, chooser](const juce::FileChooser &fc) {
+      [safeThis, chooser](const juce::FileChooser &fc) {
+        if (safeThis == nullptr)
+          return;
         auto results = fc.getResults();
         if (results.isEmpty()) {
           auto single = fc.getResult();
@@ -391,21 +394,22 @@ void OpenWavAudioProcessorEditor::addFolderRequested() {
             if (std::find(foldersToScan.begin(), foldersToScan.end(),
                           folderPath) == foldersToScan.end()) {
               foldersToScan.push_back(folderPath);
-              audioProcessor.getDatabaseManager().addScanFolder(folderPath);
+              safeThis->audioProcessor.getDatabaseManager().addScanFolder(folderPath);
             }
           }
         }
 
-        tagPanel.refreshFolders();
-        if (headerBar.getCurrentViewMode() == ViewMode::Folders) {
-          folderBrowser.setFilteredItems(sampleTable.getDisplayedItems(),
-                                         headerBar.getSearchText(),
-                                         tagPanel.getFavoritesOnly());
+        safeThis->tagPanel.refreshFolders();
+        if (safeThis->headerBar.getCurrentViewMode() == ViewMode::Folders) {
+          safeThis->folderBrowser.setFilteredItems(
+              safeThis->sampleTable.getDisplayedItems(),
+              safeThis->headerBar.getSearchText(),
+              safeThis->tagPanel.getFavoritesOnly());
         }
 
         if (!foldersToScan.empty()) {
-          scanProgressDialog.setSilent(false);
-          audioProcessor.getLibraryScanner().startScan(foldersToScan);
+          safeThis->scanProgressDialog.setSilent(false);
+          safeThis->audioProcessor.getLibraryScanner().startScan(foldersToScan);
         }
       });
 }
