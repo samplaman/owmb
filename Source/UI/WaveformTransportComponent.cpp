@@ -882,7 +882,9 @@ void WaveformTransportComponent::sampleLoaded(const juce::String& filePath)
     // Always clear slices on sample change
     sliceRatios.clear();
     slicesGrid.setSelectedSliceIndex(-1);
-    audioEngine.setSampleRange(0.0, 1.0);
+    SampleEditSettings savedSettings;
+    if (!audioEngine.getSampleEditSettings(f.getFullPathName(), savedSettings))
+        audioEngine.setSampleRange(0.0, 1.0);
 
     totalDurationSecs = audioEngine.getTotalLengthSeconds();
     resized();

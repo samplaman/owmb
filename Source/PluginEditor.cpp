@@ -991,12 +991,52 @@ void OpenWavAudioProcessorEditor::saveStateToProcessor() {
   s.edit = editComponent.getState();
   s.sampleMap = sampleMapComponent.getState();
   s.performance = performanceComponent.getState();
+  for (const auto& [fp, es] : audioProcessor.getAudioEngine().getAllSampleEditSettings())
+  {
+    SampleEditSettingsState ss;
+    ss.filePath = fp;
+    ss.sampleStartRatio = es.sampleStartRatio;
+    ss.sampleEndRatio = es.sampleEndRatio;
+    ss.loopInRatio = es.loopInRatio;
+    ss.loopOutRatio = es.loopOutRatio;
+    ss.loopCrossfadeMs = es.loopCrossfadeMs;
+    ss.fadeInMs = es.fadeInMs;
+    ss.fadeOutMs = es.fadeOutMs;
+    ss.fadeInCurveType = es.fadeInCurveType;
+    ss.fadeOutCurveType = es.fadeOutCurveType;
+    ss.loopMarkersSet = es.loopMarkersSet;
+    ss.isLooping = es.isLooping;
+    s.perSampleEditSettings.push_back(std::move(ss));
+  }
 
   audioProcessor.setFullPluginState(s);
 }
 
 void OpenWavAudioProcessorEditor::restoreStateFromProcessor() {
   auto s = audioProcessor.getFullPluginState();
+
+  if (!s.perSampleEditSettings.empty())
+  {
+    std::map<juce::String, SampleEditSettings> restoredSettings;
+    for (const auto& ss : s.perSampleEditSettings)
+    {
+      if (ss.filePath.isEmpty()) continue;
+      SampleEditSettings es;
+      es.sampleStartRatio = ss.sampleStartRatio;
+      es.sampleEndRatio = ss.sampleEndRatio;
+      es.loopInRatio = ss.loopInRatio;
+      es.loopOutRatio = ss.loopOutRatio;
+      es.loopCrossfadeMs = ss.loopCrossfadeMs;
+      es.fadeInMs = ss.fadeInMs;
+      es.fadeOutMs = ss.fadeOutMs;
+      es.fadeInCurveType = ss.fadeInCurveType;
+      es.fadeOutCurveType = ss.fadeOutCurveType;
+      es.loopMarkersSet = ss.loopMarkersSet;
+      es.isLooping = ss.isLooping;
+      restoredSettings[ss.filePath] = es;
+    }
+    audioProcessor.getAudioEngine().setAllSampleEditSettings(restoredSettings);
+  }
 
   // 1. Restore Tag Panel width
   if (s.tagPanelWidth >= 120 && s.tagPanelWidth <= 500) {

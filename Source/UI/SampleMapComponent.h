@@ -32,6 +32,17 @@ struct SampleMapZone
     float sustainLevel { 1.0f };  // 0 to 1.0
     float releaseMs { 200.0f };   // 0 to 5000 ms
     float velocitySensitivity { -1.0f }; // -1.0 = inherit global, 0.0 to 1.0 = zone override
+    double sampleStartRatio { 0.0 };
+    double sampleEndRatio { 1.0 };
+    double loopInRatio { 0.0 };
+    double loopOutRatio { 1.0 };
+    double loopCrossfadeMs { 0.0 };
+    double fadeInMs { 0.0 };
+    double fadeOutMs { 0.0 };
+    int fadeInCurveType { 0 };
+    int fadeOutCurveType { 0 };
+    bool loopMarkersSet { false };
+    bool isLooping { false };
     bool isSelected { false };
 };
 

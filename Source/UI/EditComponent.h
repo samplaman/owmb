@@ -125,6 +125,11 @@ private:
     juce::TextButton speedHalfButton { "0.5x Speed" };
     juce::TextButton deverbButton { "Deverb" };
     juce::TextButton bakeFadesButton { "Bake Fades" };
+    juce::TextButton loopToSelectionButton { "Loop Sel" };
+    juce::TextButton snapLoopZeroButton { "0-X Loop" };
+    juce::TextButton dcOffsetButton { "DC Fix" };
+    juce::TextButton lpFilterButton { "Hi Cut" };
+    juce::TextButton monoSumButton { "Mono Sum" };
     juce::TextButton exportButton { "Export" };
     juce::TextButton revertOriginalButton { "Revert" };
 
@@ -144,6 +149,7 @@ private:
     juce::Label loopInTimeLabel;
     juce::Label loopOutTimeLabel;
     juce::Label sampleNameLabel;
+    juce::String lastLoadedFilePath;
 
     // Fade controls
     juce::Slider fadeInSlider;

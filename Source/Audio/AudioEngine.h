@@ -91,6 +91,7 @@ struct RealtimeVoiceSlot
     bool isZoneVoice { false };
     bool isOneShot { false };
     bool isMetronome { false };
+    bool matchesEditorSample { false };
     double loopInRatio { 0.0 };
     double loopOutRatio { 1.0 };
     double loopCrossfadeMs { 0.0 };
@@ -123,6 +124,21 @@ enum class EngineCommandType : int
     UpdateVoiceRatios
 };
 
+struct SampleEditSettings
+{
+    double sampleStartRatio { 0.0 };
+    double sampleEndRatio { 1.0 };
+    double loopInRatio { 0.0 };
+    double loopOutRatio { 1.0 };
+    double loopCrossfadeMs { 0.0 };
+    double fadeInMs { 0.0 };
+    double fadeOutMs { 0.0 };
+    int fadeInCurveType { 0 };
+    int fadeOutCurveType { 0 };
+    bool loopMarkersSet { false };
+    bool isLooping { false };
+};
+
 struct EngineCommand
 {
     EngineCommandType type { EngineCommandType::None };
@@ -138,6 +154,8 @@ struct EngineCommand
     double doubleVal2 { 1.0 };
     bool boolVal1 { false };
     bool boolVal2 { false };
+    bool boolVal3 { false };
+    SampleEditSettings editSettings;
     std::shared_ptr<CachedSample> sampleData;
 };
 
@@ -201,6 +219,8 @@ public:
     void setLoopPoints(double inRatio, double outRatio);
     double getLoopInRatio() const { return loopInRatioAtomic.load(std::memory_order_relaxed); }
     double getLoopOutRatio() const { return loopOutRatioAtomic.load(std::memory_order_relaxed); }
+    void setLoopMarkersSet(bool active);
+    bool isLoopMarkersSet() const { return loopMarkersSetAtomic.load(std::memory_order_relaxed); }
     void setLoopCrossfadeMs(double ms);
     double getLoopCrossfadeMs() const { return loopCrossfadeMsAtomic.load(std::memory_order_relaxed); }
     void setFades(double inMs, int inCurve, double outMs, int outCurve);
@@ -208,6 +228,10 @@ public:
     double getFadeOutMs() const { return fadeOutMsAtomic.load(std::memory_order_relaxed); }
     int getFadeInCurve() const { return fadeInCurveAtomic.load(std::memory_order_relaxed); }
     int getFadeOutCurve() const { return fadeOutCurveAtomic.load(std::memory_order_relaxed); }
+    void setSampleEditSettings(const juce::String& filePath, const SampleEditSettings& settings);
+    bool getSampleEditSettings(const juce::String& filePath, SampleEditSettings& outSettings) const;
+    std::map<juce::String, SampleEditSettings> getAllSampleEditSettings() const;
+    void setAllSampleEditSettings(const std::map<juce::String, SampleEditSettings>& settingsMap);
     bool getAudioBufferCopy(juce::AudioBuffer<float>& destBuffer, double& sampleRate) const;
     bool cropLoadedSample(double startRatio, double endRatio);
     bool normalizeLoadedSample();
@@ -224,6 +248,9 @@ public:
     bool deverbSelection(double startRatio, double endRatio, float amount = 0.6f);
     bool adjustGainSelection(double startRatio, double endRatio, float gaindB);
     bool applyHighPassFilter(double startRatio, double endRatio, float cutoffHz = 80.0f);
+    bool applyLowPassFilter(double startRatio, double endRatio, float cutoffHz = 8000.0f);
+    bool removeDcOffsetSelection(double startRatio, double endRatio);
+    bool monoSumSelection(double startRatio, double endRatio);
     bool autoTrimSilence();
     bool invertPhaseSelection(double startRatio, double endRatio);
     bool changeSampleSpeed(double speedMultiplier);
@@ -348,6 +375,7 @@ private:
     std::atomic<double> sampleEndRatioAtomic { 1.0 };
     std::atomic<double> loopInRatioAtomic { 0.0 };
     std::atomic<double> loopOutRatioAtomic { 1.0 };
+    std::atomic<bool> loopMarkersSetAtomic { false };
     std::atomic<double> loopCrossfadeMsAtomic { 0.0 };
     std::atomic<double> fadeInMsAtomic { 0.0 };
     std::atomic<double> fadeOutMsAtomic { 0.0 };
@@ -406,6 +434,9 @@ private:
 
     mutable juce::CriticalSection cacheLock;
     std::map<juce::String, std::shared_ptr<CachedSample>> sampleCache;
+    std::map<juce::String, SampleEditSettings> perSampleEditSettings;
+    void updateCurrentSampleEditSettings();
+    void applyEditSettingsAtomicsForFile(const juce::String& filePath);
 
     PerformanceRackDSP performanceRack;
     juce::AudioBuffer<float> zoneBuffer;

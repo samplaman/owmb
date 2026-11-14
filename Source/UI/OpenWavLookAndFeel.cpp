@@ -339,6 +339,16 @@ void OpenWavLookAndFeel::drawButtonText(juce::Graphics &g,
       svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M2 18l6-12 14 0\"/></svg>";
   } else if (text == "Invert Phase") {
       svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6\"/></svg>";
+  } else if (text == "Loop Sel") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><polyline points=\"17 2 21 6 17 10\"/><path d=\"M3 11V9a3 3 0 0 1 3-3h15\"/><polyline points=\"7 22 3 18 7 14\"/><path d=\"M21 13v2a3 3 0 0 1-3 3H3\"/></svg>";
+  } else if (text == "0-X Loop") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><line x1=\"2\" y1=\"12\" x2=\"22\" y2=\"12\"/><path d=\"M4 12c2-7 5-7 8 0s6 7 8 0\"/><circle cx=\"12\" cy=\"12\" r=\"2.5\"/></svg>";
+  } else if (text == "DC Fix") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><line x1=\"3\" y1=\"12\" x2=\"21\" y2=\"12\"/><polyline points=\"12 4 12 20\"/><polyline points=\"8 8 12 4 16 8\"/></svg>";
+  } else if (text == "Hi Cut") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M2 6h14l6 12\"/></svg>";
+  } else if (text == "Mono Sum") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"9\" cy=\"12\" r=\"5\"/><circle cx=\"15\" cy=\"12\" r=\"5\"/></svg>";
   } else if (text == "Heal / Inpaint" || text == "Heal") {
       svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z\"/></svg>";
   } else if (text == "De-Harmonic") {

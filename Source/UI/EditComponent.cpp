@@ -41,6 +41,7 @@ EditComponent::EditComponent(AudioEngine& engine)
             loopMarkersSet = true;
         }
         audioEngine.setLoopPoints(loopInRatio, loopOutRatio);
+        audioEngine.setLoopMarkersSet(loopMarkersSet);
         audioEngine.setLoopCrossfadeMs(crossfadeMs);
         repaint();
     };
@@ -246,12 +247,80 @@ EditComponent::EditComponent(AudioEngine& engine)
     bakeFadesButton.onClick = [this] { bakeFadesIntoBuffer(); };
     addAndMakeVisible(bakeFadesButton);
 
+    loopToSelectionButton.setComponentID("editIconBtn");
+    loopToSelectionButton.setTooltip("Set Loop Points to Current Selection & Enable Loop");
+    loopToSelectionButton.onClick = [this] {
+        double startR = audioEngine.getSampleStartRatio();
+        double endR = audioEngine.getSampleEndRatio();
+        if (endR - startR < 0.002)
+        {
+            startR = 0.0;
+            endR = 1.0;
+        }
+        loopInRatio = startR;
+        loopOutRatio = endR;
+        loopMarkersSet = true;
+        audioEngine.setLoopPoints(loopInRatio, loopOutRatio);
+        audioEngine.setLoopMarkersSet(true);
+        audioEngine.setLooping(true);
+        loopToggleButton.setToggleState(true, juce::dontSendNotification);
+        repaint();
+    };
+    addAndMakeVisible(loopToSelectionButton);
+
+    snapLoopZeroButton.setComponentID("editIconBtn");
+    snapLoopZeroButton.setTooltip("Snap Loop In & Loop Out to Nearest Zero-Crossings");
+    snapLoopZeroButton.onClick = [this] {
+        if (!loopMarkersSet)
+        {
+            loopInRatio = audioEngine.getSampleStartRatio();
+            loopOutRatio = audioEngine.getSampleEndRatio();
+            loopMarkersSet = true;
+        }
+        double zIn = findNearestZeroCrossing(loopInRatio);
+        double zOut = findNearestZeroCrossing(loopOutRatio);
+        if (zOut > zIn + 0.0005)
+        {
+            loopInRatio = zIn;
+            loopOutRatio = zOut;
+            audioEngine.setLoopPoints(loopInRatio, loopOutRatio);
+            audioEngine.setLoopMarkersSet(loopMarkersSet);
+            repaint();
+        }
+    };
+    addAndMakeVisible(snapLoopZeroButton);
+
+    dcOffsetButton.setComponentID("editIconBtn");
+    dcOffsetButton.setTooltip("Remove DC Offset in Selection");
+    dcOffsetButton.onClick = [this] {
+        if (audioEngine.removeDcOffsetSelection(audioEngine.getSampleStartRatio(), audioEngine.getSampleEndRatio()))
+            repaint();
+    };
+    addAndMakeVisible(dcOffsetButton);
+
+    lpFilterButton.setComponentID("editIconBtn");
+    lpFilterButton.setTooltip("Low Pass / High Cut Filter (8 kHz) on Selection");
+    lpFilterButton.onClick = [this] {
+        if (audioEngine.applyLowPassFilter(audioEngine.getSampleStartRatio(), audioEngine.getSampleEndRatio(), 8000.0f))
+            repaint();
+    };
+    addAndMakeVisible(lpFilterButton);
+
+    monoSumButton.setComponentID("editIconBtn");
+    monoSumButton.setTooltip("Sum Stereo Selection to Mono (L+R)/2");
+    monoSumButton.onClick = [this] {
+        if (audioEngine.monoSumSelection(audioEngine.getSampleStartRatio(), audioEngine.getSampleEndRatio()))
+            repaint();
+    };
+    addAndMakeVisible(monoSumButton);
+
     // ── Fine Loop Nudge controls ──────────────────────
     loopInNudgeLeft.setTooltip("Nudge Loop Start Left");
     loopInNudgeLeft.onClick = [this] {
         loopInRatio = juce::jlimit(0.0, loopOutRatio - 0.001, loopInRatio - 0.002);
         loopMarkersSet = true;
         audioEngine.setLoopPoints(loopInRatio, loopOutRatio);
+        audioEngine.setLoopMarkersSet(true);
         repaint();
     };
     addAndMakeVisible(loopInNudgeLeft);
@@ -261,6 +330,7 @@ EditComponent::EditComponent(AudioEngine& engine)
         loopInRatio = juce::jlimit(0.0, loopOutRatio - 0.001, loopInRatio + 0.002);
         loopMarkersSet = true;
         audioEngine.setLoopPoints(loopInRatio, loopOutRatio);
+        audioEngine.setLoopMarkersSet(true);
         repaint();
     };
     addAndMakeVisible(loopInNudgeRight);
@@ -270,6 +340,7 @@ EditComponent::EditComponent(AudioEngine& engine)
         loopOutRatio = juce::jlimit(loopInRatio + 0.001, 1.0, loopOutRatio - 0.002);
         loopMarkersSet = true;
         audioEngine.setLoopPoints(loopInRatio, loopOutRatio);
+        audioEngine.setLoopMarkersSet(true);
         repaint();
     };
     addAndMakeVisible(loopOutNudgeLeft);
@@ -279,6 +350,7 @@ EditComponent::EditComponent(AudioEngine& engine)
         loopOutRatio = juce::jlimit(loopInRatio + 0.001, 1.0, loopOutRatio + 0.002);
         loopMarkersSet = true;
         audioEngine.setLoopPoints(loopInRatio, loopOutRatio);
+        audioEngine.setLoopMarkersSet(true);
         repaint();
     };
     addAndMakeVisible(loopOutNudgeRight);
@@ -305,6 +377,7 @@ EditComponent::EditComponent(AudioEngine& engine)
             fadeOutMsLabel.setText("0 ms", juce::dontSendNotification);
             audioEngine.setFades(0.0, fadeInCurveType, 0.0, fadeOutCurveType);
             audioEngine.setLoopPoints(0.0, 1.0);
+            audioEngine.setLoopMarkersSet(false);
             zoomLevel = 1.0;
             scrollOffset = 0.0;
             zoomSlider.setValue(1.0, juce::dontSendNotification);
@@ -574,6 +647,11 @@ void EditComponent::updateControlVisibility()
     speedHalfButton.setVisible(showWaveformTools);
     deverbButton.setVisible(showWaveformTools);
     bakeFadesButton.setVisible(hasSamplerSample);
+    loopToSelectionButton.setVisible(showWaveformTools);
+    snapLoopZeroButton.setVisible(showWaveformTools);
+    dcOffsetButton.setVisible(showWaveformTools);
+    lpFilterButton.setVisible(showWaveformTools);
+    monoSumButton.setVisible(showWaveformTools && audioEngine.getNumChannels() >= 2);
 
     // Spectral Tools (visible whenever in Spectral mode)
     spectralBoxSelectBtn.setVisible(showSpectralTools);
@@ -741,6 +819,16 @@ void EditComponent::resized()
         deverbButton.setBounds(row2.removeFromLeft(iconBtnWidth));
         row2.removeFromLeft(iconBtnGap);
         bakeFadesButton.setBounds(row2.removeFromLeft(iconBtnWidth));
+        row2.removeFromLeft(iconBtnGap);
+        loopToSelectionButton.setBounds(row2.removeFromLeft(iconBtnWidth));
+        row2.removeFromLeft(iconBtnGap);
+        snapLoopZeroButton.setBounds(row2.removeFromLeft(iconBtnWidth));
+        row2.removeFromLeft(iconBtnGap);
+        dcOffsetButton.setBounds(row2.removeFromLeft(iconBtnWidth));
+        row2.removeFromLeft(iconBtnGap);
+        lpFilterButton.setBounds(row2.removeFromLeft(iconBtnWidth));
+        row2.removeFromLeft(iconBtnGap);
+        monoSumButton.setBounds(row2.removeFromLeft(iconBtnWidth));
     }
 
     area.removeFromTop(8); // Gap
@@ -2882,12 +2970,14 @@ void EditComponent::mouseDrag(const juce::MouseEvent& e)
             loopInRatio = juce::jlimit(0.0, loopOutRatio - 0.001, currentRatio);
             loopMarkersSet = true;
             audioEngine.setLoopPoints(loopInRatio, loopOutRatio);
+            audioEngine.setLoopMarkersSet(true);
             loopInTimeLabel.setText(formatTime(loopInRatio * totalDurationSecs), juce::dontSendNotification);
             break;
         case DragTarget::LoopOutMarker:
             loopOutRatio = juce::jlimit(loopInRatio + 0.001, 1.0, currentRatio);
             loopMarkersSet = true;
             audioEngine.setLoopPoints(loopInRatio, loopOutRatio);
+            audioEngine.setLoopMarkersSet(true);
             loopOutTimeLabel.setText(formatTime(loopOutRatio * totalDurationSecs), juce::dontSendNotification);
             break;
         case DragTarget::LoopRegion:
@@ -2897,6 +2987,7 @@ void EditComponent::mouseDrag(const juce::MouseEvent& e)
             loopOutRatio = newIn + dragLoopSpan;
             loopMarkersSet = true;
             audioEngine.setLoopPoints(loopInRatio, loopOutRatio);
+            audioEngine.setLoopMarkersSet(true);
             loopInTimeLabel.setText(formatTime(loopInRatio * totalDurationSecs), juce::dontSendNotification);
             loopOutTimeLabel.setText(formatTime(loopOutRatio * totalDurationSecs), juce::dontSendNotification);
             break;
@@ -2957,6 +3048,7 @@ void EditComponent::mouseUp(const juce::MouseEvent& /*e*/)
                 loopOutRatio = endR;
                 loopMarkersSet = true;
                 audioEngine.setLoopPoints(loopInRatio, loopOutRatio);
+                audioEngine.setLoopMarkersSet(true);
             }
         }
     }
@@ -3079,6 +3171,7 @@ void EditComponent::mouseDoubleClick(const juce::MouseEvent& /*e*/)
     loopOutRatio = 1.0;
     loopMarkersSet = false;
     audioEngine.setLoopPoints(0.0, 1.0);
+    audioEngine.setLoopMarkersSet(false);
     repaint();
 }
 
@@ -3224,6 +3317,7 @@ void EditComponent::sampleLoaded(const juce::String& filePath)
 
     if (f.getFullPathName().isEmpty() || !f.existsAsFile())
     {
+        lastLoadedFilePath.clear();
         sampleNameLabel.setText("", juce::dontSendNotification);
         totalDurationSecs = 0.0;
         currentPositionSecs = 0.0;
@@ -3238,7 +3332,9 @@ void EditComponent::sampleLoaded(const juce::String& filePath)
         return;
     }
 
-    bool isSameFile = (f == audioEngine.getCurrentFile());
+    const juce::String fullPath = f.getFullPathName();
+    bool isSameFile = (fullPath == lastLoadedFilePath);
+    lastLoadedFilePath = fullPath;
 
     isSliceEditingActive = false;
     activeEditingSliceIndex = -1;
@@ -3249,21 +3345,57 @@ void EditComponent::sampleLoaded(const juce::String& filePath)
     if (!isSameFile || !audioEngine.hasOriginalSnapshot())
     {
         currentPositionSecs = 0.0;
-        loopInRatio = 0.0;
-        loopOutRatio = 1.0;
-        loopMarkersSet = false;
-        fadeInMs = 0.0;
-        fadeOutMs = 0.0;
-        crossfadeMs = 0.0;
-        fadeInSlider.setValue(0.0, juce::dontSendNotification);
-        fadeOutSlider.setValue(0.0, juce::dontSendNotification);
-        crossfadeSlider.setValue(0.0, juce::dontSendNotification);
-        fadeInMsLabel.setText("0 ms", juce::dontSendNotification);
-        fadeOutMsLabel.setText("0 ms", juce::dontSendNotification);
-        crossfadeMsLabel.setText("0 ms", juce::dontSendNotification);
-        audioEngine.setLoopPoints(0.0, 1.0);
-        audioEngine.setLoopCrossfadeMs(0.0);
-        audioEngine.setFades(0.0, fadeInCurveType, 0.0, fadeOutCurveType);
+        SampleEditSettings saved;
+        if (audioEngine.getSampleEditSettings(f.getFullPathName(), saved))
+        {
+            loopInRatio = saved.loopInRatio;
+            loopOutRatio = saved.loopOutRatio;
+            loopMarkersSet = saved.loopMarkersSet;
+            fadeInMs = saved.fadeInMs;
+            fadeOutMs = saved.fadeOutMs;
+            fadeInCurveType = juce::jlimit(0, 2, saved.fadeInCurveType);
+            fadeOutCurveType = juce::jlimit(0, 2, saved.fadeOutCurveType);
+            crossfadeMs = saved.loopCrossfadeMs;
+
+            fadeInSlider.setValue(fadeInMs, juce::dontSendNotification);
+            fadeOutSlider.setValue(fadeOutMs, juce::dontSendNotification);
+            crossfadeSlider.setValue(crossfadeMs, juce::dontSendNotification);
+            fadeInCurveBox.setSelectedId(fadeInCurveType + 1, juce::dontSendNotification);
+            fadeOutCurveBox.setSelectedId(fadeOutCurveType + 1, juce::dontSendNotification);
+            fadeInMsLabel.setText(juce::String(static_cast<int>(fadeInMs)) + " ms", juce::dontSendNotification);
+            fadeOutMsLabel.setText(juce::String(static_cast<int>(fadeOutMs)) + " ms", juce::dontSendNotification);
+            crossfadeMsLabel.setText(juce::String(static_cast<int>(crossfadeMs)) + " ms", juce::dontSendNotification);
+            loopToggleButton.setToggleState(saved.isLooping, juce::dontSendNotification);
+
+            audioEngine.setSampleRange(saved.sampleStartRatio, saved.sampleEndRatio);
+            audioEngine.setLoopPoints(loopInRatio, loopOutRatio);
+            audioEngine.setLoopMarkersSet(loopMarkersSet);
+            audioEngine.setLoopCrossfadeMs(crossfadeMs);
+            audioEngine.setFades(fadeInMs, fadeInCurveType, fadeOutMs, fadeOutCurveType);
+            audioEngine.setLooping(saved.isLooping);
+        }
+        else
+        {
+            loopInRatio = 0.0;
+            loopOutRatio = 1.0;
+            loopMarkersSet = false;
+            fadeInMs = 0.0;
+            fadeOutMs = 0.0;
+            crossfadeMs = 0.0;
+            fadeInSlider.setValue(0.0, juce::dontSendNotification);
+            fadeOutSlider.setValue(0.0, juce::dontSendNotification);
+            crossfadeSlider.setValue(0.0, juce::dontSendNotification);
+            fadeInMsLabel.setText("0 ms", juce::dontSendNotification);
+            fadeOutMsLabel.setText("0 ms", juce::dontSendNotification);
+            crossfadeMsLabel.setText("0 ms", juce::dontSendNotification);
+            loopToggleButton.setToggleState(false, juce::dontSendNotification);
+            audioEngine.setSampleRange(0.0, 1.0);
+            audioEngine.setLoopPoints(0.0, 1.0);
+            audioEngine.setLoopMarkersSet(false);
+            audioEngine.setLoopCrossfadeMs(0.0);
+            audioEngine.setFades(0.0, fadeInCurveType, 0.0, fadeOutCurveType);
+            audioEngine.setLooping(false);
+        }
         zoomLevel = 1.0;
         scrollOffset = 0.0;
         zoomSlider.setValue(1.0, juce::dontSendNotification);
@@ -3504,6 +3636,7 @@ void EditComponent::setState(const EditComponentState& state)
             crossfadeMsLabel.setText(juce::String(static_cast<int>(crossfadeMs)) + " ms", juce::dontSendNotification);
 
             audioEngine.setLoopPoints(loopInRatio, loopOutRatio);
+            audioEngine.setLoopMarkersSet(loopMarkersSet);
             audioEngine.setLoopCrossfadeMs(crossfadeMs);
             audioEngine.setFades(fadeInMs, fadeInCurveType, fadeOutMs, fadeOutCurveType);
 

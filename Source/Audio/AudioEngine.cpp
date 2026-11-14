@@ -234,7 +234,7 @@ void AudioEngine::drainCommandsOnAudioThread()
             {
                 for (auto& slot : voicePool)
                 {
-                    if (!slot.isZoneVoice && !slot.isMetronome)
+                    if ((!slot.isZoneVoice || slot.matchesEditorSample) && !slot.isMetronome)
                     {
                         slot.isLooping = cmd.boolVal1;
                     }
@@ -249,7 +249,7 @@ void AudioEngine::drainCommandsOnAudioThread()
             {
                 for (auto& slot : voicePool)
                 {
-                    if (!slot.isZoneVoice && !slot.isMetronome && slot.sample != nullptr)
+                    if ((!slot.isZoneVoice || slot.matchesEditorSample) && !slot.isMetronome && slot.sample != nullptr)
                     {
                         slot.startRatio = cmd.doubleVal1;
                         slot.endRatio = cmd.doubleVal2;
@@ -266,7 +266,7 @@ void AudioEngine::drainCommandsOnAudioThread()
             {
                 for (auto& slot : voicePool)
                 {
-                    if (!slot.isZoneVoice && !slot.isMetronome)
+                    if ((!slot.isZoneVoice || slot.matchesEditorSample) && !slot.isMetronome)
                     {
                         slot.loopInRatio = cmd.doubleVal1;
                         slot.loopOutRatio = cmd.doubleVal2;
@@ -278,7 +278,7 @@ void AudioEngine::drainCommandsOnAudioThread()
             {
                 for (auto& slot : voicePool)
                 {
-                    if (!slot.isZoneVoice && !slot.isMetronome)
+                    if ((!slot.isZoneVoice || slot.matchesEditorSample) && !slot.isMetronome)
                     {
                         slot.loopCrossfadeMs = cmd.doubleVal1;
                     }
@@ -289,7 +289,7 @@ void AudioEngine::drainCommandsOnAudioThread()
             {
                 for (auto& slot : voicePool)
                 {
-                    if (!slot.isZoneVoice && !slot.isMetronome)
+                    if ((!slot.isZoneVoice || slot.matchesEditorSample) && !slot.isMetronome)
                     {
                         slot.fadeInMs = cmd.doubleVal1;
                         slot.fadeInCurveType = cmd.intVal1;
@@ -325,10 +325,22 @@ void AudioEngine::drainCommandsOnAudioThread()
 
                     auto& slot = voicePool[targetSlot];
                     slot.sample = cmd.sampleData;
-                    slot.readPosition = 0.0;
-                    slot.startRatio = 0.0;
-                    slot.endRatio = 1.0;
-                    slot.isLooping = cmd.boolVal1;
+                    slot.matchesEditorSample = cmd.boolVal3;
+                    slot.startRatio = cmd.editSettings.sampleStartRatio;
+                    slot.endRatio = cmd.editSettings.sampleEndRatio;
+                    slot.readPosition = slot.startRatio * cmd.sampleData->buffer.getNumSamples();
+                    slot.loopInRatio = cmd.editSettings.loopInRatio;
+                    slot.loopOutRatio = cmd.editSettings.loopOutRatio;
+                    slot.loopCrossfadeMs = cmd.editSettings.loopCrossfadeMs;
+                    slot.fadeInMs = cmd.editSettings.fadeInMs;
+                    slot.fadeOutMs = cmd.editSettings.fadeOutMs;
+                    slot.fadeInCurveType = cmd.editSettings.fadeInCurveType;
+                    slot.fadeOutCurveType = cmd.editSettings.fadeOutCurveType;
+                    const bool hasCustomLoopPoints = cmd.editSettings.loopMarkersSet
+                        || ((slot.loopOutRatio - slot.loopInRatio) > 0.0005
+                            && (slot.loopInRatio > 0.0001 || slot.loopOutRatio < 0.9999));
+                    slot.isLooping = cmd.boolVal1 || cmd.editSettings.isLooping
+                        || (!slot.isOneShot && hasCustomLoopPoints);
                     slot.active = true;
                     slot.rootNote = cmd.intVal2;
                     slot.triggerMidiNote = cmd.intVal1;
@@ -767,7 +779,7 @@ void AudioEngine::processNextAudioBlock(juce::AudioBuffer<float>& outputBuffer, 
             double sr = engineSampleRateAtomic.load(std::memory_order_relaxed);
             if (sr <= 0.0) sr = 44100.0;
             int desiredXfade = static_cast<int>((slot.loopCrossfadeMs / 1000.0) * sr);
-            if (slot.isZoneVoice && desiredXfade == 0)
+            if (slot.isZoneVoice && !slot.matchesEditorSample && desiredXfade == 0)
                 desiredXfade = static_cast<int>(0.005 * sr);
             xfadeLen = std::min(desiredXfade, loopLen / 2);
         }
@@ -1008,6 +1020,12 @@ void AudioEngine::playZoneVoice(const juce::File& file, int triggerMidiNote, int
     if (filePath.isEmpty()) return;
 
     std::shared_ptr<CachedSample> cached;
+    bool matchesEditor = false;
+
+    {
+        const juce::ScopedLock sl(uiDataLock);
+        matchesEditor = (currentFile == file);
+    }
 
     {
         const juce::ScopedLock sl(cacheLock);
@@ -1065,6 +1083,28 @@ void AudioEngine::playZoneVoice(const juce::File& file, int triggerMidiNote, int
     cmd.floatVal6 = effectiveRelease;
     cmd.boolVal1 = isLooping;
     cmd.boolVal2 = isOneShot || oneShotEnabled.load(std::memory_order_relaxed);
+    cmd.boolVal3 = matchesEditor;
+    if (matchesEditor)
+    {
+        cmd.editSettings.sampleStartRatio = sampleStartRatioAtomic.load(std::memory_order_relaxed);
+        cmd.editSettings.sampleEndRatio = sampleEndRatioAtomic.load(std::memory_order_relaxed);
+        cmd.editSettings.loopInRatio = loopInRatioAtomic.load(std::memory_order_relaxed);
+        cmd.editSettings.loopOutRatio = loopOutRatioAtomic.load(std::memory_order_relaxed);
+        cmd.editSettings.loopCrossfadeMs = loopCrossfadeMsAtomic.load(std::memory_order_relaxed);
+        cmd.editSettings.fadeInMs = fadeInMsAtomic.load(std::memory_order_relaxed);
+        cmd.editSettings.fadeOutMs = fadeOutMsAtomic.load(std::memory_order_relaxed);
+        cmd.editSettings.fadeInCurveType = fadeInCurveAtomic.load(std::memory_order_relaxed);
+        cmd.editSettings.fadeOutCurveType = fadeOutCurveAtomic.load(std::memory_order_relaxed);
+        cmd.editSettings.loopMarkersSet = loopMarkersSetAtomic.load(std::memory_order_relaxed);
+        cmd.editSettings.isLooping = isLoopingAtomic.load(std::memory_order_relaxed);
+    }
+    else
+    {
+        const juce::ScopedLock sl(cacheLock);
+        auto itSettings = perSampleEditSettings.find(filePath);
+        if (itSettings != perSampleEditSettings.end())
+            cmd.editSettings = itSettings->second;
+    }
     pushCommand(cmd);
 
     juce::MessageManager::callAsync([this, token = engineAliveToken, triggerMidiNote]() {
@@ -1152,8 +1192,7 @@ bool AudioEngine::loadFile(const juce::File& audioFile, bool autoPlay, bool isSa
         {
             currentFile = audioFile;
             loadInProgress.store(false, std::memory_order_relaxed);
-            sampleStartRatioAtomic.store(0.0, std::memory_order_relaxed);
-            sampleEndRatioAtomic.store(1.0, std::memory_order_relaxed);
+            applyEditSettingsAtomicsForFile(audioFile.getFullPathName());
             stoppedPositionSecs.store(0.0, std::memory_order_relaxed);
 
             if (autoPlay)
@@ -1187,8 +1226,7 @@ bool AudioEngine::loadFile(const juce::File& audioFile, bool autoPlay, bool isSa
         loadInProgress.store(false, std::memory_order_release);
         auto loadId = ++currentLoadId;
 
-        sampleStartRatioAtomic.store(0.0, std::memory_order_relaxed);
-        sampleEndRatioAtomic.store(1.0, std::memory_order_relaxed);
+        applyEditSettingsAtomicsForFile(filePath);
         stoppedPositionSecs.store(0.0, std::memory_order_relaxed);
 
         const double fileSampleRate = cachedSample->sampleRate;
@@ -1334,8 +1372,7 @@ bool AudioEngine::loadFile(const juce::File& audioFile, bool autoPlay, bool isSa
     loadInProgress.store(true, std::memory_order_release);
     auto loadId = ++currentLoadId;
 
-    sampleStartRatioAtomic.store(0.0, std::memory_order_relaxed);
-    sampleEndRatioAtomic.store(1.0, std::memory_order_relaxed);
+    applyEditSettingsAtomicsForFile(filePath);
     stoppedPositionSecs.store(0.0, std::memory_order_relaxed);
 
     std::thread([this, audioFile, loadId, token = engineAliveToken]() {
@@ -2007,6 +2044,7 @@ void AudioEngine::setOneShotEnabled(bool enabled)
 void AudioEngine::setLooping(bool shouldLoop)
 {
     isLoopingAtomic.store(shouldLoop, std::memory_order_relaxed);
+    updateCurrentSampleEditSettings();
     EngineCommand cmd;
     cmd.type = EngineCommandType::SetLooping;
     cmd.boolVal1 = shouldLoop;
@@ -2144,6 +2182,7 @@ void AudioEngine::setSampleRange(double startRatio, double endRatio)
 
     sampleStartRatioAtomic.store(start, std::memory_order_relaxed);
     sampleEndRatioAtomic.store(end, std::memory_order_relaxed);
+    updateCurrentSampleEditSettings();
 
     EngineCommand cmd;
     cmd.type = EngineCommandType::SetSampleRange;
@@ -2160,6 +2199,7 @@ void AudioEngine::setLoopPoints(double inRatio, double outRatio)
 
     loopInRatioAtomic.store(inR, std::memory_order_relaxed);
     loopOutRatioAtomic.store(outR, std::memory_order_relaxed);
+    updateCurrentSampleEditSettings();
 
     EngineCommand cmd;
     cmd.type = EngineCommandType::SetLoopPoints;
@@ -2168,10 +2208,17 @@ void AudioEngine::setLoopPoints(double inRatio, double outRatio)
     pushCommand(cmd);
 }
 
+void AudioEngine::setLoopMarkersSet(bool active)
+{
+    loopMarkersSetAtomic.store(active, std::memory_order_relaxed);
+    updateCurrentSampleEditSettings();
+}
+
 void AudioEngine::setLoopCrossfadeMs(double ms)
 {
     double xms = std::max(0.0, ms);
     loopCrossfadeMsAtomic.store(xms, std::memory_order_relaxed);
+    updateCurrentSampleEditSettings();
 
     EngineCommand cmd;
     cmd.type = EngineCommandType::SetLoopCrossfadeMs;
@@ -2188,6 +2235,7 @@ void AudioEngine::setFades(double inMs, int inCurve, double outMs, int outCurve)
     fadeInCurveAtomic.store(inCurve, std::memory_order_relaxed);
     fadeOutMsAtomic.store(fOut, std::memory_order_relaxed);
     fadeOutCurveAtomic.store(outCurve, std::memory_order_relaxed);
+    updateCurrentSampleEditSettings();
 
     EngineCommand cmd;
     cmd.type = EngineCommandType::SetFades;
@@ -2196,6 +2244,85 @@ void AudioEngine::setFades(double inMs, int inCurve, double outMs, int outCurve)
     cmd.doubleVal2 = fOut;
     cmd.intVal2 = outCurve;
     pushCommand(cmd);
+}
+
+void AudioEngine::updateCurrentSampleEditSettings()
+{
+    juce::String fp;
+    {
+        const juce::ScopedLock sl(uiDataLock);
+        fp = currentFile.getFullPathName();
+    }
+    if (fp.isEmpty()) return;
+
+    SampleEditSettings s;
+    s.sampleStartRatio = sampleStartRatioAtomic.load(std::memory_order_relaxed);
+    s.sampleEndRatio = sampleEndRatioAtomic.load(std::memory_order_relaxed);
+    s.loopInRatio = loopInRatioAtomic.load(std::memory_order_relaxed);
+    s.loopOutRatio = loopOutRatioAtomic.load(std::memory_order_relaxed);
+    s.loopCrossfadeMs = loopCrossfadeMsAtomic.load(std::memory_order_relaxed);
+    s.fadeInMs = fadeInMsAtomic.load(std::memory_order_relaxed);
+    s.fadeOutMs = fadeOutMsAtomic.load(std::memory_order_relaxed);
+    s.fadeInCurveType = fadeInCurveAtomic.load(std::memory_order_relaxed);
+    s.fadeOutCurveType = fadeOutCurveAtomic.load(std::memory_order_relaxed);
+    s.loopMarkersSet = loopMarkersSetAtomic.load(std::memory_order_relaxed);
+    s.isLooping = isLoopingAtomic.load(std::memory_order_relaxed);
+
+    const juce::ScopedLock sl(cacheLock);
+    perSampleEditSettings[fp] = s;
+}
+
+void AudioEngine::setSampleEditSettings(const juce::String& filePath, const SampleEditSettings& settings)
+{
+    if (filePath.isEmpty()) return;
+    const juce::ScopedLock sl(cacheLock);
+    perSampleEditSettings[filePath] = settings;
+}
+
+bool AudioEngine::getSampleEditSettings(const juce::String& filePath, SampleEditSettings& outSettings) const
+{
+    if (filePath.isEmpty()) return false;
+    const juce::ScopedLock sl(cacheLock);
+    auto it = perSampleEditSettings.find(filePath);
+    if (it == perSampleEditSettings.end()) return false;
+    outSettings = it->second;
+    return true;
+}
+
+std::map<juce::String, SampleEditSettings> AudioEngine::getAllSampleEditSettings() const
+{
+    const juce::ScopedLock sl(cacheLock);
+    return perSampleEditSettings;
+}
+
+void AudioEngine::setAllSampleEditSettings(const std::map<juce::String, SampleEditSettings>& settingsMap)
+{
+    const juce::ScopedLock sl(cacheLock);
+    perSampleEditSettings = settingsMap;
+}
+
+void AudioEngine::applyEditSettingsAtomicsForFile(const juce::String& filePath)
+{
+    SampleEditSettings s;
+    if (filePath.isNotEmpty())
+    {
+        const juce::ScopedLock sl(cacheLock);
+        auto it = perSampleEditSettings.find(filePath);
+        if (it != perSampleEditSettings.end())
+            s = it->second;
+    }
+
+    sampleStartRatioAtomic.store(s.sampleStartRatio, std::memory_order_relaxed);
+    sampleEndRatioAtomic.store(s.sampleEndRatio, std::memory_order_relaxed);
+    loopInRatioAtomic.store(s.loopInRatio, std::memory_order_relaxed);
+    loopOutRatioAtomic.store(s.loopOutRatio, std::memory_order_relaxed);
+    loopCrossfadeMsAtomic.store(s.loopCrossfadeMs, std::memory_order_relaxed);
+    fadeInMsAtomic.store(s.fadeInMs, std::memory_order_relaxed);
+    fadeOutMsAtomic.store(s.fadeOutMs, std::memory_order_relaxed);
+    fadeInCurveAtomic.store(s.fadeInCurveType, std::memory_order_relaxed);
+    fadeOutCurveAtomic.store(s.fadeOutCurveType, std::memory_order_relaxed);
+    loopMarkersSetAtomic.store(s.loopMarkersSet, std::memory_order_relaxed);
+    isLoopingAtomic.store(s.isLooping, std::memory_order_relaxed);
 }
 
 bool AudioEngine::getAudioBufferCopy(juce::AudioBuffer<float>& destBuffer, double& sampleRate) const
@@ -3160,6 +3287,90 @@ bool AudioEngine::applyFadesToBuffer(double fadeInMs, int fadeInType, double fad
                 data[i] *= gain;
             }
         }
+    }
+
+    rebuildWaveformPeaks();
+    replaceEditedSampleInMemory();
+    return true;
+}
+
+bool AudioEngine::applyLowPassFilter(double startRatio, double endRatio, float cutoffHz)
+{
+    const juce::ScopedLock sl(uiDataLock);
+    if (loadedVoice == nullptr || loadedVoice->buffer.getNumSamples() == 0)
+        return false;
+
+    int totalSamples = loadedVoice->buffer.getNumSamples();
+    int startIdx = juce::jlimit(0, totalSamples - 1, static_cast<int>(startRatio * totalSamples));
+    int endIdx = juce::jlimit(startIdx + 1, totalSamples, static_cast<int>(endRatio * totalSamples));
+    int len = endIdx - startIdx;
+    if (len <= 2) return false;
+
+    double sr = currentFileSampleRateAtomic.load(std::memory_order_relaxed);
+    if (sr <= 0.0) sr = 44100.0;
+
+    auto coeffs = juce::IIRCoefficients::makeLowPass(sr, juce::jlimit(100.0, sr * 0.45, static_cast<double>(cutoffHz)));
+    for (int ch = 0; ch < loadedVoice->buffer.getNumChannels(); ++ch)
+    {
+        juce::IIRFilter filter;
+        filter.setCoefficients(coeffs);
+        filter.processSamples(loadedVoice->buffer.getWritePointer(ch, startIdx), len);
+    }
+
+    rebuildWaveformPeaks();
+    replaceEditedSampleInMemory();
+    return true;
+}
+
+bool AudioEngine::removeDcOffsetSelection(double startRatio, double endRatio)
+{
+    const juce::ScopedLock sl(uiDataLock);
+    if (loadedVoice == nullptr || loadedVoice->buffer.getNumSamples() == 0)
+        return false;
+
+    int totalSamples = loadedVoice->buffer.getNumSamples();
+    int startIdx = juce::jlimit(0, totalSamples - 1, static_cast<int>(startRatio * totalSamples));
+    int endIdx = juce::jlimit(startIdx + 1, totalSamples, static_cast<int>(endRatio * totalSamples));
+    int len = endIdx - startIdx;
+    if (len <= 0) return false;
+
+    for (int ch = 0; ch < loadedVoice->buffer.getNumChannels(); ++ch)
+    {
+        float* data = loadedVoice->buffer.getWritePointer(ch, startIdx);
+        double sum = 0.0;
+        for (int i = 0; i < len; ++i)
+            sum += data[i];
+        float mean = static_cast<float>(sum / static_cast<double>(len));
+        for (int i = 0; i < len; ++i)
+            data[i] -= mean;
+    }
+
+    rebuildWaveformPeaks();
+    replaceEditedSampleInMemory();
+    return true;
+}
+
+bool AudioEngine::monoSumSelection(double startRatio, double endRatio)
+{
+    const juce::ScopedLock sl(uiDataLock);
+    if (loadedVoice == nullptr || loadedVoice->buffer.getNumSamples() == 0)
+        return false;
+    if (loadedVoice->buffer.getNumChannels() < 2)
+        return true;
+
+    int totalSamples = loadedVoice->buffer.getNumSamples();
+    int startIdx = juce::jlimit(0, totalSamples - 1, static_cast<int>(startRatio * totalSamples));
+    int endIdx = juce::jlimit(startIdx + 1, totalSamples, static_cast<int>(endRatio * totalSamples));
+    int len = endIdx - startIdx;
+    if (len <= 0) return false;
+
+    float* left = loadedVoice->buffer.getWritePointer(0, startIdx);
+    float* right = loadedVoice->buffer.getWritePointer(1, startIdx);
+    for (int i = 0; i < len; ++i)
+    {
+        float mid = 0.5f * (left[i] + right[i]);
+        left[i] = mid;
+        right[i] = mid;
     }
 
     rebuildWaveformPeaks();

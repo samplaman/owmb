@@ -114,6 +114,17 @@ struct SampleMapZoneState
     float sustainLevel { 1.0f };
     float releaseMs { 200.0f };
     float velocitySensitivity { -1.0f };
+    double sampleStartRatio { 0.0 };
+    double sampleEndRatio { 1.0 };
+    double loopInRatio { 0.0 };
+    double loopOutRatio { 1.0 };
+    double loopCrossfadeMs { 0.0 };
+    double fadeInMs { 0.0 };
+    double fadeOutMs { 0.0 };
+    int fadeInCurveType { 0 };
+    int fadeOutCurveType { 0 };
+    bool loopMarkersSet { false };
+    bool isLooping { false };
 
     juce::var toVar() const
     {
@@ -133,6 +144,17 @@ struct SampleMapZoneState
         obj->setProperty("sustainLevel", sustainLevel);
         obj->setProperty("releaseMs", releaseMs);
         obj->setProperty("velocitySensitivity", velocitySensitivity);
+        obj->setProperty("sampleStartRatio", sampleStartRatio);
+        obj->setProperty("sampleEndRatio", sampleEndRatio);
+        obj->setProperty("loopInRatio", loopInRatio);
+        obj->setProperty("loopOutRatio", loopOutRatio);
+        obj->setProperty("loopCrossfadeMs", loopCrossfadeMs);
+        obj->setProperty("fadeInMs", fadeInMs);
+        obj->setProperty("fadeOutMs", fadeOutMs);
+        obj->setProperty("fadeInCurveType", fadeInCurveType);
+        obj->setProperty("fadeOutCurveType", fadeOutCurveType);
+        obj->setProperty("loopMarkersSet", loopMarkersSet);
+        obj->setProperty("isLooping", isLooping);
         return juce::var(obj);
     }
 
@@ -163,6 +185,17 @@ struct SampleMapZoneState
             z.velocitySensitivity = static_cast<float>(obj->getProperty("velocitySensitivity"));
         else
             z.velocitySensitivity = -1.0f;
+        if (obj->hasProperty("sampleStartRatio")) z.sampleStartRatio = static_cast<double>(obj->getProperty("sampleStartRatio"));
+        if (obj->hasProperty("sampleEndRatio")) z.sampleEndRatio = static_cast<double>(obj->getProperty("sampleEndRatio"));
+        if (obj->hasProperty("loopInRatio")) z.loopInRatio = static_cast<double>(obj->getProperty("loopInRatio"));
+        if (obj->hasProperty("loopOutRatio")) z.loopOutRatio = static_cast<double>(obj->getProperty("loopOutRatio"));
+        if (obj->hasProperty("loopCrossfadeMs")) z.loopCrossfadeMs = static_cast<double>(obj->getProperty("loopCrossfadeMs"));
+        if (obj->hasProperty("fadeInMs")) z.fadeInMs = static_cast<double>(obj->getProperty("fadeInMs"));
+        if (obj->hasProperty("fadeOutMs")) z.fadeOutMs = static_cast<double>(obj->getProperty("fadeOutMs"));
+        if (obj->hasProperty("fadeInCurveType")) z.fadeInCurveType = static_cast<int>(obj->getProperty("fadeInCurveType"));
+        if (obj->hasProperty("fadeOutCurveType")) z.fadeOutCurveType = static_cast<int>(obj->getProperty("fadeOutCurveType"));
+        if (obj->hasProperty("loopMarkersSet")) z.loopMarkersSet = static_cast<bool>(obj->getProperty("loopMarkersSet"));
+        if (obj->hasProperty("isLooping")) z.isLooping = static_cast<bool>(obj->getProperty("isLooping"));
         return z;
     }
 
@@ -184,6 +217,17 @@ struct SampleMapZoneState
         xml->setAttribute("sustainLevel", static_cast<double>(sustainLevel));
         xml->setAttribute("releaseMs", static_cast<double>(releaseMs));
         xml->setAttribute("velocitySensitivity", static_cast<double>(velocitySensitivity));
+        xml->setAttribute("sampleStartRatio", sampleStartRatio);
+        xml->setAttribute("sampleEndRatio", sampleEndRatio);
+        xml->setAttribute("loopInRatio", loopInRatio);
+        xml->setAttribute("loopOutRatio", loopOutRatio);
+        xml->setAttribute("loopCrossfadeMs", loopCrossfadeMs);
+        xml->setAttribute("fadeInMs", fadeInMs);
+        xml->setAttribute("fadeOutMs", fadeOutMs);
+        xml->setAttribute("fadeInCurveType", fadeInCurveType);
+        xml->setAttribute("fadeOutCurveType", fadeOutCurveType);
+        xml->setAttribute("loopMarkersSet", loopMarkersSet ? 1 : 0);
+        xml->setAttribute("isLooping", isLooping ? 1 : 0);
         return xml;
     }
 
@@ -236,6 +280,17 @@ struct SampleMapZoneState
         z.sustainLevel = static_cast<float>(xml.getDoubleAttribute("sustainLevel", 1.0));
         z.releaseMs = static_cast<float>(xml.getDoubleAttribute("releaseMs", 200.0));
         z.velocitySensitivity = static_cast<float>(xml.getDoubleAttribute("velocitySensitivity", -1.0));
+        z.sampleStartRatio = xml.getDoubleAttribute("sampleStartRatio", 0.0);
+        z.sampleEndRatio = xml.getDoubleAttribute("sampleEndRatio", 1.0);
+        z.loopInRatio = xml.getDoubleAttribute("loopInRatio", 0.0);
+        z.loopOutRatio = xml.getDoubleAttribute("loopOutRatio", 1.0);
+        z.loopCrossfadeMs = xml.getDoubleAttribute("loopCrossfadeMs", 0.0);
+        z.fadeInMs = xml.getDoubleAttribute("fadeInMs", 0.0);
+        z.fadeOutMs = xml.getDoubleAttribute("fadeOutMs", 0.0);
+        z.fadeInCurveType = xml.getIntAttribute("fadeInCurveType", 0);
+        z.fadeOutCurveType = xml.getIntAttribute("fadeOutCurveType", 0);
+        z.loopMarkersSet = xml.getIntAttribute("loopMarkersSet", 0) != 0;
+        z.isLooping = xml.getIntAttribute("isLooping", 0) != 0;
         return z;
     }
 };
@@ -759,6 +814,61 @@ struct PerformanceRackState
     }
 };
 
+struct SampleEditSettingsState
+{
+    juce::String filePath;
+    double sampleStartRatio { 0.0 };
+    double sampleEndRatio { 1.0 };
+    double loopInRatio { 0.0 };
+    double loopOutRatio { 1.0 };
+    double loopCrossfadeMs { 0.0 };
+    double fadeInMs { 0.0 };
+    double fadeOutMs { 0.0 };
+    int fadeInCurveType { 0 };
+    int fadeOutCurveType { 0 };
+    bool loopMarkersSet { false };
+    bool isLooping { false };
+
+    juce::var toVar() const
+    {
+        auto* obj = new juce::DynamicObject();
+        obj->setProperty("filePath", filePath);
+        obj->setProperty("sampleStartRatio", sampleStartRatio);
+        obj->setProperty("sampleEndRatio", sampleEndRatio);
+        obj->setProperty("loopInRatio", loopInRatio);
+        obj->setProperty("loopOutRatio", loopOutRatio);
+        obj->setProperty("loopCrossfadeMs", loopCrossfadeMs);
+        obj->setProperty("fadeInMs", fadeInMs);
+        obj->setProperty("fadeOutMs", fadeOutMs);
+        obj->setProperty("fadeInCurveType", fadeInCurveType);
+        obj->setProperty("fadeOutCurveType", fadeOutCurveType);
+        obj->setProperty("loopMarkersSet", loopMarkersSet);
+        obj->setProperty("isLooping", isLooping);
+        return juce::var(obj);
+    }
+
+    static SampleEditSettingsState fromVar(const juce::var& v)
+    {
+        SampleEditSettingsState s;
+        if (!v.isObject()) return s;
+        auto* obj = v.getDynamicObject();
+        if (!obj) return s;
+        if (obj->hasProperty("filePath")) s.filePath = obj->getProperty("filePath").toString();
+        if (obj->hasProperty("sampleStartRatio")) s.sampleStartRatio = static_cast<double>(obj->getProperty("sampleStartRatio"));
+        if (obj->hasProperty("sampleEndRatio")) s.sampleEndRatio = static_cast<double>(obj->getProperty("sampleEndRatio"));
+        if (obj->hasProperty("loopInRatio")) s.loopInRatio = static_cast<double>(obj->getProperty("loopInRatio"));
+        if (obj->hasProperty("loopOutRatio")) s.loopOutRatio = static_cast<double>(obj->getProperty("loopOutRatio"));
+        if (obj->hasProperty("loopCrossfadeMs")) s.loopCrossfadeMs = static_cast<double>(obj->getProperty("loopCrossfadeMs"));
+        if (obj->hasProperty("fadeInMs")) s.fadeInMs = static_cast<double>(obj->getProperty("fadeInMs"));
+        if (obj->hasProperty("fadeOutMs")) s.fadeOutMs = static_cast<double>(obj->getProperty("fadeOutMs"));
+        if (obj->hasProperty("fadeInCurveType")) s.fadeInCurveType = static_cast<int>(obj->getProperty("fadeInCurveType"));
+        if (obj->hasProperty("fadeOutCurveType")) s.fadeOutCurveType = static_cast<int>(obj->getProperty("fadeOutCurveType"));
+        if (obj->hasProperty("loopMarkersSet")) s.loopMarkersSet = static_cast<bool>(obj->getProperty("loopMarkersSet"));
+        if (obj->hasProperty("isLooping")) s.isLooping = static_cast<bool>(obj->getProperty("isLooping"));
+        return s;
+    }
+};
+
 struct PluginFullState
 {
     int version { 2 };
@@ -772,6 +882,7 @@ struct PluginFullState
     EditComponentState edit;
     SampleMapState sampleMap;
     PerformanceRackState performance;
+    std::vector<SampleEditSettingsState> perSampleEditSettings;
 
     juce::var toVar() const
     {
@@ -797,6 +908,11 @@ struct PluginFullState
         obj->setProperty("edit", edit.toVar());
         obj->setProperty("sampleMap", sampleMap.toVar());
         obj->setProperty("performance", performance.toVar());
+
+        juce::Array<juce::var> sampleSettingsArray;
+        for (const auto& ss : perSampleEditSettings)
+            sampleSettingsArray.add(ss.toVar());
+        obj->setProperty("perSampleEditSettings", sampleSettingsArray);
         return juce::var(obj);
     }
 
@@ -834,6 +950,11 @@ struct PluginFullState
         if (obj->hasProperty("edit")) s.edit = EditComponentState::fromVar(obj->getProperty("edit"));
         if (obj->hasProperty("sampleMap")) s.sampleMap = SampleMapState::fromVar(obj->getProperty("sampleMap"));
         if (obj->hasProperty("performance")) s.performance = PerformanceRackState::fromVar(obj->getProperty("performance"));
+        if (obj->hasProperty("perSampleEditSettings") && obj->getProperty("perSampleEditSettings").isArray())
+        {
+            for (const auto& item : *obj->getProperty("perSampleEditSettings").getArray())
+                s.perSampleEditSettings.push_back(SampleEditSettingsState::fromVar(item));
+        }
         return s;
     }
 };

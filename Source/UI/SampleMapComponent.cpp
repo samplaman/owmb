@@ -3430,6 +3430,35 @@ SampleMapState SampleMapComponent::getState() const
         zs.sustainLevel = z.sustainLevel;
         zs.releaseMs = z.releaseMs;
         zs.velocitySensitivity = z.velocitySensitivity;
+        SampleEditSettings es;
+        if (audioEngine.getSampleEditSettings(z.filePath, es))
+        {
+            zs.sampleStartRatio = es.sampleStartRatio;
+            zs.sampleEndRatio = es.sampleEndRatio;
+            zs.loopInRatio = es.loopInRatio;
+            zs.loopOutRatio = es.loopOutRatio;
+            zs.loopCrossfadeMs = es.loopCrossfadeMs;
+            zs.fadeInMs = es.fadeInMs;
+            zs.fadeOutMs = es.fadeOutMs;
+            zs.fadeInCurveType = es.fadeInCurveType;
+            zs.fadeOutCurveType = es.fadeOutCurveType;
+            zs.loopMarkersSet = es.loopMarkersSet;
+            zs.isLooping = es.isLooping;
+        }
+        else
+        {
+            zs.sampleStartRatio = z.sampleStartRatio;
+            zs.sampleEndRatio = z.sampleEndRatio;
+            zs.loopInRatio = z.loopInRatio;
+            zs.loopOutRatio = z.loopOutRatio;
+            zs.loopCrossfadeMs = z.loopCrossfadeMs;
+            zs.fadeInMs = z.fadeInMs;
+            zs.fadeOutMs = z.fadeOutMs;
+            zs.fadeInCurveType = z.fadeInCurveType;
+            zs.fadeOutCurveType = z.fadeOutCurveType;
+            zs.loopMarkersSet = z.loopMarkersSet;
+            zs.isLooping = z.isLooping;
+        }
         s.zones.push_back(zs);
     }
     s.globalAttackMs = globalAttackMs;
@@ -3472,8 +3501,40 @@ void SampleMapComponent::setState(const SampleMapState& state)
         z.sustainLevel = zs.sustainLevel;
         z.releaseMs = zs.releaseMs;
         z.velocitySensitivity = zs.velocitySensitivity;
+        z.sampleStartRatio = zs.sampleStartRatio;
+        z.sampleEndRatio = zs.sampleEndRatio;
+        z.loopInRatio = zs.loopInRatio;
+        z.loopOutRatio = zs.loopOutRatio;
+        z.loopCrossfadeMs = zs.loopCrossfadeMs;
+        z.fadeInMs = zs.fadeInMs;
+        z.fadeOutMs = zs.fadeOutMs;
+        z.fadeInCurveType = zs.fadeInCurveType;
+        z.fadeOutCurveType = zs.fadeOutCurveType;
+        z.loopMarkersSet = zs.loopMarkersSet;
+        z.isLooping = zs.isLooping;
         z.isSelected = false;
         zones.push_back(z);
+
+        const bool hasSavedEditSettings = zs.loopMarkersSet || zs.isLooping
+            || zs.sampleStartRatio > 0.0001 || zs.sampleEndRatio < 0.9999
+            || zs.loopInRatio > 0.0001 || zs.loopOutRatio < 0.9999
+            || zs.loopCrossfadeMs > 0.0 || zs.fadeInMs > 0.0 || zs.fadeOutMs > 0.0;
+        if (z.filePath.isNotEmpty() && hasSavedEditSettings)
+        {
+            SampleEditSettings es;
+            es.sampleStartRatio = zs.sampleStartRatio;
+            es.sampleEndRatio = zs.sampleEndRatio;
+            es.loopInRatio = zs.loopInRatio;
+            es.loopOutRatio = zs.loopOutRatio;
+            es.loopCrossfadeMs = zs.loopCrossfadeMs;
+            es.fadeInMs = zs.fadeInMs;
+            es.fadeOutMs = zs.fadeOutMs;
+            es.fadeInCurveType = zs.fadeInCurveType;
+            es.fadeOutCurveType = zs.fadeOutCurveType;
+            es.loopMarkersSet = zs.loopMarkersSet;
+            es.isLooping = zs.isLooping;
+            audioEngine.setSampleEditSettings(z.filePath, es);
+        }
     }
 
     globalAttackMs = state.globalAttackMs;
