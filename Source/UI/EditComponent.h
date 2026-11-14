@@ -196,13 +196,19 @@ private:
         EndMarker,
         LoopInMarker,
         LoopOutMarker,
+        LoopRegion,
+        CrossfadeHandle,
         FadeInHandle,
         FadeOutHandle,
+        DragSelectionOut,
         SelectingRange,
         SelectingSpectralBox,
         ScrubbingPlayhead
     };
     DragTarget dragTarget { DragTarget::None };
+    DragTarget hoverTarget { DragTarget::None };
+    double dragLoopSpan { 0.0 };
+    double dragLoopGrabOffset { 0.0 };
     double dragStartRatio { 0.0 };
 
     // Spectrogram State & Controls
@@ -270,6 +276,8 @@ private:
     void boostSpectralSelection();
     void attenuateSpectralSelection();
     void isolateSpectralSelection();
+    juce::Rectangle<float> getSelectionDragPillBounds(juce::Rectangle<float> wfBounds) const;
+    void exportSelectionAndStartDrag();
     void restartPlaybackFromStart();
 };
 

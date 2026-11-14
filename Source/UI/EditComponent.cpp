@@ -350,14 +350,25 @@ EditComponent::EditComponent(AudioEngine& engine)
     setupTimeValueLabel(loopInTimeLabel);
     setupTimeValueLabel(loopOutTimeLabel);
 
+    auto formatFadeLabel = [](double ms) -> juce::String {
+        if (ms >= 1000.0)
+            return juce::String(ms / 1000.0, 2) + " s";
+        return juce::String(static_cast<int>(std::round(ms))) + " ms";
+    };
+
     // ── Fade In controls ───────────────────────────────
     fadeInSlider.setSliderStyle(juce::Slider::LinearHorizontal);
     fadeInSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
-    fadeInSlider.setRange(0.0, 500.0, 1.0);
+    fadeInSlider.setRange(0.0, 5000.0, 1.0);
+    fadeInSlider.setSkewFactorFromMidPoint(400.0);
     fadeInSlider.setValue(0.0);
-    fadeInSlider.onValueChange = [this] {
-        fadeInMs = fadeInSlider.getValue();
-        fadeInMsLabel.setText(juce::String(static_cast<int>(fadeInMs)) + " ms", juce::dontSendNotification);
+    fadeInSlider.onValueChange = [this, formatFadeLabel] {
+        double maxSelMs = std::max(1.0, (audioEngine.getSampleEndRatio() - audioEngine.getSampleStartRatio()) * totalDurationSecs * 1000.0);
+        double clamped = (totalDurationSecs > 0.0) ? std::min(fadeInSlider.getValue(), std::max(0.0, maxSelMs - fadeOutMs)) : fadeInSlider.getValue();
+        fadeInMs = std::max(0.0, clamped);
+        if (std::abs(fadeInSlider.getValue() - fadeInMs) > 0.5)
+            fadeInSlider.setValue(fadeInMs, juce::dontSendNotification);
+        fadeInMsLabel.setText(formatFadeLabel(fadeInMs), juce::dontSendNotification);
         audioEngine.setFades(fadeInMs, fadeInCurveType, fadeOutMs, fadeOutCurveType);
         repaint();
     };
@@ -384,11 +395,16 @@ EditComponent::EditComponent(AudioEngine& engine)
     // ── Fade Out controls ──────────────────────────────
     fadeOutSlider.setSliderStyle(juce::Slider::LinearHorizontal);
     fadeOutSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
-    fadeOutSlider.setRange(0.0, 500.0, 1.0);
+    fadeOutSlider.setRange(0.0, 5000.0, 1.0);
+    fadeOutSlider.setSkewFactorFromMidPoint(400.0);
     fadeOutSlider.setValue(0.0);
-    fadeOutSlider.onValueChange = [this] {
-        fadeOutMs = fadeOutSlider.getValue();
-        fadeOutMsLabel.setText(juce::String(static_cast<int>(fadeOutMs)) + " ms", juce::dontSendNotification);
+    fadeOutSlider.onValueChange = [this, formatFadeLabel] {
+        double maxSelMs = std::max(1.0, (audioEngine.getSampleEndRatio() - audioEngine.getSampleStartRatio()) * totalDurationSecs * 1000.0);
+        double clamped = (totalDurationSecs > 0.0) ? std::min(fadeOutSlider.getValue(), std::max(0.0, maxSelMs - fadeInMs)) : fadeOutSlider.getValue();
+        fadeOutMs = std::max(0.0, clamped);
+        if (std::abs(fadeOutSlider.getValue() - fadeOutMs) > 0.5)
+            fadeOutSlider.setValue(fadeOutMs, juce::dontSendNotification);
+        fadeOutMsLabel.setText(formatFadeLabel(fadeOutMs), juce::dontSendNotification);
         audioEngine.setFades(fadeInMs, fadeInCurveType, fadeOutMs, fadeOutCurveType);
         repaint();
     };
@@ -415,11 +431,16 @@ EditComponent::EditComponent(AudioEngine& engine)
     // ── Crossfade control ──────────────────────────────
     crossfadeSlider.setSliderStyle(juce::Slider::LinearHorizontal);
     crossfadeSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
-    crossfadeSlider.setRange(0.0, 100.0, 1.0);
+    crossfadeSlider.setRange(0.0, 500.0, 1.0);
+    crossfadeSlider.setSkewFactorFromMidPoint(60.0);
     crossfadeSlider.setValue(0.0);
-    crossfadeSlider.onValueChange = [this] {
-        crossfadeMs = crossfadeSlider.getValue();
-        crossfadeMsLabel.setText(juce::String(static_cast<int>(crossfadeMs)) + " ms", juce::dontSendNotification);
+    crossfadeSlider.onValueChange = [this, formatFadeLabel] {
+        double maxLoopMs = (totalDurationSecs > 0.0) ? std::max(0.0, (loopOutRatio - loopInRatio) * totalDurationSecs * 500.0) : 500.0;
+        double clamped = (totalDurationSecs > 0.0 && loopMarkersSet) ? std::min(crossfadeSlider.getValue(), maxLoopMs) : crossfadeSlider.getValue();
+        crossfadeMs = std::max(0.0, clamped);
+        if (std::abs(crossfadeSlider.getValue() - crossfadeMs) > 0.5)
+            crossfadeSlider.setValue(crossfadeMs, juce::dontSendNotification);
+        crossfadeMsLabel.setText(formatFadeLabel(crossfadeMs), juce::dontSendNotification);
         audioEngine.setLoopCrossfadeMs(crossfadeMs);
         repaint();
     };
@@ -738,8 +759,8 @@ void EditComponent::resized()
     auto cpRight = innerPanel;
 
     int rowH = 22;
-    int labelW = 72;
-    int valueW = 95;
+    int labelW = 68;
+    int valueW = 148;
     int itemGap = 6;
     int rowGap = 4;
 
@@ -783,7 +804,7 @@ void EditComponent::resized()
 
     // Right panel: fade controls
     int sliderW = 110;
-    int msW = 45;
+    int msW = 54;
     int comboW = 95;
 
     {
@@ -935,10 +956,12 @@ void EditComponent::paint(juce::Graphics& g)
     // Update time label text
     double startR = audioEngine.getSampleStartRatio();
     double endR = audioEngine.getSampleEndRatio();
+    double selLen = std::max(0.0, (endR - startR) * totalDurationSecs);
+    double loopLen = std::max(0.0, (loopOutRatio - loopInRatio) * totalDurationSecs);
     startTimeLabel.setText(formatTime(startR * totalDurationSecs), juce::dontSendNotification);
-    endTimeLabel.setText(formatTime(endR * totalDurationSecs), juce::dontSendNotification);
+    endTimeLabel.setText(formatTime(endR * totalDurationSecs) + "  (Δ " + formatTime(selLen) + ")", juce::dontSendNotification);
     loopInTimeLabel.setText(formatTime(loopInRatio * totalDurationSecs), juce::dontSendNotification);
-    loopOutTimeLabel.setText(formatTime(loopOutRatio * totalDurationSecs), juce::dontSendNotification);
+    loopOutTimeLabel.setText(formatTime(loopOutRatio * totalDurationSecs) + (loopMarkersSet ? "  (Δ " + formatTime(loopLen) + ")" : ""), juce::dontSendNotification);
 }
 
 // ─────────────────────────────────────────────────────────
@@ -1100,6 +1123,20 @@ void EditComponent::paintWaveform(juce::Graphics& g, juce::Rectangle<float> boun
 // ─────────────────────────────────────────────────────────
 //  Markers
 // ─────────────────────────────────────────────────────────
+juce::Rectangle<float> EditComponent::getSelectionDragPillBounds(juce::Rectangle<float> bounds) const
+{
+    double startR = audioEngine.getSampleStartRatio();
+    double endR = audioEngine.getSampleEndRatio();
+    float selStartX = ratioToX(startR, bounds);
+    float selEndX = ratioToX(endR, bounds);
+    float selW = selEndX - selStartX;
+    if (selW < 46.0f)
+        return {};
+    float pillW = std::min(56.0f, selW - 24.0f);
+    float cx = (selStartX + selEndX) * 0.5f;
+    return juce::Rectangle<float>(cx - pillW * 0.5f, bounds.getY() + 1.0f, pillW, 14.0f);
+}
+
 void EditComponent::paintMarkers(juce::Graphics& g, juce::Rectangle<float> bounds) const
 {
     double startR = audioEngine.getSampleStartRatio();
@@ -1108,10 +1145,42 @@ void EditComponent::paintMarkers(juce::Graphics& g, juce::Rectangle<float> bound
     float selStartX = ratioToX(startR, bounds);
     float selEndX = ratioToX(endR, bounds);
 
+    auto drawFloatingPill = [&](float anchorX, float anchorY, const juce::String& text, juce::Colour col) {
+        float w = static_cast<float>(std::max(54, text.length() * 6 + 14));
+        float h = 16.0f;
+        float px = juce::jlimit(bounds.getX() + 2.0f, bounds.getRight() - w - 2.0f, anchorX - w * 0.5f);
+        float py = juce::jlimit(bounds.getY() + 2.0f, bounds.getBottom() - h - 2.0f, anchorY);
+        g.setColour(OpenWavLookAndFeel::bgDark.withAlpha(0.9f));
+        g.fillRoundedRectangle(px, py, w, h, 3.0f);
+        g.setColour(col.withAlpha(0.8f));
+        g.drawRoundedRectangle(px, py, w, h, 3.0f, 1.0f);
+        g.setColour(col);
+        g.setFont(juce::Font(9.5f).boldened());
+        g.drawText(text, juce::Rectangle<float>(px, py, w, h), juce::Justification::centred);
+    };
+
     // ── Start/End markers (cyan) ──────────────────────
-    g.setColour(OpenWavLookAndFeel::accentCyan);
+    g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.55f));
+    if (selEndX > selStartX)
+        g.fillRect(selStartX, bounds.getY(), selEndX - selStartX, 2.0f);
+
+    auto dragPill = getSelectionDragPillBounds(bounds);
+    if (!dragPill.isEmpty())
+    {
+        bool pillHover = (hoverTarget == DragTarget::DragSelectionOut || dragTarget == DragTarget::DragSelectionOut);
+        g.setColour(OpenWavLookAndFeel::bgDark.withAlpha(pillHover ? 0.92f : 0.72f));
+        g.fillRoundedRectangle(dragPill, 3.0f);
+        g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(pillHover ? 1.0f : 0.6f));
+        g.drawRoundedRectangle(dragPill, 3.0f, 1.0f);
+        g.setFont(juce::Font(8.5f).boldened());
+        g.drawText("DRAG", dragPill, juce::Justification::centred);
+    }
+
+    bool startActive = (hoverTarget == DragTarget::StartMarker || dragTarget == DragTarget::StartMarker);
+    bool endActive = (hoverTarget == DragTarget::EndMarker || dragTarget == DragTarget::EndMarker);
 
     // Start marker line + handle
+    g.setColour(startActive ? juce::Colours::white : OpenWavLookAndFeel::accentCyan);
     g.drawVerticalLine(static_cast<int>(selStartX), bounds.getY(), bounds.getBottom());
     g.fillRoundedRectangle(selStartX - 5.0f, bounds.getY() - 2.0f, 10.0f, 12.0f, 3.0f);
     g.setColour(OpenWavLookAndFeel::bgDark);
@@ -1120,12 +1189,17 @@ void EditComponent::paintMarkers(juce::Graphics& g, juce::Rectangle<float> bound
                juce::Justification::centred);
 
     // End marker line + handle
-    g.setColour(OpenWavLookAndFeel::accentCyan);
+    g.setColour(endActive ? juce::Colours::white : OpenWavLookAndFeel::accentCyan);
     g.drawVerticalLine(static_cast<int>(selEndX), bounds.getY(), bounds.getBottom());
     g.fillRoundedRectangle(selEndX - 5.0f, bounds.getY() - 2.0f, 10.0f, 12.0f, 3.0f);
     g.setColour(OpenWavLookAndFeel::bgDark);
     g.drawText("E", juce::Rectangle<float>(selEndX - 5.0f, bounds.getY() - 2.0f, 10.0f, 12.0f),
                juce::Justification::centred);
+
+    if (startActive && totalDurationSecs > 0.0)
+        drawFloatingPill(selStartX + 34.0f, bounds.getY() + 18.0f, "S: " + formatTime(startR * totalDurationSecs), OpenWavLookAndFeel::accentCyan);
+    if (endActive && totalDurationSecs > 0.0)
+        drawFloatingPill(selEndX - 34.0f, bounds.getY() + 18.0f, "E: " + formatTime(endR * totalDurationSecs), OpenWavLookAndFeel::accentCyan);
 
     // ── Loop In/Out markers (green) ───────────────────
     if (loopMarkersSet)
@@ -1135,48 +1209,136 @@ void EditComponent::paintMarkers(juce::Graphics& g, juce::Rectangle<float> bound
         float loopInX = ratioToX(loopInRatio, bounds);
         float loopOutX = ratioToX(loopOutRatio, bounds);
 
-        // Loop region tint
+        // Loop region tint & bottom draggable loop bar
         if (loopInX < loopOutX)
         {
             g.setColour(loopColour.withAlpha(0.06f));
             g.fillRect(loopInX, bounds.getY(), loopOutX - loopInX, bounds.getHeight());
+
+            bool barActive = (hoverTarget == DragTarget::LoopRegion || dragTarget == DragTarget::LoopRegion);
+            g.setColour(loopColour.withAlpha(barActive ? 0.35f : 0.20f));
+            g.fillRect(loopInX, bounds.getBottom() - 12.0f, loopOutX - loopInX, 12.0f);
+            g.setColour(loopColour.withAlpha(0.6f));
+            g.drawHorizontalLine(static_cast<int>(bounds.getBottom() - 12.0f), loopInX, loopOutX);
+
+            if (loopOutX - loopInX > 92.0f && totalDurationSecs > 0.0)
+            {
+                double loopMs = (loopOutRatio - loopInRatio) * totalDurationSecs * 1000.0;
+                juce::String loopText = (loopMs >= 1000.0)
+                                            ? ("Loop " + juce::String(loopMs / 1000.0, 2) + "s")
+                                            : ("Loop " + juce::String(static_cast<int>(std::round(loopMs))) + "ms");
+                g.setColour(OpenWavLookAndFeel::textPrimary.withAlpha(0.9f));
+                g.setFont(juce::Font(8.5f).boldened());
+                g.drawText(loopText, juce::Rectangle<float>(loopInX + 12.0f, bounds.getBottom() - 12.0f, (loopOutX - loopInX) - 24.0f, 12.0f),
+                           juce::Justification::centred, true);
+            }
+        }
+
+        // Crossfade indicator & equal-power X-Fade curves at loop boundaries
+        double maxXfadeRatio = std::max(0.0, (loopOutRatio - loopInRatio) * 0.5);
+        double xfadeRatio = (totalDurationSecs > 0.0 && crossfadeMs > 0.0)
+                                ? std::min((crossfadeMs / 1000.0) / totalDurationSecs, maxXfadeRatio)
+                                : 0.0;
+
+        if (xfadeRatio > 0.0)
+        {
+            float xfOutStartX = ratioToX(loopOutRatio - xfadeRatio, bounds);
+            float xfOutEndX = loopOutX;
+            float xfOutW = xfOutEndX - xfOutStartX;
+
+            float xfInStartX = loopInX;
+            float xfInEndX = ratioToX(loopInRatio + xfadeRatio, bounds);
+            float xfInW = xfInEndX - xfInStartX;
+
+            if (xfOutW > 1.0f)
+            {
+                g.setColour(loopColour.withAlpha(0.12f));
+                g.fillRect(xfOutStartX, bounds.getY(), xfOutW, bounds.getHeight());
+
+                juce::Path outCurve;
+                int steps = juce::jmax(2, static_cast<int>(xfOutW));
+                for (int s = 0; s <= steps; ++s)
+                {
+                    float t = static_cast<float>(s) / steps;
+                    float wOut = std::cos(t * juce::MathConstants<float>::halfPi);
+                    float px = xfOutStartX + t * xfOutW;
+                    float py = bounds.getBottom() - wOut * bounds.getHeight();
+                    if (s == 0) outCurve.startNewSubPath(px, py);
+                    else        outCurve.lineTo(px, py);
+                }
+                g.setColour(loopColour.withAlpha(0.75f));
+                g.strokePath(outCurve, juce::PathStrokeType(1.5f));
+
+                float dashLengths[] = { 3.0f, 3.0f };
+                g.setColour(loopColour.withAlpha(0.55f));
+                g.drawDashedLine(juce::Line<float>(xfOutStartX, bounds.getY(), xfOutStartX, bounds.getBottom()),
+                                 dashLengths, 2, 1.0f);
+            }
+
+            if (xfInW > 1.0f)
+            {
+                g.setColour(loopColour.withAlpha(0.08f));
+                g.fillRect(xfInStartX, bounds.getY(), xfInW, bounds.getHeight());
+
+                juce::Path inCurve;
+                int steps = juce::jmax(2, static_cast<int>(xfInW));
+                for (int s = 0; s <= steps; ++s)
+                {
+                    float t = static_cast<float>(s) / steps;
+                    float wIn = std::sin(t * juce::MathConstants<float>::halfPi);
+                    float px = xfInStartX + t * xfInW;
+                    float py = bounds.getBottom() - wIn * bounds.getHeight();
+                    if (s == 0) inCurve.startNewSubPath(px, py);
+                    else        inCurve.lineTo(px, py);
+                }
+                g.setColour(loopColour.withAlpha(0.65f));
+                g.strokePath(inCurve, juce::PathStrokeType(1.5f));
+            }
         }
 
         // Loop In marker
         g.setColour(loopColour);
         g.drawVerticalLine(static_cast<int>(loopInX), bounds.getY(), bounds.getBottom());
-        // Triangle handle pointing right
-        juce::Path triIn;
-        triIn.addTriangle(loopInX, bounds.getBottom() - 12.0f,
-                          loopInX, bounds.getBottom(),
-                          loopInX + 8.0f, bounds.getBottom() - 6.0f);
-        g.fillPath(triIn);
+        g.fillRoundedRectangle(loopInX - 1.0f, bounds.getBottom() - 14.0f, 12.0f, 14.0f, 2.0f);
+        g.setColour(OpenWavLookAndFeel::bgDark);
+        g.setFont(juce::Font(8.0f).boldened());
+        g.drawText("L", juce::Rectangle<float>(loopInX - 1.0f, bounds.getBottom() - 14.0f, 12.0f, 14.0f),
+                   juce::Justification::centred);
 
         // Loop Out marker
+        g.setColour(loopColour);
         g.drawVerticalLine(static_cast<int>(loopOutX), bounds.getY(), bounds.getBottom());
-        // Triangle handle pointing left
-        juce::Path triOut;
-        triOut.addTriangle(loopOutX, bounds.getBottom() - 12.0f,
-                           loopOutX, bounds.getBottom(),
-                           loopOutX - 8.0f, bounds.getBottom() - 6.0f);
-        g.fillPath(triOut);
+        g.fillRoundedRectangle(loopOutX - 11.0f, bounds.getBottom() - 14.0f, 12.0f, 14.0f, 2.0f);
+        g.setColour(OpenWavLookAndFeel::bgDark);
+        g.drawText("R", juce::Rectangle<float>(loopOutX - 11.0f, bounds.getBottom() - 14.0f, 12.0f, 14.0f),
+                   juce::Justification::centred);
 
-        // Crossfade indicator at loop boundary
-        if (crossfadeMs > 0.0 && totalDurationSecs > 0.0)
+        // X-Fade handle diamond near bottom-right of loop
+        float xfHandleX = ratioToX(loopOutRatio - xfadeRatio, bounds);
+        float xfHandleY = bounds.getBottom() - 22.0f;
+        if (xfHandleX >= bounds.getX() && xfHandleX <= bounds.getRight())
         {
-            double xfadeRatio = (crossfadeMs / 1000.0) / totalDurationSecs;
-            float xfStartX = ratioToX(loopOutRatio - xfadeRatio, bounds);
-            float xfEndX = ratioToX(loopOutRatio, bounds);
+            bool xfActive = (hoverTarget == DragTarget::CrossfadeHandle || dragTarget == DragTarget::CrossfadeHandle);
+            juce::Path diamond;
+            float r = xfActive ? 5.5f : 4.5f;
+            diamond.addTriangle(xfHandleX, xfHandleY - r, xfHandleX + r, xfHandleY, xfHandleX, xfHandleY + r);
+            diamond.addTriangle(xfHandleX, xfHandleY - r, xfHandleX - r, xfHandleY, xfHandleX, xfHandleY + r);
+            g.setColour(loopColour);
+            g.fillPath(diamond);
+            g.setColour(juce::Colours::white);
+            g.strokePath(diamond, juce::PathStrokeType(1.0f));
 
-            g.setColour(loopColour.withAlpha(0.15f));
-            g.fillRect(xfStartX, bounds.getY(), xfEndX - xfStartX, bounds.getHeight());
-
-            // Dashed line at crossfade start
-            g.setColour(loopColour.withAlpha(0.5f));
-            float dashLengths[] = { 3.0f, 3.0f };
-            g.drawDashedLine(juce::Line<float>(xfStartX, bounds.getY(), xfStartX, bounds.getBottom()),
-                             dashLengths, 2, 1.0f);
+            if (xfActive)
+            {
+                juce::String xfTxt = "X-Fade: " + juce::String(static_cast<int>(std::round(crossfadeMs))) + " ms";
+                drawFloatingPill(xfHandleX, xfHandleY - 24.0f, xfTxt, loopColour);
+            }
         }
+
+        if ((hoverTarget == DragTarget::LoopInMarker || dragTarget == DragTarget::LoopInMarker) && totalDurationSecs > 0.0)
+            drawFloatingPill(loopInX + 34.0f, bounds.getBottom() - 36.0f, "L: " + formatTime(loopInRatio * totalDurationSecs), loopColour);
+        if ((hoverTarget == DragTarget::LoopOutMarker || dragTarget == DragTarget::LoopOutMarker) && totalDurationSecs > 0.0)
+            drawFloatingPill(loopOutX - 34.0f, bounds.getBottom() - 36.0f, "R: " + formatTime(loopOutRatio * totalDurationSecs), loopColour);
     }
 }
 
@@ -1255,7 +1417,7 @@ void EditComponent::paintFadeEnvelopes(juce::Graphics& g, juce::Rectangle<float>
             for (int i = 0; i <= steps; ++i)
             {
                 float t = static_cast<float>(i) / steps;
-                float gain = 1.0f - evaluateFadeCurve(t, fadeOutCurveType);
+                float gain = evaluateFadeCurve(1.0f - t, fadeOutCurveType);
                 float px = fadeStartX + t * fadeWidth;
                 float py = bounds.getBottom() - gain * bounds.getHeight();
                 fadePath.lineTo(px, py);
@@ -1274,7 +1436,7 @@ void EditComponent::paintFadeEnvelopes(juce::Graphics& g, juce::Rectangle<float>
             for (int i = 0; i <= steps; ++i)
             {
                 float t = static_cast<float>(i) / steps;
-                float gain = 1.0f - evaluateFadeCurve(t, fadeOutCurveType);
+                float gain = evaluateFadeCurve(1.0f - t, fadeOutCurveType);
                 float px = fadeStartX + t * fadeWidth;
                 float py = bounds.getBottom() - gain * bounds.getHeight();
                 if (i == 0) curveLine.startNewSubPath(px, py);
@@ -1404,30 +1566,68 @@ void EditComponent::paintFadeHandles(juce::Graphics& g, juce::Rectangle<float> b
     double startR = audioEngine.getSampleStartRatio();
     double endR = audioEngine.getSampleEndRatio();
 
-    float fadeY = bounds.getY() + 8.0f;
+    float fadeY = bounds.getY() + 20.0f;
 
     // Fade In Handle
     double fadeInRatio = (fadeInMs / 1000.0) / totalDurationSecs;
     float fadeEndX = ratioToX(startR + fadeInRatio, bounds);
 
-    if (fadeEndX >= bounds.getX() && fadeEndX <= bounds.getRight())
+    if (fadeEndX >= bounds.getX() - 6.0f && fadeEndX <= bounds.getRight() + 6.0f)
     {
+        bool active = (hoverTarget == DragTarget::FadeInHandle || dragTarget == DragTarget::FadeInHandle);
+        if (active)
+        {
+            float dashLengths[] = { 3.0f, 3.0f };
+            g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.45f));
+            g.drawDashedLine(juce::Line<float>(fadeEndX, fadeY, fadeEndX, bounds.getBottom()), dashLengths, 2, 1.0f);
+        }
+        float r = active ? 6.0f : 5.0f;
         g.setColour(OpenWavLookAndFeel::accentCyan);
-        g.fillEllipse(fadeEndX - 5.0f, fadeY - 5.0f, 10.0f, 10.0f);
+        g.fillEllipse(fadeEndX - r, fadeY - r, r * 2.0f, r * 2.0f);
         g.setColour(juce::Colours::white);
-        g.drawEllipse(fadeEndX - 5.0f, fadeY - 5.0f, 10.0f, 10.0f, 1.5f);
+        g.drawEllipse(fadeEndX - r, fadeY - r, r * 2.0f, r * 2.0f, 1.5f);
+
+        if (active)
+        {
+            juce::String txt = "In: " + juce::String(static_cast<int>(std::round(fadeInMs))) + " ms";
+            float pillX = juce::jlimit(bounds.getX() + 2.0f, bounds.getRight() - 62.0f, fadeEndX + 8.0f);
+            g.setColour(OpenWavLookAndFeel::bgDark.withAlpha(0.88f));
+            g.fillRoundedRectangle(pillX, fadeY - 8.0f, 60.0f, 16.0f, 3.0f);
+            g.setColour(OpenWavLookAndFeel::accentCyan);
+            g.setFont(juce::Font(9.5f).boldened());
+            g.drawText(txt, juce::Rectangle<float>(pillX, fadeY - 8.0f, 60.0f, 16.0f), juce::Justification::centred);
+        }
     }
 
     // Fade Out Handle
     double fadeOutRatio = (fadeOutMs / 1000.0) / totalDurationSecs;
     float fadeStartX = ratioToX(endR - fadeOutRatio, bounds);
 
-    if (fadeStartX >= bounds.getX() && fadeStartX <= bounds.getRight())
+    if (fadeStartX >= bounds.getX() - 6.0f && fadeStartX <= bounds.getRight() + 6.0f)
     {
+        bool active = (hoverTarget == DragTarget::FadeOutHandle || dragTarget == DragTarget::FadeOutHandle);
+        if (active)
+        {
+            float dashLengths[] = { 3.0f, 3.0f };
+            g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.45f));
+            g.drawDashedLine(juce::Line<float>(fadeStartX, fadeY, fadeStartX, bounds.getBottom()), dashLengths, 2, 1.0f);
+        }
+        float r = active ? 6.0f : 5.0f;
         g.setColour(OpenWavLookAndFeel::accentCyan);
-        g.fillEllipse(fadeStartX - 5.0f, fadeY - 5.0f, 10.0f, 10.0f);
+        g.fillEllipse(fadeStartX - r, fadeY - r, r * 2.0f, r * 2.0f);
         g.setColour(juce::Colours::white);
-        g.drawEllipse(fadeStartX - 5.0f, fadeY - 5.0f, 10.0f, 10.0f, 1.5f);
+        g.drawEllipse(fadeStartX - r, fadeY - r, r * 2.0f, r * 2.0f, 1.5f);
+
+        if (active)
+        {
+            juce::String txt = "Out: " + juce::String(static_cast<int>(std::round(fadeOutMs))) + " ms";
+            float pillX = juce::jlimit(bounds.getX() + 2.0f, bounds.getRight() - 64.0f, fadeStartX - 68.0f);
+            g.setColour(OpenWavLookAndFeel::bgDark.withAlpha(0.88f));
+            g.fillRoundedRectangle(pillX, fadeY - 8.0f, 62.0f, 16.0f, 3.0f);
+            g.setColour(OpenWavLookAndFeel::accentCyan);
+            g.setFont(juce::Font(9.5f).boldened());
+            g.drawText(txt, juce::Rectangle<float>(pillX, fadeY - 8.0f, 62.0f, 16.0f), juce::Justification::centred);
+        }
     }
 }
 
@@ -2349,30 +2549,76 @@ void EditComponent::mouseMove(const juce::MouseEvent& e)
     float startX = ratioToX(startR, wfBounds);
     float endX = ratioToX(endR, wfBounds);
 
-    float fadeY = wfBounds.getY() + 8.0f;
+    float fadeY = wfBounds.getY() + 20.0f;
     double fadeInRatio = (fadeInMs / 1000.0) / totalDurationSecs;
     double fadeOutRatio = (fadeOutMs / 1000.0) / totalDurationSecs;
 
     float fadeInX = ratioToX(startR + fadeInRatio, wfBounds);
     float fadeOutX = ratioToX(endR - fadeOutRatio, wfBounds);
 
-    if (std::abs(e.position.x - startX) <= threshold ||
-        std::abs(e.position.x - endX) <= threshold ||
-        (loopMarkersSet && (std::abs(e.position.x - ratioToX(loopInRatio, wfBounds)) <= threshold ||
-                            std::abs(e.position.x - ratioToX(loopOutRatio, wfBounds)) <= threshold)) ||
-        (std::abs(e.position.x - fadeInX) <= threshold && std::abs(e.position.y - fadeY) <= threshold) ||
-        (std::abs(e.position.x - fadeOutX) <= threshold && std::abs(e.position.y - fadeY) <= threshold))
+    DragTarget newHover = DragTarget::None;
+
+    auto dragPill = getSelectionDragPillBounds(wfBounds);
+    if (!dragPill.isEmpty() && dragPill.expanded(4.0f, 4.0f).contains(e.position))
+        newHover = DragTarget::DragSelectionOut;
+    else if (e.mods.isAltDown() && e.position.x >= startX + threshold && e.position.x <= endX - threshold)
+        newHover = DragTarget::DragSelectionOut;
+    else if (std::abs(e.position.x - fadeInX) <= threshold && std::abs(e.position.y - fadeY) <= 12.0f)
+        newHover = DragTarget::FadeInHandle;
+    else if (std::abs(e.position.x - fadeOutX) <= threshold && std::abs(e.position.y - fadeY) <= 12.0f)
+        newHover = DragTarget::FadeOutHandle;
+    else if (loopMarkersSet)
     {
+        float loopInX = ratioToX(loopInRatio, wfBounds);
+        float loopOutX = ratioToX(loopOutRatio, wfBounds);
+        double maxXfadeRatio = std::max(0.0, (loopOutRatio - loopInRatio) * 0.5);
+        double xfadeRatio = (crossfadeMs > 0.0) ? std::min((crossfadeMs / 1000.0) / totalDurationSecs, maxXfadeRatio) : 0.0;
+        float xfHandleX = ratioToX(loopOutRatio - xfadeRatio, wfBounds);
+        float xfHandleY = wfBounds.getBottom() - 22.0f;
+
+        if (std::abs(e.position.x - xfHandleX) <= threshold && std::abs(e.position.y - xfHandleY) <= 10.0f)
+            newHover = DragTarget::CrossfadeHandle;
+        else if (std::abs(e.position.x - loopInX) <= threshold && e.position.y >= wfBounds.getBottom() - 24.0f)
+            newHover = DragTarget::LoopInMarker;
+        else if (std::abs(e.position.x - loopOutX) <= threshold && e.position.y >= wfBounds.getBottom() - 24.0f)
+            newHover = DragTarget::LoopOutMarker;
+        else if (e.position.y >= wfBounds.getBottom() - 14.0f && e.position.x > loopInX + threshold && e.position.x < loopOutX - threshold)
+            newHover = DragTarget::LoopRegion;
+    }
+
+    if (newHover == DragTarget::None)
+    {
+        if (std::abs(e.position.x - startX) <= threshold)
+            newHover = DragTarget::StartMarker;
+        else if (std::abs(e.position.x - endX) <= threshold)
+            newHover = DragTarget::EndMarker;
+        else if (loopMarkersSet && std::abs(e.position.x - ratioToX(loopInRatio, wfBounds)) <= threshold)
+            newHover = DragTarget::LoopInMarker;
+        else if (loopMarkersSet && std::abs(e.position.x - ratioToX(loopOutRatio, wfBounds)) <= threshold)
+            newHover = DragTarget::LoopOutMarker;
+    }
+
+    if (newHover != hoverTarget)
+    {
+        hoverTarget = newHover;
+        repaint();
+    }
+
+    if (newHover == DragTarget::LoopRegion || newHover == DragTarget::DragSelectionOut)
+        setMouseCursor(juce::MouseCursor::DraggingHandCursor);
+    else if (newHover != DragTarget::None)
         setMouseCursor(juce::MouseCursor::LeftRightResizeCursor);
-    }
     else
-    {
         setMouseCursor(juce::MouseCursor::IBeamCursor);
-    }
 }
 
 void EditComponent::mouseExit(const juce::MouseEvent& /*e*/)
 {
+    if (hoverTarget != DragTarget::None)
+    {
+        hoverTarget = DragTarget::None;
+        repaint();
+    }
     setMouseCursor(juce::MouseCursor::NormalCursor);
 }
 
@@ -2423,24 +2669,24 @@ void EditComponent::mouseDown(const juce::MouseEvent& e)
         return;
     }
 
-    // Check if clicking in time ruler area at top of waveform
-    if (e.position.y <= wfBounds.getY() + 18.0f)
-    {
-        dragTarget = DragTarget::ScrubbingPlayhead;
-        audioEngine.setPositionRatio(clickRatio);
-        currentPositionSecs = clickRatio * totalDurationSecs;
-        repaint();
-        return;
-    }
-
     double startR = audioEngine.getSampleStartRatio();
     double endR = audioEngine.getSampleEndRatio();
 
     float startX = ratioToX(startR, wfBounds);
     float endX = ratioToX(endR, wfBounds);
 
-    // Check fade handles
-    float fadeY = wfBounds.getY() + 8.0f;
+    // Check selection drag-out pill or Alt+Click inside selection
+    auto dragPill = getSelectionDragPillBounds(wfBounds);
+    if ((!dragPill.isEmpty() && dragPill.expanded(4.0f, 4.0f).contains(e.position))
+        || (e.mods.isAltDown() && e.position.x >= startX + threshold && e.position.x <= endX - threshold))
+    {
+        dragTarget = DragTarget::DragSelectionOut;
+        exportSelectionAndStartDrag();
+        return;
+    }
+
+    // Check fade handles FIRST (so they are never shadowed by the top ruler scrub zone)
+    float fadeY = wfBounds.getY() + 20.0f;
     double fadeInRatio = (fadeInMs / 1000.0) / totalDurationSecs;
     double fadeOutRatio = (fadeOutMs / 1000.0) / totalDurationSecs;
 
@@ -2458,12 +2704,67 @@ void EditComponent::mouseDown(const juce::MouseEvent& e)
         return;
     }
 
-    // Check loop markers first (they're on top visually)
+    // Check if clicking in time ruler area at top of waveform
+    if (e.position.y <= wfBounds.getY() + 14.0f && std::abs(e.position.x - startX) > threshold && std::abs(e.position.x - endX) > threshold)
+    {
+        dragTarget = DragTarget::ScrubbingPlayhead;
+        audioEngine.setPositionRatio(clickRatio);
+        currentPositionSecs = clickRatio * totalDurationSecs;
+        repaint();
+        return;
+    }
+
+    // Check loop bottom handles, crossfade diamond, and draggable loop bar
     if (loopMarkersSet)
     {
         float loopInX = ratioToX(loopInRatio, wfBounds);
         float loopOutX = ratioToX(loopOutRatio, wfBounds);
+        double maxXfadeRatio = std::max(0.0, (loopOutRatio - loopInRatio) * 0.5);
+        double xfadeRatio = (crossfadeMs > 0.0) ? std::min((crossfadeMs / 1000.0) / totalDurationSecs, maxXfadeRatio) : 0.0;
+        float xfHandleX = ratioToX(loopOutRatio - xfadeRatio, wfBounds);
+        float xfHandleY = wfBounds.getBottom() - 22.0f;
 
+        if (std::abs(e.position.x - xfHandleX) <= threshold && std::abs(e.position.y - xfHandleY) <= 10.0f)
+        {
+            dragTarget = DragTarget::CrossfadeHandle;
+            return;
+        }
+        if (std::abs(e.position.x - loopInX) <= threshold && e.position.y >= wfBounds.getBottom() - 24.0f)
+        {
+            dragTarget = DragTarget::LoopInMarker;
+            return;
+        }
+        if (std::abs(e.position.x - loopOutX) <= threshold && e.position.y >= wfBounds.getBottom() - 24.0f)
+        {
+            dragTarget = DragTarget::LoopOutMarker;
+            return;
+        }
+        if (e.position.y >= wfBounds.getBottom() - 14.0f && e.position.x > loopInX + threshold && e.position.x < loopOutX - threshold)
+        {
+            dragTarget = DragTarget::LoopRegion;
+            dragLoopSpan = loopOutRatio - loopInRatio;
+            dragLoopGrabOffset = clickRatio - loopInRatio;
+            return;
+        }
+    }
+
+    // Start/End markers (prioritized in upper/mid waveform even if aligned with Loop In/Out)
+    if (std::abs(e.position.x - startX) <= threshold)
+    {
+        dragTarget = DragTarget::StartMarker;
+        return;
+    }
+    if (std::abs(e.position.x - endX) <= threshold)
+    {
+        dragTarget = DragTarget::EndMarker;
+        return;
+    }
+
+    // Loop vertical lines in mid-waveform
+    if (loopMarkersSet)
+    {
+        float loopInX = ratioToX(loopInRatio, wfBounds);
+        float loopOutX = ratioToX(loopOutRatio, wfBounds);
         if (std::abs(e.position.x - loopInX) <= threshold)
         {
             dragTarget = DragTarget::LoopInMarker;
@@ -2479,22 +2780,9 @@ void EditComponent::mouseDown(const juce::MouseEvent& e)
     // Left-click moves transport position ratio immediately
     audioEngine.setPositionRatio(clickRatio);
     currentPositionSecs = clickRatio * totalDurationSecs;
-
-    // Start/End markers
-    if (std::abs(e.position.x - startX) <= threshold)
-    {
-        dragTarget = DragTarget::StartMarker;
-    }
-    else if (std::abs(e.position.x - endX) <= threshold)
-    {
-        dragTarget = DragTarget::EndMarker;
-    }
-    else
-    {
-        dragTarget = DragTarget::SelectingRange;
-        dragStartRatio = clickRatio;
-        if (snapToZeroCrossing) clickRatio = findNearestZeroCrossing(clickRatio);
-    }
+    dragTarget = DragTarget::SelectingRange;
+    if (snapToZeroCrossing) clickRatio = findNearestZeroCrossing(clickRatio);
+    dragStartRatio = clickRatio;
     repaint();
 }
 
@@ -2572,7 +2860,8 @@ void EditComponent::mouseDrag(const juce::MouseEvent& e)
     double startR = audioEngine.getSampleStartRatio();
     double endR = audioEngine.getSampleEndRatio();
 
-    if (snapToZeroCrossing && dragTarget != DragTarget::FadeInHandle && dragTarget != DragTarget::FadeOutHandle)
+    if (snapToZeroCrossing && dragTarget != DragTarget::FadeInHandle && dragTarget != DragTarget::FadeOutHandle
+        && dragTarget != DragTarget::CrossfadeHandle && dragTarget != DragTarget::LoopRegion)
     {
         currentRatio = findNearestZeroCrossing(currentRatio);
     }
@@ -2593,22 +2882,44 @@ void EditComponent::mouseDrag(const juce::MouseEvent& e)
             loopInRatio = juce::jlimit(0.0, loopOutRatio - 0.001, currentRatio);
             loopMarkersSet = true;
             audioEngine.setLoopPoints(loopInRatio, loopOutRatio);
+            loopInTimeLabel.setText(formatTime(loopInRatio * totalDurationSecs), juce::dontSendNotification);
             break;
         case DragTarget::LoopOutMarker:
             loopOutRatio = juce::jlimit(loopInRatio + 0.001, 1.0, currentRatio);
             loopMarkersSet = true;
             audioEngine.setLoopPoints(loopInRatio, loopOutRatio);
+            loopOutTimeLabel.setText(formatTime(loopOutRatio * totalDurationSecs), juce::dontSendNotification);
             break;
+        case DragTarget::LoopRegion:
+        {
+            double newIn = juce::jlimit(0.0, 1.0 - dragLoopSpan, currentRatio - dragLoopGrabOffset);
+            loopInRatio = newIn;
+            loopOutRatio = newIn + dragLoopSpan;
+            loopMarkersSet = true;
+            audioEngine.setLoopPoints(loopInRatio, loopOutRatio);
+            loopInTimeLabel.setText(formatTime(loopInRatio * totalDurationSecs), juce::dontSendNotification);
+            loopOutTimeLabel.setText(formatTime(loopOutRatio * totalDurationSecs), juce::dontSendNotification);
+            break;
+        }
+        case DragTarget::CrossfadeHandle:
+        {
+            double maxXfadeSecs = std::max(0.0, (loopOutRatio - loopInRatio) * totalDurationSecs * 0.5);
+            double newXfadeSecs = juce::jlimit(0.0, maxXfadeSecs, (loopOutRatio - currentRatio) * totalDurationSecs);
+            crossfadeSlider.setValue(newXfadeSecs * 1000.0);
+            break;
+        }
         case DragTarget::FadeInHandle:
         {
-            double newFadeInSecs = std::max(0.0, (currentRatio - startR) * totalDurationSecs);
-            fadeInSlider.setValue(newFadeInSecs * 1000.0);
+            double maxFadeInMs = std::max(0.0, (endR - startR) * totalDurationSecs * 1000.0 - fadeOutMs);
+            double newFadeInMs = juce::jlimit(0.0, maxFadeInMs, (currentRatio - startR) * totalDurationSecs * 1000.0);
+            fadeInSlider.setValue(newFadeInMs);
             break;
         }
         case DragTarget::FadeOutHandle:
         {
-            double newFadeOutSecs = std::max(0.0, (endR - currentRatio) * totalDurationSecs);
-            fadeOutSlider.setValue(newFadeOutSecs * 1000.0);
+            double maxFadeOutMs = std::max(0.0, (endR - startR) * totalDurationSecs * 1000.0 - fadeInMs);
+            double newFadeOutMs = juce::jlimit(0.0, maxFadeOutMs, (endR - currentRatio) * totalDurationSecs * 1000.0);
+            fadeOutSlider.setValue(newFadeOutMs);
             break;
         }
         case DragTarget::SelectingRange:
@@ -2683,6 +2994,78 @@ void EditComponent::mouseUp(const juce::MouseEvent& /*e*/)
 
     dragTarget = DragTarget::None;
     repaint();
+}
+
+void EditComponent::exportSelectionAndStartDrag()
+{
+    juce::AudioBuffer<float> buf;
+    double sr = 44100.0;
+    if (!audioEngine.getAudioBufferCopy(buf, sr) || buf.getNumSamples() <= 0 || sr <= 0.0)
+        return;
+
+    int totalSamples = buf.getNumSamples();
+    int startIdx = juce::jlimit(0, totalSamples - 1, static_cast<int>(audioEngine.getSampleStartRatio() * totalSamples));
+    int endIdx = juce::jlimit(startIdx + 1, totalSamples, static_cast<int>(audioEngine.getSampleEndRatio() * totalSamples));
+    int len = endIdx - startIdx;
+    if (len <= 0)
+        return;
+
+    juce::AudioBuffer<float> selBuf(buf.getNumChannels(), len);
+    for (int ch = 0; ch < buf.getNumChannels(); ++ch)
+        selBuf.copyFrom(ch, 0, buf, ch, startIdx, len);
+
+    // Bake current fades into dragged selection so it sounds identical in Sampler / DAW
+    int fadeInSamples = std::min(len, static_cast<int>((fadeInMs / 1000.0) * sr));
+    int fadeOutSamples = std::min(len, static_cast<int>((fadeOutMs / 1000.0) * sr));
+    if (fadeInSamples > 0)
+    {
+        for (int ch = 0; ch < selBuf.getNumChannels(); ++ch)
+        {
+            float* data = selBuf.getWritePointer(ch);
+            for (int i = 0; i < fadeInSamples; ++i)
+                data[i] *= evaluateFadeCurve(static_cast<float>(i) / static_cast<float>(fadeInSamples), fadeInCurveType);
+        }
+    }
+    if (fadeOutSamples > 0)
+    {
+        for (int ch = 0; ch < selBuf.getNumChannels(); ++ch)
+        {
+            float* data = selBuf.getWritePointer(ch, len - fadeOutSamples);
+            for (int i = 0; i < fadeOutSamples; ++i)
+            {
+                float t = static_cast<float>(i) / static_cast<float>(fadeOutSamples);
+                data[i] *= evaluateFadeCurve(1.0f - t, fadeOutCurveType);
+            }
+        }
+    }
+
+    auto tempDir = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("OpenWavSelections");
+    tempDir.createDirectory();
+
+    juce::String baseName = audioEngine.getCurrentFile().getFileNameWithoutExtension();
+    if (baseName.isEmpty()) baseName = "Selection";
+    juce::File outFile = tempDir.getChildFile(baseName + "_sel.wav");
+    if (outFile.existsAsFile())
+        outFile.deleteFile();
+
+    if (auto outStream = outFile.createOutputStream())
+    {
+        juce::WavAudioFormat wavFormat;
+        std::unique_ptr<juce::AudioFormatWriter> writer(
+            wavFormat.createWriterFor(outStream.get(), sr, static_cast<unsigned int>(selBuf.getNumChannels()), 24, {}, 0));
+        if (writer != nullptr)
+        {
+            outStream.release();
+            writer->writeFromAudioSampleBuffer(selBuf, 0, len);
+            writer.reset();
+
+            juce::StringArray filesToDrag;
+            filesToDrag.add(outFile.getFullPathName());
+            juce::MessageManager::callAsync([filesToDrag] {
+                juce::DragAndDropContainer::performExternalDragDropOfFiles(filesToDrag, false);
+            });
+        }
+    }
 }
 
 void EditComponent::mouseDoubleClick(const juce::MouseEvent& /*e*/)

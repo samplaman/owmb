@@ -3156,7 +3156,7 @@ bool AudioEngine::applyFadesToBuffer(double fadeInMs, int fadeInType, double fad
             for (int i = 0; i < fadeOutSamples; ++i)
             {
                 float t = static_cast<float>(i) / fadeOutSamples;
-                float gain = 1.0f - evalCurve(t, fadeOutType);
+                float gain = evalCurve(1.0f - t, fadeOutType);
                 data[i] *= gain;
             }
         }
