@@ -25,6 +25,7 @@
 #include "UI/SampleMapComponent.h"
 #include "UI/PerformanceComponent.h"
 #include "UI/SliceConfigComponent.h"
+#include "UI/AiKitBuilderDialog.h"
 
 namespace openwav
 {

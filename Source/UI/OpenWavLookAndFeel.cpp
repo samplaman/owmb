@@ -49,34 +49,18 @@ void OpenWavLookAndFeel::resetPrimaryColour()
     }
 }
 
-void OpenWavLookAndFeel::setDarkTheme(bool useDark)
+void OpenWavLookAndFeel::setDarkTheme(bool /*useDark*/)
 {
-    if (useDark)
-    {
-        bgDark = juce::Colour::fromRGB(18, 18, 18);
-        bgHeader = juce::Colour::fromRGB(30, 30, 30);
-        bgCard = juce::Colour::fromRGB(32, 32, 32);
-        bgHover = juce::Colour::fromRGB(48, 48, 48);
-        accentCyan = hasCustomPrimaryColour ? customPrimaryColour : juce::Colour::fromRGB(0, 200, 220);
-        accentBlue = hasCustomPrimaryColour ? customPrimaryColour.withMultipliedBrightness(0.85f) : juce::Colour::fromRGB(0, 140, 255);
-        textPrimary = juce::Colour::fromRGB(240, 240, 240);
-        textSecondary = juce::Colour::fromRGB(160, 160, 160);
-        borderColour = juce::Colour::fromRGB(50, 50, 50);
-        favoriteRed = juce::Colour::fromRGB(230, 70, 70);
-    }
-    else
-    {
-        bgDark = juce::Colour::fromRGB(240, 240, 240);
-        bgHeader = juce::Colour::fromRGB(255, 255, 255);
-        bgCard = juce::Colour::fromRGB(255, 255, 255);
-        bgHover = juce::Colour::fromRGB(225, 225, 225);
-        accentCyan = hasCustomPrimaryColour ? customPrimaryColour : juce::Colour::fromRGB(60, 60, 60);
-        accentBlue = hasCustomPrimaryColour ? customPrimaryColour.withMultipliedBrightness(0.85f) : juce::Colour::fromRGB(110, 110, 110);
-        textPrimary = juce::Colour::fromRGB(30, 30, 30);
-        textSecondary = juce::Colour::fromRGB(100, 100, 100);
-        borderColour = juce::Colour::fromRGB(215, 215, 215);
-        favoriteRed = juce::Colour::fromRGB(120, 120, 120);
-    }
+    bgDark = juce::Colour::fromRGB(15, 16, 18);
+    bgHeader = juce::Colour::fromRGB(26, 28, 33);
+    bgCard = juce::Colour::fromRGB(22, 23, 27);
+    bgHover = juce::Colour::fromRGB(37, 40, 48);
+    accentCyan = hasCustomPrimaryColour ? customPrimaryColour : juce::Colour::fromRGB(0, 200, 220);
+    accentBlue = hasCustomPrimaryColour ? customPrimaryColour.withMultipliedBrightness(0.85f) : juce::Colour::fromRGB(0, 140, 255);
+    textPrimary = juce::Colour::fromRGB(240, 242, 245);
+    textSecondary = juce::Colour::fromRGB(155, 160, 170);
+    borderColour = juce::Colour::fromRGB(44, 47, 56);
+    favoriteRed = juce::Colour::fromRGB(235, 75, 85);
 }
 
 OpenWavLookAndFeel::OpenWavLookAndFeel() {
@@ -173,11 +157,17 @@ void OpenWavLookAndFeel::drawButtonBackground(
   auto bounds = button.getLocalBounds().toFloat().reduced(0.5f);
   auto cornerRadius = 5.0f;
 
-  // Light mode fill determination
-  juce::Colour fillColour = bgCard;
+  bool isIconOnly = (button.getComponentID() == "iconOnlyBtn" ||
+                     button.getComponentID() == "editIconBtn" ||
+                     button.getComponentID() == "headerViewBtn");
 
-  if (backgroundColour != juce::Colour(0xff444444) &&
-      !backgroundColour.isTransparent() && backgroundColour != bgDark) {
+  bool hasExplicitBg = (backgroundColour != juce::Colour(0xff444444) &&
+                        !backgroundColour.isTransparent() && backgroundColour != bgDark);
+
+  // Fill determination
+  juce::Colour fillColour = (isIconOnly && !hasExplicitBg) ? juce::Colours::transparentBlack : bgCard;
+
+  if (hasExplicitBg) {
     fillColour = backgroundColour;
   }
 
@@ -188,12 +178,12 @@ void OpenWavLookAndFeel::drawButtonBackground(
       } else if (shouldDrawButtonAsHighlighted) {
           fillColour = bgHover;
       } else {
-          fillColour = bgCard;
+          fillColour = isIconOnly ? juce::Colours::transparentBlack : bgCard;
       }
   } else if (button.getToggleState()) {
     fillColour = accentCyan.withAlpha(0.18f);
   } else if (shouldDrawButtonAsDown) {
-    fillColour = accentBlue.withAlpha(0.35f);
+    fillColour = accentBlue.withAlpha(0.32f);
   } else if (shouldDrawButtonAsHighlighted) {
     fillColour = bgHover;
   }
@@ -203,17 +193,22 @@ void OpenWavLookAndFeel::drawButtonBackground(
       if (!button.getToggleState() && !shouldDrawButtonAsHighlighted && !shouldDrawButtonAsDown) {
           fillColour = juce::Colours::transparentBlack;
       }
+  } else if (isIconOnly) {
+      cornerRadius = 6.0f;
   }
 
   g.setColour(fillColour);
   g.fillRoundedRectangle(bounds, cornerRadius);
 
-  bool isMuteBtn = (text == "Mute" || text == "Unmute");
-  juce::Colour border = isMuteBtn ? (button.getToggleState() ? favoriteRed : borderColour) : (button.getToggleState() ? accentCyan : borderColour);
+  bool isMuteBtn = (text == "mute" || text == "unmute");
+  juce::Colour border = isMuteBtn ? (button.getToggleState() ? favoriteRed : borderColour)
+                                  : (button.getToggleState() ? accentCyan.withAlpha(0.8f) : borderColour);
   if (button.getComponentID() == "tagButton" && !button.getToggleState()) {
       border = shouldDrawButtonAsHighlighted ? borderColour.withAlpha(0.6f) : juce::Colours::transparentBlack;
+  } else if (isIconOnly && !button.getToggleState() && !hasExplicitBg) {
+      border = shouldDrawButtonAsHighlighted ? borderColour.withAlpha(0.8f) : juce::Colours::transparentBlack;
   }
-  float stroke = button.getToggleState() ? 1.4f : 1.0f;
+  float stroke = button.getToggleState() ? 1.25f : 1.0f;
   g.setColour(border);
   g.drawRoundedRectangle(bounds, cornerRadius, stroke);
 }
@@ -409,16 +404,96 @@ void OpenWavLookAndFeel::drawButtonText(juce::Graphics &g,
       svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"8\" cy=\"8\" r=\"4\"/><line x1=\"8\" y1=\"8\" x2=\"10.5\" y2=\"5.5\"/><circle cx=\"16\" cy=\"16\" r=\"4\"/><line x1=\"16\" y1=\"16\" x2=\"18.5\" y2=\"13.5\"/><line x1=\"15\" y1=\"6\" x2=\"20\" y2=\"6\"/><line x1=\"4\" y1=\"18\" x2=\"9\" y2=\"18\"/></svg>";
   } else if (text.startsWith("Vel:")) {
       svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 20C8 20 12 12 21 4\"/><line x1=\"3\" y1=\"20\" x2=\"21\" y2=\"20\"/><line x1=\"3\" y1=\"4\" x2=\"3\" y2=\"20\"/></svg>";
-  } else if (text.startsWith("MIDI Ch:")) {
+  } else if (text.startsWith("MIDI")) {
       svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"9\"/><circle cx=\"8\" cy=\"12\" r=\"1\" fill=\"currentColor\"/><circle cx=\"16\" cy=\"12\" r=\"1\" fill=\"currentColor\"/><circle cx=\"12\" cy=\"8\" r=\"1\" fill=\"currentColor\"/><circle cx=\"9.5\" cy=\"9.5\" r=\"1\" fill=\"currentColor\"/><circle cx=\"14.5\" cy=\"9.5\" r=\"1\" fill=\"currentColor\"/></svg>";
   } else if (text == "Auto Sample") {
       svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"9\"/><circle cx=\"12\" cy=\"12\" r=\"3\" fill=\"currentColor\"/><line x1=\"12\" y1=\"2\" x2=\"12\" y2=\"5\"/><line x1=\"12\" y1=\"19\" x2=\"12\" y2=\"22\"/><line x1=\"2\" y1=\"12\" x2=\"5\" y2=\"12\"/><line x1=\"19\" y1=\"12\" x2=\"22\" y2=\"12\"/></svg>";
+  } else if (text == "AI Kit" || text == "Auto-Tag Library") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 2l2.4 7.2L22 12l-7.6 2.8L12 22l-2.4-7.2L2 12l7.6-2.8z\"/></svg>";
+  } else if (text == "REC") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"8\"/><circle cx=\"12\" cy=\"12\" r=\"3.5\" fill=\"currentColor\"/></svg>";
+  } else if (text == "PLAY") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><polygon points=\"5 3 19 12 5 21 5 3\"/></svg>";
+  } else if (text == "STOP") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"4\" y=\"4\" width=\"16\" height=\"16\" rx=\"2\" ry=\"2\"/></svg>";
+  } else if (text == "PAUSE") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"6\" y=\"4\" width=\"4\" height=\"16\"/><rect x=\"14\" y=\"4\" width=\"4\" height=\"16\"/></svg>";
+  } else if (text == "RESUME") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><polygon points=\"5 3 14 12 5 21 5 3\"/><line x1=\"18\" y1=\"4\" x2=\"18\" y2=\"20\"/></svg>";
+  } else if (text == "CANCEL" || text == "Cancel" || text == "Cancel Scan" || text == "Cancel All" || text == "X") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><line x1=\"18\" y1=\"6\" x2=\"6\" y2=\"18\"/><line x1=\"6\" y1=\"6\" x2=\"18\" y2=\"18\"/></svg>";
+  } else if (text == "CLEAR" || text == "Clear All" || text == "Clear Tags") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><polyline points=\"3 6 5 6 21 6\"/><path d=\"M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2\"/></svg>";
+  } else if (text == "TRIM") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M6 2v14a2 2 0 0 0 2 2h14\"/><path d=\"M18 22V8a2 2 0 0 0-2-2H2\"/></svg>";
+  } else if (text == "Save to Library") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z\"/><polyline points=\"17 21 17 13 7 13 7 21\"/><polyline points=\"7 3 7 8 15 8\"/></svg>";
+  } else if (text == "To Editor") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6\"/><polyline points=\"15 3 21 3 21 9\"/><line x1=\"10\" y1=\"14\" x2=\"21\" y2=\"3\"/></svg>";
+  } else if (text == "To Sampler") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"2\" y=\"4\" width=\"20\" height=\"16\" rx=\"2\"/><line x1=\"6\" y1=\"4\" x2=\"6\" y2=\"13\"/><line x1=\"10\" y1=\"4\" x2=\"10\" y2=\"13\"/><line x1=\"14\" y1=\"4\" x2=\"14\" y2=\"13\"/><line x1=\"18\" y1=\"4\" x2=\"18\" y2=\"13\"/><line x1=\"2\" y1=\"13\" x2=\"22\" y2=\"13\"/></svg>";
+  } else if (text == "Audio Setup") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><line x1=\"4\" y1=\"21\" x2=\"4\" y2=\"14\"/><line x1=\"4\" y1=\"10\" x2=\"4\" y2=\"3\"/><line x1=\"12\" y1=\"21\" x2=\"12\" y2=\"12\"/><line x1=\"12\" y1=\"8\" x2=\"12\" y2=\"3\"/><line x1=\"20\" y1=\"21\" x2=\"20\" y2=\"16\"/><line x1=\"20\" y1=\"12\" x2=\"20\" y2=\"3\"/><line x1=\"1\" y1=\"14\" x2=\"7\" y2=\"14\"/><line x1=\"9\" y1=\"8\" x2=\"15\" y2=\"8\"/><line x1=\"17\" y1=\"16\" x2=\"23\" y2=\"16\"/></svg>";
+  } else if (text == "Reset EQ") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><polyline points=\"1 4 1 10 7 10\"/><path d=\"M3.51 15a9 9 0 1 0 2.13-9.36L1 10\"/></svg>";
+  } else if (text == "Auto") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><polygon points=\"13 2 3 14 12 14 11 22 21 10 12 10 13 2\"/></svg>";
+  } else if (text == "Resynth") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M2 12c2-6 4-6 6 0s4 6 6 0 4-6 6 0\"/><circle cx=\"12\" cy=\"12\" r=\"1.5\" fill=\"currentColor\"/></svg>";
+  } else if (text == "SYNC") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71\"/><path d=\"M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71\"/></svg>";
+  } else if (text == "+ Add Effect") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"10\"/><line x1=\"12\" y1=\"8\" x2=\"12\" y2=\"16\"/><line x1=\"8\" y1=\"12\" x2=\"16\" y2=\"12\"/></svg>";
+  } else if (text == "Rack Presets") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><polygon points=\"12 2 2 7 12 12 22 7 12 2\"/><polyline points=\"2 17 12 22 22 17\"/><polyline points=\"2 12 12 17 22 12\"/></svg>";
+  } else if (text == "Master Active" || text == "Bypassed" || text == "Master Bypass") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M18.36 6.64a9 9 0 1 1-12.73 0\"/><line x1=\"12\" y1=\"2\" x2=\"12\" y2=\"12\"/></svg>";
+  } else if (text == "Expand All") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><polyline points=\"7 13 12 18 17 13\"/><polyline points=\"7 6 12 11 17 6\"/></svg>";
+  } else if (text == "Collapse All") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><polyline points=\"17 11 12 6 7 11\"/><polyline points=\"17 18 12 13 7 18\"/></svg>";
+  } else if (text == "Reset View") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><polyline points=\"15 3 21 3 21 9\"/><polyline points=\"9 21 3 21 3 15\"/><line x1=\"21\" y1=\"3\" x2=\"14\" y2=\"10\"/><line x1=\"3\" y1=\"21\" x2=\"10\" y2=\"14\"/></svg>";
+  } else if (text == "2D" || text == "3D") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z\"/></svg>";
+  } else if (text == "Spin" || text == "Stop Spin") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><polyline points=\"23 4 23 10 17 10\"/><path d=\"M20.49 15a9 9 0 1 1-2.12-9.36L23 10\"/></svg>";
+  } else if (text.startsWith("Mouseover")) {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><polygon points=\"11 5 6 9 2 9 2 15 6 15 11 19 11 5\"/><path d=\"M15.54 8.46a5 5 0 0 1 0 7.07\"/><path d=\"M19.07 4.93a10 10 0 0 1 0 14.14\"/></svg>";
+  } else if (text == "+") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><line x1=\"12\" y1=\"5\" x2=\"12\" y2=\"19\"/><line x1=\"5\" y1=\"12\" x2=\"19\" y2=\"12\"/></svg>";
+  } else if (text == "-") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><line x1=\"5\" y1=\"12\" x2=\"19\" y2=\"12\"/></svg>";
+  } else if (text == "<") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><polyline points=\"15 18 9 12 15 6\"/></svg>";
+  } else if (text == ">") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><polyline points=\"9 18 15 12 9 6\"/></svg>";
+  } else if (text == "Fetch Files") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><polyline points=\"8 17 12 21 16 17\"/><line x1=\"12\" y1=\"12\" x2=\"12\" y2=\"21\"/><path d=\"M20.88 18.09A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.29\"/></svg>";
+  } else if (text == "OWMB Soundbank") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><ellipse cx=\"12\" cy=\"5\" rx=\"9\" ry=\"3\"/><path d=\"M21 12c0 1.66-4 3-9 3s-9-1.34-9-3\"/><path d=\"M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5\"/></svg>";
+  } else if (text == "Change Folder...") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z\"/></svg>";
+  } else if (text.startsWith("Download Folder")) {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z\"/><polyline points=\"12 11 12 17\"/><polyline points=\"9 14 12 17 15 14\"/></svg>";
+  } else if (text == "Download All") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"/><polyline points=\"7 10 12 15 17 10\"/><line x1=\"12\" y1=\"15\" x2=\"12\" y2=\"3\"/></svg>";
+  } else if (text == "Favorites") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z\"/></svg>";
+  } else if (text == "+ Add Custom Tag...") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z\"/><line x1=\"7\" y1=\"7\" x2=\"7.01\" y2=\"7\"/></svg>";
+  } else if (text == "+ BPM") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"10\"/><polyline points=\"12 6 12 12 16 14\"/></svg>";
+  } else if (text.startsWith("Spectral:")) {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"2\" y=\"2\" width=\"20\" height=\"20\" rx=\"3\"/><line x1=\"6\" y1=\"18\" x2=\"6\" y2=\"12\"/><line x1=\"10\" y1=\"18\" x2=\"10\" y2=\"6\"/><line x1=\"14\" y1=\"18\" x2=\"14\" y2=\"10\"/><line x1=\"18\" y1=\"18\" x2=\"18\" y2=\"8\"/></svg>";
   }
 
   auto font = juce::Font(11.5f).boldened();
   g.setFont(font);
   bool isMuteBtn = (button.getButtonText() == "Mute" || button.getButtonText() == "Unmute");
   juce::Colour textColour = isMuteBtn ? (button.getToggleState() ? favoriteRed : textPrimary) : (button.getToggleState() ? accentCyan : textPrimary);
+  if (!button.isEnabled())
+      textColour = textColour.withAlpha(0.32f);
   g.setColour(textColour);
 
   if (svgString.isNotEmpty()) {
@@ -846,6 +921,77 @@ void OpenWavLookAndFeel::drawTickBox(juce::Graphics& g, juce::Component& /*compo
         float dotRadius = std::min(box.getWidth(), box.getHeight()) * 0.22f;
         g.fillEllipse(box.getCentreX() - dotRadius, box.getCentreY() - dotRadius, dotRadius * 2.0f, dotRadius * 2.0f);
     }
+}
+
+void OpenWavLookAndFeel::drawToggleButton(juce::Graphics& g, juce::ToggleButton& button,
+                                          bool shouldDrawButtonAsHighlighted, bool /*shouldDrawButtonAsDown*/)
+{
+    auto bounds = button.getLocalBounds().toFloat().reduced(0.5f, 1.5f);
+    bool ticked = button.getToggleState();
+    bool enabled = button.isEnabled();
+
+    juce::Colour pillBg = ticked ? accentCyan.withAlpha(0.16f)
+                                 : (shouldDrawButtonAsHighlighted ? bgHover : bgCard);
+    juce::Colour pillBorder = ticked ? accentCyan.withAlpha(0.75f) : borderColour;
+
+    if (!enabled)
+    {
+        pillBg = pillBg.withAlpha(0.4f);
+        pillBorder = pillBorder.withAlpha(0.4f);
+    }
+
+    g.setColour(pillBg);
+    g.fillRoundedRectangle(bounds, 5.0f);
+    g.setColour(pillBorder);
+    g.drawRoundedRectangle(bounds, 5.0f, 1.0f);
+
+    float dotR = 3.2f;
+    float dotX = bounds.getX() + 10.0f;
+    float dotY = bounds.getCentreY();
+    g.setColour(ticked ? accentCyan : textSecondary.withAlpha(0.5f));
+    g.fillEllipse(dotX - dotR, dotY - dotR, dotR * 2.0f, dotR * 2.0f);
+
+    auto textArea = bounds.withTrimmedLeft(18.0f).reduced(2.0f, 0.0f);
+    g.setColour((ticked ? accentCyan : textPrimary).withAlpha(enabled ? 1.0f : 0.4f));
+    g.setFont(juce::Font(juce::FontOptions(11.5f).withStyle(ticked ? "Bold" : "Regular")));
+    g.drawFittedText(button.getButtonText(), textArea.toNearestInt(), juce::Justification::centredLeft, 1);
+}
+
+void OpenWavLookAndFeel::drawScrollbar(juce::Graphics& g, juce::ScrollBar& /*scrollbar*/,
+                                       int x, int y, int width, int height,
+                                       bool isScrollbarVertical, int thumbStartPosition, int thumbSize,
+                                       bool isMouseOver, bool isMouseDown)
+{
+    if (thumbSize <= 0)
+        return;
+
+    juce::Rectangle<float> thumbBounds;
+    if (isScrollbarVertical)
+        thumbBounds = juce::Rectangle<float>(static_cast<float>(x) + 2.5f, static_cast<float>(thumbStartPosition) + 1.0f,
+                                             std::max(3.0f, static_cast<float>(width) - 5.0f),
+                                             std::max(12.0f, static_cast<float>(thumbSize) - 2.0f));
+    else
+        thumbBounds = juce::Rectangle<float>(static_cast<float>(thumbStartPosition) + 1.0f, static_cast<float>(y) + 2.5f,
+                                             std::max(12.0f, static_cast<float>(thumbSize) - 2.0f),
+                                             std::max(3.0f, static_cast<float>(height) - 5.0f));
+
+    juce::Colour thumbCol = isMouseDown ? accentCyan
+                                        : (isMouseOver ? accentCyan.withAlpha(0.75f) : borderColour.brighter(0.35f));
+    g.setColour(thumbCol);
+    g.fillRoundedRectangle(thumbBounds, std::min(thumbBounds.getWidth(), thumbBounds.getHeight()) * 0.5f);
+}
+
+juce::Font OpenWavLookAndFeel::getMonoFont(float size, bool bold)
+{
+#if JUCE_MAC || JUCE_IOS
+    static const juce::String monoName = "SF Mono";
+#elif JUCE_WINDOWS
+    static const juce::String monoName = "Consolas";
+#else
+    static const juce::String monoName = juce::Font::getDefaultMonospacedFontName();
+#endif
+    auto opts = juce::FontOptions(monoName, size, bold ? juce::Font::bold : juce::Font::plain);
+    return juce::Font(opts);
 }
 
 juce::Typeface::Ptr OpenWavLookAndFeel::getTypefaceForFont(const juce::Font& font)

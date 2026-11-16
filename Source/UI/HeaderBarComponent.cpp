@@ -27,38 +27,45 @@ HeaderBarComponent::HeaderBarComponent(TagDatabaseManager& db, LibraryScanner& s
     addAndMakeVisible(searchEditor);
 
     // Add Folder Button
+    addFolderButton.setComponentID("iconOnlyBtn");
+    addFolderButton.setTooltip("Add Folder to Library");
     addFolderButton.onClick = [this] {
         listeners.call([](HeaderBarListener& l) { l.addFolderRequested(); });
     };
     addAndMakeVisible(addFolderButton);
 
     // Rescan Button
+    rescanButton.setComponentID("iconOnlyBtn");
+    rescanButton.setTooltip("Rescan Library Folders");
     rescanButton.onClick = [this] {
         listeners.call([](HeaderBarListener& l) { l.rescanRequested(); });
     };
     addAndMakeVisible(rescanButton);
 
     // Settings Button (Audio / MIDI Setup)
+    settingsButton.setComponentID("iconOnlyBtn");
+    settingsButton.setTooltip("Audio / MIDI & App Settings");
     settingsButton.onClick = [this] {
         listeners.call([](HeaderBarListener& l) { l.settingsRequested(); });
     };
     addAndMakeVisible(settingsButton);
 
-    // Format Filter Buttons
-    auto setupFormatBtn = [this](juce::TextButton& btn, const juce::String& fmt) {
-        btn.setClickingTogglesState(false);
-        btn.onClick = [this, &btn, fmt] { setFormatFilter(fmt, &btn); };
-        addAndMakeVisible(btn);
+    // Format Filter Dropdown
+    formatFilterBox.addItem("All Formats", 1);
+    formatFilterBox.addItem(".WAV", 2);
+    formatFilterBox.addItem(".MP3", 3);
+    formatFilterBox.addItem(".FLAC", 4);
+    formatFilterBox.addItem(".OGG", 5);
+    formatFilterBox.addItem(".AIFF", 6);
+    formatFilterBox.setSelectedId(1, juce::dontSendNotification);
+    formatFilterBox.setTooltip("Filter samples by audio format");
+    formatFilterBox.onChange = [this] {
+        static const juce::String formats[] = { "All", ".wav", ".mp3", ".flac", ".ogg", ".aiff" };
+        int idx = formatFilterBox.getSelectedId() - 1;
+        if (idx >= 0 && idx < 6)
+            setFormatFilter(formats[idx]);
     };
-
-    setupFormatBtn(btnAll, "All");
-    setupFormatBtn(btnWav, ".wav");
-    setupFormatBtn(btnMp3, ".mp3");
-    setupFormatBtn(btnFlac, ".flac");
-    setupFormatBtn(btnOgg, ".ogg");
-    setupFormatBtn(btnAiff, ".aiff");
-
-    btnAll.setToggleState(true, juce::dontSendNotification);
+    addAndMakeVisible(formatFilterBox);
 
     // View Switcher (List vs Cloud vs Library vs Record vs Analysis vs Edit vs Sample Map vs Rack)
     auto setupViewBtn = [this](juce::TextButton& btn, const juce::String& viewName, const juce::String& tooltipText, ViewMode mode) {
@@ -94,6 +101,21 @@ void HeaderBarComponent::paint(juce::Graphics& g)
     g.fillAll(OpenWavLookAndFeel::bgHeader);
     g.setColour(OpenWavLookAndFeel::borderColour);
     g.drawRect(getLocalBounds().removeFromBottom(1));
+
+    if (!viewPillBounds.isEmpty())
+    {
+        auto pill = viewPillBounds.toFloat();
+        g.setColour(OpenWavLookAndFeel::bgDark.withAlpha(0.75f));
+        g.fillRoundedRectangle(pill, 8.0f);
+        g.setColour(OpenWavLookAndFeel::borderColour);
+        g.drawRoundedRectangle(pill.reduced(0.5f), 8.0f, 1.0f);
+
+        g.setColour(OpenWavLookAndFeel::borderColour.withAlpha(0.8f));
+        if (!viewDivider1.isEmpty())
+            g.fillRect(viewDivider1);
+        if (!viewDivider2.isEmpty())
+            g.fillRect(viewDivider2);
+    }
 }
 
 void HeaderBarComponent::resized()
@@ -103,11 +125,11 @@ void HeaderBarComponent::resized()
     int gap = 4;
 
     // 1. Far Right Actions: Settings, Rescan, Add Folder
-    settingsButton.setBounds(area.removeFromRight(90).withHeight(btnHeight));
+    settingsButton.setBounds(area.removeFromRight(34).withHeight(btnHeight));
     area.removeFromRight(gap);
-    rescanButton.setBounds(area.removeFromRight(82).withHeight(btnHeight));
+    rescanButton.setBounds(area.removeFromRight(34).withHeight(btnHeight));
     area.removeFromRight(gap);
-    addFolderButton.setBounds(area.removeFromRight(108).withHeight(btnHeight));
+    addFolderButton.setBounds(area.removeFromRight(34).withHeight(btnHeight));
 
     area.removeFromRight(12);
 
@@ -116,49 +138,48 @@ void HeaderBarComponent::resized()
         logoComponent.setBounds(area.removeFromLeft(135));
     else
         titleLabel.setBounds(area.removeFromLeft(85));
-    area.removeFromLeft(20);
+    area.removeFromLeft(16);
 
-    // 3. Dynamic Search Editor
-    const int neededForFiltersAndViews = 764;
-    int maxAvailForSearch = std::max(110, area.getWidth() - neededForFiltersAndViews - 8);
-    int searchWidth = juce::jlimit(110, 260, std::min(maxAvailForSearch, (area.getWidth() - 828) / 2 + 140));
-    searchEditor.setBounds(area.removeFromLeft(searchWidth).withHeight(btnHeight));
-    area.removeFromLeft(10);
+    // 3. View Switcher Segmented Pill on Right-of-Center
+    const int viewBtnWidth = 32;
+    const int viewBtnH = 26;
+    const int divGap = 9;
+    const int totalViewWidth = 9 * viewBtnWidth + 6 * gap + 2 * divGap + 8; // 8px pill padding
+    auto pillArea = area.removeFromRight(totalViewWidth).withHeight(btnHeight);
+    viewPillBounds = pillArea;
+    auto vInner = pillArea.reduced(4, 3);
 
-    // 4. Format Filter Buttons (.WAV, .MP3, .FLAC, .OGG, .AIFF)
-    btnAll.setBounds(area.removeFromLeft(54).withHeight(btnHeight));
-    area.removeFromLeft(gap);
-    btnWav.setBounds(area.removeFromLeft(64).withHeight(btnHeight));
-    area.removeFromLeft(gap);
-    btnMp3.setBounds(area.removeFromLeft(64).withHeight(btnHeight));
-    area.removeFromLeft(gap);
-    btnFlac.setBounds(area.removeFromLeft(70).withHeight(btnHeight));
-    area.removeFromLeft(gap);
-    btnOgg.setBounds(area.removeFromLeft(64).withHeight(btnHeight));
-    area.removeFromLeft(gap);
-    btnAiff.setBounds(area.removeFromLeft(70).withHeight(btnHeight));
+    btnListView.setBounds(vInner.removeFromLeft(viewBtnWidth).withHeight(viewBtnH));
+    vInner.removeFromLeft(gap);
+    btnFoldersView.setBounds(vInner.removeFromLeft(viewBtnWidth).withHeight(viewBtnH));
+    vInner.removeFromLeft(gap);
+    btnCloudView.setBounds(vInner.removeFromLeft(viewBtnWidth).withHeight(viewBtnH));
+    vInner.removeFromLeft(gap);
+    btnLibrariesView.setBounds(vInner.removeFromLeft(viewBtnWidth).withHeight(viewBtnH));
 
-    area.removeFromLeft(10);
+    viewDivider1 = juce::Rectangle<int>(vInner.getX() + 4, vInner.getY() + 4, 1, viewBtnH - 8);
+    vInner.removeFromLeft(divGap);
 
-    // 5. View Mode Toggle (List, Folders, Cloud, Library, Record, Analysis, Edit, Sample Map, Performance)
-    const int viewBtnWidth = 34;
-    btnListView.setBounds(area.removeFromLeft(viewBtnWidth).withHeight(btnHeight));
-    area.removeFromLeft(gap);
-    btnFoldersView.setBounds(area.removeFromLeft(viewBtnWidth).withHeight(btnHeight));
-    area.removeFromLeft(gap);
-    btnCloudView.setBounds(area.removeFromLeft(viewBtnWidth).withHeight(btnHeight));
-    area.removeFromLeft(gap);
-    btnLibrariesView.setBounds(area.removeFromLeft(viewBtnWidth).withHeight(btnHeight));
-    area.removeFromLeft(gap);
-    btnRecordView.setBounds(area.removeFromLeft(viewBtnWidth).withHeight(btnHeight));
-    area.removeFromLeft(gap);
-    btnAnalysisView.setBounds(area.removeFromLeft(viewBtnWidth).withHeight(btnHeight));
-    area.removeFromLeft(gap);
-    btnEditView.setBounds(area.removeFromLeft(viewBtnWidth).withHeight(btnHeight));
-    area.removeFromLeft(gap);
-    btnSampleMapView.setBounds(area.removeFromLeft(viewBtnWidth).withHeight(btnHeight));
-    area.removeFromLeft(gap);
-    btnPerformanceView.setBounds(area.removeFromLeft(viewBtnWidth).withHeight(btnHeight));
+    btnRecordView.setBounds(vInner.removeFromLeft(viewBtnWidth).withHeight(viewBtnH));
+    vInner.removeFromLeft(gap);
+    btnAnalysisView.setBounds(vInner.removeFromLeft(viewBtnWidth).withHeight(viewBtnH));
+    vInner.removeFromLeft(gap);
+    btnEditView.setBounds(vInner.removeFromLeft(viewBtnWidth).withHeight(viewBtnH));
+    vInner.removeFromLeft(gap);
+    btnSampleMapView.setBounds(vInner.removeFromLeft(viewBtnWidth).withHeight(viewBtnH));
+
+    viewDivider2 = juce::Rectangle<int>(vInner.getX() + 4, vInner.getY() + 4, 1, viewBtnH - 8);
+    vInner.removeFromLeft(divGap);
+
+    btnPerformanceView.setBounds(vInner.removeFromLeft(viewBtnWidth).withHeight(viewBtnH));
+
+    area.removeFromRight(12);
+
+    // 4. Format Filter Dropdown + Dynamic Search Editor
+    formatFilterBox.setBounds(area.removeFromRight(106).withHeight(btnHeight));
+    area.removeFromRight(8);
+
+    searchEditor.setBounds(area.withHeight(btnHeight));
 }
 
 void HeaderBarComponent::textEditorTextChanged(juce::TextEditor& editor)
@@ -171,16 +192,9 @@ void HeaderBarComponent::textEditorTextChanged(juce::TextEditor& editor)
     }
 }
 
-void HeaderBarComponent::setFormatFilter(const juce::String& ext, juce::TextButton* targetBtn)
+void HeaderBarComponent::setFormatFilter(const juce::String& ext)
 {
     activeFormat = ext;
-    btnAll.setToggleState(targetBtn == &btnAll, juce::dontSendNotification);
-    btnWav.setToggleState(targetBtn == &btnWav, juce::dontSendNotification);
-    btnMp3.setToggleState(targetBtn == &btnMp3, juce::dontSendNotification);
-    btnFlac.setToggleState(targetBtn == &btnFlac, juce::dontSendNotification);
-    btnOgg.setToggleState(targetBtn == &btnOgg, juce::dontSendNotification);
-    btnAiff.setToggleState(targetBtn == &btnAiff, juce::dontSendNotification);
-
     listeners.call([ext](HeaderBarListener& l) {
         l.formatFilterChanged(ext);
     });

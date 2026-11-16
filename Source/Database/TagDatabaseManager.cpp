@@ -1,4 +1,5 @@
 #include "TagDatabaseManager.h"
+#include "../AI/AudioEmbeddingEngine.h"
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -62,6 +63,14 @@ std::vector<MediaItem> TagDatabaseManager::getFilteredItems(const juce::String& 
     filtered.reserve(itemsMap.size());
 
     juce::String keyword = searchKeyword.trim();
+    const bool useSemanticSearch = AudioEmbeddingEngine::isNaturalLanguageQuery(keyword);
+    AudioEmbeddingEngine::Embedding queryEmb {};
+    if (useSemanticSearch)
+        queryEmb = AudioEmbeddingEngine::encodeTextQuery(keyword);
+
+    std::vector<std::pair<float, MediaItem>> scoredMatches;
+    if (useSemanticSearch)
+        scoredMatches.reserve(itemsMap.size());
 
     for (const auto& kv : itemsMap)
     {
@@ -91,7 +100,8 @@ std::vector<MediaItem> TagDatabaseManager::getFilteredItems(const juce::String& 
             }
         }
 
-        // 3. Keyword check (matches filename, path, or tags)
+        // 3. Keyword / Semantic Embedding check
+        float semanticScore = 0.0f;
         if (keyword.isNotEmpty())
         {
             bool keywordMatched = item.fileName.containsIgnoreCase(keyword) ||
@@ -109,8 +119,19 @@ std::vector<MediaItem> TagDatabaseManager::getFilteredItems(const juce::String& 
                 }
             }
 
-            if (!keywordMatched)
+            if (useSemanticSearch)
+            {
+                if (item.embedding.size() == AudioEmbeddingEngine::EmbeddingDim)
+                    semanticScore = AudioEmbeddingEngine::cosineSimilarity(item.embedding, queryEmb);
+                else
+                    semanticScore = AudioEmbeddingEngine::cosineSimilarity(AudioEmbeddingEngine::computeEmbedding(item), queryEmb);
+            }
+
+            if (!keywordMatched && (!useSemanticSearch || semanticScore < 0.25f))
                 continue;
+
+            if (keywordMatched)
+                semanticScore += 0.35f; // Literal matches always rank above pure semantic matches
         }
 
         // 4. Selected tags filter
@@ -148,7 +169,19 @@ std::vector<MediaItem> TagDatabaseManager::getFilteredItems(const juce::String& 
             }
         }
 
-        filtered.push_back(item);
+        if (useSemanticSearch)
+            scoredMatches.push_back({ semanticScore, item });
+        else
+            filtered.push_back(item);
+    }
+
+    if (useSemanticSearch)
+    {
+        std::sort(scoredMatches.begin(), scoredMatches.end(), [](const auto& a, const auto& b) {
+            return a.first > b.first;
+        });
+        for (auto& pair : scoredMatches)
+            filtered.push_back(std::move(pair.second));
     }
 
     return filtered;
@@ -1503,6 +1536,12 @@ void TagDatabaseManager::sanitizeItem(MediaItem& item)
     {
         item.bpm = tagBpm;
     }
+
+    if (item.embedding.size() != AudioEmbeddingEngine::EmbeddingDim)
+    {
+        auto emb = AudioEmbeddingEngine::computeEmbedding(item);
+        item.embedding.assign(emb.begin(), emb.end());
+    }
 }
 
 static bool hasKickNegation(const juce::String& s)
@@ -2214,15 +2253,14 @@ void TagDatabaseManager::setDownloadFolder(const juce::String& folderPath)
 
 bool TagDatabaseManager::isDarkMode() const
 {
-    const juce::ScopedLock sl(lock);
-    return darkThemeActive;
+    return true;
 }
 
-void TagDatabaseManager::setDarkMode(bool useDark)
+void TagDatabaseManager::setDarkMode(bool /*useDark*/)
 {
     {
         const juce::ScopedLock sl(lock);
-        darkThemeActive = useDark;
+        darkThemeActive = true;
     }
     saveToFile();
 }

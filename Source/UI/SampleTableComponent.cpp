@@ -53,6 +53,8 @@ SampleTableComponent::SampleTableComponent(TagDatabaseManager& db, AudioEngine& 
     similarityBannerLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::textPrimary);
     addChildComponent(similarityBannerLabel);
 
+    clearSimilarityButton.setComponentID("iconOnlyBtn");
+    clearSimilarityButton.setTooltip("Clear Similarity Search");
     clearSimilarityButton.setButtonText("X");
     clearSimilarityButton.setColour(juce::TextButton::buttonColourId, OpenWavLookAndFeel::accentCyan.withAlpha(0.25f));
     clearSimilarityButton.setColour(juce::TextButton::textColourOffId, OpenWavLookAndFeel::accentCyan);

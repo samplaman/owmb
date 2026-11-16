@@ -497,6 +497,16 @@ SampleMapComponent::SampleMapComponent(AudioEngine& engine)
     else
         addChildComponent(autoSampleButton);
 
+    aiKitButton.setComponentID("iconOnlyBtn");
+    aiKitButton.setColour(juce::TextButton::buttonColourId, OpenWavLookAndFeel::accentCyan.withAlpha(0.25f));
+    aiKitButton.setColour(juce::TextButton::textColourOffId, OpenWavLookAndFeel::accentCyan);
+    aiKitButton.setTooltip("AI Kit & Preset Builder: generate a Sample Map + FX Rack from a text prompt");
+    aiKitButton.onClick = [this] {
+        if (onOpenAiKitBuilderRequested)
+            onOpenAiKitBuilderRequested();
+    };
+    addAndMakeVisible(aiKitButton);
+
     instrumentView.onStateChanged = [this] {
         if (onStateChanged) onStateChanged();
     };
@@ -3036,6 +3046,8 @@ void SampleMapComponent::resized()
         topRow.removeFromLeft(gap);
         autoSampleButton.setBounds(topRow.removeFromLeft(iconBtnW));
     }
+    topRow.removeFromLeft(gap);
+    aiKitButton.setBounds(topRow.removeFromLeft(iconBtnW));
 
     if (instrumentModeActive)
     {

@@ -32,6 +32,7 @@ public:
     void mouseDrag(const juce::MouseEvent& e) override;
     void mouseUp(const juce::MouseEvent& e) override;
     void mouseDoubleClick(const juce::MouseEvent& e) override;
+    bool keyPressed(const juce::KeyPress& key) override;
 
     void timerCallback() override;
 
@@ -143,8 +144,9 @@ private:
     // Interactive Waveform / Trim / Meter Hitboxes
     juce::Rectangle<float> cachedScopeArea;
     juce::Rectangle<float> cachedMeterArea;
-    enum class DragMode { None, EqNode, TrimStart, TrimEnd };
+    enum class DragMode { None, EqNode, TrimStart, TrimEnd, WaveDragOut };
     DragMode dragMode { DragMode::None };
+    bool externalDragStarted { false };
 
     // Interactive 9-Band Parametric EQ Parameters
     std::array<float, 9> eqFreqs { 60.0f, 120.0f, 250.0f, 500.0f, 1000.0f, 2000.0f, 4000.0f, 8000.0f, 16000.0f };

@@ -21,13 +21,18 @@ FolderBrowserComponent::FolderBrowserComponent(TagDatabaseManager& db,
     summaryLabel.setJustificationType(juce::Justification::centredLeft);
     addAndMakeVisible(summaryLabel);
 
+    expandAllButton.setComponentID("iconOnlyBtn");
     expandAllButton.setTooltip("Expand all scanned folders and subfolders");
     expandAllButton.onClick = [this] { expandAllFolders(); };
     addAndMakeVisible(expandAllButton);
 
+    collapseAllButton.setComponentID("iconOnlyBtn");
     collapseAllButton.setTooltip("Collapse all folders back to Scanned Folders overview");
     collapseAllButton.onClick = [this] { collapseAllFolders(); };
     addAndMakeVisible(collapseAllButton);
+
+    emptyStateAddButton.setComponentID("iconOnlyBtn");
+    emptyStateAddButton.setTooltip("Add Folder to Library");
 
     emptyStateAddButton.onClick = [this] {
         if (onAddFolderRequested)
@@ -372,9 +377,9 @@ void FolderBrowserComponent::resized()
     auto area = getLocalBounds();
 
     auto topBar = area.removeFromTop(TopToolbarHeight).reduced(10, 4);
-    collapseAllButton.setBounds(topBar.removeFromRight(92));
+    collapseAllButton.setBounds(topBar.removeFromRight(32));
     topBar.removeFromRight(6);
-    expandAllButton.setBounds(topBar.removeFromRight(88));
+    expandAllButton.setBounds(topBar.removeFromRight(32));
     topBar.removeFromRight(10);
     topBar.removeFromLeft(22); // space for toolbar folder icon
     summaryLabel.setBounds(topBar);
@@ -386,7 +391,7 @@ void FolderBrowserComponent::resized()
         listBox.setVisible(false);
         emptyStateAddButton.setVisible(true);
         auto card = area.withSizeKeepingCentre(std::min(440, area.getWidth() - 40), 150);
-        emptyStateAddButton.setBounds(card.getCentreX() - 64, card.getBottom() - 46, 128, 30);
+        emptyStateAddButton.setBounds(card.getCentreX() - 18, card.getBottom() - 46, 36, 30);
     }
     else
     {

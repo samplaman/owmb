@@ -83,6 +83,7 @@ EditComponent::EditComponent(AudioEngine& engine)
     addAndMakeVisible(snapZeroCrossingButton);
 
     // ── Spectral View & Removal Buttons ───────────────
+    spectralToggleButton.setComponentID("editIconBtn");
     spectralToggleButton.setTooltip("Toggle Spectral / Time-Frequency View");
     spectralToggleButton.setClickingTogglesState(true);
     spectralToggleButton.onClick = [this] {
@@ -315,6 +316,7 @@ EditComponent::EditComponent(AudioEngine& engine)
     addAndMakeVisible(monoSumButton);
 
     // ── Fine Loop Nudge controls ──────────────────────
+    loopInNudgeLeft.setComponentID("editIconBtn");
     loopInNudgeLeft.setTooltip("Nudge Loop Start Left");
     loopInNudgeLeft.onClick = [this] {
         loopInRatio = juce::jlimit(0.0, loopOutRatio - 0.001, loopInRatio - 0.002);
@@ -325,6 +327,7 @@ EditComponent::EditComponent(AudioEngine& engine)
     };
     addAndMakeVisible(loopInNudgeLeft);
 
+    loopInNudgeRight.setComponentID("editIconBtn");
     loopInNudgeRight.setTooltip("Nudge Loop Start Right");
     loopInNudgeRight.onClick = [this] {
         loopInRatio = juce::jlimit(0.0, loopOutRatio - 0.001, loopInRatio + 0.002);
@@ -335,6 +338,7 @@ EditComponent::EditComponent(AudioEngine& engine)
     };
     addAndMakeVisible(loopInNudgeRight);
 
+    loopOutNudgeLeft.setComponentID("editIconBtn");
     loopOutNudgeLeft.setTooltip("Nudge Loop End Left");
     loopOutNudgeLeft.onClick = [this] {
         loopOutRatio = juce::jlimit(loopInRatio + 0.001, 1.0, loopOutRatio - 0.002);
@@ -345,6 +349,7 @@ EditComponent::EditComponent(AudioEngine& engine)
     };
     addAndMakeVisible(loopOutNudgeLeft);
 
+    loopOutNudgeRight.setComponentID("editIconBtn");
     loopOutNudgeRight.setTooltip("Nudge Loop End Right");
     loopOutNudgeRight.onClick = [this] {
         loopOutRatio = juce::jlimit(loopInRatio + 0.001, 1.0, loopOutRatio + 0.002);
@@ -541,12 +546,14 @@ EditComponent::EditComponent(AudioEngine& engine)
     };
     addAndMakeVisible(zoomSlider);
 
+    zoomInButton.setComponentID("editIconBtn");
     zoomInButton.setTooltip("Zoom In (+)");
     zoomInButton.onClick = [this] {
         zoomSlider.setValue(juce::jmin(64.0, zoomLevel * 1.5));
     };
     addAndMakeVisible(zoomInButton);
 
+    zoomOutButton.setComponentID("editIconBtn");
     zoomOutButton.setTooltip("Zoom Out (-)");
     zoomOutButton.onClick = [this] {
         zoomSlider.setValue(juce::jmax(1.0, zoomLevel / 1.5));
@@ -1013,11 +1020,12 @@ void EditComponent::paint(juce::Graphics& g)
 
     auto wfBounds = getWaveformBounds();
 
+    // Top Toolbar Card Background (matches Recorder / SampleMap 8px rounded cards)
+    auto topBarRect = juce::Rectangle<float>(10.0f, 8.0f, static_cast<float>(getWidth() - 20), std::max(32.0f, wfBounds.getY() - 14.0f));
+    OpenWavLookAndFeel::drawPanelCard(g, topBarRect, 8.0f, false);
+
     // Waveform track background
-    g.setColour(OpenWavLookAndFeel::bgCard);
-    g.fillRoundedRectangle(wfBounds, 6.0f);
-    g.setColour(OpenWavLookAndFeel::borderColour);
-    g.drawRoundedRectangle(wfBounds, 6.0f, 1.0f);
+    OpenWavLookAndFeel::drawPanelCard(g, wfBounds, 8.0f, true);
 
     auto innerWf = wfBounds.reduced(6.0f, 6.0f);
 
@@ -1036,10 +1044,7 @@ void EditComponent::paint(juce::Graphics& g)
     auto cpBounds = getControlPanelBounds();
 
     // Control panel background
-    g.setColour(OpenWavLookAndFeel::bgCard);
-    g.fillRoundedRectangle(cpBounds.toFloat(), 6.0f);
-    g.setColour(OpenWavLookAndFeel::borderColour.withAlpha(0.4f));
-    g.drawRoundedRectangle(cpBounds.toFloat(), 6.0f, 1.0f);
+    OpenWavLookAndFeel::drawPanelCard(g, cpBounds.toFloat(), 8.0f, false);
 
     // Update time label text
     double startR = audioEngine.getSampleStartRatio();

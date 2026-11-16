@@ -1,5 +1,6 @@
 #include "SampleCloudComponent.h"
 #include "OpenWavLookAndFeel.h"
+#include "../AI/AudioEmbeddingEngine.h"
 #if JUCE_WINDOWS
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -63,14 +64,14 @@ void SampleCloudComponent::CloudOverlayComponent::resized() {
   int dockRight = b.getRight() - 15;
   int dockBottom = b.getBottom() - 15;
 
-  owner.hoverPlayButton.setBounds(15, 15, 120, 32);
+  owner.hoverPlayButton.setBounds(15, 15, 36, 32);
 
   owner.zoomInButton.setBounds(dockRight - 36, dockBottom - 145, 36, 36);
   owner.zoomOutButton.setBounds(dockRight - 36, dockBottom - 102, 36, 36);
 
-  owner.resetZoomButton.setBounds(dockRight - 95, dockBottom - 36, 95, 32);
-  owner.viewModeButton.setBounds(dockRight - 145, dockBottom - 36, 44, 32);
-  owner.autoRotateButton.setBounds(dockRight - 245, dockBottom - 36, 94, 32);
+  owner.resetZoomButton.setBounds(dockRight - 36, dockBottom - 36, 36, 32);
+  owner.viewModeButton.setBounds(dockRight - 78, dockBottom - 36, 36, 32);
+  owner.autoRotateButton.setBounds(dockRight - 120, dockBottom - 36, 36, 32);
 }
 
 void SampleCloudComponent::CloudOverlayComponent::mouseDown(
@@ -105,14 +106,22 @@ void SampleCloudComponent::CloudOverlayComponent::mouseDoubleClick(
 SampleCloudComponent::SampleCloudComponent(TagDatabaseManager &db,
                                            AudioEngine &engine)
     : dbManager(db), audioEngine(engine), overlayComponent(*this) {
+  zoomInButton.setComponentID("iconOnlyBtn");
+  zoomInButton.setTooltip("Zoom In");
   zoomInButton.onClick = [this] {
     targetZoomScale = juce::jlimit(0.20f, 3.5f, targetZoomScale * 1.25f);
   };
+  zoomOutButton.setComponentID("iconOnlyBtn");
+  zoomOutButton.setTooltip("Zoom Out");
   zoomOutButton.onClick = [this] {
     targetZoomScale = juce::jlimit(0.20f, 3.5f, targetZoomScale * 0.8f);
   };
+  resetZoomButton.setComponentID("iconOnlyBtn");
+  resetZoomButton.setTooltip("Reset Cloud View");
   resetZoomButton.onClick = [this] { resetZoomAndPan(); };
 
+  viewModeButton.setComponentID("iconOnlyBtn");
+  viewModeButton.setTooltip("Toggle 2D / 3D Cloud View");
   viewModeButton.onClick = [this] {
     is2DMode = !is2DMode;
     if (is2DMode) {
@@ -134,11 +143,14 @@ SampleCloudComponent::SampleCloudComponent(TagDatabaseManager &db,
     rebuildGpuBuffers();
   };
 
+  autoRotateButton.setComponentID("iconOnlyBtn");
+  autoRotateButton.setTooltip("Toggle Auto-Spin");
   autoRotateButton.onClick = [this] {
     autoRotate = !autoRotate;
     autoRotateButton.setButtonText(autoRotate ? "Stop Spin" : "Spin");
   };
 
+  hoverPlayButton.setComponentID("iconOnlyBtn");
   hoverPlayButton.setClickingTogglesState(true);
   hoverPlayButton.setToggleState(false, juce::dontSendNotification);
   hoverPlayButton.setTooltip("Automatically trigger sample playback on mouseover");
@@ -497,6 +509,33 @@ SampleCloudComponent::calculateClusterLayoutInternal(
       outClusters[i].centerPos3D = { ax * baseSpread3D, ay * baseSpread3D * 0.85f, az * baseSpread3D };
     }
 
+    // Compute semantic centroid embedding per cluster for acoustic clustering
+    std::vector<AudioEmbeddingEngine::Embedding> clusterEmbeddings(tagCount);
+    std::vector<int> clusterEmbCounts(tagCount, 0);
+    std::unordered_map<juce::String, size_t> tagToClusterIdx;
+    for (size_t i = 0; i < tagCount; ++i)
+      tagToClusterIdx[outClusters[i].tag] = i;
+
+    for (const auto &n : nodesCopy) {
+      auto it = tagToClusterIdx.find(n.primaryTag);
+      if (it == tagToClusterIdx.end()) continue;
+      size_t cIdx = it->second;
+      auto emb = AudioEmbeddingEngine::computeEmbedding(n.item);
+      for (size_t d = 0; d < AudioEmbeddingEngine::EmbeddingDim; ++d)
+        clusterEmbeddings[cIdx][d] += emb[d];
+      clusterEmbCounts[cIdx]++;
+    }
+    for (size_t i = 0; i < tagCount; ++i) {
+      if (clusterEmbCounts[i] > 0) {
+        double sumSq = 0.0;
+        for (float v : clusterEmbeddings[i]) sumSq += static_cast<double>(v) * v;
+        if (sumSq > 1e-12) {
+          float inv = static_cast<float>(1.0 / std::sqrt(sumSq));
+          for (float &v : clusterEmbeddings[i]) v *= inv;
+        }
+      }
+    }
+
     // 3D Relaxation
     for (int iter = 0; iter < 16; ++iter) {
       if (!layoutActive.load()) return {outClusters, {}};
@@ -513,6 +552,14 @@ SampleCloudComponent::calculateClusterLayoutInternal(
             auto dir = delta / dist;
             outClusters[i].centerPos3D = outClusters[i].centerPos3D - dir * overlap;
             outClusters[j].centerPos3D = outClusters[j].centerPos3D + dir * overlap;
+          } else if (dist > minDist * 1.4f) {
+            float sim = AudioEmbeddingEngine::cosineSimilarity(clusterEmbeddings[i], clusterEmbeddings[j]);
+            if (sim > 0.40f) {
+              float pull = (sim - 0.40f) * 14.0f;
+              auto dir = delta / dist;
+              outClusters[i].centerPos3D = outClusters[i].centerPos3D + dir * pull;
+              outClusters[j].centerPos3D = outClusters[j].centerPos3D - dir * pull;
+            }
           }
         }
       }

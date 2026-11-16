@@ -52,7 +52,6 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
                            p.getLibraryScanner()),
       editComponent(p.getAudioEngine()), sampleMapComponent(p.getAudioEngine()),
       performanceComponent(p.getAudioEngine()) {
-  bool isDark = audioProcessor.getDatabaseManager().isDarkMode();
   juce::String savedColourHex =
       audioProcessor.getDatabaseManager().getPrimaryColourHex();
   if (savedColourHex.isNotEmpty()) {
@@ -60,7 +59,7 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
     if (c.getAlpha() > 0)
       OpenWavLookAndFeel::setPrimaryColour(c);
   }
-  OpenWavLookAndFeel::setDarkTheme(isDark);
+  OpenWavLookAndFeel::setDarkTheme(true);
   lookAndFeel.updateColors();
 
   setLookAndFeel(&lookAndFeel);
@@ -86,7 +85,7 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
   addChildComponent(performanceComponent);
   addAndMakeVisible(waveformTransport);
 
-  tooltipWindow = std::make_unique<juce::TooltipWindow>(this, 350);
+  tooltipWindow = std::make_unique<juce::TooltipWindow>(this, 280);
 
   setResizable(true, true);
   setResizeLimits(800, 650, 3840, 2160);
@@ -124,6 +123,38 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
 
   sampleMapComponent.onOpenFxRackRequested = [this] {
     headerBar.setViewMode(ViewMode::Performance);
+  };
+
+  sampleMapComponent.onOpenAiKitBuilderRequested = [this] {
+    auto dlg = std::make_unique<AiKitBuilderDialog>(
+        audioProcessor.getDatabaseManager(),
+        [this](const AiKitBuildResult& res) {
+          sampleMapComponent.setState(res.sampleMap);
+
+          auto& rack = audioProcessor.getAudioEngine().getPerformanceRack();
+          rack.clearEffects();
+          for (const auto& fxSpec : res.effects)
+          {
+            if (auto fx = rack.addEffect(fxSpec.type))
+            {
+              for (const auto& [pid, val] : fxSpec.params)
+                fx->setParameter(pid, val);
+            }
+          }
+          performanceComponent.refreshRack();
+          saveStateToProcessor();
+        });
+
+    juce::DialogWindow::LaunchOptions opts;
+    opts.dialogTitle = "AI Kit & Preset Builder";
+    opts.dialogBackgroundColour = OpenWavLookAndFeel::bgDark;
+    opts.content.setOwned(dlg.release());
+    opts.content->setSize(640, 320);
+    opts.escapeKeyTriggersCloseButton = true;
+    opts.useNativeTitleBar = true;
+    opts.resizable = false;
+    opts.componentToCentreAround = this;
+    opts.launchAsync();
   };
 
   recorderComponent.onRecordingSaved = [this](const MediaItem&) {
@@ -320,7 +351,8 @@ void OpenWavAudioProcessorEditor::resized() {
   auto area = getLocalBounds();
 
   headerBar.setBounds(area.removeFromTop(54));
-  waveformTransport.setBounds(area.removeFromBottom(300));
+  int transportH = juce::jlimit(200, 300, static_cast<int>(area.getHeight() * 0.28f));
+  waveformTransport.setBounds(area.removeFromBottom(transportH));
 
   // Left Split View with Resizer Bar
   int currentTagWidth =
@@ -464,10 +496,6 @@ void OpenWavAudioProcessorEditor::rescanRequested() {
 
 void OpenWavAudioProcessorEditor::settingsRequested() {
   juce::PopupMenu menu;
-  bool isDark = audioProcessor.getDatabaseManager().isDarkMode();
-
-  menu.addItem(1, "Dark Theme", true, isDark);
-  menu.addItem(2, "Light Theme", true, !isDark);
 
   juce::PopupMenu colourSubMenu;
   colourSubMenu.addItem(10, "Cyan (Default #00C8DC)");
@@ -530,21 +558,7 @@ void OpenWavAudioProcessorEditor::settingsRequested() {
       repaint();
     };
 
-    if (result == 1) // Dark Theme
-    {
-      audioProcessor.getDatabaseManager().setDarkMode(true);
-      OpenWavLookAndFeel::setDarkTheme(true);
-      lookAndFeel.updateColors();
-      sendLookAndFeelChange();
-      updateNativeTitleBarTheme();
-    } else if (result == 2) // Light Theme
-    {
-      audioProcessor.getDatabaseManager().setDarkMode(false);
-      OpenWavLookAndFeel::setDarkTheme(false);
-      lookAndFeel.updateColors();
-      sendLookAndFeelChange();
-      updateNativeTitleBarTheme();
-    } else if (result == 10) // Cyan
+    if (result == 10) // Cyan
       applyColour(juce::Colour::fromRGB(0, 200, 220), "#ff00c8dc");
     else if (result == 11) // Electric Blue
       applyColour(juce::Colour::fromRGB(0, 140, 255), "#ff008cff");

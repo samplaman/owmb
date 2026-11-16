@@ -71,7 +71,7 @@ public:
 private:
     bool keyPressed(const juce::KeyPress& key, juce::Component* originatingComponent) override;
     void textEditorTextChanged(juce::TextEditor& editor) override;
-    void setFormatFilter(const juce::String& ext, juce::TextButton* targetBtn);
+    void setFormatFilter(const juce::String& ext);
 
     TagDatabaseManager& dbManager;
     LibraryScanner& libraryScanner;
@@ -83,12 +83,7 @@ private:
     juce::TextButton rescanButton { "Rescan" };
     juce::TextButton settingsButton { "Settings" };
 
-    juce::TextButton btnAll { "All" };
-    juce::TextButton btnWav { ".WAV" };
-    juce::TextButton btnMp3 { ".MP3" };
-    juce::TextButton btnFlac { ".FLAC" };
-    juce::TextButton btnOgg { ".OGG" };
-    juce::TextButton btnAiff { ".AIFF" };
+    juce::ComboBox formatFilterBox;
 
     juce::TextButton btnListView { "List" };
     juce::TextButton btnFoldersView { "Folders" };
@@ -99,6 +94,10 @@ private:
     juce::TextButton btnEditView { "Edit" };
     juce::TextButton btnSampleMapView { "Sample Map" };
     juce::TextButton btnPerformanceView { "Rack" };
+
+    juce::Rectangle<int> viewPillBounds;
+    juce::Rectangle<int> viewDivider1;
+    juce::Rectangle<int> viewDivider2;
 
     juce::String activeFormat { "All" };
     ViewMode currentViewMode { ViewMode::List };

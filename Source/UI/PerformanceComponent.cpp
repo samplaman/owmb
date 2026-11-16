@@ -736,14 +736,20 @@ PerformanceComponent::PerformanceComponent(AudioEngine& engine)
     addAndMakeVisible(unitCountLabel);
 
     // Add Effect Button
+    btnAddEffect.setComponentID("iconOnlyBtn");
+    btnAddEffect.setTooltip("Add Effect to Rack");
     btnAddEffect.onClick = [this] { showAddEffectMenu(); };
     addAndMakeVisible(btnAddEffect);
 
     // Rack Presets Button
+    btnPresets.setComponentID("iconOnlyBtn");
+    btnPresets.setTooltip("Load / Save Rack Presets");
     btnPresets.onClick = [this] { showPresetsMenu(); };
     addAndMakeVisible(btnPresets);
 
     // Clear All Button
+    btnClearAll.setComponentID("iconOnlyBtn");
+    btnClearAll.setTooltip("Clear All Effects");
     btnClearAll.onClick = [this] {
         audioEngine.getPerformanceRack().clearEffects();
         refreshRack();
@@ -751,6 +757,8 @@ PerformanceComponent::PerformanceComponent(AudioEngine& engine)
     addAndMakeVisible(btnClearAll);
 
     // Master Bypass Button
+    btnMasterBypass.setComponentID("iconOnlyBtn");
+    btnMasterBypass.setTooltip("Toggle Master Bypass");
     btnMasterBypass.setClickingTogglesState(true);
     btnMasterBypass.setToggleState(false, juce::dontSendNotification);
     btnMasterBypass.onClick = [this] {
@@ -818,17 +826,17 @@ void PerformanceComponent::resized()
     unitCountLabel.setBounds(topBar.removeFromLeft(95).withHeight(btnH));
     topBar.removeFromLeft(6);
 
-    btnAddEffect.setBounds(topBar.removeFromLeft(105).withHeight(btnH));
+    btnAddEffect.setBounds(topBar.removeFromLeft(34).withHeight(btnH));
     topBar.removeFromLeft(6);
-    btnPresets.setBounds(topBar.removeFromLeft(105).withHeight(btnH));
+    btnPresets.setBounds(topBar.removeFromLeft(34).withHeight(btnH));
     topBar.removeFromLeft(6);
-    btnClearAll.setBounds(topBar.removeFromLeft(78).withHeight(btnH));
+    btnClearAll.setBounds(topBar.removeFromLeft(34).withHeight(btnH));
 
     // Right-aligned master controls
     masterGainSlider.setBounds(topBar.removeFromRight(150).withHeight(btnH));
     masterGainLabel.setBounds(topBar.removeFromRight(50).withHeight(btnH));
     topBar.removeFromRight(12);
-    btnMasterBypass.setBounds(topBar.removeFromRight(110).withHeight(btnH));
+    btnMasterBypass.setBounds(topBar.removeFromRight(34).withHeight(btnH));
 
     // Remaining area for rack bay viewport
     rackViewport.setBounds(area);

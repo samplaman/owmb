@@ -168,6 +168,7 @@ public:
     std::function<void()> onSliceToSamplerStarted;
     std::function<void()> onStateChanged;
     std::function<void()> onOpenFxRackRequested;
+    std::function<void()> onOpenAiKitBuilderRequested;
 
 private:
     juce::Rectangle<float> getGridBounds() const;
@@ -213,6 +214,7 @@ private:
     juce::TextButton openFxRackButton { "FX Rack" };
     juce::TextButton instrumentModeButton { "Instrument" };
     juce::TextButton autoSampleButton { "Auto Sample" };
+    juce::TextButton aiKitButton { "AI Kit" };
     juce::TextButton velCurveButton { "Vel: 100%" };
     juce::TextButton midiChannelButton { "MIDI: Omni" };
 

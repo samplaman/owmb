@@ -486,9 +486,12 @@ LibrariesComponent::LibrariesComponent(TagDatabaseManager& db, LibraryScanner& s
     apiKeyLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::textPrimary);
     addAndMakeVisible(apiKeyLabel);
 
+    connectButton.setComponentID("iconOnlyBtn");
+    connectButton.setTooltip("Fetch Remote Files");
     connectButton.onClick = [this] { fetchUserFiles(); };
     addAndMakeVisible(connectButton);
 
+    owmbSoundbankButton.setComponentID("iconOnlyBtn");
     owmbSoundbankButton.setButtonText("OWMB Soundbank");
     owmbSoundbankButton.setTooltip("Load default OWMB Soundbank (https://pixeldrain.com/d/BCLFaT9q)");
     owmbSoundbankButton.onClick = [this] {
@@ -518,6 +521,8 @@ LibrariesComponent::LibrariesComponent(TagDatabaseManager& db, LibraryScanner& s
     saveDirLabel.setText("Save to: " + downloadDir.getFullPathName(), juce::dontSendNotification);
     addAndMakeVisible(saveDirLabel);
 
+    chooseDirButton.setComponentID("iconOnlyBtn");
+    chooseDirButton.setTooltip("Choose Download Folder");
     chooseDirButton.onClick = [this] {
         auto chooser = std::make_shared<juce::FileChooser>(
             "Select Download Directory...",
@@ -543,6 +548,8 @@ LibrariesComponent::LibrariesComponent(TagDatabaseManager& db, LibraryScanner& s
     };
     addAndMakeVisible(chooseDirButton);
 
+    downloadFolderButton.setComponentID("iconOnlyBtn");
+    downloadFolderButton.setTooltip("Download Selected Folder");
     downloadFolderButton.setButtonText("Download Folder");
     downloadFolderButton.onClick = [this] {
         if (selectedFolderNode != nullptr)
@@ -552,6 +559,8 @@ LibrariesComponent::LibrariesComponent(TagDatabaseManager& db, LibraryScanner& s
     };
     addAndMakeVisible(downloadFolderButton);
 
+    downloadAllWavsButton.setComponentID("iconOnlyBtn");
+    downloadAllWavsButton.setTooltip("Download All Audio Files");
     downloadAllWavsButton.setButtonText("Download All");
     downloadAllWavsButton.onClick = [this] { downloadAllWavs(); };
     addAndMakeVisible(downloadAllWavsButton);
@@ -654,9 +663,9 @@ void LibrariesComponent::resized()
     topRow.removeFromLeft(6);
     apiKeyEditor.setBounds(topRow.removeFromLeft(280));
     topRow.removeFromLeft(8);
-    connectButton.setBounds(topRow.removeFromLeft(100));
+    connectButton.setBounds(topRow.removeFromLeft(34));
     topRow.removeFromLeft(8);
-    owmbSoundbankButton.setBounds(topRow.removeFromLeft(135));
+    owmbSoundbankButton.setBounds(topRow.removeFromLeft(34));
     topRow.removeFromLeft(12);
     statusLabel.setBounds(topRow);
 
@@ -669,11 +678,11 @@ void LibrariesComponent::resized()
     secondRow.removeFromLeft(14);
     saveDirLabel.setBounds(secondRow.removeFromLeft(260));
     secondRow.removeFromLeft(8);
-    chooseDirButton.setBounds(secondRow.removeFromLeft(120));
+    chooseDirButton.setBounds(secondRow.removeFromLeft(34));
     secondRow.removeFromLeft(10);
-    downloadFolderButton.setBounds(secondRow.removeFromLeft(140));
+    downloadFolderButton.setBounds(secondRow.removeFromLeft(34));
     secondRow.removeFromLeft(8);
-    downloadAllWavsButton.setBounds(secondRow.removeFromLeft(130));
+    downloadAllWavsButton.setBounds(secondRow.removeFromLeft(34));
 
     area.removeFromTop(12);
 

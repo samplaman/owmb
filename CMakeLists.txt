@@ -113,6 +113,12 @@ target_sources(OpenWav PRIVATE
     Source/Audio/AutoSamplerEngine.cpp
     Source/Audio/PerformanceRackDSP.h
     Source/Audio/PerformanceRackDSP.cpp
+    Source/AI/AudioEmbeddingEngine.h
+    Source/AI/AudioEmbeddingEngine.cpp
+    Source/AI/AiKitBuilder.h
+    Source/AI/AiKitBuilder.cpp
+    Source/UI/AiKitBuilderDialog.h
+    Source/UI/AiKitBuilderDialog.cpp
     Source/UI/OpenWavLookAndFeel.h
     Source/UI/OpenWavLookAndFeel.cpp
     Source/UI/HeaderBarComponent.h

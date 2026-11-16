@@ -315,7 +315,7 @@ BpmControlComponent::BpmControlComponent(AudioEngine& engine)
     };
     addAndMakeVisible(plusBtn);
 
-    tempoLabel.setFont(juce::Font(12.5f).boldened());
+    tempoLabel.setFont(OpenWavLookAndFeel::getMonoFont(12.5f, true));
     tempoLabel.setJustificationType(juce::Justification::centred);
     tempoLabel.setEditable(false, true, false);
     tempoLabel.addListener(this);
@@ -443,6 +443,8 @@ WaveformTransportComponent::WaveformTransportComponent(AudioEngine& engine)
     audioEngine.addListener(this);
 
     // Play/Pause Button
+    playPauseButton.setComponentID("iconOnlyBtn");
+    playPauseButton.setTooltip("Play / Pause (Space)");
     playPauseButton.onClick = [this] {
         if (audioEngine.isPlaying())
             audioEngine.pause();
@@ -452,10 +454,14 @@ WaveformTransportComponent::WaveformTransportComponent(AudioEngine& engine)
     addAndMakeVisible(playPauseButton);
 
     // Stop Button
+    stopButton.setComponentID("iconOnlyBtn");
+    stopButton.setTooltip("Stop Playback");
     stopButton.onClick = [this] { audioEngine.stop(); };
     addAndMakeVisible(stopButton);
 
     // Loop Button
+    loopButton.setComponentID("iconOnlyBtn");
+    loopButton.setTooltip("Toggle Loop");
     loopButton.setClickingTogglesState(true);
     loopButton.setToggleState(audioEngine.isLooping(), juce::dontSendNotification);
     loopButton.onClick = [this] {
@@ -464,6 +470,8 @@ WaveformTransportComponent::WaveformTransportComponent(AudioEngine& engine)
     addAndMakeVisible(loopButton);
 
     // AutoPlay Button
+    autoPlayButton.setComponentID("iconOnlyBtn");
+    autoPlayButton.setTooltip("Auto-Play Selected Sample");
     autoPlayButton.setClickingTogglesState(true);
     autoPlayButton.setToggleState(audioEngine.getAutoPlay(), juce::dontSendNotification);
     autoPlayButton.onClick = [this] {
@@ -472,15 +480,19 @@ WaveformTransportComponent::WaveformTransportComponent(AudioEngine& engine)
     addAndMakeVisible(autoPlayButton);
 
     // AutoSlice Button
+    autoSliceButton.setComponentID("iconOnlyBtn");
+    autoSliceButton.setTooltip("Auto-Slice Sample");
     autoSliceButton.onClick = [this] { openSliceConfigWindow(); };
     addAndMakeVisible(autoSliceButton);
 
     // Loris Resynth Button
+    lorisResynthButton.setComponentID("iconOnlyBtn");
     lorisResynthButton.onClick = [this] { openLorisResynthesis(); };
     lorisResynthButton.setTooltip("Loris Additive Resynthesis: Generate multi-note instrument from this sample");
     addAndMakeVisible(lorisResynthButton);
 
     // Host Sync Button (placed after AutoSlice along with BPM)
+    syncButton.setComponentID("iconOnlyBtn");
     syncButton.setClickingTogglesState(true);
     syncButton.setToggleState(audioEngine.isHostSyncEnabled(), juce::dontSendNotification);
     syncButton.setTooltip("Toggle Host DAW Sync vs Independent Transport");
@@ -506,7 +518,7 @@ WaveformTransportComponent::WaveformTransportComponent(AudioEngine& engine)
     addAndMakeVisible(volumeSlider);
 
     // Time Label
-    timeLabel.setFont(juce::Font(12.0f).boldened());
+    timeLabel.setFont(OpenWavLookAndFeel::getMonoFont(12.0f, true));
     timeLabel.setJustificationType(juce::Justification::centredRight);
     timeLabel.setText("00:00 / 00:00", juce::dontSendNotification);
     addAndMakeVisible(timeLabel);
@@ -557,9 +569,7 @@ void WaveformTransportComponent::paint(juce::Graphics& g)
     auto trackBounds = area.toFloat();
 
     // Track Background Card
-    g.setColour(OpenWavLookAndFeel::bgDark);
-    g.fillRoundedRectangle(trackBounds, 6.0f);
-    g.setColour(OpenWavLookAndFeel::borderColour);
+    OpenWavLookAndFeel::drawPanelCard(g, trackBounds, 8.0f, true);
     double dur = totalDurationSecs;
     if (dur <= 0.0)
         dur = audioEngine.getTotalLengthSeconds();
@@ -689,26 +699,26 @@ void WaveformTransportComponent::resized()
     auto area = getLocalBounds().reduced(12, 8);
     auto topRow = area.removeFromTop(32);
 
-    playPauseButton.setBounds(topRow.removeFromLeft(76).withHeight(28));
+    playPauseButton.setBounds(topRow.removeFromLeft(34).withHeight(28));
     topRow.removeFromLeft(5);
 
-    stopButton.setBounds(topRow.removeFromLeft(70).withHeight(28));
+    stopButton.setBounds(topRow.removeFromLeft(34).withHeight(28));
     topRow.removeFromLeft(5);
 
-    loopButton.setBounds(topRow.removeFromLeft(70).withHeight(28));
+    loopButton.setBounds(topRow.removeFromLeft(34).withHeight(28));
     topRow.removeFromLeft(5);
 
-    autoPlayButton.setBounds(topRow.removeFromLeft(70).withHeight(28));
+    autoPlayButton.setBounds(topRow.removeFromLeft(34).withHeight(28));
     topRow.removeFromLeft(5);
 
-    autoSliceButton.setBounds(topRow.removeFromLeft(74).withHeight(28));
+    autoSliceButton.setBounds(topRow.removeFromLeft(34).withHeight(28));
     topRow.removeFromLeft(5);
 
-    lorisResynthButton.setBounds(topRow.removeFromLeft(74).withHeight(28));
+    lorisResynthButton.setBounds(topRow.removeFromLeft(34).withHeight(28));
     topRow.removeFromLeft(8);
 
     // Sync button and BPM control placed directly after AutoSlice button
-    syncButton.setBounds(topRow.removeFromLeft(68).withHeight(28));
+    syncButton.setBounds(topRow.removeFromLeft(34).withHeight(28));
     topRow.removeFromLeft(5);
 
     bpmControl.setBounds(topRow.removeFromLeft(118).withHeight(28));

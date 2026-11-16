@@ -88,10 +88,19 @@ public:
                      bool ticked, bool isEnabled,
                      bool shouldDrawButtonAsHighlighted, bool shouldDrawButtonAsDown) override;
 
+    void drawToggleButton(juce::Graphics& g, juce::ToggleButton& button,
+                          bool shouldDrawButtonAsHighlighted, bool shouldDrawButtonAsDown) override;
+
+    void drawScrollbar(juce::Graphics& g, juce::ScrollBar& scrollbar,
+                       int x, int y, int width, int height,
+                       bool isScrollbarVertical, int thumbStartPosition, int thumbSize,
+                       bool isMouseOver, bool isMouseDown) override;
+
     void drawTooltip(juce::Graphics& g, const juce::String& text, int width, int height) override;
     juce::Rectangle<int> getTooltipBounds(const juce::String& tipText, juce::Point<int> screenPos, juce::Rectangle<int> parentArea) override;
 
     // Modern Typography System
+    static juce::Font getMonoFont(float size, bool bold = false);
     juce::Typeface::Ptr getTypefaceForFont(const juce::Font& font) override;
     juce::Font getLabelFont(juce::Label& label) override;
     juce::Font getTextButtonFont(juce::TextButton& button, int buttonHeight) override;
@@ -99,6 +108,15 @@ public:
     juce::Font getPopupMenuFont() override;
     juce::Font getAlertWindowTitleFont() override;
     juce::Font getAlertWindowMessageFont() override;
+
+    static inline void drawPanelCard(juce::Graphics& g, juce::Rectangle<float> bounds,
+                                     float cornerRadius = 8.0f, bool isDarkWell = false)
+    {
+        g.setColour(isDarkWell ? bgDark : bgHeader);
+        g.fillRoundedRectangle(bounds, cornerRadius);
+        g.setColour(isDarkWell ? borderColour.withAlpha(0.6f) : borderColour);
+        g.drawRoundedRectangle(bounds, cornerRadius, 1.0f);
+    }
 };
 
 } // namespace openwav

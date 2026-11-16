@@ -70,6 +70,7 @@ TagPanelComponent::TagPanelComponent(TagDatabaseManager& db)
     addAndMakeVisible(foldersHeaderLabel);
 
     // BPM toggle button setup
+    showBpmButton.setComponentID("iconOnlyBtn");
     showBpmButton.setClickingTogglesState(true);
     showBpmButton.setToggleState(false, juce::dontSendNotification);
     showBpmButton.setTooltip("Show/Hide BPM tempo tags");
@@ -89,6 +90,8 @@ TagPanelComponent::TagPanelComponent(TagDatabaseManager& db)
     addAndMakeVisible(folderViewport);
 
     // Favorites filter button
+    favoritesButton.setComponentID("iconOnlyBtn");
+    favoritesButton.setTooltip("Filter by Favorites");
     favoritesButton.onClick = [this] {
         favoritesOnly = !favoritesOnly;
         favoritesButton.setToggleState(favoritesOnly, juce::dontSendNotification);
@@ -97,6 +100,8 @@ TagPanelComponent::TagPanelComponent(TagDatabaseManager& db)
     addAndMakeVisible(favoritesButton);
 
     // Clear filters button
+    clearFiltersButton.setComponentID("iconOnlyBtn");
+    clearFiltersButton.setTooltip("Clear All Tag Filters");
     clearFiltersButton.onClick = [this] {
         selectedTags.clear();
         favoritesOnly = false;
@@ -114,6 +119,8 @@ TagPanelComponent::TagPanelComponent(TagDatabaseManager& db)
     addAndMakeVisible(matchModeToggle);
 
     // Add Custom Tag button
+    addCustomTagButton.setComponentID("iconOnlyBtn");
+    addCustomTagButton.setTooltip("Add Custom Tag");
     addCustomTagButton.onClick = [this] {
         auto alert = std::make_shared<juce::AlertWindow>("Add Custom Tag", "Enter tag name to add or filter by:", juce::AlertWindow::QuestionIcon);
         alert->addTextEditor("tagInput", "", "Tag (e.g. #Warm, Bass)");
@@ -143,6 +150,8 @@ TagPanelComponent::TagPanelComponent(TagDatabaseManager& db)
     };
     addAndMakeVisible(addCustomTagButton);
 
+    autoTagButton.setComponentID("iconOnlyBtn");
+    autoTagButton.setTooltip("Auto-Tag Library");
     autoTagButton.onClick = [this] {
         if (isAutoTagging)
             return;
@@ -373,19 +382,20 @@ void TagPanelComponent::resized()
     filterHeaderLabel.setBounds(area.removeFromTop(16));
     area.removeFromTop(4);
 
-    // Quick Filters Row (Favorites + Clear)
-    auto filterRow = area.removeFromTop(26);
-    favoritesButton.setBounds(filterRow.removeFromLeft(filterRow.getWidth() / 2 - 2));
-    clearFiltersButton.setBounds(filterRow);
+    // Quick Filters Row (Favorites, Clear, Add Tag, Auto-Tag)
+    auto filterRow = area.removeFromTop(28);
+    int iconW = 32;
+    favoritesButton.setBounds(filterRow.removeFromLeft(iconW));
+    filterRow.removeFromLeft(6);
+    clearFiltersButton.setBounds(filterRow.removeFromLeft(iconW));
+    filterRow.removeFromLeft(6);
+    addCustomTagButton.setBounds(filterRow.removeFromLeft(iconW));
+    filterRow.removeFromLeft(6);
+    autoTagButton.setBounds(filterRow.removeFromLeft(iconW));
     area.removeFromTop(6);
 
     matchModeToggle.setBounds(area.removeFromTop(20));
-    area.removeFromTop(6);
-
-    auto customTagRow = area.removeFromTop(26);
-    addCustomTagButton.setBounds(customTagRow.removeFromLeft(customTagRow.getWidth() / 2 - 2));
-    autoTagButton.setBounds(customTagRow);
-    area.removeFromTop(12);
+    area.removeFromTop(10);
 
     // Scanned Folders Section (Fixed/Flexible Height at Bottom of remaining space)
     int folderCount = folderLabels.size();
@@ -414,7 +424,7 @@ void TagPanelComponent::resized()
     auto tagsHeaderRow = area.removeFromTop(18);
     if (showBpmButton.isVisible())
     {
-        showBpmButton.setBounds(tagsHeaderRow.removeFromRight(60).withHeight(18));
+        showBpmButton.setBounds(tagsHeaderRow.removeFromRight(24).withHeight(18));
         tagsHeaderRow.removeFromRight(4);
     }
     tagsHeaderLabel.setBounds(tagsHeaderRow);

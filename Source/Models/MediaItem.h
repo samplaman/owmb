@@ -33,6 +33,7 @@ struct MediaItem
     double highFreqRatio { 0.0 };    // High frequency ratio
     double decayRatio { 0.0 };       // Decay ratio
     double crestFactor { 0.0 };      // Crest factor
+    std::vector<float> embedding;    // 64-dim acoustic-semantic embedding
 
     struct CachedTag
     {
@@ -105,6 +106,14 @@ struct MediaItem
             tagArray.add(tag);
         obj->setProperty("tags", tagArray);
 
+        if (!embedding.empty())
+        {
+            juce::Array<juce::var> embArray;
+            for (float v : embedding)
+                embArray.add(static_cast<double>(v));
+            obj->setProperty("embedding", embArray);
+        }
+
         return juce::var(obj);
     }
 
@@ -144,6 +153,12 @@ struct MediaItem
                 for (const auto& t : *tagVar.getArray())
                     item.tags.insert(t.toString());
             }
+        }
+
+        if (obj->hasProperty("embedding") && obj->getProperty("embedding").isArray())
+        {
+            for (const auto& v : *obj->getProperty("embedding").getArray())
+                item.embedding.push_back(static_cast<float>(static_cast<double>(v)));
         }
 
         item.precomputeCachedStrings();

@@ -7,42 +7,50 @@ namespace openwav
 RecorderComponent::RecorderComponent(AudioEngine& engine, TagDatabaseManager& db)
     : audioEngine(engine), dbManager(db)
 {
+    setWantsKeyboardFocus(true);
     // Record / Stop Toggle Button
+    recordButton.setComponentID("iconOnlyBtn");
     recordButton.setTooltip("Record / Stop (Arm or capture live audio)");
     recordButton.onClick = [this] { toggleRecording(); };
     addAndMakeVisible(recordButton);
 
     // Pause / Resume Button
+    pauseButton.setComponentID("iconOnlyBtn");
     pauseButton.setTooltip("Pause / Resume (Punch-In at current position)");
     pauseButton.onClick = [this] { togglePauseRecording(); };
     pauseButton.setEnabled(false);
     addAndMakeVisible(pauseButton);
 
     // Clear Button
+    clearButton.setComponentID("iconOnlyBtn");
     clearButton.setTooltip("Clear current recorded take");
     clearButton.onClick = [this] { clearCurrentTake(); };
     clearButton.setEnabled(false);
     addAndMakeVisible(clearButton);
 
     // Preview / Play Button
+    previewButton.setComponentID("iconOnlyBtn");
     previewButton.setTooltip("Play / Audition recorded take (respects Trim range)");
     previewButton.onClick = [this] { playPreview(); };
     previewButton.setEnabled(false);
     addAndMakeVisible(previewButton);
 
     // Trim Button
+    trimButton.setComponentID("iconOnlyBtn");
     trimButton.setTooltip("Crop recorded take to Trim Start / End markers");
     trimButton.onClick = [this] { trimCurrentTake(); };
     trimButton.setEnabled(false);
     addAndMakeVisible(trimButton);
 
     // Save Button
+    saveButton.setComponentID("iconOnlyBtn");
     saveButton.setTooltip("Save recording to WAV and add to Library");
     saveButton.onClick = [this] { saveAndAddToLibrary(); };
     saveButton.setEnabled(false);
     addAndMakeVisible(saveButton);
 
     // Send to Editor Button
+    toEditorButton.setComponentID("iconOnlyBtn");
     toEditorButton.setTooltip("Save recording and open directly in Audio Editor");
     toEditorButton.onClick = [this] {
         MediaItem item;
@@ -53,6 +61,7 @@ RecorderComponent::RecorderComponent(AudioEngine& engine, TagDatabaseManager& db
     addAndMakeVisible(toEditorButton);
 
     // Send to Sampler Button
+    toSamplerButton.setComponentID("iconOnlyBtn");
     toSamplerButton.setTooltip("Save recording and add directly to Sample Map");
     toSamplerButton.onClick = [this] {
         MediaItem item;
@@ -63,6 +72,7 @@ RecorderComponent::RecorderComponent(AudioEngine& engine, TagDatabaseManager& db
     addAndMakeVisible(toSamplerButton);
 
     // Audio Setup Button
+    audioSetupButton.setComponentID("iconOnlyBtn");
     audioSetupButton.setTooltip("Open Audio / Microphone Input Device Settings");
     audioSetupButton.onClick = [this] {
         if (onOpenAudioSettings)
@@ -92,7 +102,7 @@ RecorderComponent::RecorderComponent(AudioEngine& engine, TagDatabaseManager& db
     };
     addAndMakeVisible(bpmSlider);
 
-    bpmLabel.setFont(juce::Font(11.5f).boldened());
+    bpmLabel.setFont(OpenWavLookAndFeel::getMonoFont(11.5f, true));
     bpmLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::textSecondary);
     bpmLabel.setJustificationType(juce::Justification::centredLeft);
     addAndMakeVisible(bpmLabel);
@@ -115,7 +125,7 @@ RecorderComponent::RecorderComponent(AudioEngine& engine, TagDatabaseManager& db
     };
     addAndMakeVisible(inputGainSlider);
 
-    inputGainLabel.setFont(juce::Font(11.5f).boldened());
+    inputGainLabel.setFont(OpenWavLookAndFeel::getMonoFont(11.5f, true));
     inputGainLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::textSecondary);
     addAndMakeVisible(inputGainLabel);
 
@@ -193,7 +203,7 @@ RecorderComponent::RecorderComponent(AudioEngine& engine, TagDatabaseManager& db
     addAndMakeVisible(tagsEditor);
 
     // Time Label
-    timeLabel.setFont(juce::Font(24.0f).boldened());
+    timeLabel.setFont(OpenWavLookAndFeel::getMonoFont(22.0f, true));
     timeLabel.setJustificationType(juce::Justification::centredLeft);
     timeLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::textPrimary);
     timeLabel.setText("00:00.0", juce::dontSendNotification);
@@ -223,6 +233,7 @@ RecorderComponent::RecorderComponent(AudioEngine& engine, TagDatabaseManager& db
     normalizeButton.setToggleState(true, juce::dontSendNotification);
     addAndMakeVisible(normalizeButton);
 
+    resetEqButton.setComponentID("iconOnlyBtn");
     resetEqButton.setTooltip("Reset all 9 parametric EQ bands to 0 dB");
     resetEqButton.onClick = [this] { resetEq(); };
     addAndMakeVisible(resetEqButton);
@@ -361,6 +372,9 @@ void RecorderComponent::mouseDown(const juce::MouseEvent& e)
             dragMode = DragMode::TrimEnd;
             return;
         }
+        dragMode = DragMode::WaveDragOut;
+        externalDragStarted = false;
+        return;
     }
 
     if (cachedEqArea.isEmpty()) return;
@@ -390,6 +404,20 @@ void RecorderComponent::mouseDrag(const juce::MouseEvent& e)
         double ratio = juce::jlimit(trimStartRatio + 0.005, 1.0, static_cast<double>((e.position.x - cachedScopeArea.getX()) / cachedScopeArea.getWidth()));
         trimEndRatio = ratio;
         repaint();
+    }
+    else if (dragMode == DragMode::WaveDragOut && !externalDragStarted && e.getDistanceFromDragStart() > 6)
+    {
+        externalDragStarted = true;
+        juce::File dragFile = lastSavedFile.existsAsFile() ? lastSavedFile : lastPreviewTempFile;
+        if (!dragFile.existsAsFile())
+        {
+            syncGlobalWaveformToCurrentTake();
+            dragFile = lastPreviewTempFile;
+        }
+        if (dragFile.existsAsFile())
+        {
+            juce::DragAndDropContainer::performExternalDragDropOfFiles({ dragFile.getFullPathName() }, false, this);
+        }
     }
     else if (dragMode == DragMode::EqNode && draggedNodeIndex >= 0 && !cachedEqArea.isEmpty())
     {
@@ -429,6 +457,29 @@ void RecorderComponent::mouseDoubleClick(const juce::MouseEvent& e)
     }
 }
 
+bool RecorderComponent::keyPressed(const juce::KeyPress& key)
+{
+    if (key.getKeyCode() == juce::KeyPress::escapeKey && (isCountingDown || isArmedWaitSignal))
+    {
+        toggleRecording();
+        return true;
+    }
+    if (key.getTextCharacter() == 'r' || key.getTextCharacter() == 'R')
+    {
+        toggleRecording();
+        return true;
+    }
+    if (key.getKeyCode() == juce::KeyPress::spaceKey)
+    {
+        if (audioEngine.isRecording() || isPausedRecording)
+            togglePauseRecording();
+        else if (hasRecordedBuffer)
+            playPreview();
+        return true;
+    }
+    return false;
+}
+
 void RecorderComponent::paint(juce::Graphics& g)
 {
     g.fillAll(OpenWavLookAndFeel::bgDark);
@@ -437,20 +488,14 @@ void RecorderComponent::paint(juce::Graphics& g)
 
     // Top Transport Bar Background
     auto transportBar = bounds.removeFromTop(54).toFloat();
-    g.setColour(OpenWavLookAndFeel::bgHeader);
-    g.fillRoundedRectangle(transportBar, 8.0f);
-    g.setColour(OpenWavLookAndFeel::borderColour);
-    g.drawRoundedRectangle(transportBar, 8.0f, 1.0f);
+    OpenWavLookAndFeel::drawPanelCard(g, transportBar, 8.0f, false);
 
     bounds.removeFromTop(10);
 
     // Bottom Controls Deck Reserve (2 rows inside rounded DAW card = 86px)
     auto mainCard = bounds.removeFromTop(std::max(160, bounds.getHeight() - 96)).toFloat();
     auto bottomDeck = bounds.withTrimmedTop(10).toFloat();
-    g.setColour(OpenWavLookAndFeel::bgHeader);
-    g.fillRoundedRectangle(bottomDeck, 8.0f);
-    g.setColour(OpenWavLookAndFeel::borderColour);
-    g.drawRoundedRectangle(bottomDeck, 8.0f, 1.0f);
+    OpenWavLookAndFeel::drawPanelCard(g, bottomDeck, 8.0f, false);
     g.setColour(OpenWavLookAndFeel::borderColour.withAlpha(0.35f));
     g.drawHorizontalLine(static_cast<int>(bottomDeck.getY() + 42.0f), bottomDeck.getX() + 10.0f, bottomDeck.getRight() - 10.0f);
 
@@ -639,6 +684,32 @@ void RecorderComponent::paint(juce::Graphics& g)
             g.setColour(juce::Colours::black);
             g.drawText("S", sx - 1.0f, scopeArea.getY(), 14.0f, 14.0f, juce::Justification::centred, false);
             g.drawText("E", ex - 13.0f, scopeArea.getY(), 14.0f, 14.0f, juce::Justification::centred, false);
+
+            if (trimStartRatio > 0.001 || trimEndRatio < 0.999)
+            {
+                double selDur = (trimEndRatio - trimStartRatio) * totalDurSecs;
+                juce::String selText = "Sel: " + juce::String(selDur, 2) + "s";
+                auto badgeRect = juce::Rectangle<float>(scopeArea.getRight() - 82.0f, scopeArea.getY() + 4.0f, 76.0f, 18.0f);
+                g.setColour(OpenWavLookAndFeel::bgHeader.withAlpha(0.9f));
+                g.fillRoundedRectangle(badgeRect, 4.0f);
+                g.setColour(juce::Colours::orange);
+                g.setFont(juce::Font(9.5f).boldened());
+                g.drawText(selText, badgeRect, juce::Justification::centred, false);
+            }
+        }
+
+        // Live preview playhead when auditioning this take
+        if (!audioEngine.isRecording() && lastPreviewTempFile.existsAsFile()
+            && audioEngine.getCurrentFile() == lastPreviewTempFile)
+        {
+            double totalLen = audioEngine.getTotalLengthSeconds();
+            if (totalLen > 0.0)
+            {
+                double normPos = juce::jlimit(0.0, 1.0, audioEngine.getCurrentPositionSeconds() / totalLen);
+                float playX = scopeArea.getX() + static_cast<float>(normPos) * scopeArea.getWidth();
+                g.setColour(juce::Colours::white.withAlpha(0.9f));
+                g.drawLine(playX, scopeArea.getY(), playX, scopeArea.getBottom(), 1.5f);
+            }
         }
     }
     else
@@ -872,33 +943,42 @@ void RecorderComponent::resized()
 {
     auto area = getLocalBounds().reduced(14);
 
-    // 1. Top DAW Transport Bar (54px)
+    // 1. Top DAW Transport Bar (54px, responsive FlexBox)
     auto transport = area.removeFromTop(54).reduced(10, 9);
-    recordButton.setBounds(transport.removeFromLeft(72));
-    transport.removeFromLeft(6);
-    pauseButton.setBounds(transport.removeFromLeft(74));
-    transport.removeFromLeft(6);
-    clearButton.setBounds(transport.removeFromLeft(66));
-    transport.removeFromLeft(6);
-    previewButton.setBounds(transport.removeFromLeft(64));
-    transport.removeFromLeft(12);
+    auto timeCol = juce::Rectangle<int>();
+    {
+        juce::FlexBox fb;
+        fb.flexDirection = juce::FlexBox::Direction::row;
+        fb.alignItems = juce::FlexBox::AlignItems::center;
 
-    auto timeCol = transport.removeFromLeft(130);
-    timeLabel.setBounds(timeCol.removeFromTop(22));
-    formatInfoLabel.setBounds(timeCol);
-    transport.removeFromLeft(8);
+        auto addFixed = [&](juce::Component& c, float w, float mr = 6.0f) {
+            fb.items.add(juce::FlexItem(c).withWidth(w).withHeight(static_cast<float>(transport.getHeight())).withMargin({ 0.0f, mr, 0.0f, 0.0f }));
+        };
 
-    monitorButton.setBounds(transport.removeFromLeft(82));
-    transport.removeFromLeft(6);
-    waitSignalButton.setBounds(transport.removeFromLeft(98));
-    transport.removeFromLeft(6);
-    metronomeButton.setBounds(transport.removeFromLeft(66));
-    bpmSlider.setBounds(transport.removeFromLeft(76));
-    bpmLabel.setBounds(transport.removeFromLeft(62));
-    transport.removeFromLeft(8);
+        addFixed(recordButton, 36.0f);
+        addFixed(pauseButton, 36.0f);
+        addFixed(clearButton, 36.0f);
+        addFixed(previewButton, 36.0f, 10.0f);
 
-    countInLabel.setBounds(transport.removeFromLeft(58));
-    countInSelector.setBounds(transport.removeFromLeft(118));
+        // Timecode column placeholder
+        fb.items.add(juce::FlexItem().withWidth(124.0f).withHeight(static_cast<float>(transport.getHeight())).withMargin({ 0.0f, 8.0f, 0.0f, 0.0f }));
+
+        addFixed(monitorButton, 78.0f);
+        addFixed(waitSignalButton, 94.0f);
+        addFixed(metronomeButton, 62.0f, 4.0f);
+        fb.items.add(juce::FlexItem(bpmSlider).withMinWidth(56.0f).withMaxWidth(100.0f).withFlex(0.4f).withHeight(28.0f).withMargin({ 0.0f, 4.0f, 0.0f, 0.0f }));
+        addFixed(bpmLabel, 58.0f, 8.0f);
+
+        fb.items.add(juce::FlexItem().withFlex(1.0f)); // Spacer pushes Count-In neatly right
+
+        addFixed(countInLabel, 56.0f, 4.0f);
+        addFixed(countInSelector, 114.0f, 0.0f);
+
+        fb.performLayout(transport);
+        timeCol = fb.items[4].currentBounds.toNearestInt();
+        timeLabel.setBounds(timeCol.removeFromTop(21));
+        formatInfoLabel.setBounds(timeCol);
+    }
 
     area.removeFromTop(10);
 
@@ -908,50 +988,55 @@ void RecorderComponent::resized()
 
     auto deck = area.reduced(10, 6);
 
-    // 2. Bottom Row 1: Input, Gain, Takes, DSP
-    auto row1 = deck.removeFromTop(28);
-    audioSetupButton.setBounds(row1.removeFromLeft(88));
-    row1.removeFromLeft(6);
-    channelLabel.setBounds(row1.removeFromLeft(40));
-    channelSelector.setBounds(row1.removeFromLeft(132));
-    row1.removeFromLeft(8);
+    // 2. Bottom Row 1: Input, Gain, Takes, DSP (responsive FlexBox)
+    {
+        auto row1 = deck.removeFromTop(28);
+        juce::FlexBox fb;
+        fb.flexDirection = juce::FlexBox::Direction::row;
+        fb.alignItems = juce::FlexBox::AlignItems::center;
 
-    inputGainLabel.setBounds(row1.removeFromLeft(84));
-    inputGainSlider.setBounds(row1.removeFromLeft(90));
-    row1.removeFromLeft(8);
+        auto addItem = [&](juce::Component& c, float w, float mr = 6.0f) {
+            fb.items.add(juce::FlexItem(c).withWidth(w).withHeight(26.0f).withMargin({ 0.0f, mr, 0.0f, 0.0f }));
+        };
 
-    takeLabel.setBounds(row1.removeFromLeft(40));
-    takeSelector.setBounds(row1.removeFromLeft(120));
-    row1.removeFromLeft(8);
+        addItem(audioSetupButton, 32.0f);
+        addItem(channelLabel, 40.0f, 2.0f);
+        fb.items.add(juce::FlexItem(channelSelector).withMinWidth(105.0f).withMaxWidth(150.0f).withFlex(0.4f).withHeight(26.0f).withMargin({ 0.0f, 8.0f, 0.0f, 0.0f }));
+        addItem(inputGainLabel, 82.0f, 2.0f);
+        fb.items.add(juce::FlexItem(inputGainSlider).withMinWidth(70.0f).withMaxWidth(120.0f).withFlex(0.4f).withHeight(26.0f).withMargin({ 0.0f, 8.0f, 0.0f, 0.0f }));
+        addItem(takeLabel, 40.0f, 2.0f);
+        fb.items.add(juce::FlexItem(takeSelector).withMinWidth(95.0f).withMaxWidth(145.0f).withFlex(0.4f).withHeight(26.0f).withMargin({ 0.0f, 8.0f, 0.0f, 0.0f }));
 
-    trimButton.setBounds(row1.removeFromLeft(54));
-    row1.removeFromLeft(6);
-    lowCutButton.setBounds(row1.removeFromLeft(102));
-    row1.removeFromLeft(4);
-    normalizeButton.setBounds(row1.removeFromLeft(112));
-    row1.removeFromLeft(4);
-    resetEqButton.setBounds(row1.removeFromLeft(72));
+        fb.items.add(juce::FlexItem().withFlex(1.0f));
+
+        addItem(trimButton, 32.0f);
+        addItem(lowCutButton, 100.0f, 4.0f);
+        addItem(normalizeButton, 110.0f, 4.0f);
+        addItem(resetEqButton, 32.0f, 0.0f);
+
+        fb.performLayout(row1);
+    }
 
     deck.removeFromTop(10);
 
-    // 3. Bottom Row 2: Metadata, Save, Send To, Status
-    auto row2 = deck.removeFromTop(28);
-    nameLabel.setBounds(row2.removeFromLeft(44));
-    nameEditor.setBounds(row2.removeFromLeft(145));
-    row2.removeFromLeft(8);
+    // 3. Bottom Row 2: Metadata, Save, Send To, Status (responsive FlexBox)
+    {
+        auto row2 = deck.removeFromTop(28);
+        juce::FlexBox fb;
+        fb.flexDirection = juce::FlexBox::Direction::row;
+        fb.alignItems = juce::FlexBox::AlignItems::center;
 
-    tagsLabel.setBounds(row2.removeFromLeft(38));
-    tagsEditor.setBounds(row2.removeFromLeft(140));
-    row2.removeFromLeft(8);
+        fb.items.add(juce::FlexItem(nameLabel).withWidth(44.0f).withHeight(26.0f).withMargin({ 0.0f, 4.0f, 0.0f, 0.0f }));
+        fb.items.add(juce::FlexItem(nameEditor).withMinWidth(100.0f).withMaxWidth(210.0f).withFlex(0.5f).withHeight(26.0f).withMargin({ 0.0f, 8.0f, 0.0f, 0.0f }));
+        fb.items.add(juce::FlexItem(tagsLabel).withWidth(38.0f).withHeight(26.0f).withMargin({ 0.0f, 4.0f, 0.0f, 0.0f }));
+        fb.items.add(juce::FlexItem(tagsEditor).withMinWidth(100.0f).withMaxWidth(200.0f).withFlex(0.5f).withHeight(26.0f).withMargin({ 0.0f, 8.0f, 0.0f, 0.0f }));
+        fb.items.add(juce::FlexItem(saveButton).withWidth(32.0f).withHeight(26.0f).withMargin({ 0.0f, 6.0f, 0.0f, 0.0f }));
+        fb.items.add(juce::FlexItem(toEditorButton).withWidth(32.0f).withHeight(26.0f).withMargin({ 0.0f, 6.0f, 0.0f, 0.0f }));
+        fb.items.add(juce::FlexItem(toSamplerButton).withWidth(32.0f).withHeight(26.0f).withMargin({ 0.0f, 10.0f, 0.0f, 0.0f }));
+        fb.items.add(juce::FlexItem(statusLabel).withMinWidth(120.0f).withFlex(1.0f).withHeight(26.0f));
 
-    saveButton.setBounds(row2.removeFromLeft(118));
-    row2.removeFromLeft(6);
-    toEditorButton.setBounds(row2.removeFromLeft(82));
-    row2.removeFromLeft(6);
-    toSamplerButton.setBounds(row2.removeFromLeft(90));
-    row2.removeFromLeft(10);
-
-    statusLabel.setBounds(row2);
+        fb.performLayout(row2);
+    }
 }
 
 void RecorderComponent::lookAndFeelChanged()
@@ -1092,11 +1177,7 @@ void RecorderComponent::timerCallback()
         if (std::max(rawL, rawR) >= 0.016f)
         {
             isArmedWaitSignal = false;
-            if (lastPreviewTempFile.existsAsFile())
-        lastPreviewTempFile.deleteFile();
-    lastPreviewTempFile = juce::File();
-
-    isPausedRecording = false;
+            isPausedRecording = false;
             audioEngine.startRecording(true);
             recordButton.setButtonText("STOP");
             recordButton.setToggleState(true, juce::dontSendNotification);
@@ -1124,11 +1205,7 @@ void RecorderComponent::timerCallback()
             else
             {
                 isCountingDown = false;
-                if (lastPreviewTempFile.existsAsFile())
-        lastPreviewTempFile.deleteFile();
-    lastPreviewTempFile = juce::File();
-
-    isPausedRecording = false;
+                isPausedRecording = false;
                 beatCounter = 0;
                 audioEngine.playMetronomeClick(true);
                 audioEngine.startRecording(true);
@@ -1237,11 +1314,7 @@ void RecorderComponent::toggleRecording()
     if (audioEngine.isRecording() || isPausedRecording)
     {
         audioEngine.stopRecording();
-        if (lastPreviewTempFile.existsAsFile())
-        lastPreviewTempFile.deleteFile();
-    lastPreviewTempFile = juce::File();
-
-    isPausedRecording = false;
+        isPausedRecording = false;
         recordButton.setButtonText("REC");
         recordButton.setToggleState(false, juce::dontSendNotification);
         pauseButton.setEnabled(false);
@@ -1285,11 +1358,7 @@ void RecorderComponent::togglePauseRecording()
     }
     else if (isPausedRecording)
     {
-        if (lastPreviewTempFile.existsAsFile())
-        lastPreviewTempFile.deleteFile();
-    lastPreviewTempFile = juce::File();
-
-    isPausedRecording = false;
+        isPausedRecording = false;
         lastBeatMs = juce::Time::getMillisecondCounter();
         audioEngine.startRecording(false); // Punch-in at current write position
         pauseButton.setButtonText("PAUSE");
