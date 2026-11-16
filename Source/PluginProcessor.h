@@ -74,6 +74,12 @@ private:
     std::map<int, int> noteRoundRobinCounters;
     std::map<int, int> lastRandomZoneIndex;
 
+    void processIncomingMidiMessage(const juce::MidiMessage& message);
+    std::array<bool, 128> physicalNotesHeld {};
+    std::array<bool, 128> sustainedNotes {};
+    std::array<int, 128> noteChannels {};
+    bool sustainPedalDown { false };
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(OpenWavAudioProcessor)
 };
 

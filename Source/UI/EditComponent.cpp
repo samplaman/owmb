@@ -1093,6 +1093,9 @@ void EditComponent::paintWaveform(juce::Graphics& g, juce::Rectangle<float> boun
         }
     }
 
+    g.saveState();
+    g.reduceClipRegion(bounds.toNearestInt());
+
     const auto peaks = audioEngine.getWaveformPeaks();
     const int numPeakPoints = peaks.numPoints;
     int numPixels = static_cast<int>(bounds.getWidth());
@@ -1137,8 +1140,8 @@ void EditComponent::paintWaveform(juce::Graphics& g, juce::Rectangle<float> boun
             float lAbs = std::max(std::abs(lMin), std::abs(lMax));
             float rAbs = std::max(std::abs(rMin), std::abs(rMax));
 
-            float lH = (lAbs > 0.001f) ? std::max(1.0f, lAbs * halfChanH) : 0.0f;
-            float rH = (rAbs > 0.001f) ? std::max(1.0f, rAbs * halfChanH) : 0.0f;
+            float lH = (lAbs > 0.001f) ? std::min(halfChanH, std::max(1.0f, lAbs * halfChanH)) : 0.0f;
+            float rH = (rAbs > 0.001f) ? std::min(halfChanH, std::max(1.0f, rAbs * halfChanH)) : 0.0f;
 
             bool inSelection = (pixelX >= selStartX && pixelX <= selEndX);
 
@@ -1148,9 +1151,17 @@ void EditComponent::paintWaveform(juce::Graphics& g, juce::Rectangle<float> boun
                 g.setColour(OpenWavLookAndFeel::textSecondary.withAlpha(0.22f));
 
             if (lH > 0.0f)
-                g.fillRect(juce::Rectangle<float>(pixelX, lCenterY - lH, 1.0f, lH * 2.0f));
+            {
+                float topY = std::max(bounds.getY(), lCenterY - lH);
+                float botY = std::min(midY, lCenterY + lH);
+                g.fillRect(juce::Rectangle<float>(pixelX, topY, 1.0f, std::max(1.0f, botY - topY)));
+            }
             if (rH > 0.0f)
-                g.fillRect(juce::Rectangle<float>(pixelX, rCenterY - rH, 1.0f, rH * 2.0f));
+            {
+                float topY = std::max(midY, rCenterY - rH);
+                float botY = std::min(bounds.getBottom(), rCenterY + rH);
+                g.fillRect(juce::Rectangle<float>(pixelX, topY, 1.0f, std::max(1.0f, botY - topY)));
+            }
         }
     }
     else
@@ -1199,6 +1210,8 @@ void EditComponent::paintWaveform(juce::Graphics& g, juce::Rectangle<float> boun
             }
         }
     }
+
+    g.restoreState();
 
     // Darkened overlay for non-selected regions
     g.setColour(juce::Colours::black.withAlpha(0.35f));
@@ -3388,13 +3401,12 @@ void EditComponent::sampleLoaded(const juce::String& filePath)
             fadeInMsLabel.setText("0 ms", juce::dontSendNotification);
             fadeOutMsLabel.setText("0 ms", juce::dontSendNotification);
             crossfadeMsLabel.setText("0 ms", juce::dontSendNotification);
-            loopToggleButton.setToggleState(false, juce::dontSendNotification);
+            loopToggleButton.setToggleState(audioEngine.isLooping(), juce::dontSendNotification);
             audioEngine.setSampleRange(0.0, 1.0);
             audioEngine.setLoopPoints(0.0, 1.0);
             audioEngine.setLoopMarkersSet(false);
             audioEngine.setLoopCrossfadeMs(0.0);
             audioEngine.setFades(0.0, fadeInCurveType, 0.0, fadeOutCurveType);
-            audioEngine.setLooping(false);
         }
         zoomLevel = 1.0;
         scrollOffset = 0.0;

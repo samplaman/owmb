@@ -236,7 +236,8 @@ void AudioEngine::drainCommandsOnAudioThread()
                 {
                     if ((!slot.isZoneVoice || slot.matchesEditorSample) && !slot.isMetronome)
                     {
-                        slot.isLooping = cmd.boolVal1;
+                        const bool keepAutoLoop = slot.isZoneVoice && !slot.isOneShot && slot.hasCustomLoopPoints;
+                        slot.isLooping = cmd.boolVal1 || keepAutoLoop;
                     }
                 }
                 break;
@@ -321,9 +322,24 @@ void AudioEngine::drainCommandsOnAudioThread()
                             break;
                         }
                     }
-                    if (targetSlot == -1) targetSlot = 0;
+                    if (targetSlot == -1)
+                    {
+                        // Steal the oldest active voice rather than always overwriting slot 0
+                        uint64_t oldestOrder = std::numeric_limits<uint64_t>::max();
+                        targetSlot = 0;
+                        for (int i = 0; i < MaxActiveVoices; ++i)
+                        {
+                            if (!voicePool[i].isMetronome && voicePool[i].startOrder < oldestOrder)
+                            {
+                                oldestOrder = voicePool[i].startOrder;
+                                targetSlot = i;
+                            }
+                        }
+                    }
 
                     auto& slot = voicePool[targetSlot];
+                    static uint64_t sVoiceStartCounter = 1;
+                    slot.startOrder = sVoiceStartCounter++;
                     slot.sample = cmd.sampleData;
                     slot.matchesEditorSample = cmd.boolVal3;
                     slot.startRatio = cmd.editSettings.sampleStartRatio;
@@ -339,6 +355,10 @@ void AudioEngine::drainCommandsOnAudioThread()
                     const bool hasCustomLoopPoints = cmd.editSettings.loopMarkersSet
                         || ((slot.loopOutRatio - slot.loopInRatio) > 0.0005
                             && (slot.loopInRatio > 0.0001 || slot.loopOutRatio < 0.9999));
+                    slot.isZoneVoice = true;
+                    slot.isOneShot = cmd.boolVal2;
+                    slot.hasCustomLoopPoints = hasCustomLoopPoints;
+                    slot.isMetronome = false;
                     slot.isLooping = cmd.boolVal1 || cmd.editSettings.isLooping
                         || (!slot.isOneShot && hasCustomLoopPoints);
                     slot.active = true;
@@ -346,9 +366,6 @@ void AudioEngine::drainCommandsOnAudioThread()
                     slot.triggerMidiNote = cmd.intVal1;
                     slot.fineTuneCents = cmd.floatVal1;
                     slot.bufferSampleRate = cmd.sampleData->sampleRate;
-                    slot.isZoneVoice = true;
-                    slot.isOneShot = cmd.boolVal2;
-                    slot.isMetronome = false;
 
                     double engineSr = engineSampleRateAtomic.load(std::memory_order_relaxed);
                     if (engineSr <= 0.0) engineSr = 44100.0;
@@ -548,11 +565,17 @@ void AudioEngine::processNextAudioBlock(juce::AudioBuffer<float>& outputBuffer, 
     int inChannels = outputBuffer.getNumChannels();
     int numSamples = outputBuffer.getNumSamples();
     bool monitorInput = !inputMuted.load(std::memory_order_relaxed);
+    bool listenInput = monitorInput || inputListeningEnabled.load(std::memory_order_relaxed) || recordingActive.load(std::memory_order_relaxed);
 
     if (inChannels > 0 && numSamples > 0)
     {
-        if (monitorInput)
+        if (listenInput)
         {
+            float inputGainDb = inputGainDbAtomic.load(std::memory_order_relaxed);
+            if (std::abs(inputGainDb) > 0.05f)
+            {
+                outputBuffer.applyGain(juce::Decibels::decibelsToGain(inputGainDb));
+            }
             bool lowCut = eqLowCutEnabled.load(std::memory_order_relaxed);
 
             struct BiquadCoeffs
@@ -1107,9 +1130,10 @@ void AudioEngine::playZoneVoice(const juce::File& file, int triggerMidiNote, int
     }
     pushCommand(cmd);
 
-    juce::MessageManager::callAsync([this, token = engineAliveToken, triggerMidiNote]() {
+    juce::MessageManager::callAsync([this, token = engineAliveToken, triggerMidiNote, file, cached]() {
         if (!token->load(std::memory_order_acquire) || isShuttingDown.load(std::memory_order_relaxed))
             return;
+        syncUiToPlayedSample(file, cached);
         int sliceIdx = (triggerMidiNote >= 36 && triggerMidiNote < 100) ? (triggerMidiNote - 36) : -1;
         listeners.call([sliceIdx](AudioEngineListener& l) {
             l.activeSliceTriggered(sliceIdx);
@@ -1163,6 +1187,18 @@ void AudioEngine::triggerNoteOn(int midiNoteNumber, float velocity)
     cmd.floatVal6 = 0.05f;
     cmd.boolVal1 = isLoopingAtomic.load(std::memory_order_relaxed);
     cmd.boolVal2 = oneShotEnabled.load(std::memory_order_relaxed);
+    cmd.boolVal3 = true;
+    cmd.editSettings.sampleStartRatio = sampleStartRatioAtomic.load(std::memory_order_relaxed);
+    cmd.editSettings.sampleEndRatio = sampleEndRatioAtomic.load(std::memory_order_relaxed);
+    cmd.editSettings.loopInRatio = loopInRatioAtomic.load(std::memory_order_relaxed);
+    cmd.editSettings.loopOutRatio = loopOutRatioAtomic.load(std::memory_order_relaxed);
+    cmd.editSettings.loopCrossfadeMs = loopCrossfadeMsAtomic.load(std::memory_order_relaxed);
+    cmd.editSettings.fadeInMs = fadeInMsAtomic.load(std::memory_order_relaxed);
+    cmd.editSettings.fadeOutMs = fadeOutMsAtomic.load(std::memory_order_relaxed);
+    cmd.editSettings.fadeInCurveType = fadeInCurveAtomic.load(std::memory_order_relaxed);
+    cmd.editSettings.fadeOutCurveType = fadeOutCurveAtomic.load(std::memory_order_relaxed);
+    cmd.editSettings.loopMarkersSet = loopMarkersSetAtomic.load(std::memory_order_relaxed);
+    cmd.editSettings.isLooping = isLoopingAtomic.load(std::memory_order_relaxed);
     pushCommand(cmd);
 
     juce::MessageManager::callAsync([this, token = engineAliveToken] {
@@ -1996,7 +2032,61 @@ void AudioEngine::runHoverAuditionLoop()
         cmd.type = EngineCommandType::RestartPreview;
         cmd.sampleData = sampleData;
         pushCommand(cmd);
+
+        juce::MessageManager::callAsync([this, token = engineAliveToken, fileToLoad, sampleData]() {
+            if (!token->load(std::memory_order_acquire) || isShuttingDown.load(std::memory_order_relaxed))
+                return;
+            syncUiToPlayedSample(fileToLoad, sampleData);
+        });
     }
+}
+
+void AudioEngine::syncUiToPlayedSample(const juce::File& audioFile, const std::shared_ptr<CachedSample>& cached)
+{
+    if (cached == nullptr || cached->buffer.getNumSamples() == 0 || !audioFile.existsAsFile())
+        return;
+
+    const juce::String fp = audioFile.getFullPathName();
+    {
+        const juce::ScopedLock sl(uiDataLock);
+        if (currentFile == audioFile && loadedVoice != nullptr && loadedVoice->buffer.getNumSamples() > 0)
+            return;
+
+        currentFile = audioFile;
+        currentMasterSample = cached;
+        loadedMasterFile = audioFile;
+        isLoadedInSampler.store(true, std::memory_order_relaxed);
+
+        const double fileSr = cached->sampleRate > 0.0 ? cached->sampleRate : 44100.0;
+        const int nFrames = cached->buffer.getNumSamples();
+        const int nCh = cached->buffer.getNumChannels();
+        currentFileSampleRateAtomic.store(fileSr, std::memory_order_relaxed);
+        numChannelsAtomic.store(nCh, std::memory_order_relaxed);
+
+        double engineSr = engineSampleRateAtomic.load(std::memory_order_relaxed);
+        if (engineSr <= 0.0) engineSr = 44100.0;
+        double ratio = (engineSr > 0.0) ? (fileSr / engineSr) : 1.0;
+        double totalLen = (nFrames / ratio) / engineSr;
+        totalDurationAtomic.store(totalLen, std::memory_order_relaxed);
+
+        loadedVoice = std::make_shared<AudioVoice>();
+        loadedVoice->buffer.makeCopyOf(cached->buffer);
+        loadedVoice->ratio = ratio;
+        loadedVoice->rootNote = cached->rootNote;
+        loadedVoice->bufferSampleRate = fileSr;
+
+        originalEditBuffer.makeCopyOf(cached->buffer);
+        originalEditSampleRate = fileSr;
+        originalSnapshotValid = true;
+
+        rebuildWaveformPeaks();
+    }
+
+    applyEditSettingsAtomicsForFile(fp);
+    thumbnail.setSource(new juce::FileInputSource(audioFile));
+    listeners.call([fp](AudioEngineListener& l) {
+        l.sampleLoaded(fp);
+    });
 }
 
 void AudioEngine::clearMasterSample()
@@ -2008,9 +2098,13 @@ void AudioEngine::clearMasterSample()
         loadInProgress.store(false, std::memory_order_relaxed);
         loadedVoice = nullptr;
         currentFile = juce::File();
+        cachedWaveformPeaks = WaveformPeaks();
+        originalSnapshotValid = false;
         totalDurationAtomic.store(0.0, std::memory_order_relaxed);
     }
+    thumbnail.setSource(nullptr);
     stop();
+    listeners.call([](AudioEngineListener& l) { l.sampleLoaded({}); });
 }
 
 void AudioEngine::setPositionRatio(double ratio)
@@ -3513,15 +3607,53 @@ void AudioEngine::updateVoiceRatios()
     pushCommand(cmd);
 }
 
-void AudioEngine::startRecording()
+void AudioEngine::startRecording(bool resetPosition)
 {
-    recordingWritePosition.store(0, std::memory_order_relaxed);
+    if (resetPosition)
+        recordingWritePosition.store(0, std::memory_order_relaxed);
     recordingActive.store(true, std::memory_order_relaxed);
+}
+
+void AudioEngine::pauseRecording()
+{
+    recordingActive.store(false, std::memory_order_relaxed);
 }
 
 void AudioEngine::stopRecording()
 {
     recordingActive.store(false, std::memory_order_relaxed);
+}
+
+void AudioEngine::clearRecording()
+{
+    recordingActive.store(false, std::memory_order_relaxed);
+    recordingWritePosition.store(0, std::memory_order_relaxed);
+}
+
+bool AudioEngine::trimRecording(double startRatio, double endRatio)
+{
+    if (recordingActive.load(std::memory_order_relaxed))
+        return false;
+
+    int total = recordingWritePosition.load(std::memory_order_relaxed);
+    if (total <= 1)
+        return false;
+
+    double sR = juce::jlimit(0.0, 1.0, std::min(startRatio, endRatio));
+    double eR = juce::jlimit(0.0, 1.0, std::max(startRatio, endRatio));
+    int startSample = juce::jlimit(0, total - 1, static_cast<int>(std::round(sR * total)));
+    int endSample = juce::jlimit(startSample + 1, total, static_cast<int>(std::round(eR * total)));
+    int newLen = endSample - startSample;
+    if (newLen <= 0 || newLen >= total)
+        return false;
+
+    for (int ch = 0; ch < recordingBuffer.getNumChannels(); ++ch)
+    {
+        float* ptr = recordingBuffer.getWritePointer(ch);
+        std::memmove(ptr, ptr + startSample, static_cast<size_t>(newLen) * sizeof(float));
+    }
+    recordingWritePosition.store(newLen, std::memory_order_relaxed);
+    return true;
 }
 
 double AudioEngine::getRecordingDurationSeconds() const

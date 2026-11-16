@@ -60,6 +60,7 @@ option(OWMB_COPY_PLUGIN_AFTER_BUILD "Copy plugin to system folder after build" O
 juce_add_plugin(OpenWav
     COMPANY_NAME "OWMB"
     BUNDLE_ID "com.samplaman.owmb"
+    MICROPHONE_PERMISSION_ENABLED TRUE
     MICROPHONE_PERMISSION_TEXT "OWMB requires microphone access for audio sample recording."
     HARDENED_RUNTIME_ENABLED TRUE
     HARDENED_RUNTIME_OPTIONS

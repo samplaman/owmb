@@ -6,7 +6,7 @@ namespace openwav
 
 OpenWavAudioProcessor::OpenWavAudioProcessor()
     : AudioProcessor(BusesProperties()
-                     .withInput("Input", juce::AudioChannelSet::stereo(), false)
+                     .withInput("Input", juce::AudioChannelSet::stereo(), true)
                      .withOutput("Output", juce::AudioChannelSet::stereo(), true))
 {
 }
@@ -149,11 +149,7 @@ void OpenWavAudioProcessor::handleNoteOn(juce::MidiKeyboardState*, int midiChann
             }
         }
 
-        if (zoneTriggered)
-        {
-            // Forward to keyboard state only when a mapped zone actually triggered
-            audioEngine.getKeyboardState().noteOn(mapChannel, midiNoteNumber, velocity);
-        }
+        audioEngine.getKeyboardState().noteOn(mapChannel, midiNoteNumber, velocity);
     }
     else
     {
@@ -242,25 +238,105 @@ void OpenWavAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
     }
     audioEngine.setHostTransportState(hostPlaying, hostBpm, hostPosSec, hostPpq);
 
-    // Process all incoming DAW MIDI note events directly
+    // Process all incoming MIDI events cleanly (Note On/Off, Sustain CC 64, All Notes/Sound Off)
     for (const auto metadata : midiMessages)
     {
-        auto message = metadata.getMessage();
-        if (message.isNoteOn())
-        {
-            handleNoteOn(nullptr, message.getChannel(), message.getNoteNumber(), message.getFloatVelocity());
-        }
-        else if (message.isNoteOff())
-        {
-            handleNoteOff(nullptr, message.getChannel(), message.getNoteNumber(), message.getFloatVelocity());
-        }
-        else if (message.isAllNotesOff() || message.isAllSoundOff())
-        {
-            audioEngine.stopAllVoices();
-        }
+        processIncomingMidiMessage(metadata.getMessage());
     }
 
     audioEngine.processNextAudioBlock(buffer, midiMessages);
+}
+
+void OpenWavAudioProcessor::processIncomingMidiMessage(const juce::MidiMessage& message)
+{
+    int configuredChannel = 0;
+    {
+        const juce::ScopedLock sl(stateLock);
+        configuredChannel = sampleMapState.midiChannel;
+    }
+
+    const int msgCh = message.getChannel();
+    if (configuredChannel > 0 && msgCh > 0 && msgCh != configuredChannel)
+        return;
+
+    if (message.isNoteOn())
+    {
+        const int note = message.getNoteNumber();
+        if (note >= 0 && note < 128)
+        {
+            const size_t idx = static_cast<size_t>(note);
+            // If re-triggering a note held by sustain pedal, release the old sustained voice first
+            if (sustainedNotes[idx] && !physicalNotesHeld[idx])
+            {
+                sustainedNotes[idx] = false;
+                handleNoteOff(nullptr, msgCh, note, 0.0f);
+            }
+            physicalNotesHeld[idx] = true;
+            sustainedNotes[idx] = false;
+            noteChannels[idx] = msgCh > 0 ? msgCh : 1;
+            handleNoteOn(nullptr, msgCh, note, message.getFloatVelocity());
+        }
+    }
+    else if (message.isNoteOff())
+    {
+        const int note = message.getNoteNumber();
+        if (note >= 0 && note < 128)
+        {
+            const size_t idx = static_cast<size_t>(note);
+            physicalNotesHeld[idx] = false;
+            if (sustainPedalDown)
+            {
+                sustainedNotes[idx] = true;
+            }
+            else
+            {
+                sustainedNotes[idx] = false;
+                handleNoteOff(nullptr, msgCh, note, message.getFloatVelocity());
+            }
+        }
+    }
+    else if (message.isController())
+    {
+        const int cc = message.getControllerNumber();
+        const int val = message.getControllerValue();
+        if (cc == 64) // Sustain / Damper Pedal
+        {
+            const bool nowDown = (val >= 64);
+            if (sustainPedalDown && !nowDown)
+            {
+                sustainPedalDown = false;
+                for (int n = 0; n < 128; ++n)
+                {
+                    const size_t idx = static_cast<size_t>(n);
+                    if (sustainedNotes[idx] && !physicalNotesHeld[idx])
+                    {
+                        sustainedNotes[idx] = false;
+                        handleNoteOff(nullptr, noteChannels[idx] > 0 ? noteChannels[idx] : 1, n, 0.0f);
+                    }
+                }
+            }
+            else
+            {
+                sustainPedalDown = nowDown;
+            }
+        }
+        else if (cc == 120 || cc == 123) // All Sound Off / All Notes Off
+        {
+            sustainPedalDown = false;
+            physicalNotesHeld.fill(false);
+            sustainedNotes.fill(false);
+            audioEngine.stopAllVoices();
+            audioEngine.getKeyboardState().allNotesOff(0);
+        }
+    }
+    else if (message.isAllNotesOff() || message.isAllSoundOff())
+    {
+        sustainPedalDown = false;
+        physicalNotesHeld.fill(false);
+        sustainedNotes.fill(false);
+        audioEngine.stopAllVoices();
+        audioEngine.getKeyboardState().allNotesOff(0);
+    }
 }
 
 juce::AudioProcessorEditor* OpenWavAudioProcessor::createEditor()

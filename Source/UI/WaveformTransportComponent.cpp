@@ -590,6 +590,8 @@ void WaveformTransportComponent::paint(juce::Graphics& g)
         g.setColour(OpenWavLookAndFeel::borderColour.withAlpha(0.3f));
         g.drawHorizontalLine(static_cast<int>(centerY), waveformRect.getX(), waveformRect.getRight());
 
+        g.saveState();
+        g.reduceClipRegion(waveformRect.toNearestInt());
         // Zero-lock peak snapshot retrieval
         const auto peaks = audioEngine.getWaveformPeaks();
         const int numPeakPoints = peaks.numPoints;
@@ -663,6 +665,8 @@ void WaveformTransportComponent::paint(juce::Graphics& g)
             if (rHeight > 0.0f)
                 g.fillRect(juce::Rectangle<float>(pixelX, centerY, 1.0f, std::max(1.0f, rBottomY - centerY)));
         }
+
+        g.restoreState();
 
         // Draw Playhead Line & Glowing Playhead Knob
         g.setColour(OpenWavLookAndFeel::accentCyan.brighter(0.5f));

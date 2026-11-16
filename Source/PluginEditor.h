@@ -91,6 +91,20 @@ private:
     void triggerFilterUpdate();
     void updateNativeTitleBarTheme();
     void timerCallback() override;
+    void autoEnableNewMidiInputs();
+    void ensureStandaloneAudioInputEnabled();
+    bool standaloneAudioInputChecked { false };
+
+    class MidiDevicePollTimer : public juce::Timer
+    {
+    public:
+        explicit MidiDevicePollTimer(OpenWavAudioProcessorEditor& o) : owner(o) {}
+        void timerCallback() override { owner.autoEnableNewMidiInputs(); }
+    private:
+        OpenWavAudioProcessorEditor& owner;
+    };
+    MidiDevicePollTimer midiDevicePollTimer { *this };
+    std::set<juce::String> knownMidiInputIds;
 
     bool uiReady = false;
     bool isExiting = false;

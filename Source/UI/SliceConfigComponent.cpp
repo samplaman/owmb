@@ -379,6 +379,8 @@ void SliceConfigComponent::paint(juce::Graphics& g)
 
     if (numPoints > 0 && peaks.minLeft.size() == static_cast<size_t>(numPoints))
     {
+        g.saveState();
+        g.reduceClipRegion(wfRect.toNearestInt());
         g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.85f));
         int numPixels = static_cast<int>(totalW);
         for (int px = 0; px < numPixels; ++px)
@@ -386,13 +388,15 @@ void SliceConfigComponent::paint(juce::Graphics& g)
             float x = wfRect.getX() + static_cast<float>(px);
             int pIdx = juce::jlimit(0, numPoints - 1, static_cast<int>((static_cast<double>(px) / totalW) * numPoints));
 
-            float maxL = peaks.maxLeft[static_cast<size_t>(pIdx)];
-            float minL = peaks.minLeft[static_cast<size_t>(pIdx)];
-            float height = (maxL - minL) * halfH;
-            if (height < 1.0f) height = 1.0f;
+            float maxL = juce::jlimit(-1.0f, 1.0f, peaks.maxLeft[static_cast<size_t>(pIdx)]);
+            float minL = juce::jlimit(-1.0f, 1.0f, peaks.minLeft[static_cast<size_t>(pIdx)]);
+            float height = std::min(wfRect.getHeight(), std::max(1.0f, (maxL - minL) * halfH));
 
-            g.drawVerticalLine(juce::roundToInt(x), centerY - height * 0.5f, centerY + height * 0.5f);
+            float topY = std::max(wfRect.getY(), centerY - height * 0.5f);
+            float botY = std::min(wfRect.getBottom(), centerY + height * 0.5f);
+            g.drawVerticalLine(juce::roundToInt(x), topY, botY);
         }
+        g.restoreState();
     }
 
     // Draw vertical slice lines & handles

@@ -979,9 +979,17 @@ void SampleMapComponent::handleNoteOn(juce::MidiKeyboardState*, int midiChannel,
             }
         }
 
-        // If sample map has zones, only respond to mapped areas at this velocity!
+        // Update keybed highlight even when no zone is mapped at this note/velocity
+        safeThis->activeMidiNotes[static_cast<size_t>(midiNoteNumber)] = true;
+        safeThis->activeNoteVelocities[static_cast<size_t>(midiNoteNumber)] = velInt;
+
         if (!safeThis->zones.empty() && matchingIndices.empty())
+        {
+            if (!safeThis->isTimerRunning())
+                safeThis->startTimerHz(30);
+            safeThis->repaint();
             return;
+        }
 
         int chosenZoneIdx = -1;
         juce::File fileToLoad;
@@ -1048,10 +1056,6 @@ void SampleMapComponent::handleNoteOn(juce::MidiKeyboardState*, int midiChannel,
         if (!safeThis->isTimerRunning())
             safeThis->startTimerHz(30);
 
-        if (fileToLoad.existsAsFile() && safeThis->audioEngine.getCurrentFile() != fileToLoad)
-            safeThis->audioEngine.loadFile(fileToLoad, false, true);
-
-        safeThis->resized();
         safeThis->repaint();
     });
 }
@@ -1064,11 +1068,11 @@ void SampleMapComponent::handleNoteOff(juce::MidiKeyboardState*, int midiChannel
 
     if (midiNoteNumber >= 0 && midiNoteNumber < 128)
     {
-        activeMidiNotes[static_cast<size_t>(midiNoteNumber)] = false;
-        activeNoteVelocities[static_cast<size_t>(midiNoteNumber)] = -1;
         juce::Component::SafePointer<SampleMapComponent> safeThis(this);
-        juce::MessageManager::callAsync([safeThis] {
+        juce::MessageManager::callAsync([safeThis, midiNoteNumber] {
             if (safeThis == nullptr) return;
+            safeThis->activeMidiNotes[static_cast<size_t>(midiNoteNumber)] = false;
+            safeThis->activeNoteVelocities[static_cast<size_t>(midiNoteNumber)] = -1;
             if (!safeThis->isTimerRunning())
                 safeThis->startTimerHz(30);
             safeThis->repaint();

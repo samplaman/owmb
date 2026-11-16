@@ -90,6 +90,7 @@ struct RealtimeVoiceSlot
     double bufferSampleRate { 44100.0 };
     bool isZoneVoice { false };
     bool isOneShot { false };
+    bool hasCustomLoopPoints { false };
     bool isMetronome { false };
     bool matchesEditorSample { false };
     double loopInRatio { 0.0 };
@@ -99,6 +100,7 @@ struct RealtimeVoiceSlot
     double fadeOutMs { 0.0 };
     int fadeInCurveType { 0 };
     int fadeOutCurveType { 0 };
+    uint64_t startOrder { 0 };
 };
 
 enum class EngineCommandType : int
@@ -310,11 +312,18 @@ public:
     };
 
     // Audio Recording Subsystem
-    void startRecording();
+    void startRecording(bool resetPosition = true);
+    void pauseRecording();
     void stopRecording();
+    void clearRecording();
+    bool trimRecording(double startRatio, double endRatio);
     bool isRecording() const { return recordingActive.load(std::memory_order_relaxed); }
+    void setInputListeningEnabled(bool enabled) { inputListeningEnabled.store(enabled, std::memory_order_relaxed); }
+    bool isInputListeningEnabled() const { return inputListeningEnabled.load(std::memory_order_relaxed); }
     void setInputMuted(bool muted) { inputMuted.store(muted, std::memory_order_relaxed); }
     bool isInputMuted() const { return inputMuted.load(std::memory_order_relaxed); }
+    void setInputGainDb(float db) { inputGainDbAtomic.store(juce::jlimit(-24.0f, 24.0f, db), std::memory_order_relaxed); }
+    float getInputGainDb() const { return inputGainDbAtomic.load(std::memory_order_relaxed); }
     void setRecordingChannelMode(RecordingChannelMode mode) { channelMode.store(mode, std::memory_order_relaxed); }
     RecordingChannelMode getRecordingChannelMode() const { return channelMode.load(std::memory_order_relaxed); }
     double getRecordingDurationSeconds() const;
@@ -403,7 +412,9 @@ private:
 
     // Live Recording State (Pre-allocated, lock-free on audio thread)
     std::atomic<bool> recordingActive { false };
+    std::atomic<bool> inputListeningEnabled { false };
     std::atomic<bool> inputMuted { true };
+    std::atomic<float> inputGainDbAtomic { 0.0f };
     std::atomic<RecordingChannelMode> channelMode { RecordingChannelMode::Stereo };
     juce::AudioBuffer<float> recordingBuffer;
     std::atomic<int> recordingWritePosition { 0 };
@@ -437,6 +448,7 @@ private:
     std::map<juce::String, SampleEditSettings> perSampleEditSettings;
     void updateCurrentSampleEditSettings();
     void applyEditSettingsAtomicsForFile(const juce::String& filePath);
+    void syncUiToPlayedSample(const juce::File& audioFile, const std::shared_ptr<CachedSample>& cached);
 
     PerformanceRackDSP performanceRack;
     juce::AudioBuffer<float> zoneBuffer;

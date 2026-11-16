@@ -126,6 +126,38 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
     headerBar.setViewMode(ViewMode::Performance);
   };
 
+  recorderComponent.onRecordingSaved = [this](const MediaItem&) {
+    tagPanel.refreshTags();
+    triggerFilterUpdate();
+  };
+
+  recorderComponent.onSendToEditor = [this](const MediaItem& item) {
+    tagPanel.refreshTags();
+    triggerFilterUpdate();
+    editSampleRequested(item);
+  };
+
+  recorderComponent.onSendToSampleMap = [this](const MediaItem& item) {
+    tagPanel.refreshTags();
+    triggerFilterUpdate();
+    addToSampleMapRequested(item);
+  };
+
+  recorderComponent.onOpenAudioSettings = [this] {
+    if (juce::JUCEApplicationBase::isStandaloneApp()) {
+      if (auto* sfw = findParentComponentOfClass<juce::StandaloneFilterWindow>()) {
+        if (auto* holder = sfw->getPluginHolder()) {
+          holder->showAudioSettingsDialog();
+          return;
+        }
+      }
+    }
+    juce::AlertWindow::showMessageBoxAsync(
+        juce::AlertWindow::InfoIcon, "Audio / Input Settings",
+        "In VST3 / AU plugin mode, Audio inputs are routed by your host DAW.",
+        "OK");
+  };
+
   waveformTransport.onSlicesGenerated = [this](const std::vector<double>& /*ratios*/) {
     // Slices displayed on main transport bar; auto-mapping to sampler occurs via right-click Auto-Slice
   };
@@ -169,6 +201,11 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
   resized();
   repaint();
 
+  if (juce::JUCEApplicationBase::isStandaloneApp()) {
+    autoEnableNewMidiInputs();
+    midiDevicePollTimer.startTimer(1000);
+  }
+
   juce::Component::SafePointer<OpenWavAudioProcessorEditor> safeThis(this);
   juce::MessageManager::callAsync([safeThis] {
     if (safeThis != nullptr)
@@ -177,6 +214,7 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
 }
 
 OpenWavAudioProcessorEditor::~OpenWavAudioProcessorEditor() {
+  midiDevicePollTimer.stopTimer();
   saveStateToProcessor();
 #if JUCE_WINDOWS
   activeEditorPtr = nullptr;
@@ -796,6 +834,8 @@ void OpenWavAudioProcessorEditor::parentHierarchyChanged() {
   juce::AudioProcessorEditor::parentHierarchyChanged();
 
   if (juce::JUCEApplicationBase::isStandaloneApp()) {
+    autoEnableNewMidiInputs();
+    ensureStandaloneAudioInputEnabled();
     if (auto *dw = findParentComponentOfClass<juce::DocumentWindow>()) {
       dw->setLookAndFeel(&lookAndFeel);
       dw->sendLookAndFeelChange();
@@ -977,6 +1017,70 @@ bool OpenWavAudioProcessorEditor::keyPressed(const juce::KeyPress &key) {
   }
 
   return juce::AudioProcessorEditor::keyPressed(key);
+}
+
+void OpenWavAudioProcessorEditor::ensureStandaloneAudioInputEnabled() {
+  if (!juce::JUCEApplicationBase::isStandaloneApp() || standaloneAudioInputChecked)
+    return;
+
+  auto *sfw = findParentComponentOfClass<juce::StandaloneFilterWindow>();
+  if (sfw == nullptr)
+    return;
+
+  auto *holder = sfw->getPluginHolder();
+  if (holder == nullptr)
+    return;
+
+  standaloneAudioInputChecked = true;
+  auto setup = holder->deviceManager.getAudioDeviceSetup();
+  if (setup.inputDeviceName.isEmpty() || (!setup.useDefaultInputChannels && setup.inputChannels.isZero())) {
+    if (auto *devType = holder->deviceManager.getCurrentDeviceTypeObject()) {
+      auto inputNames = devType->getDeviceNames(true);
+      int defaultIdx = devType->getDefaultDeviceIndex(true);
+      if (setup.inputDeviceName.isEmpty() && defaultIdx >= 0 && defaultIdx < inputNames.size())
+        setup.inputDeviceName = inputNames[defaultIdx];
+    }
+    setup.useDefaultInputChannels = true;
+    holder->deviceManager.setAudioDeviceSetup(setup, true);
+  }
+}
+
+void OpenWavAudioProcessorEditor::autoEnableNewMidiInputs() {
+  if (!juce::JUCEApplicationBase::isStandaloneApp())
+    return;
+
+  auto *sfw = findParentComponentOfClass<juce::StandaloneFilterWindow>();
+  if (sfw == nullptr)
+    return;
+
+  auto *holder = sfw->getPluginHolder();
+  if (holder == nullptr)
+    return;
+
+  const auto availableDevices = juce::MidiInput::getAvailableDevices();
+  std::set<juce::String> currentIds;
+  for (const auto &dev : availableDevices) {
+    currentIds.insert(dev.identifier);
+    const bool isDawControlPort = dev.name.containsIgnoreCase("DAW");
+    if (knownMidiInputIds.find(dev.identifier) == knownMidiInputIds.end()) {
+      knownMidiInputIds.insert(dev.identifier);
+      if (isDawControlPort) {
+        if (holder->deviceManager.isMidiInputDeviceEnabled(dev.identifier)) {
+          holder->deviceManager.setMidiInputDeviceEnabled(dev.identifier, false);
+        }
+      } else if (!holder->deviceManager.isMidiInputDeviceEnabled(dev.identifier)) {
+        holder->deviceManager.setMidiInputDeviceEnabled(dev.identifier, true);
+      }
+    }
+  }
+
+  // Prune disconnected devices so re-plugging them re-enables automatically
+  for (auto it = knownMidiInputIds.begin(); it != knownMidiInputIds.end();) {
+    if (currentIds.find(*it) == currentIds.end())
+      it = knownMidiInputIds.erase(it);
+    else
+      ++it;
+  }
 }
 
 void OpenWavAudioProcessorEditor::saveStateToProcessor() {
