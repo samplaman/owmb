@@ -138,6 +138,7 @@ private:
 
     LeftPanelResizerBar leftPanelResizer;
     int tagPanelWidth { 348 };
+    bool initialStandaloneSized { false };
 
     SampleTableComponent sampleTable;
     FolderBrowserComponent folderBrowser;

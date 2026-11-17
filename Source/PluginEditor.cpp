@@ -88,6 +88,15 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
   tooltipWindow = std::make_unique<juce::TooltipWindow>(this, 280);
   addChildComponent(toastOverlay);
 
+  std::function<void(juce::Component&)> applyButtonCursors = [&](juce::Component& c) {
+    if (auto* b = dynamic_cast<juce::Button*>(&c))
+      b->setMouseCursor(juce::MouseCursor::PointingHandCursor);
+    for (int i = 0; i < c.getNumChildComponents(); ++i)
+      if (auto* child = c.getChildComponent(i))
+        applyButtonCursors(*child);
+  };
+  applyButtonCursors(*this);
+
   setResizable(true, true);
   if (juce::JUCEApplicationBase::isStandaloneApp()) {
     auto* mainDisplay = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay();
@@ -876,16 +885,25 @@ void OpenWavAudioProcessorEditor::parentHierarchyChanged() {
       dw->setTitleBarButtonsRequired(juce::DocumentWindow::allButtons, false);
       dw->setResizable(true, true);
 
-      auto& displays = juce::Desktop::getInstance().getDisplays();
-      const auto* targetDisplay = displays.getDisplayForRect(dw->getScreenBounds(), true);
-      if (targetDisplay == nullptr)
-        targetDisplay = displays.getPrimaryDisplay();
-      auto userArea = (targetDisplay != nullptr)
-                          ? targetDisplay->userArea
-                          : juce::Rectangle<int>(0, 0, 1920, 1080);
+      if (!initialStandaloneSized) {
+        initialStandaloneSized = true;
+        auto& displays = juce::Desktop::getInstance().getDisplays();
+        const auto* targetDisplay = displays.getDisplayForRect(dw->getScreenBounds(), true);
+        if (targetDisplay == nullptr)
+          targetDisplay = displays.getPrimaryDisplay();
+        auto userArea = (targetDisplay != nullptr)
+                            ? targetDisplay->userArea
+                            : juce::Rectangle<int>(0, 0, 1920, 1080);
 
-      dw->setResizeLimits(800, 650, std::max(7680, userArea.getWidth()), std::max(4320, userArea.getHeight()));
-      dw->setBounds(userArea);
+        dw->setResizeLimits(800, 650, std::max(7680, userArea.getWidth()), std::max(4320, userArea.getHeight()));
+        auto border = dw->getBorderThickness();
+        int targetW = std::max(800, userArea.getWidth() - border.getLeftAndRight());
+        int targetH = std::max(650, userArea.getHeight() - border.getTopAndBottom());
+        dw->setContentComponentSize(targetW, targetH);
+        dw->setTopLeftPosition(userArea.getPosition());
+        dw->resized();
+        resized();
+      }
       dw->setAlpha(1.0f);
       dw->setVisible(true);
 #if JUCE_WINDOWS

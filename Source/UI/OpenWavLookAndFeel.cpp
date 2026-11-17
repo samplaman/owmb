@@ -174,18 +174,18 @@ void OpenWavLookAndFeel::drawButtonBackground(
   auto text = button.getButtonText().toLowerCase();
   if (text.contains("mute")) {
       if (button.getToggleState()) {
-          fillColour = favoriteRed.withAlpha(0.25f);
+          fillColour = shouldDrawButtonAsHighlighted ? favoriteRed.withAlpha(0.36f) : favoriteRed.withAlpha(0.25f);
       } else if (shouldDrawButtonAsHighlighted) {
-          fillColour = bgHover;
+          fillColour = bgHover.brighter(0.22f);
       } else {
           fillColour = isIconOnly ? juce::Colours::transparentBlack : bgCard;
       }
   } else if (button.getToggleState()) {
-    fillColour = accentCyan.withAlpha(0.18f);
+    fillColour = shouldDrawButtonAsHighlighted ? accentCyan.withAlpha(0.28f) : accentCyan.withAlpha(0.18f);
   } else if (shouldDrawButtonAsDown) {
-    fillColour = accentBlue.withAlpha(0.32f);
+    fillColour = accentBlue.withAlpha(0.38f);
   } else if (shouldDrawButtonAsHighlighted) {
-    fillColour = bgHover;
+    fillColour = bgHover.brighter(0.22f);
   }
 
   if (button.getComponentID() == "tagButton") {
@@ -229,7 +229,7 @@ void OpenWavLookAndFeel::drawButtonBackground(
 
 void OpenWavLookAndFeel::drawButtonText(juce::Graphics &g,
                                         juce::TextButton &button,
-                                        bool /*shouldDrawButtonAsHighlighted*/,
+                                        bool shouldDrawButtonAsHighlighted,
                                         bool /*shouldDrawButtonAsDown*/) {
   auto text = button.getButtonText();
   if (text.isEmpty() && button.getName().isNotEmpty()) {
@@ -510,6 +510,8 @@ void OpenWavLookAndFeel::drawButtonText(juce::Graphics &g,
   g.setFont(font);
   bool isMuteBtn = (button.getButtonText() == "Mute" || button.getButtonText() == "Unmute");
   juce::Colour textColour = isMuteBtn ? (button.getToggleState() ? favoriteRed : textPrimary) : (button.getToggleState() ? accentCyan : textPrimary);
+  if (shouldDrawButtonAsHighlighted && !button.getToggleState() && !isMuteBtn)
+      textColour = juce::Colours::white;
   if (!button.isEnabled())
       textColour = textColour.withAlpha(0.32f);
   g.setColour(textColour);
@@ -1057,6 +1059,7 @@ void OpenWavLookAndFeel::groupButtons(const std::vector<juce::Button*>& buttons,
             if (i + 1 < valid.size()) flags |= juce::Button::ConnectedOnRight;
         }
         valid[i]->setConnectedEdges(flags);
+        valid[i]->setMouseCursor(juce::MouseCursor::PointingHandCursor);
     }
 }
 
