@@ -246,7 +246,7 @@ void VelocityCurveComponent::paint(juce::Graphics& g)
 
             // Small badge showing input and output
             int outV = juce::jlimit(0, 127, static_cast<int>(lastHitResponse * 127.0f + 0.5f));
-            juce::String badge = juce::String(lastHitVel) + " → " + juce::String(outV);
+            juce::String badge = juce::String(lastHitVel) + " -> " + juce::String(outV);
             g.setFont(juce::Font(8.5f, juce::Font::bold));
             g.setColour(OpenWavLookAndFeel::bgDark.withAlpha(0.85f * alpha));
             float badgeW = 38.0f;
@@ -683,7 +683,7 @@ SampleMapComponent::SampleMapComponent(AudioEngine& engine)
     };
 
     velocityCurveView.onVelocityHit = [this](int inV, int outV, float dbGain) {
-        velReadoutLabel.setText("In: " + juce::String(inV) + "  →  Out: " + juce::String(outV) +
+        velReadoutLabel.setText("In: " + juce::String(inV) + "  ->  Out: " + juce::String(outV) +
                                 " (" + (dbGain >= 0.0f ? "+" : "") + juce::String(dbGain, 1) + " dB)",
                                 juce::dontSendNotification);
     };

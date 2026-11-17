@@ -391,9 +391,16 @@ RackUnitComponent::RackUnitComponent(std::shared_ptr<RackEffectBase> fx,
     }
 
     // Reorder and Delete buttons
+    btnMoveUp.setComponentID("iconOnlyBtn");
+    btnMoveUp.setTooltip("Move Effect Up");
     btnMoveUp.addListener(this);
+    btnMoveDown.setComponentID("iconOnlyBtn");
+    btnMoveDown.setTooltip("Move Effect Down");
     btnMoveDown.addListener(this);
+    btnDelete.setComponentID("iconOnlyBtn");
+    btnDelete.setTooltip("Remove Effect");
     btnDelete.addListener(this);
+    OpenWavLookAndFeel::groupButtons({ &btnMoveUp, &btnMoveDown, &btnDelete });
 
     btnMoveUp.setEnabled(index > 0);
     btnMoveDown.setEnabled(index < totalCount - 1);

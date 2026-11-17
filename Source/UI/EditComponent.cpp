@@ -1068,9 +1068,9 @@ void EditComponent::paint(juce::Graphics& g)
     double selLen = std::max(0.0, (endR - startR) * totalDurationSecs);
     double loopLen = std::max(0.0, (loopOutRatio - loopInRatio) * totalDurationSecs);
     startTimeLabel.setText(formatTime(startR * totalDurationSecs), juce::dontSendNotification);
-    endTimeLabel.setText(formatTime(endR * totalDurationSecs) + "  (Δ " + formatTime(selLen) + ")", juce::dontSendNotification);
+    endTimeLabel.setText(formatTime(endR * totalDurationSecs) + "  (Len: " + formatTime(selLen) + ")", juce::dontSendNotification);
     loopInTimeLabel.setText(formatTime(loopInRatio * totalDurationSecs), juce::dontSendNotification);
-    loopOutTimeLabel.setText(formatTime(loopOutRatio * totalDurationSecs) + (loopMarkersSet ? "  (Δ " + formatTime(loopLen) + ")" : ""), juce::dontSendNotification);
+    loopOutTimeLabel.setText(formatTime(loopOutRatio * totalDurationSecs) + (loopMarkersSet ? "  (Len: " + formatTime(loopLen) + ")" : ""), juce::dontSendNotification);
 }
 
 // ─────────────────────────────────────────────────────────

@@ -111,9 +111,9 @@ private:
     juce::TextButton powerButton;
     juce::Label titleBadge;
     juce::ComboBox presetCombo;
-    juce::TextButton btnMoveUp { juce::CharPointer_UTF8("\xe2\x96\xb2") };   // ▲
-    juce::TextButton btnMoveDown { juce::CharPointer_UTF8("\xe2\x96\xbc") }; // ▼
-    juce::TextButton btnDelete { juce::CharPointer_UTF8("\xe2\x9c\x95") };   // ✕
+    juce::TextButton btnMoveUp { "Move Up" };
+    juce::TextButton btnMoveDown { "Move Down" };
+    juce::TextButton btnDelete { "X" };
 
     // Parameter Knobs Container
     juce::OwnedArray<RackKnobControl> controls;

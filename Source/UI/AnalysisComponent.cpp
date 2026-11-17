@@ -154,7 +154,7 @@ void AnalysisComponent::paintInfoSection(juce::Graphics& g, juce::Rectangle<floa
     {
         std::vector<std::pair<juce::String, juce::String>> rows;
         rows.push_back({ "Rating", currentItem.cachedStarRating.isEmpty() ? "Not rated" : currentItem.cachedStarRating });
-        rows.push_back({ "Favourite", currentItem.isFavorite ? juce::String::fromUTF8("\xe2\x9d\xa4 Yes") : "No" });
+        rows.push_back({ "Favourite", currentItem.isFavorite ? "Yes" : "No" });
         if (currentItem.comment.isNotEmpty())
             rows.push_back({ "Comment", currentItem.comment });
         paintCard("Rating & Notes", rows, area);

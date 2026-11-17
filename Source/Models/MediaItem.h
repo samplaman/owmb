@@ -6,6 +6,7 @@
  #include <juce_core/juce_core.h>
 #endif
 
+#include <cmath>
 #include <cstdint>
 #include <set>
 

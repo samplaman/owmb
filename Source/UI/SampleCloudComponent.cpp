@@ -1753,14 +1753,14 @@ void SampleCloudComponent::paintOverlay(juce::Graphics &g) {
 
       // Favorite Star
       favoriteStarBounds = juce::Rectangle<float>(mainPillBounds.getRight() - 26.0f, mainPillBounds.getY() + 10.0f, 18.0f, 18.0f);
+      juce::Path starPath;
+      starPath.addStar(favoriteStarBounds.getCentre(), 5, 3.2f, 7.2f, 0.0f);
       if (selItem.isFavorite) {
         g.setColour(juce::Colour::fromRGB(255, 215, 0));
-        g.setFont(juce::Font(16.0f));
-        g.drawText(juce::String::fromUTF8("\xe2\x98\x85"), favoriteStarBounds, juce::Justification::centred);
+        g.fillPath(starPath);
       } else {
         g.setColour(isHoveringFavoriteStar ? neutralHoverWhite : neutralMutedText);
-        g.setFont(juce::Font(16.0f));
-        g.drawText(juce::String::fromUTF8("\xe2\x98\x86"), favoriteStarBounds, juce::Justification::centred);
+        g.strokePath(starPath, juce::PathStrokeType(1.3f));
       }
 
     } else {
@@ -1936,14 +1936,14 @@ void SampleCloudComponent::paintOverlay(juce::Graphics &g) {
 
       // Favorite Star
       favoriteStarBounds = juce::Rectangle<float>(mainPillBounds.getRight() - 26.0f, mainPillBounds.getY() + 10.0f, 18.0f, 18.0f);
+      juce::Path starPath;
+      starPath.addStar(favoriteStarBounds.getCentre(), 5, 3.2f, 7.2f, 0.0f);
       if (selItem.isFavorite) {
         g.setColour(juce::Colour::fromRGB(255, 215, 0));
-        g.setFont(juce::Font(16.0f));
-        g.drawText(juce::String::fromUTF8("\xe2\x98\x85"), favoriteStarBounds, juce::Justification::centred);
+        g.fillPath(starPath);
       } else {
         g.setColour(isHoveringFavoriteStar ? neutralHoverWhite : neutralMutedText);
-        g.setFont(juce::Font(16.0f));
-        g.drawText(juce::String::fromUTF8("\xe2\x98\x86"), favoriteStarBounds, juce::Justification::centred);
+        g.strokePath(starPath, juce::PathStrokeType(1.3f));
       }
 
       // 3 Slots Below (rendered top to bottom: -1, -2, -3)
@@ -2002,7 +2002,7 @@ void SampleCloudComponent::paintOverlay(juce::Graphics &g) {
     g.drawRoundedRectangle(hintRect, 3.5f, 1.0f);
     g.setFont(juce::Font(11.5f, juce::Font::plain));
     g.setColour(juce::Colour::fromRGB(200, 208, 220).withAlpha(0.85f));
-    g.drawText(juce::String::fromUTF8("\xe2\x9c\xa8 Click a star to audition & drag"), hintRect, juce::Justification::centred);
+    g.drawText("Click a star to audition & drag", hintRect, juce::Justification::centred);
   }
 }
 
@@ -3078,44 +3078,8 @@ void SampleCloudComponent::showContextMenuForNode(int nodeIndex) {
 
 #if !JUCE_MAC
 
-#ifndef GL_FALSE
-#define GL_FALSE 0
-#endif
-#ifndef GL_FLOAT
-#define GL_FLOAT 0x1406
-#endif
-#ifndef GL_POINTS
-#define GL_POINTS 0x0000
-#endif
-#ifndef GL_LINES
-#define GL_LINES 0x0001
-#endif
-#ifndef GL_TRIANGLES
-#define GL_TRIANGLES 0x0004
-#endif
-#ifndef GL_ARRAY_BUFFER
-#define GL_ARRAY_BUFFER 0x8892
-#endif
-#ifndef GL_STATIC_DRAW
-#define GL_STATIC_DRAW 0x88E4
-#endif
-#ifndef GL_BLEND
-#define GL_BLEND 0x0BE2
-#endif
-#ifndef GL_ONE
-#define GL_ONE 1
-#endif
-#ifndef GL_SRC_ALPHA
-#define GL_SRC_ALPHA 0x0302
-#endif
-#ifndef GL_ONE_MINUS_SRC_ALPHA
-#define GL_ONE_MINUS_SRC_ALPHA 0x0303
-#endif
-#ifndef GL_PROGRAM_POINT_SIZE
-#define GL_PROGRAM_POINT_SIZE 0x8642
-#endif
-
 void SampleCloudComponent::newOpenGLContextCreated() {
+  using namespace ::juce::gl;
   openGLContext.extensions.glGenVertexArrays(1, &vao);
   openGLContext.extensions.glBindVertexArray(vao);
 
@@ -3334,6 +3298,7 @@ void SampleCloudComponent::newOpenGLContextCreated() {
 }
 
 void SampleCloudComponent::renderOpenGL() {
+  using namespace ::juce::gl;
   const juce::Colour bgAnthracite = juce::Colour::fromRGB(22, 23, 26);
   juce::OpenGLHelpers::clear(bgAnthracite);
 
@@ -3346,15 +3311,9 @@ void SampleCloudComponent::renderOpenGL() {
 
   openGLContext.extensions.glBindVertexArray(vao);
 
-#if !defined(_WIN32)
-  juce::gl::glViewport(0, 0, juce::roundToInt(getWidth() * scaleFactor),
-                       juce::roundToInt(getHeight() * scaleFactor));
-  juce::gl::glDisable(GL_BLEND);
-#else
   glViewport(0, 0, juce::roundToInt(getWidth() * scaleFactor),
              juce::roundToInt(getHeight() * scaleFactor));
   glDisable(GL_BLEND);
-#endif
 
   // 1. Draw Deep Space Nebula & Cosmic Dust Background
   if (bgShaderProgram) {
@@ -3374,11 +3333,7 @@ void SampleCloudComponent::renderOpenGL() {
     if (bgPosAttr >= 0) {
       openGLContext.extensions.glVertexAttribPointer(bgPosAttr, 2, GL_FLOAT, GL_FALSE, 0, nullptr);
       openGLContext.extensions.glEnableVertexAttribArray(bgPosAttr);
-#if !defined(_WIN32)
-      juce::gl::glDrawArrays(GL_TRIANGLES, 0, 3);
-#else
       glDrawArrays(GL_TRIANGLES, 0, 3);
-#endif
       openGLContext.extensions.glDisableVertexAttribArray(bgPosAttr);
     }
   }
@@ -3409,13 +3364,8 @@ void SampleCloudComponent::renderOpenGL() {
   lastViewProjectionMatrix = projectionMatrix * viewMatrix;
 
   // 2. Draw Constellation Lines (Alpha Blend)
-#if !defined(_WIN32)
-  juce::gl::glEnable(GL_BLEND);
-  juce::gl::glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-#else
   glEnable(GL_BLEND);
   glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-#endif
 
   if (lineShaderProgram && !lineVertexBuffer.empty()) {
     lineShaderProgram->use();
@@ -3451,23 +3401,14 @@ void SampleCloudComponent::renderOpenGL() {
           lColAttr, 4, GL_FLOAT, GL_FALSE, sizeof(LineVertex), (GLvoid *)offsetof(LineVertex, r));
       openGLContext.extensions.glEnableVertexAttribArray(lColAttr);
     }
-#if !defined(_WIN32)
-    juce::gl::glDrawArrays(GL_LINES, 0, (GLsizei)lineVertexBuffer.size());
-#else
     glDrawArrays(GL_LINES, 0, (GLsizei)lineVertexBuffer.size());
-#endif
     if (lPosAttr >= 0) openGLContext.extensions.glDisableVertexAttribArray(lPosAttr);
     if (lColAttr >= 0) openGLContext.extensions.glDisableVertexAttribArray(lColAttr);
   }
 
   // 3. Draw Point Cloud Particles (Luminous Additive Blend)
-#if !defined(_WIN32)
-  juce::gl::glBlendFunc(GL_SRC_ALPHA, GL_ONE);
-  juce::gl::glEnable(GL_PROGRAM_POINT_SIZE);
-#else
   glBlendFunc(GL_SRC_ALPHA, GL_ONE);
   glEnable(GL_PROGRAM_POINT_SIZE);
-#endif
 
   shaderProgram->use();
   GLuint progID = shaderProgram->getProgramID();
@@ -3536,13 +3477,8 @@ void SampleCloudComponent::renderOpenGL() {
         (GLvoid *)offsetof(Vertex, radius));
     openGLContext.extensions.glEnableVertexAttribArray(radAttr);
   }
-#if !defined(_WIN32)
-  juce::gl::glDrawArrays(GL_POINTS, 0, (GLsizei)vertexBuffer.size());
-  juce::gl::glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-#else
   glDrawArrays(GL_POINTS, 0, (GLsizei)vertexBuffer.size());
   glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-#endif
   if (posAttr >= 0)
     openGLContext.extensions.glDisableVertexAttribArray(posAttr);
   if (colAttr >= 0)
