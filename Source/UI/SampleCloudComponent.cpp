@@ -181,7 +181,7 @@ SampleCloudComponent::SampleCloudComponent(TagDatabaseManager &db,
       juce::OpenGLContext::OpenGLVersion::openGL3_2);
   openGLContext.setRenderer(this);
   openGLContext.attachTo(*this);
-  openGLContext.setContinuousRepainting(true);
+  openGLContext.setContinuousRepainting(isShowing());
 #endif
 
   startTimerHz(60);
@@ -260,15 +260,21 @@ void SampleCloudComponent::setItems(const std::vector<MediaItem> &items) {
     nodes.clear();
     clusters.clear();
     constellationEdges.clear();
+#if JUCE_MAC
     vertexBuffer.clear();
     lineVertexBuffer.clear();
-#if JUCE_MAC
     if (metalView) {
       metalView->updateVertices({});
       metalView->updateLines({});
     }
 #else
-    vboNeedsUpdate = true;
+    {
+      std::lock_guard<std::mutex> lock(glDataMutex);
+      vertexBuffer.clear();
+      lineVertexBuffer.clear();
+      vboNeedsUpdate = true;
+      lineVboNeedsUpdate = true;
+    }
 #endif
     overlayComponent.repaint();
     repaint();
@@ -330,6 +336,9 @@ void SampleCloudComponent::runLayoutAsync(std::vector<MediaItem> items) {
 }
 
 void SampleCloudComponent::rebuildGpuBuffers() {
+#if !JUCE_MAC
+  std::lock_guard<std::mutex> lock(glDataMutex);
+#endif
   vertexBuffer.clear();
   lineVertexBuffer.clear();
 
@@ -3114,8 +3123,21 @@ void SampleCloudComponent::showContextMenuForNode(int nodeIndex) {
 #ifndef GL_PROGRAM_POINT_SIZE
 #define GL_PROGRAM_POINT_SIZE 0x8642
 #endif
+#ifndef GL_DEPTH_TEST
+#define GL_DEPTH_TEST 0x0B71
+#endif
+#ifndef GL_CULL_FACE
+#define GL_CULL_FACE 0x0B44
+#endif
+#ifndef GL_SCISSOR_TEST
+#define GL_SCISSOR_TEST 0x0C11
+#endif
+#ifndef GL_TRUE
+#define GL_TRUE 1
+#endif
 
 void SampleCloudComponent::newOpenGLContextCreated() {
+  openGLContext.setSwapInterval(1);
   openGLContext.extensions.glGenVertexArrays(1, &vao);
   openGLContext.extensions.glBindVertexArray(vao);
 
@@ -3196,7 +3218,13 @@ void SampleCloudComponent::newOpenGLContextCreated() {
   if (bgShaderProgram->addVertexShader(bgVertexShader) &&
       bgShaderProgram->addFragmentShader(bgFragmentShader) &&
       bgShaderProgram->link()) {
-    // Success
+    GLuint p = bgShaderProgram->getProgramID();
+    bgLoc.pos = openGLContext.extensions.glGetAttribLocation(p, "pos");
+    bgLoc.time = openGLContext.extensions.glGetUniformLocation(p, "time");
+    bgLoc.fogColor = openGLContext.extensions.glGetUniformLocation(p, "fogColor");
+    bgLoc.viewportSize = openGLContext.extensions.glGetUniformLocation(p, "viewportSize");
+  } else {
+    bgShaderProgram.reset();
   }
 
   // 2. Constellation Lines Shader
@@ -3231,7 +3259,15 @@ void SampleCloudComponent::newOpenGLContextCreated() {
   if (lineShaderProgram->addVertexShader(lineVertexShader) &&
       lineShaderProgram->addFragmentShader(lineFragmentShader) &&
       lineShaderProgram->link()) {
-    // Success
+    GLuint p = lineShaderProgram->getProgramID();
+    lineLoc.position = openGLContext.extensions.glGetAttribLocation(p, "position");
+    lineLoc.colour = openGLContext.extensions.glGetAttribLocation(p, "colour");
+    lineLoc.projectionMatrix = openGLContext.extensions.glGetUniformLocation(p, "projectionMatrix");
+    lineLoc.viewMatrix = openGLContext.extensions.glGetUniformLocation(p, "viewMatrix");
+    lineLoc.revealAlpha = openGLContext.extensions.glGetUniformLocation(p, "revealAlpha");
+    lineLoc.time = openGLContext.extensions.glGetUniformLocation(p, "time");
+  } else {
+    lineShaderProgram.reset();
   }
 
   // 3. Point Cloud Shader (Matches MetalCloudView ACES Filmic Bloom & Crisp Discs)
@@ -3329,13 +3365,25 @@ void SampleCloudComponent::newOpenGLContextCreated() {
   if (shaderProgram->addVertexShader(vertexShader) &&
       shaderProgram->addFragmentShader(fragmentShader) &&
       shaderProgram->link()) {
-    // Success
+    GLuint p = shaderProgram->getProgramID();
+    cloudLoc.position = openGLContext.extensions.glGetAttribLocation(p, "position");
+    cloudLoc.colour = openGLContext.extensions.glGetAttribLocation(p, "colour");
+    cloudLoc.radius = openGLContext.extensions.glGetAttribLocation(p, "radius");
+    cloudLoc.projectionMatrix = openGLContext.extensions.glGetUniformLocation(p, "projectionMatrix");
+    cloudLoc.viewMatrix = openGLContext.extensions.glGetUniformLocation(p, "viewMatrix");
+    cloudLoc.revealAlpha = openGLContext.extensions.glGetUniformLocation(p, "revealAlpha");
+    cloudLoc.time = openGLContext.extensions.glGetUniformLocation(p, "time");
+    cloudLoc.scaleFactor = openGLContext.extensions.glGetUniformLocation(p, "scaleFactor");
+    cloudLoc.hoveredVertexIndex = openGLContext.extensions.glGetUniformLocation(p, "hoveredVertexIndex");
+    cloudLoc.hoverScale = openGLContext.extensions.glGetUniformLocation(p, "hoverScale");
+    cloudLoc.fogColor = openGLContext.extensions.glGetUniformLocation(p, "fogColor");
+  } else {
+    shaderProgram.reset();
   }
 }
 
 void SampleCloudComponent::renderOpenGL() {
   const juce::Colour bgAnthracite = juce::Colour::fromRGB(22, 23, 26);
-  juce::OpenGLHelpers::clear(bgAnthracite);
 
   float scaleFactor = static_cast<float>(openGLContext.getRenderingScale());
   if (scaleFactor < 1.0f) scaleFactor = 1.0f;
@@ -3348,178 +3396,162 @@ void SampleCloudComponent::renderOpenGL() {
 
   juce::gl::glViewport(0, 0, juce::roundToInt(getWidth() * scaleFactor),
                        juce::roundToInt(getHeight() * scaleFactor));
+  juce::gl::glDisable(GL_DEPTH_TEST);
+  juce::gl::glDisable(GL_CULL_FACE);
+  juce::gl::glDisable(GL_SCISSOR_TEST);
+  juce::gl::glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
   juce::gl::glDisable(GL_BLEND);
 
+  juce::OpenGLHelpers::clear(bgAnthracite);
+
   // 1. Draw Deep Space Nebula & Cosmic Dust Background
-  if (bgShaderProgram) {
+  if (bgShaderProgram && bgLoc.pos >= 0) {
     bgShaderProgram->use();
-    GLuint bgProg = bgShaderProgram->getProgramID();
-    openGLContext.extensions.glUniform1f(
-        openGLContext.extensions.glGetUniformLocation(bgProg, "time"), timeSec);
-    openGLContext.extensions.glUniform3f(
-        openGLContext.extensions.glGetUniformLocation(bgProg, "fogColor"),
-        bgAnthracite.getFloatRed(), bgAnthracite.getFloatGreen(), bgAnthracite.getFloatBlue());
-    openGLContext.extensions.glUniform2f(
-        openGLContext.extensions.glGetUniformLocation(bgProg, "viewportSize"),
-        effW, effH);
+    if (bgLoc.time >= 0) openGLContext.extensions.glUniform1f(bgLoc.time, timeSec);
+    if (bgLoc.fogColor >= 0)
+      openGLContext.extensions.glUniform3f(bgLoc.fogColor,
+          bgAnthracite.getFloatRed(), bgAnthracite.getFloatGreen(), bgAnthracite.getFloatBlue());
+    if (bgLoc.viewportSize >= 0)
+      openGLContext.extensions.glUniform2f(bgLoc.viewportSize, effW, effH);
 
     openGLContext.extensions.glBindBuffer(GL_ARRAY_BUFFER, bgVbo);
-    GLint bgPosAttr = openGLContext.extensions.glGetAttribLocation(bgProg, "pos");
-    if (bgPosAttr >= 0) {
-      openGLContext.extensions.glVertexAttribPointer(bgPosAttr, 2, GL_FLOAT, GL_FALSE, 0, nullptr);
-      openGLContext.extensions.glEnableVertexAttribArray(bgPosAttr);
-      juce::gl::glDrawArrays(GL_TRIANGLES, 0, 3);
-      openGLContext.extensions.glDisableVertexAttribArray(bgPosAttr);
-    }
+    openGLContext.extensions.glVertexAttribPointer(bgLoc.pos, 2, GL_FLOAT, GL_FALSE, 0, nullptr);
+    openGLContext.extensions.glEnableVertexAttribArray(bgLoc.pos);
+    juce::gl::glDrawArrays(GL_TRIANGLES, 0, 3);
+    openGLContext.extensions.glDisableVertexAttribArray(bgLoc.pos);
   }
 
-  if (layoutPending || !shaderProgram || vertexBuffer.empty())
-    return;
-
-  float aspect = (effH > 0.0f) ? (effW / effH) : 1.0f;
-  auto projectionMatrix = juce::Matrix3D<float>::fromFrustum(
-      -aspect * 0.1f, aspect * 0.1f, -0.1f, 0.1f, 0.2f, 1000000.0f);
-
-  juce::Matrix3D<float> viewMatrix;
-  viewMatrix = viewMatrix *
-               juce::Matrix3D<float>::fromTranslation(
-                   {0.0f, 0.0f, -cameraDistance / zoomScale});
-
-  float crx = std::cos(rotX), srx = std::sin(rotX);
-  float cry = std::cos(rotY), sry = std::sin(rotY);
-  juce::Matrix3D<float> rotMatrix(cry, 0.0f, sry, 0.0f, srx * sry, crx,
-                                  -srx * cry, 0.0f, -crx * sry, srx, crx * cry,
-                                  0.0f, 0.0f, 0.0f, 0.0f, 1.0f);
-  viewMatrix = viewMatrix * rotMatrix;
-
-  viewMatrix = viewMatrix *
-               juce::Matrix3D<float>::fromTranslation(
-                   {-cameraCenterPos.x, -cameraCenterPos.y, -cameraCenterPos.z});
-
-  lastViewProjectionMatrix = projectionMatrix * viewMatrix;
-
-  // 2. Draw Constellation Lines (Alpha Blend)
-  juce::gl::glEnable(GL_BLEND);
-  juce::gl::glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-  if (lineShaderProgram && !lineVertexBuffer.empty()) {
-    lineShaderProgram->use();
-    GLuint lineProg = lineShaderProgram->getProgramID();
-    openGLContext.extensions.glUniformMatrix4fv(
-        openGLContext.extensions.glGetUniformLocation(lineProg, "projectionMatrix"),
-        1, GL_FALSE, projectionMatrix.mat);
-    openGLContext.extensions.glUniformMatrix4fv(
-        openGLContext.extensions.glGetUniformLocation(lineProg, "viewMatrix"),
-        1, GL_FALSE, viewMatrix.mat);
-    openGLContext.extensions.glUniform1f(
-        openGLContext.extensions.glGetUniformLocation(lineProg, "revealAlpha"), revealAlpha);
-    openGLContext.extensions.glUniform1f(
-        openGLContext.extensions.glGetUniformLocation(lineProg, "time"), timeSec);
-
+  // Synchronize pending GPU buffer uploads from message thread
+  if (vboNeedsUpdate.exchange(false)) {
+    std::lock_guard<std::mutex> lock(glDataMutex);
+    glVertexCount = static_cast<int>(vertexBuffer.size());
+    openGLContext.extensions.glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    if (glVertexCount > 0) {
+      openGLContext.extensions.glBufferData(GL_ARRAY_BUFFER,
+                                            vertexBuffer.size() * sizeof(Vertex),
+                                            vertexBuffer.data(), GL_STATIC_DRAW);
+    }
+  }
+  if (lineVboNeedsUpdate.exchange(false)) {
+    std::lock_guard<std::mutex> lock(glDataMutex);
+    glLineVertexCount = static_cast<int>(lineVertexBuffer.size());
     openGLContext.extensions.glBindBuffer(GL_ARRAY_BUFFER, lineVbo);
-    if (lineVboNeedsUpdate) {
+    if (glLineVertexCount > 0) {
       openGLContext.extensions.glBufferData(GL_ARRAY_BUFFER,
                                             lineVertexBuffer.size() * sizeof(LineVertex),
                                             lineVertexBuffer.data(), GL_STATIC_DRAW);
-      lineVboNeedsUpdate = false;
+    }
+  }
+
+  if (!layoutPending && shaderProgram && glVertexCount > 0) {
+    float aspect = (effH > 0.0f) ? (effW / effH) : 1.0f;
+    auto projectionMatrix = juce::Matrix3D<float>::fromFrustum(
+        -aspect * 0.1f, aspect * 0.1f, -0.1f, 0.1f, 0.2f, 1000000.0f);
+
+    juce::Matrix3D<float> viewMatrix;
+    viewMatrix = viewMatrix *
+                 juce::Matrix3D<float>::fromTranslation(
+                     {0.0f, 0.0f, -cameraDistance / zoomScale});
+
+    float crx = std::cos(rotX), srx = std::sin(rotX);
+    float cry = std::cos(rotY), sry = std::sin(rotY);
+    juce::Matrix3D<float> rotMatrix(cry, 0.0f, sry, 0.0f, srx * sry, crx,
+                                    -srx * cry, 0.0f, -crx * sry, srx, crx * cry,
+                                    0.0f, 0.0f, 0.0f, 0.0f, 1.0f);
+    viewMatrix = viewMatrix * rotMatrix;
+
+    viewMatrix = viewMatrix *
+                 juce::Matrix3D<float>::fromTranslation(
+                     {-cameraCenterPos.x, -cameraCenterPos.y, -cameraCenterPos.z});
+
+    lastViewProjectionMatrix = projectionMatrix * viewMatrix;
+
+    // 2. Draw Constellation Lines (Alpha Blend)
+    juce::gl::glEnable(GL_BLEND);
+    juce::gl::glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    if (lineShaderProgram && glLineVertexCount > 0) {
+      lineShaderProgram->use();
+      if (lineLoc.projectionMatrix >= 0)
+        openGLContext.extensions.glUniformMatrix4fv(lineLoc.projectionMatrix, 1, GL_FALSE, projectionMatrix.mat);
+      if (lineLoc.viewMatrix >= 0)
+        openGLContext.extensions.glUniformMatrix4fv(lineLoc.viewMatrix, 1, GL_FALSE, viewMatrix.mat);
+      if (lineLoc.revealAlpha >= 0)
+        openGLContext.extensions.glUniform1f(lineLoc.revealAlpha, revealAlpha);
+      if (lineLoc.time >= 0)
+        openGLContext.extensions.glUniform1f(lineLoc.time, timeSec);
+
+      openGLContext.extensions.glBindBuffer(GL_ARRAY_BUFFER, lineVbo);
+      if (lineLoc.position >= 0) {
+        openGLContext.extensions.glVertexAttribPointer(
+            lineLoc.position, 3, GL_FLOAT, GL_FALSE, sizeof(LineVertex), (GLvoid *)offsetof(LineVertex, x));
+        openGLContext.extensions.glEnableVertexAttribArray(lineLoc.position);
+      }
+      if (lineLoc.colour >= 0) {
+        openGLContext.extensions.glVertexAttribPointer(
+            lineLoc.colour, 4, GL_FLOAT, GL_FALSE, sizeof(LineVertex), (GLvoid *)offsetof(LineVertex, r));
+        openGLContext.extensions.glEnableVertexAttribArray(lineLoc.colour);
+      }
+      juce::gl::glDrawArrays(GL_LINES, 0, (GLsizei)glLineVertexCount);
+      if (lineLoc.position >= 0) openGLContext.extensions.glDisableVertexAttribArray(lineLoc.position);
+      if (lineLoc.colour >= 0) openGLContext.extensions.glDisableVertexAttribArray(lineLoc.colour);
     }
 
-    GLint lPosAttr = openGLContext.extensions.glGetAttribLocation(lineProg, "position");
-    GLint lColAttr = openGLContext.extensions.glGetAttribLocation(lineProg, "colour");
-    if (lPosAttr >= 0) {
+    // 3. Draw Point Cloud Particles (Luminous Additive Blend)
+    juce::gl::glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+    juce::gl::glEnable(GL_PROGRAM_POINT_SIZE);
+
+    shaderProgram->use();
+    if (cloudLoc.projectionMatrix >= 0)
+      openGLContext.extensions.glUniformMatrix4fv(cloudLoc.projectionMatrix, 1, GL_FALSE, projectionMatrix.mat);
+    if (cloudLoc.viewMatrix >= 0)
+      openGLContext.extensions.glUniformMatrix4fv(cloudLoc.viewMatrix, 1, GL_FALSE, viewMatrix.mat);
+    if (cloudLoc.revealAlpha >= 0)
+      openGLContext.extensions.glUniform1f(cloudLoc.revealAlpha, revealAlpha);
+    if (cloudLoc.time >= 0)
+      openGLContext.extensions.glUniform1f(cloudLoc.time, timeSec);
+    if (cloudLoc.scaleFactor >= 0)
+      openGLContext.extensions.glUniform1f(cloudLoc.scaleFactor, scaleFactor);
+
+    int hoveredVtxIdx = -1;
+    if (animatedHoverNodeIndex >= 0 && animatedHoverNodeIndex < glVertexCount) {
+      hoveredVtxIdx = animatedHoverNodeIndex;
+    }
+    if (cloudLoc.hoveredVertexIndex >= 0)
+      openGLContext.extensions.glUniform1i(cloudLoc.hoveredVertexIndex, hoveredVtxIdx);
+    if (cloudLoc.hoverScale >= 0)
+      openGLContext.extensions.glUniform1f(cloudLoc.hoverScale, currentHoverScale);
+    if (cloudLoc.fogColor >= 0)
+      openGLContext.extensions.glUniform3f(cloudLoc.fogColor,
+          bgAnthracite.getFloatRed(), bgAnthracite.getFloatGreen(), bgAnthracite.getFloatBlue());
+
+    openGLContext.extensions.glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    if (cloudLoc.position >= 0) {
       openGLContext.extensions.glVertexAttribPointer(
-          lPosAttr, 3, GL_FLOAT, GL_FALSE, sizeof(LineVertex), (GLvoid *)offsetof(LineVertex, x));
-      openGLContext.extensions.glEnableVertexAttribArray(lPosAttr);
+          cloudLoc.position, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (GLvoid *)offsetof(Vertex, x));
+      openGLContext.extensions.glEnableVertexAttribArray(cloudLoc.position);
     }
-    if (lColAttr >= 0) {
+    if (cloudLoc.colour >= 0) {
       openGLContext.extensions.glVertexAttribPointer(
-          lColAttr, 4, GL_FLOAT, GL_FALSE, sizeof(LineVertex), (GLvoid *)offsetof(LineVertex, r));
-      openGLContext.extensions.glEnableVertexAttribArray(lColAttr);
+          cloudLoc.colour, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex), (GLvoid *)offsetof(Vertex, r));
+      openGLContext.extensions.glEnableVertexAttribArray(cloudLoc.colour);
     }
-    juce::gl::glDrawArrays(GL_LINES, 0, (GLsizei)lineVertexBuffer.size());
-    if (lPosAttr >= 0) openGLContext.extensions.glDisableVertexAttribArray(lPosAttr);
-    if (lColAttr >= 0) openGLContext.extensions.glDisableVertexAttribArray(lColAttr);
+    if (cloudLoc.radius >= 0) {
+      openGLContext.extensions.glVertexAttribPointer(
+          cloudLoc.radius, 1, GL_FLOAT, GL_FALSE, sizeof(Vertex), (GLvoid *)offsetof(Vertex, radius));
+      openGLContext.extensions.glEnableVertexAttribArray(cloudLoc.radius);
+    }
+    juce::gl::glDrawArrays(GL_POINTS, 0, (GLsizei)glVertexCount);
+    if (cloudLoc.position >= 0) openGLContext.extensions.glDisableVertexAttribArray(cloudLoc.position);
+    if (cloudLoc.colour >= 0) openGLContext.extensions.glDisableVertexAttribArray(cloudLoc.colour);
+    if (cloudLoc.radius >= 0) openGLContext.extensions.glDisableVertexAttribArray(cloudLoc.radius);
   }
 
-  // 3. Draw Point Cloud Particles (Luminous Additive Blend)
-  juce::gl::glBlendFunc(GL_SRC_ALPHA, GL_ONE);
-  juce::gl::glEnable(GL_PROGRAM_POINT_SIZE);
-
-  shaderProgram->use();
-  GLuint progID = shaderProgram->getProgramID();
-  openGLContext.extensions.glUniformMatrix4fv(
-      openGLContext.extensions.glGetUniformLocation(progID, "projectionMatrix"),
-      1, GL_FALSE, projectionMatrix.mat);
-  openGLContext.extensions.glUniformMatrix4fv(
-      openGLContext.extensions.glGetUniformLocation(progID, "viewMatrix"), 1,
-      GL_FALSE, viewMatrix.mat);
-  openGLContext.extensions.glUniform1f(
-      openGLContext.extensions.glGetUniformLocation(progID, "revealAlpha"),
-      revealAlpha);
-  openGLContext.extensions.glUniform1f(
-      openGLContext.extensions.glGetUniformLocation(progID, "time"),
-      timeSec);
-  openGLContext.extensions.glUniform1f(
-      openGLContext.extensions.glGetUniformLocation(progID, "scaleFactor"),
-      scaleFactor);
-
-  int hoveredVtxIdx = -1;
-  if (animatedHoverNodeIndex >= 0 && animatedHoverNodeIndex < static_cast<int>(nodes.size())) {
-    hoveredVtxIdx = animatedHoverNodeIndex;
-  }
-  openGLContext.extensions.glUniform1i(
-      openGLContext.extensions.glGetUniformLocation(progID, "hoveredVertexIndex"),
-      hoveredVtxIdx);
-  openGLContext.extensions.glUniform1f(
-      openGLContext.extensions.glGetUniformLocation(progID, "hoverScale"),
-      currentHoverScale);
-
-  openGLContext.extensions.glUniform3f(
-      openGLContext.extensions.glGetUniformLocation(progID, "fogColor"),
-      bgAnthracite.getFloatRed(), bgAnthracite.getFloatGreen(), bgAnthracite.getFloatBlue());
-
-  openGLContext.extensions.glBindBuffer(GL_ARRAY_BUFFER, vbo);
-
-  if (vboNeedsUpdate) {
-    openGLContext.extensions.glBufferData(GL_ARRAY_BUFFER,
-                                          vertexBuffer.size() * sizeof(Vertex),
-                                          vertexBuffer.data(), GL_STATIC_DRAW);
-    vboNeedsUpdate = false;
-  }
-
-  GLint posAttr =
-      openGLContext.extensions.glGetAttribLocation(progID, "position");
-  GLint colAttr =
-      openGLContext.extensions.glGetAttribLocation(progID, "colour");
-  GLint radAttr =
-      openGLContext.extensions.glGetAttribLocation(progID, "radius");
-
-  if (posAttr >= 0) {
-    openGLContext.extensions.glVertexAttribPointer(
-        posAttr, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex),
-        (GLvoid *)offsetof(Vertex, x));
-    openGLContext.extensions.glEnableVertexAttribArray(posAttr);
-  }
-  if (colAttr >= 0) {
-    openGLContext.extensions.glVertexAttribPointer(
-        colAttr, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex),
-        (GLvoid *)offsetof(Vertex, r));
-    openGLContext.extensions.glEnableVertexAttribArray(colAttr);
-  }
-  if (radAttr >= 0) {
-    openGLContext.extensions.glVertexAttribPointer(
-        radAttr, 1, GL_FLOAT, GL_FALSE, sizeof(Vertex),
-        (GLvoid *)offsetof(Vertex, radius));
-    openGLContext.extensions.glEnableVertexAttribArray(radAttr);
-  }
-  juce::gl::glDrawArrays(GL_POINTS, 0, (GLsizei)vertexBuffer.size());
+  // Restore clean GL state for JUCE 2D overlay rendering
   juce::gl::glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-  if (posAttr >= 0)
-    openGLContext.extensions.glDisableVertexAttribArray(posAttr);
-  if (colAttr >= 0)
-    openGLContext.extensions.glDisableVertexAttribArray(colAttr);
-  if (radAttr >= 0)
-    openGLContext.extensions.glDisableVertexAttribArray(radAttr);
+  openGLContext.extensions.glBindBuffer(GL_ARRAY_BUFFER, 0);
+  openGLContext.extensions.glBindVertexArray(0);
+  openGLContext.extensions.glUseProgram(0);
 }
 
 void SampleCloudComponent::openGLContextClosing() {
@@ -3527,6 +3559,15 @@ void SampleCloudComponent::openGLContextClosing() {
   openGLContext.extensions.glDeleteBuffers(1, &vbo);
   openGLContext.extensions.glDeleteBuffers(1, &lineVbo);
   openGLContext.extensions.glDeleteVertexArrays(1, &vao);
+  bgVbo = 0;
+  vbo = 0;
+  lineVbo = 0;
+  vao = 0;
+  glVertexCount = 0;
+  glLineVertexCount = 0;
+  bgLoc = {};
+  lineLoc = {};
+  cloudLoc = {};
   bgShaderProgram.reset();
   lineShaderProgram.reset();
   shaderProgram.reset();

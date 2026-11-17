@@ -16,6 +16,7 @@
 
 #include <thread>
 #include <atomic>
+#include <mutex>
 #include <vector>
 #include <set>
 #include <utility>
@@ -210,8 +211,23 @@ private:
     GLuint bgVbo { 0 };
     GLuint vbo { 0 };
     GLuint lineVbo { 0 };
-    bool vboNeedsUpdate { false };
-    bool lineVboNeedsUpdate { false };
+    std::mutex glDataMutex;
+    std::atomic<bool> vboNeedsUpdate { false };
+    std::atomic<bool> lineVboNeedsUpdate { false };
+    int glVertexCount { 0 };
+    int glLineVertexCount { 0 };
+
+    struct BgShaderLocations {
+        GLint pos { -1 }, time { -1 }, fogColor { -1 }, viewportSize { -1 };
+    } bgLoc;
+    struct LineShaderLocations {
+        GLint position { -1 }, colour { -1 }, projectionMatrix { -1 }, viewMatrix { -1 }, revealAlpha { -1 }, time { -1 };
+    } lineLoc;
+    struct CloudShaderLocations {
+        GLint position { -1 }, colour { -1 }, radius { -1 };
+        GLint projectionMatrix { -1 }, viewMatrix { -1 }, revealAlpha { -1 }, time { -1 };
+        GLint scaleFactor { -1 }, hoveredVertexIndex { -1 }, hoverScale { -1 }, fogColor { -1 };
+    } cloudLoc;
 #endif
 
     CloudOverlayComponent overlayComponent;
