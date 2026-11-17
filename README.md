@@ -1,89 +1,91 @@
 # OWMB - OpenWav Media Browser (Audio Plugin & Standalone App)
 
-**OWMB** (OpenWav Media Browser) is an open-source, high-performance audio plugin (VST3, Standalone) and sample library management system built with JUCE 8 and C++17. Designed for music producers, sound designers, and sample collectors, **OWMB** features an interactive **3D and 2D Sample Cloud Constellation Visualizer**, multi-tag filtering, ultra-fast asynchronous WAV scanning, and direct DAW drag-and-drop integration.
+**OWMB** (OpenWav Media Browser) is an open-source audio plugin (VST3, AU, and Standalone) for browsing, editing, sampling, and playing sounds. Built with JUCE 8 and C++17, it brings together a fast sample library browser, a 3D sound cloud, a waveform & spectral audio editor, a multi-zone playable sampler with a VST auto-sampler, a 21-effect rack, and a post-production cue sheet in one app.
 
 ## Visual Tour & Workspaces
 
-Explore the core workspaces and specialized sound design views within OWMB:
+Explore the main views inside OWMB (or press `Cmd/Ctrl + K` anywhere to open the Quick Command Palette):
 
-### 1. List Browser & Waveform Transport
-Multi-column sample browser with instant multi-tag Boolean filtering (AND/OR logic), format filters (`.WAV`, `.MP3`, `.FLAC`, `.OGG`, `.AIFF`), scanned folder manager, and waveform playback transport with transient auto-slicing and Loris resynthesis.
+### 1. List Browser, Folders & Waveform Transport
+Browse your samples in a clean list or folder tree with instant search, multi-tag filtering (AND/OR), and format filters (`.WAV`, `.MP3`, `.FLAC`, `.OGG`, `.AIFF`). Preview sounds on the bottom waveform bar with auto-slicing and Loris resynthesis, and drag files straight into your DAW.
 
 ![OWMB List Browser View](docs/screenshots/01-list-browser.png)
 
-### 2. 3D Cloud Constellation Visualizer
-Interactive 3D spatial constellation clustering thousands of samples organically by acoustic timbre and spectral similarity. Features hardware-accelerated orbital camera navigation, tag pills, instant node auditioning, and real-time additive resynthesis.
+### 2. 3D Cloud Visualizer
+Explore thousands of samples in a 2D or 3D space grouped by how they sound. Spin and zoom the camera, hover to preview sounds, and launch additive resynthesis.
 
 ![OWMB 3D Cloud Constellation View](docs/screenshots/02-3d-cloud.png)
 
 ### 3. Online Cloud Soundbank Library
-Direct integration with cloud storage (Pixeldrain) for discovering, previewing, and downloading curated soundbanks, royalty-free sample collections, and instrument bundles straight into your local workspace.
+Browse, preview, and download soundbanks and sample packs from cloud storage directly into your local library.
 
 ![OWMB Online Soundbank Library View](docs/screenshots/03-online-library.png)
 
-### 4. Audio Sample Recorder & Parametric EQ
-Full-featured stereo audio recording suite with live input level meters, count-in metronome, low-cut filter, live oscilloscope, and an interactive parametric equalizer.
+### 4. Audio Recorder & EQ
+Record stereo audio straight into OWMB with live input meters, a count-in metronome, low-cut filter, live oscilloscope, and parametric EQ.
 
 ![OWMB Audio Sample Recorder & EQ View](docs/screenshots/04-recorder-eq.png)
 
-### 5. Acoustic Fingerprint & Timbral Analysis
-Comprehensive real-time acoustic analysis and timbral radar chart displaying Zero Crossing Rate (ZCR), Crest Factor, High-Frequency (HF) Energy Ratio, and Envelope Decay metrics.
+### 5. Sound Analysis
+Inspect any sample's acoustic traits with a radar chart showing Zero Crossing Rate, Crest Factor, High-Frequency Energy, and Envelope Decay.
 
 ![OWMB Acoustic Fingerprint & Analysis View](docs/screenshots/05-acoustic-analysis.png)
 
-### 6. Waveform Editor & Transient Slicer
-Precision sample editing suite featuring automatic beat and transient slicing, zoomable waveform navigation, attack/decay crossfades, sample reverse, and loop point configurations.
+### 6. Waveform & Spectral Audio Editor
+Edit samples with multi-step **Undo/Redo** (`Cmd/Ctrl+Z`), Peak dBFS & RMS readouts, zoom/scroll, zero-crossing snapping, fades, **Loop Seam** auditioning, crop/reverse/normalize/trim, and direct **Save to Library** or **Send to Sample Map** buttons. Switch to **Spectral View** to draw, move, or resize Box, Time, Frequency, Lasso, and Oval selections to heal, denoise, de-harmonic, isolate, boost, or remove frequencies.
 
 ![OWMB Waveform Editor & Slicer View](docs/screenshots/06-waveform-editor.png)
-
-### 7. Spectral Audio Editor
-High-resolution STFT spectrogram visualization for inspecting harmonic structures, spectral distribution, and frequency-domain audio editing with interactive selection brushes.
-
 ![OWMB Spectral Audio Editor View](docs/screenshots/07-spectral-editor.png)
 
-### 8. Multi-Velocity Keyzone Sample Mapper
-Comprehensive chromatic sample mapping instrument on **MIDI Channel 2** with interactive on-screen keybed (velocity-sensitive Y-axis positioning: bottom of key = 127, top = lowest velocity), zone ADSR shaping, auto-pitch detection, chromatic distribution, auto-velocity spreading, and round-robin cycle modes.
+### 7. Sample Mapper & Instrument Builder
+Turn samples into playable instruments (pianos, drum kits, synths, pads) with MIDI input, sustain pedal, and pitch bend support:
+- **Key & Velocity Mapping**: Drag, resize, auto-pitch, auto-chromatic map, auto-velocity spread, and set Round Robin (RR) layers on an interactive keybed.
+- **Note-Off (Release) Sounds**: Assign samples to trigger when a key is released (like piano key/damper sounds) and filter the grid by **All**, **Note-On Only**, **Release Only**, or **RR Group**.
+- **One-Click Instrument Presets**: Quick setups for **Piano**, **Drum Kit**, **Synth Lead / Bass**, and **Lush Pad / Strings**.
+- **URL & GitHub Instrument Download**: Download `.zip`, `.sfz`, `.owmap`, `.samplemap`, or `.xml` instruments from any web link, Dropbox, Google Drive, or GitHub repo (`owner/repo`).
+- **VST3 / AU Auto-Sampler**: Automatically sample any external VST3/AU plugin across keys, velocities, and round robins—including optional **Note-Off (Release)** capture—and export ready-to-play `.sfz` and Sample Map instruments.
 
 ![OWMB Sample Map Editor View](docs/screenshots/08-sample-map.png)
 
-### 9. 16-DSP Effects Rack
-Modular 19" rack-mount hardware-style effects rack exclusively dedicated to sample mapped zones and MIDI instruments. Includes 16 studio-grade DSP units (Vintage Bitcrusher, Analog Saturation, Multi-Mode Filter, Stereo Delay, Algorithmic Reverb, Chorus, Flanger, Phaser, Pitch Shifter, Wavefolder, Auto-Pan, Graphic EQ, Master Limiter, Stereo Widener, Ring Modulator, Noise Gate) with draggable re-ordering, active bypass toggles, and factory presets.
+### 8. 21-Effect Modular Rack
+Shape your sampler instruments in real time with a reorderable effects rack featuring **21 DSP effects** and presets:
+- **Lo-Fi & Creative**: **Live Granulator** (with Freeze mode, grain size, density, pitch, spray, and stereo spread), **Tape Wow & Flutter**, and **Vintage Bitcrusher**.
+- **Spatial & Time**: **Shimmer Reverb**, **Studio Reverb**, **Stereo Delay**, **Tape & BBD Flanger**, and **Stereo Width & Imager**.
+- **Dynamics & Tone**: **Transient Shaper**, **Global ADSR Envelope**, **VCA Compressor**, **3-Band Parametric EQ**, **Multi-Mode SVF Filter**, **Analog Saturation**, **Dynamic Auto-Wah**, and **Amp & Cabinet Simulator**.
+- **Modulation & Pitch**: **Stereo Chorus**, **Analog Phaser**, **Pitch Harmonizer**, **Tremolo & Auto-Panner**, and **Metallic Ring Modulator**.
 
 ![OWMB Effects Rack View](docs/screenshots/09-effects-rack.png)
+
+### 9. Cue Sheet (Used Samples Spreadsheet)
+Keep track of every sample and trimmed region used in your project for post-production documentation. Automatically logs samples sent to the Sample Map, auto-sliced, or saved from the Editor; lets you edit **Scene / Track** and **Notes** inline, audition cues, and export a **CSV** spreadsheet.
 
 ---
 
 ## Key Features
 
-- **3D Cloud Instant Preview & Resynthesis**: Seamlessly explore your sample library in a 3D constellation with real-time additive resynthesis powered by Loris.
-- **Interactive 2D/3D Zoom & Pan**: Fluid navigation through thousands of samples with high-performance hardware-accelerated rendering and orbital camera rotation.
-- **Multi-Velocity Keyzone Sample Mapper**: Chromatic zone mapping on MIDI Channel 2 with velocity-sensitive on-screen keybed, auto-pitch, auto-chromatic mapping, auto-velocity spreading, and round-robin triggering.
-- **16-DSP Modular Effects Rack**: Dedicated 19" rack effects processor for mapped instruments featuring 16 studio-grade DSP algorithms (Bitcrusher, Tape Saturation, Multi-Mode Filter, Chorus, Reverb, Delay, and more) with custom presets.
-- **Waveform Slicer & Spectral Editor**: Precision transient slicing, loop points, fades, and high-resolution STFT spectrogram visualization.
-- **Audio Recorder & Parametric EQ**: Direct stereo audio sample recorder with live monitoring and parametric equalization.
-- **Acoustic Fingerprint Radar**: Timbral analysis profiling Crest factor, Zero Crossing Rate, HF content, and envelope decay.
-- **Online Cloud Soundbanks**: Browse and download soundbank packs directly from Pixeldrain into local storage.
-- **Advanced Tag-Based Searching**: Powerful filtering with automated inference and multi-tag Boolean (AND/OR) queries to find sounds faster than ever.
-- **Ultra-Fast Asynchronous Library Scanner**: Rapidly index massive sample libraries without impacting audio playback or UI performance.
-- **Sample Map Management**: Full support for exporting and importing sample map bundles (.zip) with automated sample reloading and mapping state synchronization.
-- **DAW Drag-and-Drop**: Effortless integration with all major DAWs (Ableton Live, FL Studio, Logic Pro, Reaper, Cubase, Bitwig). (Note: On macOS, hold `Control` while dragging to ensure proper OS-level drag-and-drop behavior).
-- **Platform Agnostic**: Stable performance across Windows 11, macOS (Apple Silicon & Intel), and Linux.
+- **Fast Sample Browser & Tagging**: Multi-threaded library scanner, instant search, tag cloud, and Boolean (AND/OR) tag filtering.
+- **Quick Command Palette (`Cmd/Ctrl + K`)**: Jump to any view, run actions, or search and load samples from anywhere in the app.
+- **3D & 2D Sound Cloud**: Explore your library visually by sound similarity with real-time additive resynthesis.
+- **Waveform & Spectral Editor**: Non-destructive editing with multi-step Undo/Redo, Peak/RMS meters, Loop Seam preview, and spectral repair/denoise/gain tools.
+- **Playable Multi-Zone Sampler & Auto-Sampler**: Supports Note-On & Note-Off (Release) triggers, Round Robins, velocity curves, sustain pedal, pitch bend, SFZ/ZIP import, URL/GitHub downloads, and offline VST3/AU auto-sampling.
+- **21-Effect Performance Rack**: Real-time Live Granulator, Shimmer Reverb, Tape Wow & Flutter, Transient Shaper, EQ, Compression, Delays, and Modulation.
+- **Post-Production Cue Sheet**: Spreadsheet log of all used samples and time regions with CSV export.
+- **DAW Drag-and-Drop**: Drag samples or edited selections straight into Ableton Live, FL Studio, Logic Pro, Reaper, Cubase, or Bitwig (on macOS, hold `Control` while dragging if needed).
+- **Cross-Platform**: Runs on Windows 11, macOS (Apple Silicon & Intel), and Linux.
 
-## Application Keyboard Shortcuts
+## Keyboard Shortcuts
 
 | Key | Action |
 | :--- | :--- |
-| `Space` | Play/Pause / Transport Control |
-| `Enter` | Trigger Convert / Confirm Action |
-| `Escape` | Cancel / Close Dialogs |
-| `Delete` / `Backspace` | Delete Selection |
-| `Up` | Previous Item / Increase Value |
-| `Down` | Next Item / Decrease Value |
-| `Left` | Previous Item / Decrease Note |
-| `Right` | Next Item / Increase Note |
-| `Numpad +` | Increment Selection/Value |
-| `Numpad -` | Decrement Selection/Value |
-| `Numpad 0` | Reset Selection/Value |
+| `Cmd/Ctrl + K` | Open Quick Command Palette |
+| `Space` | Play / Pause |
+| `Shift + Space` | Play Selection (in Editor) |
+| `Cmd/Ctrl + Z` | Undo Edit (in Editor) |
+| `Cmd/Ctrl + Shift + Z` | Redo Edit (in Editor) |
+| `Z` / `N` / `R` / `C` | Snap 0-X / Normalize / Reverse / Crop (in Editor) |
+| `+` / `-` | Zoom In / Zoom Out |
+| `Delete` / `Backspace` | Silence Selection (Editor) or Remove Selected Zone/Cue |
+| `Escape` | Close Dialogs / Deselect |
 
 ---
 
