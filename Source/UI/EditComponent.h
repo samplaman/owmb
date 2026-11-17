@@ -250,6 +250,11 @@ private:
         DragSelectionOut,
         SelectingRange,
         SelectingSpectralBox,
+        SpectralMove,
+        SpectralResizeLeft,
+        SpectralResizeRight,
+        SpectralResizeTop,
+        SpectralResizeBottom,
         ScrubbingPlayhead
     };
     DragTarget dragTarget { DragTarget::None };
@@ -257,6 +262,12 @@ private:
     double dragLoopSpan { 0.0 };
     double dragLoopGrabOffset { 0.0 };
     double dragStartRatio { 0.0 };
+    double spectralMoveStartT0 { 0.0 };
+    double spectralMoveStartT1 { 0.0 };
+    float spectralMoveStartNormY0 { 0.0f };
+    float spectralMoveStartNormY1 { 1.0f };
+    juce::Point<float> lastLassoPixelPos;
+    juce::Rectangle<float> getSpectralSelectionRect(juce::Rectangle<float> bounds) const;
 
     // Spectrogram State & Controls
     enum class SpectralSelectionShape

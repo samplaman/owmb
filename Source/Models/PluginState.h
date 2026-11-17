@@ -869,6 +869,56 @@ struct SampleEditSettingsState
     }
 };
 
+struct CueSheetEntryState
+{
+    juce::String fileName;
+    juce::String filePath;
+    double inSeconds { 0.0 };
+    double outSeconds { 0.0 };
+    double fullDurationSeconds { 0.0 };
+    bool isPartialRegion { false };
+    juce::String sourceContext;
+    juce::String sceneTrack;
+    juce::String notes;
+    juce::String loggedAt;
+
+    juce::var toVar() const
+    {
+        auto* obj = new juce::DynamicObject();
+        obj->setProperty("fileName", fileName);
+        obj->setProperty("filePath", filePath);
+        obj->setProperty("inSeconds", inSeconds);
+        obj->setProperty("outSeconds", outSeconds);
+        obj->setProperty("fullDurationSeconds", fullDurationSeconds);
+        obj->setProperty("isPartialRegion", isPartialRegion);
+        obj->setProperty("sourceContext", sourceContext);
+        obj->setProperty("sceneTrack", sceneTrack);
+        obj->setProperty("notes", notes);
+        obj->setProperty("loggedAt", loggedAt);
+        return juce::var(obj);
+    }
+
+    static CueSheetEntryState fromVar(const juce::var& v)
+    {
+        CueSheetEntryState c;
+        if (!v.isObject()) return c;
+        auto* obj = v.getDynamicObject();
+        if (!obj) return c;
+
+        c.fileName = obj->getProperty("fileName").toString();
+        c.filePath = obj->getProperty("filePath").toString();
+        c.inSeconds = static_cast<double>(obj->getProperty("inSeconds"));
+        c.outSeconds = static_cast<double>(obj->getProperty("outSeconds"));
+        c.fullDurationSeconds = static_cast<double>(obj->getProperty("fullDurationSeconds"));
+        c.isPartialRegion = static_cast<bool>(obj->getProperty("isPartialRegion"));
+        c.sourceContext = obj->getProperty("sourceContext").toString();
+        c.sceneTrack = obj->getProperty("sceneTrack").toString();
+        c.notes = obj->getProperty("notes").toString();
+        c.loggedAt = obj->getProperty("loggedAt").toString();
+        return c;
+    }
+};
+
 struct PluginFullState
 {
     int version { 2 };
@@ -883,6 +933,7 @@ struct PluginFullState
     SampleMapState sampleMap;
     PerformanceRackState performance;
     std::vector<SampleEditSettingsState> perSampleEditSettings;
+    std::vector<CueSheetEntryState> cueSheetEntries;
 
     juce::var toVar() const
     {
@@ -913,6 +964,11 @@ struct PluginFullState
         for (const auto& ss : perSampleEditSettings)
             sampleSettingsArray.add(ss.toVar());
         obj->setProperty("perSampleEditSettings", sampleSettingsArray);
+
+        juce::Array<juce::var> cueArray;
+        for (const auto& cue : cueSheetEntries)
+            cueArray.add(cue.toVar());
+        obj->setProperty("cueSheetEntries", cueArray);
         return juce::var(obj);
     }
 
@@ -948,6 +1004,11 @@ struct PluginFullState
             s.tagPanelWidth = static_cast<int>(obj->getProperty("tagPanelWidth"));
 
         if (obj->hasProperty("edit")) s.edit = EditComponentState::fromVar(obj->getProperty("edit"));
+        if (obj->hasProperty("cueSheetEntries") && obj->getProperty("cueSheetEntries").isArray())
+        {
+            for (const auto& c : *obj->getProperty("cueSheetEntries").getArray())
+                s.cueSheetEntries.push_back(CueSheetEntryState::fromVar(c));
+        }
         if (obj->hasProperty("sampleMap")) s.sampleMap = SampleMapState::fromVar(obj->getProperty("sampleMap"));
         if (obj->hasProperty("performance")) s.performance = PerformanceRackState::fromVar(obj->getProperty("performance"));
         if (obj->hasProperty("perSampleEditSettings") && obj->getProperty("perSampleEditSettings").isArray())

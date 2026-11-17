@@ -2,6 +2,7 @@
 
 #include "OpenWavLookAndFeel.h"
 #include "../Database/TagDatabaseManager.h"
+#include <algorithm>
 #include <functional>
 #include <vector>
 

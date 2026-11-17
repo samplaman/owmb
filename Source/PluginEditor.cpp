@@ -52,6 +52,7 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
                            p.getLibraryScanner()),
       editComponent(p.getAudioEngine()), sampleMapComponent(p.getAudioEngine()),
       performanceComponent(p.getAudioEngine()),
+      cueSheetComponent(p.getAudioEngine()),
       commandPalette(p.getDatabaseManager()) {
   juce::String savedColourHex =
       audioProcessor.getDatabaseManager().getPrimaryColourHex();
@@ -84,6 +85,7 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
   addChildComponent(editComponent);
   addChildComponent(sampleMapComponent);
   addChildComponent(performanceComponent);
+  addChildComponent(cueSheetComponent);
   addAndMakeVisible(waveformTransport);
 
   tooltipWindow = std::make_unique<juce::TooltipWindow>(this, 280);
@@ -97,6 +99,7 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
       { "VIEW",   "Audio Editor",         "Trim, normalize & spectral edit",     "7", [this] { headerBar.setViewMode(ViewMode::Edit); } },
       { "VIEW",   "Sample Map",           "Build multi-zone instruments & kits", "8", [this] { headerBar.setViewMode(ViewMode::SampleMap); } },
       { "VIEW",   "Performance Rack",     "Chain real-time audio FX",            "9", [this] { headerBar.setViewMode(ViewMode::Performance); } },
+      { "VIEW",   "Cue Sheet",            "Spreadsheet of all used samples & regions", "", [this] { headerBar.setViewMode(ViewMode::CueSheet); } },
       { "ACTION", "Add Sample Folder...", "Scan a new folder into library",      "",  [this] { addFolderRequested(); } },
       { "ACTION", "Rescan Library",       "Refresh all scanned sample folders",  "",  [this] { rescanRequested(); } },
       { "ACTION", "Play / Pause",         "Toggle transport playback",           "Space", [this] { waveformTransport.togglePlay(); } },
@@ -270,8 +273,16 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
     return item;
   };
 
-  editComponent.onSavedToLibrary = [indexEditedFile](const juce::File& file) {
-    indexEditedFile(file);
+  editComponent.onSavedToLibrary = [this, indexEditedFile](const juce::File& file) {
+    MediaItem item = indexEditedFile(file);
+    auto& eng = audioProcessor.getAudioEngine();
+    const double total = eng.getTotalLengthSeconds();
+    const double startR = eng.getSampleStartRatio();
+    const double endR = eng.getSampleEndRatio();
+    const bool isPartial = (startR > 0.001 || endR < 0.999);
+    cueSheetComponent.logUsage(item.filePath, 0.0, item.durationSeconds, item.durationSeconds,
+                               isPartial, "Edit Copy",
+                               isPartial ? ("Trimmed from " + juce::String(startR * total, 2) + "s - " + juce::String(endR * total, 2) + "s") : "");
     ToastOverlay::show("Saved edited copy to library: " + file.getFileName());
   };
 
@@ -279,6 +290,27 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
     MediaItem item = indexEditedFile(file);
     addToSampleMapRequested(item);
     ToastOverlay::show("Sent to Sample Map: " + file.getFileName());
+  };
+
+  cueSheetComponent.onSyncSampleMapRequested = [this] {
+    cueSheetComponent.syncFromSampleMap(sampleMapComponent.getState());
+  };
+
+  cueSheetComponent.onAuditionCue = [this](const juce::String& filePath, double inSec, double outSec, bool isPartial) {
+    juce::File f(filePath);
+    if (!f.existsAsFile()) {
+      ToastOverlay::show("File not found on disk: " + f.getFileName(), true);
+      return;
+    }
+    auto& eng = audioProcessor.getAudioEngine();
+    eng.loadFile(f, false, false);
+    const double total = eng.getTotalLengthSeconds();
+    if (isPartial && total > 0.0) {
+      eng.setSampleRange(juce::jlimit(0.0, 1.0, inSec / total),
+                         juce::jlimit(0.0, 1.0, outSec / total));
+      eng.setPositionRatio(juce::jlimit(0.0, 1.0, inSec / total));
+    }
+    eng.play();
   };
 
   // Broadcast current LookAndFeel theme and colours to all sub-components
@@ -454,6 +486,7 @@ void OpenWavAudioProcessorEditor::resized() {
   editComponent.setVisible(false);
   sampleMapComponent.setVisible(false);
   performanceComponent.setVisible(false);
+  cueSheetComponent.setVisible(false);
 
   if (mode == ViewMode::Cloud) {
     sampleCloud.setVisible(true);
@@ -480,6 +513,9 @@ void OpenWavAudioProcessorEditor::resized() {
   } else if (mode == ViewMode::Performance) {
     performanceComponent.setVisible(true);
     performanceComponent.setBounds(area);
+  } else if (mode == ViewMode::CueSheet) {
+    cueSheetComponent.setVisible(true);
+    cueSheetComponent.setBounds(area);
   } else // ViewMode::List
   {
     sampleTable.setVisible(true);
@@ -828,6 +864,8 @@ void OpenWavAudioProcessorEditor::addToSampleMapRequested(
     const MediaItem &item) {
   audioProcessor.getAudioEngine().stop();
   sampleMapComponent.addSample(item);
+  cueSheetComponent.logUsage(item.filePath, 0.0, item.durationSeconds,
+                             item.durationSeconds, false, "Sample Map");
   headerBar.setViewMode(ViewMode::SampleMap);
 }
 
@@ -847,6 +885,18 @@ void OpenWavAudioProcessorEditor::autoSliceToSamplerRequested(
         if (!ratios.empty()) {
           waveformTransport.setSliceRatios(ratios);
           sampleMapComponent.autoSliceToSampler(item, ratios);
+          for (size_t i = 0; i < ratios.size(); ++i)
+          {
+            const double startR = ratios[i];
+            const double endR = (i + 1 < ratios.size()) ? ratios[i + 1] : 1.0;
+            cueSheetComponent.logUsage(item.filePath,
+                                       startR * item.durationSeconds,
+                                       endR * item.durationSeconds,
+                                       item.durationSeconds,
+                                       true,
+                                       "Auto-Slice",
+                                       "Slice " + juce::String(i + 1));
+          }
           headerBar.setViewMode(ViewMode::SampleMap);
         }
       });
@@ -1219,6 +1269,7 @@ void OpenWavAudioProcessorEditor::saveStateToProcessor() {
   s.edit = editComponent.getState();
   s.sampleMap = sampleMapComponent.getState();
   s.performance = performanceComponent.getState();
+  s.cueSheetEntries = cueSheetComponent.getState();
   for (const auto& [fp, es] : audioProcessor.getAudioEngine().getAllSampleEditSettings())
   {
     SampleEditSettingsState ss;
@@ -1296,9 +1347,10 @@ void OpenWavAudioProcessorEditor::restoreStateFromProcessor() {
   editComponent.setState(s.edit);
   sampleMapComponent.setState(s.sampleMap);
   performanceComponent.setState(s.performance);
+  cueSheetComponent.setState(s.cueSheetEntries);
 
   // 6. Restore View Mode (never open directly in Cloud view)
-  if (s.currentViewMode >= 0 && s.currentViewMode <= 8) {
+  if (s.currentViewMode >= 0 && s.currentViewMode <= 9) {
     auto mode = static_cast<ViewMode>(s.currentViewMode);
     if (mode == ViewMode::Cloud)
       mode = ViewMode::List;

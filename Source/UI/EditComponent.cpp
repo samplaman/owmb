@@ -2,6 +2,9 @@
 #include "OpenWavLookAndFeel.h"
 #include "ShortcutManager.h"
 #include "ToastOverlay.h"
+#include <algorithm>
+#include <cmath>
+#include <functional>
 
 namespace openwav
 {
@@ -1968,6 +1971,39 @@ void EditComponent::generateSpectrogram()
     spectrogramGenerated = true;
 }
 
+juce::Rectangle<float> EditComponent::getSpectralSelectionRect(juce::Rectangle<float> bounds) const
+{
+    float startX = ratioToX(spectralTimeStart, bounds);
+    float endX = ratioToX(spectralTimeEnd, bounds);
+    float boxLeft = std::min(startX, endX);
+    float boxRight = std::max(startX, endX);
+    float boxW = std::max(4.0f, boxRight - boxLeft);
+
+    const double minF = 20.0;
+    const double maxF = 20000.0;
+    double normLow = juce::jlimit(0.0, 1.0, std::log(std::max(minF, static_cast<double>(spectralFreqLow)) / minF) / std::log(maxF / minF));
+    double normHigh = juce::jlimit(0.0, 1.0, std::log(std::max(minF, static_cast<double>(spectralFreqHigh)) / minF) / std::log(maxF / minF));
+
+    float topY = bounds.getBottom() - static_cast<float>(normHigh) * bounds.getHeight();
+    float bottomY = bounds.getBottom() - static_cast<float>(normLow) * bounds.getHeight();
+    float boxTop = std::min(topY, bottomY);
+    float boxBottom = std::max(topY, bottomY);
+    float boxH = std::max(4.0f, boxBottom - boxTop);
+
+    if (currentSpectralShape == SpectralSelectionShape::Time)
+    {
+        boxTop = bounds.getY();
+        boxH = bounds.getHeight();
+    }
+    else if (currentSpectralShape == SpectralSelectionShape::Frequency)
+    {
+        boxLeft = bounds.getX();
+        boxW = bounds.getWidth();
+    }
+
+    return juce::Rectangle<float>(boxLeft, boxTop, boxW, boxH).getIntersection(bounds);
+}
+
 void EditComponent::paintSpectrogram(juce::Graphics& g, juce::Rectangle<float> bounds)
 {
     if (!spectrogramGenerated || spectrogramImage.isNull())
@@ -1977,7 +2013,15 @@ void EditComponent::paintSpectrogram(juce::Graphics& g, juce::Rectangle<float> b
 
     if (spectrogramGenerated && !spectrogramImage.isNull())
     {
-        g.drawImage(spectrogramImage, bounds, juce::RectanglePlacement::stretchToFit);
+        const int imgW = spectrogramImage.getWidth();
+        const int imgH = spectrogramImage.getHeight();
+        const double visSpan = 1.0 / std::max(1.0, zoomLevel);
+        const int srcX = juce::jlimit(0, std::max(0, imgW - 1), static_cast<int>(std::floor(scrollOffset * imgW)));
+        const int srcW = juce::jlimit(1, imgW - srcX, static_cast<int>(std::ceil(visSpan * imgW)));
+        const auto dest = bounds.toNearestInt();
+        g.drawImage(spectrogramImage,
+                    dest.getX(), dest.getY(), dest.getWidth(), dest.getHeight(),
+                    srcX, 0, srcW, imgH);
     }
 
     g.setFont(juce::Font(9.0f).boldened());
@@ -1993,36 +2037,7 @@ void EditComponent::paintSpectrogram(juce::Graphics& g, juce::Rectangle<float> b
         juce::Graphics::ScopedSaveState saveState(g);
         g.reduceClipRegion(bounds.toNearestInt());
 
-        float startX = ratioToX(spectralTimeStart, bounds);
-        float endX = ratioToX(spectralTimeEnd, bounds);
-        float boxLeft = std::min(startX, endX);
-        float boxRight = std::max(startX, endX);
-        float boxW = std::max(4.0f, boxRight - boxLeft);
-
-        double minF = 20.0;
-        double maxF = 20000.0;
-        double normLow = juce::jlimit(0.0, 1.0, std::log(std::max(minF, static_cast<double>(spectralFreqLow)) / minF) / std::log(maxF / minF));
-        double normHigh = juce::jlimit(0.0, 1.0, std::log(std::max(minF, static_cast<double>(spectralFreqHigh)) / minF) / std::log(maxF / minF));
-
-        float topY = bounds.getBottom() - static_cast<float>(normHigh) * bounds.getHeight();
-        float bottomY = bounds.getBottom() - static_cast<float>(normLow) * bounds.getHeight();
-        float boxTop = std::min(topY, bottomY);
-        float boxBottom = std::max(topY, bottomY);
-        float boxH = std::max(4.0f, boxBottom - boxTop);
-
-        if (currentSpectralShape == SpectralSelectionShape::Time)
-        {
-            boxTop = bounds.getY();
-            boxH = bounds.getHeight();
-        }
-        else if (currentSpectralShape == SpectralSelectionShape::Frequency)
-        {
-            boxLeft = bounds.getX();
-            boxW = bounds.getWidth();
-        }
-
-        juce::Rectangle<float> boxRect(boxLeft, boxTop, boxW, boxH);
-        boxRect = boxRect.getIntersection(bounds);
+        juce::Rectangle<float> boxRect = getSpectralSelectionRect(bounds);
 
         const juce::Colour fillCol = juce::Colour(0, 220, 255).withAlpha(0.28f);
         const juce::Colour neonBorderCol = juce::Colour(0, 245, 255);
@@ -2885,7 +2900,30 @@ void EditComponent::mouseMove(const juce::MouseEvent& e)
 
     if (isSpectralView)
     {
-        setMouseCursor(getSpectralCursor(currentSpectralShape));
+        if (hasSpectralBoxSelection && currentSpectralShape != SpectralSelectionShape::Lasso)
+        {
+            auto boxRect = getSpectralSelectionRect(wfBounds);
+            const float edgeTol = 8.0f;
+            const bool canH = (currentSpectralShape != SpectralSelectionShape::Frequency);
+            const bool canV = (currentSpectralShape != SpectralSelectionShape::Time);
+            const bool nearL = canH && std::abs(e.position.x - boxRect.getX()) <= edgeTol && e.position.y >= boxRect.getY() - edgeTol && e.position.y <= boxRect.getBottom() + edgeTol;
+            const bool nearR = canH && std::abs(e.position.x - boxRect.getRight()) <= edgeTol && e.position.y >= boxRect.getY() - edgeTol && e.position.y <= boxRect.getBottom() + edgeTol;
+            const bool nearT = canV && std::abs(e.position.y - boxRect.getY()) <= edgeTol && e.position.x >= boxRect.getX() - edgeTol && e.position.x <= boxRect.getRight() + edgeTol;
+            const bool nearB = canV && std::abs(e.position.y - boxRect.getBottom()) <= edgeTol && e.position.x >= boxRect.getX() - edgeTol && e.position.x <= boxRect.getRight() + edgeTol;
+
+            if (nearL || nearR)
+                setMouseCursor(juce::MouseCursor::LeftRightResizeCursor);
+            else if (nearT || nearB)
+                setMouseCursor(juce::MouseCursor::UpDownResizeCursor);
+            else if (boxRect.contains(e.position))
+                setMouseCursor(juce::MouseCursor::DraggingHandCursor);
+            else
+                setMouseCursor(getSpectralCursor(currentSpectralShape));
+        }
+        else
+        {
+            setMouseCursor(getSpectralCursor(currentSpectralShape));
+        }
         return;
     }
 
@@ -2976,21 +3014,53 @@ void EditComponent::mouseDown(const juce::MouseEvent& e)
 {
     if (totalDurationSecs <= 0.0 || !audioEngine.isCurrentSampleInSampler()) return;
 
-    auto wfBounds = getWaveformBounds().reduced(6.0f, 6.0f);
-    if (!wfBounds.contains(e.position))
+    auto outerWf = getWaveformBounds();
+    if (!outerWf.contains(e.position))
         return;
 
-    double clickRatio = xToRatio(e.position.x, wfBounds);
+    auto wfBounds = outerWf.reduced(6.0f, 6.0f);
+    juce::Point<float> pos = wfBounds.getConstrainedPoint(e.position);
+
+    double clickRatio = juce::jlimit(0.0, 1.0, xToRatio(pos.x, wfBounds));
     const float threshold = 12.0f;
 
     if (isSpectralView)
     {
+        if (hasSpectralBoxSelection && currentSpectralShape != SpectralSelectionShape::Lasso)
+        {
+            auto boxRect = getSpectralSelectionRect(wfBounds);
+            const float edgeTol = 8.0f;
+            const bool canH = (currentSpectralShape != SpectralSelectionShape::Frequency);
+            const bool canV = (currentSpectralShape != SpectralSelectionShape::Time);
+            const bool nearL = canH && std::abs(pos.x - boxRect.getX()) <= edgeTol && pos.y >= boxRect.getY() - edgeTol && pos.y <= boxRect.getBottom() + edgeTol;
+            const bool nearR = canH && std::abs(pos.x - boxRect.getRight()) <= edgeTol && pos.y >= boxRect.getY() - edgeTol && pos.y <= boxRect.getBottom() + edgeTol;
+            const bool nearT = canV && std::abs(pos.y - boxRect.getY()) <= edgeTol && pos.x >= boxRect.getX() - edgeTol && pos.x <= boxRect.getRight() + edgeTol;
+            const bool nearB = canV && std::abs(pos.y - boxRect.getBottom()) <= edgeTol && pos.x >= boxRect.getX() - edgeTol && pos.x <= boxRect.getRight() + edgeTol;
+
+            if (nearL)      { dragTarget = DragTarget::SpectralResizeLeft; return; }
+            if (nearR)      { dragTarget = DragTarget::SpectralResizeRight; return; }
+            if (nearT)      { dragTarget = DragTarget::SpectralResizeTop; return; }
+            if (nearB)      { dragTarget = DragTarget::SpectralResizeBottom; return; }
+            if (boxRect.contains(pos))
+            {
+                dragTarget = DragTarget::SpectralMove;
+                spectralDragStartPos = pos;
+                spectralMoveStartT0 = spectralTimeStart;
+                spectralMoveStartT1 = spectralTimeEnd;
+                const double minF = 20.0, maxF = 20000.0;
+                spectralMoveStartNormY0 = static_cast<float>(juce::jlimit(0.0, 1.0, std::log(std::max(minF, static_cast<double>(spectralFreqLow)) / minF) / std::log(maxF / minF)));
+                spectralMoveStartNormY1 = static_cast<float>(juce::jlimit(0.0, 1.0, std::log(std::max(minF, static_cast<double>(spectralFreqHigh)) / minF) / std::log(maxF / minF)));
+                return;
+            }
+        }
+
         dragTarget = DragTarget::SelectingSpectralBox;
-        spectralDragStartPos = e.position;
+        spectralDragStartPos = pos;
+        lastLassoPixelPos = pos;
         spectralTimeStart = clickRatio;
         spectralTimeEnd = clickRatio;
 
-        float normY = juce::jlimit(0.0f, 1.0f, (wfBounds.getBottom() - e.position.y) / wfBounds.getHeight());
+        float normY = juce::jlimit(0.0f, 1.0f, (wfBounds.getBottom() - pos.y) / wfBounds.getHeight());
         spectralFreqLow = static_cast<float>(20.0 * std::pow(20000.0 / 20.0, normY));
         spectralFreqHigh = spectralFreqLow;
 
@@ -3139,16 +3209,66 @@ void EditComponent::mouseDrag(const juce::MouseEvent& e)
         return;
 
     auto wfBounds = getWaveformBounds().reduced(6.0f, 6.0f);
-    double currentRatio = juce::jlimit(0.0, 1.0, xToRatio(e.position.x, wfBounds));
+    juce::Point<float> pos = wfBounds.getConstrainedPoint(e.position);
+    double currentRatio = juce::jlimit(0.0, 1.0, xToRatio(pos.x, wfBounds));
+    float currentNormY = juce::jlimit(0.0f, 1.0f, (wfBounds.getBottom() - pos.y) / wfBounds.getHeight());
+    float currentFreq = static_cast<float>(20.0 * std::pow(20000.0 / 20.0, currentNormY));
+
+    if (dragTarget == DragTarget::SpectralResizeLeft)
+    {
+        spectralTimeStart = juce::jlimit(0.0, std::max(0.0, spectralTimeEnd - 0.001), currentRatio);
+        repaint();
+        return;
+    }
+    if (dragTarget == DragTarget::SpectralResizeRight)
+    {
+        spectralTimeEnd = juce::jlimit(std::min(1.0, spectralTimeStart + 0.001), 1.0, currentRatio);
+        repaint();
+        return;
+    }
+    if (dragTarget == DragTarget::SpectralResizeBottom)
+    {
+        spectralFreqLow = juce::jlimit(20.0f, std::max(20.0f, spectralFreqHigh - 5.0f), currentFreq);
+        repaint();
+        return;
+    }
+    if (dragTarget == DragTarget::SpectralResizeTop)
+    {
+        spectralFreqHigh = juce::jlimit(std::min(20000.0f, spectralFreqLow + 5.0f), 20000.0f, currentFreq);
+        repaint();
+        return;
+    }
+    if (dragTarget == DragTarget::SpectralMove)
+    {
+        if (currentSpectralShape != SpectralSelectionShape::Frequency)
+        {
+            double dt = currentRatio - xToRatio(spectralDragStartPos.x, wfBounds);
+            double spanT = spectralMoveStartT1 - spectralMoveStartT0;
+            double newT0 = juce::jlimit(0.0, std::max(0.0, 1.0 - spanT), spectralMoveStartT0 + dt);
+            spectralTimeStart = newT0;
+            spectralTimeEnd = newT0 + spanT;
+        }
+        if (currentSpectralShape != SpectralSelectionShape::Time)
+        {
+            float startNormY = juce::jlimit(0.0f, 1.0f, (wfBounds.getBottom() - spectralDragStartPos.y) / wfBounds.getHeight());
+            float dyNorm = currentNormY - startNormY;
+            float spanY = spectralMoveStartNormY1 - spectralMoveStartNormY0;
+            float newY0 = juce::jlimit(0.0f, std::max(0.0f, 1.0f - spanY), spectralMoveStartNormY0 + dyNorm);
+            float newY1 = newY0 + spanY;
+            spectralFreqLow = static_cast<float>(20.0 * std::pow(20000.0 / 20.0, newY0));
+            spectralFreqHigh = static_cast<float>(20.0 * std::pow(20000.0 / 20.0, newY1));
+        }
+        repaint();
+        return;
+    }
 
     if (dragTarget == DragTarget::SelectingSpectralBox)
     {
-        double startR = xToRatio(spectralDragStartPos.x, wfBounds);
+        double startR = juce::jlimit(0.0, 1.0, xToRatio(spectralDragStartPos.x, wfBounds));
         float normY1 = juce::jlimit(0.0f, 1.0f, (wfBounds.getBottom() - spectralDragStartPos.y) / wfBounds.getHeight());
-        float normY2 = juce::jlimit(0.0f, 1.0f, (wfBounds.getBottom() - e.position.y) / wfBounds.getHeight());
 
         float f1 = static_cast<float>(20.0 * std::pow(20000.0 / 20.0, normY1));
-        float f2 = static_cast<float>(20.0 * std::pow(20000.0 / 20.0, normY2));
+        float f2 = currentFreq;
 
         if (currentSpectralShape == SpectralSelectionShape::Time)
         {
@@ -3166,11 +3286,11 @@ void EditComponent::mouseDrag(const juce::MouseEvent& e)
         }
         else if (currentSpectralShape == SpectralSelectionShape::Lasso)
         {
-            float normY = juce::jlimit(0.0f, 1.0f, (wfBounds.getBottom() - e.position.y) / wfBounds.getHeight());
-            juce::Point<float> normPt(static_cast<float>(currentRatio), normY);
-            if (lassoScreenPoints.empty() || lassoScreenPoints.back().getDistanceFrom(normPt) > 0.002f)
+            juce::Point<float> normPt(static_cast<float>(currentRatio), currentNormY);
+            if (lassoScreenPoints.empty() || pos.getDistanceFrom(lastLassoPixelPos) >= 3.0f)
             {
                 lassoScreenPoints.push_back(normPt);
+                lastLassoPixelPos = pos;
             }
 
             float minR = lassoScreenPoints.front().x;
@@ -3285,7 +3405,7 @@ void EditComponent::mouseDrag(const juce::MouseEvent& e)
     repaint();
 }
 
-void EditComponent::mouseUp(const juce::MouseEvent& /*e*/)
+void EditComponent::mouseUp(const juce::MouseEvent& e)
 {
     if (dragTarget == DragTarget::SelectingRange)
     {
@@ -3319,26 +3439,44 @@ void EditComponent::mouseUp(const juce::MouseEvent& /*e*/)
     {
         // Non-destructive: do not bake on release, fades remain active and adjustable!
     }
+    else if (dragTarget == DragTarget::SpectralMove || dragTarget == DragTarget::SpectralResizeLeft
+             || dragTarget == DragTarget::SpectralResizeRight || dragTarget == DragTarget::SpectralResizeTop
+             || dragTarget == DragTarget::SpectralResizeBottom)
+    {
+        hasSpectralBoxSelection = true;
+        updateControlVisibility();
+    }
     else if (dragTarget == DragTarget::SelectingSpectralBox)
     {
+        auto wfBounds = getWaveformBounds().reduced(6.0f, 6.0f);
+        const auto pos = wfBounds.getConstrainedPoint(e.position);
+        const float dx = std::abs(pos.x - spectralDragStartPos.x);
+        const float dy = std::abs(pos.y - spectralDragStartPos.y);
+
         if (currentSpectralShape == SpectralSelectionShape::Lasso)
         {
-            hasSpectralBoxSelection = (lassoScreenPoints.size() >= 2);
+            hasSpectralBoxSelection = (lassoScreenPoints.size() >= 3 && (dx >= 4.0f || dy >= 4.0f));
             if (!hasSpectralBoxSelection)
                 lassoScreenPoints.clear();
         }
         else if (currentSpectralShape == SpectralSelectionShape::Frequency)
         {
-            hasSpectralBoxSelection = (spectralFreqHigh - spectralFreqLow > 1.0f);
+            hasSpectralBoxSelection = (dy >= 4.0f);
         }
         else if (currentSpectralShape == SpectralSelectionShape::Time)
         {
-            hasSpectralBoxSelection = (spectralTimeEnd - spectralTimeStart > 0.0001);
+            hasSpectralBoxSelection = (dx >= 4.0f);
         }
         else // Box and Ellipse
         {
-            hasSpectralBoxSelection = ((spectralTimeEnd - spectralTimeStart > 0.0001) ||
-                                       (spectralFreqHigh - spectralFreqLow > 2.0f));
+            hasSpectralBoxSelection = (dx >= 4.0f || dy >= 4.0f);
+        }
+
+        if (!hasSpectralBoxSelection)
+        {
+            const double clickRatio = juce::jlimit(0.0, 1.0, xToRatio(pos.x, wfBounds));
+            audioEngine.setPositionRatio(clickRatio);
+            currentPositionSecs = clickRatio * totalDurationSecs;
         }
         updateControlVisibility();
     }

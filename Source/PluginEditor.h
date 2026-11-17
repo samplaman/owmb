@@ -24,6 +24,7 @@
 #include "UI/EditComponent.h"
 #include "UI/SampleMapComponent.h"
 #include "UI/CommandPaletteOverlay.h"
+#include "UI/CueSheetComponent.h"
 #include "UI/ToastOverlay.h"
 #include "UI/PerformanceComponent.h"
 #include "UI/SliceConfigComponent.h"
@@ -156,6 +157,7 @@ private:
     EditComponent editComponent;
     SampleMapComponent sampleMapComponent;
     PerformanceComponent performanceComponent;
+    CueSheetComponent cueSheetComponent;
     CommandPaletteOverlay commandPalette;
     ToastOverlay toastOverlay;
 

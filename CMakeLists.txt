@@ -162,6 +162,8 @@ target_sources(OpenWav PRIVATE
     Source/UI/AutoSamplerDialog.h
     Source/UI/AutoSamplerDialog.cpp
     Source/UI/CommandPaletteOverlay.h
+    Source/UI/CueSheetComponent.h
+    Source/UI/CueSheetComponent.cpp
     Source/UI/ToastOverlay.h
     Source/Network/MobileSyncManager.h
     Source/Network/MobileSyncManager.cpp

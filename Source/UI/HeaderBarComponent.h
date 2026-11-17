@@ -21,7 +21,8 @@ enum class ViewMode
     Edit,
     SampleMap,
     Performance,
-    Folders
+    Folders,
+    CueSheet
 };
 
 class HeaderBarListener
@@ -95,6 +96,7 @@ private:
     juce::TextButton btnEditView { "Edit" };
     juce::TextButton btnSampleMapView { "Sample Map" };
     juce::TextButton btnPerformanceView { "Rack" };
+    juce::TextButton btnCueSheetView { "Cue Sheet" };
 
     juce::Rectangle<int> viewPillBounds;
     juce::Rectangle<int> viewDivider1;

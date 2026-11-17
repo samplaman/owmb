@@ -99,6 +99,7 @@ HeaderBarComponent::HeaderBarComponent(TagDatabaseManager& db, LibraryScanner& s
     setupViewBtn(btnEditView, "Edit", "Edit View", ViewMode::Edit);
     setupViewBtn(btnSampleMapView, "Sample Map", "Sample Map View", ViewMode::SampleMap);
     setupViewBtn(btnPerformanceView, "Rack", "Rack View", ViewMode::Performance);
+    setupViewBtn(btnCueSheetView, "Cue Sheet", "Cue Sheet / Used Samples", ViewMode::CueSheet);
 
     btnListView.setToggleState(true, juce::dontSendNotification);
 
@@ -165,7 +166,7 @@ void HeaderBarComponent::resized()
     // 3. View Switcher Segmented Pill on Right-of-Center (32px outer pill, 28px inner buttons)
     const int viewBtnWidth = 32;
     const int divGap = 9;
-    const int totalViewWidth = 9 * viewBtnWidth + 6 * gap + 2 * divGap + 6;
+    const int totalViewWidth = 10 * viewBtnWidth + 7 * gap + 2 * divGap + 6;
     auto pillArea = area.removeFromRight(totalViewWidth).withHeight(barHeight);
     viewPillBounds = pillArea;
     auto vInner = pillArea.reduced(3, 2);
@@ -193,6 +194,8 @@ void HeaderBarComponent::resized()
     vInner.removeFromLeft(divGap);
 
     btnPerformanceView.setBounds(vInner.removeFromLeft(viewBtnWidth).withHeight(innerBtnH));
+    vInner.removeFromLeft(gap);
+    btnCueSheetView.setBounds(vInner.removeFromLeft(viewBtnWidth).withHeight(innerBtnH));
 
     area.removeFromRight(12);
 
@@ -248,6 +251,7 @@ void HeaderBarComponent::setViewMode(ViewMode mode)
     btnEditView.setToggleState(mode == ViewMode::Edit, juce::dontSendNotification);
     btnSampleMapView.setToggleState(mode == ViewMode::SampleMap, juce::dontSendNotification);
     btnPerformanceView.setToggleState(mode == ViewMode::Performance, juce::dontSendNotification);
+    btnCueSheetView.setToggleState(mode == ViewMode::CueSheet, juce::dontSendNotification);
 
     listeners.call([mode](HeaderBarListener& l) {
         l.viewModeChanged(mode);
