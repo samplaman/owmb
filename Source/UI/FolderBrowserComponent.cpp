@@ -31,6 +31,8 @@ FolderBrowserComponent::FolderBrowserComponent(TagDatabaseManager& db,
     collapseAllButton.onClick = [this] { collapseAllFolders(); };
     addAndMakeVisible(collapseAllButton);
 
+    OpenWavLookAndFeel::groupButtons({ &expandAllButton, &collapseAllButton });
+
     emptyStateAddButton.setComponentID("iconOnlyBtn");
     emptyStateAddButton.setTooltip("Add Folder to Library");
 
@@ -291,6 +293,7 @@ void FolderBrowserComponent::paint(juce::Graphics& g)
     auto toolbarBounds = juce::Rectangle<int>(0, 0, getWidth(), TopToolbarHeight);
     g.setColour(OpenWavLookAndFeel::bgHeader);
     g.fillRect(toolbarBounds);
+    OpenWavLookAndFeel::drawButtonGroup(g, { &expandAllButton, &collapseAllButton });
 
     // Draw small cyan folder-tree icon on left of toolbar
     {

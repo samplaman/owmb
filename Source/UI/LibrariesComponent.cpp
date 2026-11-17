@@ -565,6 +565,9 @@ LibrariesComponent::LibrariesComponent(TagDatabaseManager& db, LibraryScanner& s
     downloadAllWavsButton.onClick = [this] { downloadAllWavs(); };
     addAndMakeVisible(downloadAllWavsButton);
 
+    OpenWavLookAndFeel::groupButtons({ &connectButton, &owmbSoundbankButton });
+    OpenWavLookAndFeel::groupButtons({ &chooseDirButton, &downloadFolderButton, &downloadAllWavsButton });
+
     // Online Folders Tree View
     foldersHeaderLabel.setFont(juce::Font(juce::FontOptions(11.5f).withStyle("Bold")));
     foldersHeaderLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::accentCyan);
@@ -637,6 +640,9 @@ LibrariesComponent::~LibrariesComponent()
 void LibrariesComponent::paint(juce::Graphics& g)
 {
     g.fillAll(OpenWavLookAndFeel::bgDark);
+
+    OpenWavLookAndFeel::drawButtonGroup(g, { &connectButton, &owmbSoundbankButton });
+    OpenWavLookAndFeel::drawButtonGroup(g, { &chooseDirButton, &downloadFolderButton, &downloadAllWavsButton });
 
     if (folderTreeView.isVisible())
     {

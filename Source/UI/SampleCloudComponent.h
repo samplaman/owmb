@@ -203,9 +203,15 @@ private:
     std::unique_ptr<juce::NSViewComponent> metalContainer;
 #else
     juce::OpenGLContext openGLContext;
+    std::unique_ptr<juce::OpenGLShaderProgram> bgShaderProgram;
+    std::unique_ptr<juce::OpenGLShaderProgram> lineShaderProgram;
     std::unique_ptr<juce::OpenGLShaderProgram> shaderProgram;
+    GLuint vao { 0 };
+    GLuint bgVbo { 0 };
     GLuint vbo { 0 };
+    GLuint lineVbo { 0 };
     bool vboNeedsUpdate { false };
+    bool lineVboNeedsUpdate { false };
 #endif
 
     CloudOverlayComponent overlayComponent;

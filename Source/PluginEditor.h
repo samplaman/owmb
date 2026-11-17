@@ -23,6 +23,7 @@
 #include "UI/AnalysisComponent.h"
 #include "UI/EditComponent.h"
 #include "UI/SampleMapComponent.h"
+#include "UI/ToastOverlay.h"
 #include "UI/PerformanceComponent.h"
 #include "UI/SliceConfigComponent.h"
 #include "UI/AiKitBuilderDialog.h"
@@ -153,6 +154,7 @@ private:
     EditComponent editComponent;
     SampleMapComponent sampleMapComponent;
     PerformanceComponent performanceComponent;
+    ToastOverlay toastOverlay;
 
     std::unique_ptr<juce::TooltipWindow> tooltipWindow;
 

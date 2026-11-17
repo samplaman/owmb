@@ -100,7 +100,13 @@ public:
     juce::Rectangle<int> getTooltipBounds(const juce::String& tipText, juce::Point<int> screenPos, juce::Rectangle<int> parentArea) override;
 
     // Modern Typography System
+    static juce::Font getTitleFont(float size = 16.0f);
+    static juce::Font getSectionHeaderFont(float size = 10.5f);
+    static juce::Font getBodyFont(float size = 12.0f, bool bold = false);
+    static juce::Font getCaptionFont(float size = 10.5f, bool italic = false);
     static juce::Font getMonoFont(float size, bool bold = false);
+    static void groupButtons(const std::vector<juce::Button*>& buttons, bool vertical = false);
+    static void drawButtonGroup(juce::Graphics& g, const std::vector<juce::Component*>& buttons);
     juce::Typeface::Ptr getTypefaceForFont(const juce::Font& font) override;
     juce::Font getLabelFont(juce::Label& label) override;
     juce::Font getTextButtonFont(juce::TextButton& button, int buttonHeight) override;

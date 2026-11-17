@@ -1,4 +1,5 @@
 #include "AiKitBuilderDialog.h"
+#include "ToastOverlay.h"
 
 namespace openwav
 {
@@ -120,6 +121,7 @@ void AiKitBuilderDialog::runBuild()
     if (result.success && onApply)
     {
         onApply(result);
+        ToastOverlay::show("AI Kit built & loaded into Sample Map");
         if (auto* dw = findParentComponentOfClass<juce::DialogWindow>())
             dw->exitModalState(1);
     }

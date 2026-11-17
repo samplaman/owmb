@@ -71,10 +71,12 @@ struct MediaItem
 
         cachedTags.clear();
         cachedTags.reserve(tags.size());
-        juce::Font tf(11.0f);
+        juce::Font tf(juce::FontOptions(11.0f));
         for (const auto& t : tags)
         {
-            cachedTags.push_back({ t, tf.getStringWidth(t) + 12 });
+            juce::GlyphArrangement ga;
+            ga.addLineOfText(tf, t, 0.0f, 0.0f);
+            cachedTags.push_back({ t, static_cast<int>(std::ceil(ga.getBoundingBox(0, -1, false).getWidth())) + 12 });
         }
     }
 

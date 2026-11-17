@@ -1,5 +1,6 @@
 #include "RecorderComponent.h"
 #include "OpenWavLookAndFeel.h"
+#include "ToastOverlay.h"
 
 namespace openwav
 {
@@ -70,6 +71,9 @@ RecorderComponent::RecorderComponent(AudioEngine& engine, TagDatabaseManager& db
     };
     toSamplerButton.setEnabled(false);
     addAndMakeVisible(toSamplerButton);
+
+    OpenWavLookAndFeel::groupButtons({ &recordButton, &pauseButton, &clearButton, &previewButton });
+    OpenWavLookAndFeel::groupButtons({ &saveButton, &toEditorButton, &toSamplerButton });
 
     // Audio Setup Button
     audioSetupButton.setComponentID("iconOnlyBtn");
@@ -489,6 +493,7 @@ void RecorderComponent::paint(juce::Graphics& g)
     // Top Transport Bar Background
     auto transportBar = bounds.removeFromTop(54).toFloat();
     OpenWavLookAndFeel::drawPanelCard(g, transportBar, 8.0f, false);
+    OpenWavLookAndFeel::drawButtonGroup(g, { &recordButton, &pauseButton, &clearButton, &previewButton });
 
     bounds.removeFromTop(10);
 
@@ -496,6 +501,7 @@ void RecorderComponent::paint(juce::Graphics& g)
     auto mainCard = bounds.removeFromTop(std::max(160, bounds.getHeight() - 96)).toFloat();
     auto bottomDeck = bounds.withTrimmedTop(10).toFloat();
     OpenWavLookAndFeel::drawPanelCard(g, bottomDeck, 8.0f, false);
+    OpenWavLookAndFeel::drawButtonGroup(g, { &saveButton, &toEditorButton, &toSamplerButton });
     g.setColour(OpenWavLookAndFeel::borderColour.withAlpha(0.35f));
     g.drawHorizontalLine(static_cast<int>(bottomDeck.getY() + 42.0f), bottomDeck.getX() + 10.0f, bottomDeck.getRight() - 10.0f);
 
@@ -1506,7 +1512,8 @@ void RecorderComponent::playPreview()
 void RecorderComponent::saveAndAddToLibrary()
 {
     MediaItem item;
-    saveCurrentTakeToDiskAndDb(item, true);
+    if (saveCurrentTakeToDiskAndDb(item, true))
+        ToastOverlay::show("Saved \"" + item.fileName + "\" to Library");
 }
 
 bool RecorderComponent::saveCurrentTakeToDiskAndDb(MediaItem& outItem, bool autoPreview)

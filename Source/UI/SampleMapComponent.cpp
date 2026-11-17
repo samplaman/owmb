@@ -507,6 +507,15 @@ SampleMapComponent::SampleMapComponent(AudioEngine& engine)
     };
     addAndMakeVisible(aiKitButton);
 
+    OpenWavLookAndFeel::groupButtons({ &addSampleButton, &lorisResynthButton, &deleteSelectedButton });
+    OpenWavLookAndFeel::groupButtons({ &autoMapPitchButton, &autoMapChromaticButton, &autoMapVelButton, &autoMapRRButton });
+    OpenWavLookAndFeel::groupButtons({ &clearMapButton, &saveMapButton, &loadMapButton, &exportZipButton });
+    OpenWavLookAndFeel::groupButtons({ &roundRobinButton, &pitchTrackButton, &oneShotButton, &loopButton });
+    OpenWavLookAndFeel::groupButtons({ &openFxRackButton, &instrumentModeButton, &autoSampleButton, &aiKitButton });
+    OpenWavLookAndFeel::groupButtons({ &velCurveButton, &midiChannelButton });
+    OpenWavLookAndFeel::groupButtons({ &inspectorTabZonesBtn, &inspectorTabVelBtn });
+    OpenWavLookAndFeel::groupButtons({ &velLinBtn, &velSoftBtn, &velHardBtn, &velSCurveBtn, &velFixedBtn });
+
     instrumentView.onStateChanged = [this] {
         if (onStateChanged) onStateChanged();
     };
@@ -2147,6 +2156,13 @@ void SampleMapComponent::paint(juce::Graphics& g)
 {
     g.fillAll(OpenWavLookAndFeel::bgDark);
 
+    OpenWavLookAndFeel::drawButtonGroup(g, { &addSampleButton, &lorisResynthButton, &deleteSelectedButton });
+    OpenWavLookAndFeel::drawButtonGroup(g, { &autoMapPitchButton, &autoMapChromaticButton, &autoMapVelButton, &autoMapRRButton });
+    OpenWavLookAndFeel::drawButtonGroup(g, { &clearMapButton, &saveMapButton, &loadMapButton, &exportZipButton });
+    OpenWavLookAndFeel::drawButtonGroup(g, { &roundRobinButton, &pitchTrackButton, &oneShotButton, &loopButton });
+    OpenWavLookAndFeel::drawButtonGroup(g, { &openFxRackButton, &instrumentModeButton, &autoSampleButton, &aiKitButton });
+    OpenWavLookAndFeel::drawButtonGroup(g, { &velCurveButton, &midiChannelButton });
+
     auto keybedArea = getKeybedBounds();
     paintKeybed(g, keybedArea);
 
@@ -2163,6 +2179,9 @@ void SampleMapComponent::paint(juce::Graphics& g)
     g.fillRoundedRectangle(inspectorArea, 8.0f);
     g.setColour(OpenWavLookAndFeel::borderColour.withAlpha(0.4f));
     g.drawRoundedRectangle(inspectorArea, 8.0f, 1.0f);
+
+    OpenWavLookAndFeel::drawButtonGroup(g, { &inspectorTabZonesBtn, &inspectorTabVelBtn });
+    OpenWavLookAndFeel::drawButtonGroup(g, { &velLinBtn, &velSoftBtn, &velHardBtn, &velSCurveBtn, &velFixedBtn });
 }
 
 void SampleMapComponent::paintZoneGrid(juce::Graphics& g, juce::Rectangle<float> area) const

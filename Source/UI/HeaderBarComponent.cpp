@@ -20,11 +20,24 @@ HeaderBarComponent::HeaderBarComponent(TagDatabaseManager& db, LibraryScanner& s
 
     // Search Editor
     searchEditor.setJustification(juce::Justification::centredLeft);
-    searchEditor.setIndents(6, 0);
-    searchEditor.setTextToShowWhenEmpty("Search by name, tag, or path...", OpenWavLookAndFeel::textSecondary);
+    searchEditor.setIndents(8, 0);
+#if JUCE_MAC
+    searchEditor.setTextToShowWhenEmpty("Search samples, tags, paths... (Cmd+F)", OpenWavLookAndFeel::textSecondary.withAlpha(0.65f));
+#else
+    searchEditor.setTextToShowWhenEmpty("Search samples, tags, paths... (Ctrl+F)", OpenWavLookAndFeel::textSecondary.withAlpha(0.65f));
+#endif
     searchEditor.addListener(this);
     searchEditor.addKeyListener(this);
     addAndMakeVisible(searchEditor);
+
+    clearSearchButton.setComponentID("iconOnlyBtn");
+    clearSearchButton.setTooltip("Clear Search");
+    clearSearchButton.onClick = [this] {
+        searchEditor.clear();
+        clearSearchButton.setVisible(false);
+        listeners.call([](HeaderBarListener& l) { l.searchTextChanged({}); });
+    };
+    addChildComponent(clearSearchButton);
 
     // Add Folder Button
     addFolderButton.setComponentID("iconOnlyBtn");
@@ -88,6 +101,10 @@ HeaderBarComponent::HeaderBarComponent(TagDatabaseManager& db, LibraryScanner& s
     setupViewBtn(btnPerformanceView, "Rack", "Rack View", ViewMode::Performance);
 
     btnListView.setToggleState(true, juce::dontSendNotification);
+
+    OpenWavLookAndFeel::groupButtons({ &addFolderButton, &rescanButton, &settingsButton });
+    OpenWavLookAndFeel::groupButtons({ &btnListView, &btnFoldersView, &btnCloudView, &btnLibrariesView });
+    OpenWavLookAndFeel::groupButtons({ &btnRecordView, &btnAnalysisView, &btnEditView, &btnSampleMapView });
 }
 
 HeaderBarComponent::~HeaderBarComponent()
@@ -116,6 +133,8 @@ void HeaderBarComponent::paint(juce::Graphics& g)
         if (!viewDivider2.isEmpty())
             g.fillRect(viewDivider2);
     }
+
+    OpenWavLookAndFeel::drawButtonGroup(g, { &addFolderButton, &rescanButton, &settingsButton });
 }
 
 void HeaderBarComponent::resized()
@@ -180,12 +199,15 @@ void HeaderBarComponent::resized()
     area.removeFromRight(8);
 
     searchEditor.setBounds(area.withHeight(btnHeight));
+    clearSearchButton.setBounds(searchEditor.getRight() - 26, searchEditor.getY() + 4, 22, 24);
+    clearSearchButton.toFront(false);
 }
 
 void HeaderBarComponent::textEditorTextChanged(juce::TextEditor& editor)
 {
     if (&editor == &searchEditor)
     {
+        clearSearchButton.setVisible(!searchEditor.isEmpty());
         listeners.call([txt = searchEditor.getText()](HeaderBarListener& l) {
             l.searchTextChanged(txt);
         });

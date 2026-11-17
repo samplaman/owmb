@@ -399,6 +399,14 @@ EditComponent::EditComponent(AudioEngine& engine)
     };
     addAndMakeVisible(revertOriginalButton);
 
+    OpenWavLookAndFeel::groupButtons({ &playPauseButton, &stopButton, &playSelButton, &loopToggleButton });
+    OpenWavLookAndFeel::groupButtons({ &zoomOutButton, &zoomInButton });
+    OpenWavLookAndFeel::groupButtons({ &revertOriginalButton, &exportButton });
+    OpenWavLookAndFeel::groupButtons({ &spectralBoxSelectBtn, &spectralTimeSelectBtn, &spectralFreqSelectBtn, &spectralLassoSelectBtn, &spectralEllipseSelectBtn });
+    OpenWavLookAndFeel::groupButtons({ &repairSpectralButton, &deHarmonicButton, &denoiseSpectralButton, &widenSpectralButton, &warmthSpectralButton, &removeSpectralElementButton, &boostSpectralButton, &attenuateSpectralButton, &isolateSpectralButton });
+    OpenWavLookAndFeel::groupButtons({ &selectAllButton, &deselectAllButton, &cropButton, &resetSelectionButton, &snapZeroCrossingButton });
+    OpenWavLookAndFeel::groupButtons({ &silenceButton, &reverseButton, &normalizeButton, &gainBoostButton, &gainCutButton, &autoTrimButton, &hpFilterButton, &invertPhaseButton, &speed2xButton, &speedHalfButton, &deverbButton, &bakeFadesButton, &loopToSelectionButton });
+
     setWantsKeyboardFocus(true);
 
     // ── Sample name label ──────────────────────────────
@@ -1023,6 +1031,14 @@ void EditComponent::paint(juce::Graphics& g)
     // Top Toolbar Card Background (matches Recorder / SampleMap 8px rounded cards)
     auto topBarRect = juce::Rectangle<float>(10.0f, 8.0f, static_cast<float>(getWidth() - 20), std::max(32.0f, wfBounds.getY() - 14.0f));
     OpenWavLookAndFeel::drawPanelCard(g, topBarRect, 8.0f, false);
+
+    OpenWavLookAndFeel::drawButtonGroup(g, { &playPauseButton, &stopButton, &playSelButton, &loopToggleButton });
+    OpenWavLookAndFeel::drawButtonGroup(g, { &zoomOutButton, &zoomInButton });
+    OpenWavLookAndFeel::drawButtonGroup(g, { &revertOriginalButton, &exportButton });
+    OpenWavLookAndFeel::drawButtonGroup(g, { &spectralBoxSelectBtn, &spectralTimeSelectBtn, &spectralFreqSelectBtn, &spectralLassoSelectBtn, &spectralEllipseSelectBtn });
+    OpenWavLookAndFeel::drawButtonGroup(g, { &repairSpectralButton, &deHarmonicButton, &denoiseSpectralButton, &widenSpectralButton, &warmthSpectralButton, &removeSpectralElementButton, &boostSpectralButton, &attenuateSpectralButton, &isolateSpectralButton });
+    OpenWavLookAndFeel::drawButtonGroup(g, { &selectAllButton, &deselectAllButton, &cropButton, &resetSelectionButton, &snapZeroCrossingButton });
+    OpenWavLookAndFeel::drawButtonGroup(g, { &silenceButton, &reverseButton, &normalizeButton, &gainBoostButton, &gainCutButton, &autoTrimButton, &hpFilterButton, &invertPhaseButton, &speed2xButton, &speedHalfButton, &deverbButton, &bakeFadesButton, &loopToSelectionButton });
 
     // Waveform track background
     OpenWavLookAndFeel::drawPanelCard(g, wfBounds, 8.0f, true);

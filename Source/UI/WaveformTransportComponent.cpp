@@ -501,6 +501,9 @@ WaveformTransportComponent::WaveformTransportComponent(AudioEngine& engine)
     };
     addAndMakeVisible(syncButton);
 
+    OpenWavLookAndFeel::groupButtons({ &playPauseButton, &stopButton, &loopButton, &autoPlayButton });
+    OpenWavLookAndFeel::groupButtons({ &autoSliceButton, &lorisResynthButton, &syncButton });
+
     // BPM Control Component (placed after Normalize along with SYNC)
     bpmControl.setHostSynced(audioEngine.isHostSyncEnabled());
     bpmControl.setBpm(audioEngine.getEffectiveBpm(), false);
@@ -553,6 +556,9 @@ void WaveformTransportComponent::paint(juce::Graphics& g)
     // Border line at top
     g.setColour(OpenWavLookAndFeel::borderColour);
     g.drawRect(getLocalBounds().removeFromTop(1));
+
+    OpenWavLookAndFeel::drawButtonGroup(g, { &playPauseButton, &stopButton, &loopButton, &autoPlayButton });
+    OpenWavLookAndFeel::drawButtonGroup(g, { &autoSliceButton, &lorisResynthButton, &syncButton });
 
     // Calculate Layout Areas
     auto area = getLocalBounds().reduced(12, 8);

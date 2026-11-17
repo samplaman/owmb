@@ -197,8 +197,22 @@ void OpenWavLookAndFeel::drawButtonBackground(
       cornerRadius = 6.0f;
   }
 
+  int edges = button.getConnectedEdgeFlags();
+  bool curveTL = !(edges & (juce::Button::ConnectedOnLeft | juce::Button::ConnectedOnTop));
+  bool curveTR = !(edges & (juce::Button::ConnectedOnRight | juce::Button::ConnectedOnTop));
+  bool curveBL = !(edges & (juce::Button::ConnectedOnLeft | juce::Button::ConnectedOnBottom));
+  bool curveBR = !(edges & (juce::Button::ConnectedOnRight | juce::Button::ConnectedOnBottom));
+
+  juce::Path bgPath;
+  bgPath.addRoundedRectangle(bounds.getX(), bounds.getY(), bounds.getWidth(), bounds.getHeight(),
+                             cornerRadius, cornerRadius, curveTL, curveTR, curveBL, curveBR);
+
   g.setColour(fillColour);
-  g.fillRoundedRectangle(bounds, cornerRadius);
+  g.fillPath(bgPath);
+
+  // Grouped buttons rely on the outer drawButtonGroup pill border for a streamlined look
+  if (edges != 0)
+      return;
 
   bool isMuteBtn = (text == "mute" || text == "unmute");
   juce::Colour border = isMuteBtn ? (button.getToggleState() ? favoriteRed : borderColour)
@@ -210,7 +224,7 @@ void OpenWavLookAndFeel::drawButtonBackground(
   }
   float stroke = button.getToggleState() ? 1.25f : 1.0f;
   g.setColour(border);
-  g.drawRoundedRectangle(bounds, cornerRadius, stroke);
+  g.strokePath(bgPath, juce::PathStrokeType(stroke));
 }
 
 void OpenWavLookAndFeel::drawButtonText(juce::Graphics &g,
@@ -225,7 +239,7 @@ void OpenWavLookAndFeel::drawButtonText(juce::Graphics &g,
   auto bounds = button.getLocalBounds().toFloat().reduced(4.0f, 2.0f);
 
   if (button.getComponentID() == "tagButton") {
-      auto font = juce::Font(11.5f).boldened();
+      auto font = getBodyFont(11.5f, true);
       g.setFont(font);
       juce::Colour textColour = button.getToggleState() ? accentCyan : textPrimary;
       g.setColour(textColour);
@@ -488,7 +502,7 @@ void OpenWavLookAndFeel::drawButtonText(juce::Graphics &g,
       svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"2\" y=\"2\" width=\"20\" height=\"20\" rx=\"3\"/><line x1=\"6\" y1=\"18\" x2=\"6\" y2=\"12\"/><line x1=\"10\" y1=\"18\" x2=\"10\" y2=\"6\"/><line x1=\"14\" y1=\"18\" x2=\"14\" y2=\"10\"/><line x1=\"18\" y1=\"18\" x2=\"18\" y2=\"8\"/></svg>";
   }
 
-  auto font = juce::Font(11.5f).boldened();
+  auto font = getBodyFont(11.5f, true);
   g.setFont(font);
   bool isMuteBtn = (button.getButtonText() == "Mute" || button.getButtonText() == "Unmute");
   juce::Colour textColour = isMuteBtn ? (button.getToggleState() ? favoriteRed : textPrimary) : (button.getToggleState() ? accentCyan : textPrimary);
@@ -981,6 +995,26 @@ void OpenWavLookAndFeel::drawScrollbar(juce::Graphics& g, juce::ScrollBar& /*scr
     g.fillRoundedRectangle(thumbBounds, std::min(thumbBounds.getWidth(), thumbBounds.getHeight()) * 0.5f);
 }
 
+juce::Font OpenWavLookAndFeel::getTitleFont(float size)
+{
+    return juce::Font(juce::FontOptions(size).withStyle("Bold"));
+}
+
+juce::Font OpenWavLookAndFeel::getSectionHeaderFont(float size)
+{
+    return juce::Font(juce::FontOptions(size).withStyle("Bold"));
+}
+
+juce::Font OpenWavLookAndFeel::getBodyFont(float size, bool bold)
+{
+    return juce::Font(juce::FontOptions(size).withStyle(bold ? "Bold" : "Regular"));
+}
+
+juce::Font OpenWavLookAndFeel::getCaptionFont(float size, bool italic)
+{
+    return juce::Font(juce::FontOptions(size).withStyle(italic ? "Italic" : "Regular"));
+}
+
 juce::Font OpenWavLookAndFeel::getMonoFont(float size, bool bold)
 {
 #if JUCE_MAC || JUCE_IOS
@@ -992,6 +1026,76 @@ juce::Font OpenWavLookAndFeel::getMonoFont(float size, bool bold)
 #endif
     auto opts = juce::FontOptions(monoName, size, bold ? juce::Font::bold : juce::Font::plain);
     return juce::Font(opts);
+}
+
+void OpenWavLookAndFeel::groupButtons(const std::vector<juce::Button*>& buttons, bool vertical)
+{
+    std::vector<juce::Button*> valid;
+    valid.reserve(buttons.size());
+    for (auto* b : buttons)
+        if (b != nullptr)
+            valid.push_back(b);
+
+    if (valid.size() < 2)
+        return;
+
+    for (size_t i = 0; i < valid.size(); ++i)
+    {
+        int flags = 0;
+        if (vertical)
+        {
+            if (i > 0) flags |= juce::Button::ConnectedOnTop;
+            if (i + 1 < valid.size()) flags |= juce::Button::ConnectedOnBottom;
+        }
+        else
+        {
+            if (i > 0) flags |= juce::Button::ConnectedOnLeft;
+            if (i + 1 < valid.size()) flags |= juce::Button::ConnectedOnRight;
+        }
+        valid[i]->setConnectedEdges(flags);
+    }
+}
+
+void OpenWavLookAndFeel::drawButtonGroup(juce::Graphics& g, const std::vector<juce::Component*>& buttons)
+{
+    std::vector<juce::Rectangle<int>> rects;
+    rects.reserve(buttons.size());
+    juce::Rectangle<int> unionRect;
+
+    for (auto* btn : buttons)
+    {
+        if (btn == nullptr || !btn->isVisible() || btn->getBounds().isEmpty())
+            continue;
+        auto r = btn->getBounds();
+        rects.push_back(r);
+        unionRect = unionRect.isEmpty() ? r : unionRect.getUnion(r);
+    }
+
+    if (rects.size() < 2 || unionRect.isEmpty())
+        return;
+
+    auto pill = unionRect.expanded(3, 2).toFloat();
+    g.setColour(bgDark.withAlpha(0.78f));
+    g.fillRoundedRectangle(pill, 7.0f);
+    g.setColour(borderColour);
+    g.drawRoundedRectangle(pill.reduced(0.5f), 7.0f, 1.0f);
+
+    g.setColour(borderColour.withAlpha(0.75f));
+    for (size_t i = 0; i + 1 < rects.size(); ++i)
+    {
+        const auto& a = rects[i];
+        const auto& b = rects[i + 1];
+        if (b.getY() >= a.getBottom() - 2)
+        {
+            int divY = (a.getBottom() + b.getY()) / 2;
+            g.fillRect(unionRect.getX() + 4, divY, unionRect.getWidth() - 8, 1);
+        }
+        else
+        {
+            int divX = (a.getRight() + b.getX()) / 2;
+            g.fillRect(divX, unionRect.getY() + 4, 1, unionRect.getHeight() - 8);
+        }
+    }
 }
 
 juce::Typeface::Ptr OpenWavLookAndFeel::getTypefaceForFont(const juce::Font& font)

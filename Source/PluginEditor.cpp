@@ -86,10 +86,18 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
   addAndMakeVisible(waveformTransport);
 
   tooltipWindow = std::make_unique<juce::TooltipWindow>(this, 280);
+  addChildComponent(toastOverlay);
 
   setResizable(true, true);
-  setResizeLimits(800, 650, 3840, 2160);
-  setSize(1920, 1080);
+  if (juce::JUCEApplicationBase::isStandaloneApp()) {
+    auto* mainDisplay = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay();
+    auto userArea = (mainDisplay != nullptr) ? mainDisplay->userArea : juce::Rectangle<int>(0, 0, 1920, 1080);
+    setResizeLimits(800, 650, std::max(7680, userArea.getWidth()), std::max(4320, userArea.getHeight()));
+    setSize(std::max(800, userArea.getWidth()), std::max(650, userArea.getHeight()));
+  } else {
+    setResizeLimits(800, 650, 3840, 2160);
+    setSize(1920, 1080);
+  }
   setWantsKeyboardFocus(true);
 
   float savedScale = audioProcessor.getDatabaseManager().getUiScale();
@@ -325,7 +333,7 @@ void OpenWavAudioProcessorEditor::paintOverChildren(juce::Graphics &g) {
   if (isExiting) {
     g.fillAll(juce::Colours::darkgrey.withAlpha(0.85f));
     g.setColour(OpenWavLookAndFeel::textPrimary);
-    g.setFont(juce::Font(22.0f, juce::Font::bold));
+    g.setFont(OpenWavLookAndFeel::getTitleFont(22.0f));
     g.drawText("Closing OpenWav Media Browser...", getLocalBounds(),
                juce::Justification::centred, true);
   }
@@ -402,6 +410,9 @@ void OpenWavAudioProcessorEditor::resized() {
     sampleTable.setVisible(true);
     sampleTable.setBounds(area);
   }
+
+  toastOverlay.setBounds(getLocalBounds());
+  toastOverlay.toFront(false);
 }
 
 void OpenWavAudioProcessorEditor::searchTextChanged(
@@ -864,19 +875,17 @@ void OpenWavAudioProcessorEditor::parentHierarchyChanged() {
       dw->setUsingNativeTitleBar(true);
       dw->setTitleBarButtonsRequired(juce::DocumentWindow::allButtons, false);
       dw->setResizable(true, true);
-      dw->setResizeLimits(800, 650, 3840, 2160);
 
-      auto mainDisplay =
-          juce::Desktop::getInstance().getDisplays().getPrimaryDisplay();
-      auto userArea = (mainDisplay != nullptr)
-                          ? mainDisplay->userArea
+      auto& displays = juce::Desktop::getInstance().getDisplays();
+      const auto* targetDisplay = displays.getDisplayForRect(dw->getScreenBounds(), true);
+      if (targetDisplay == nullptr)
+        targetDisplay = displays.getPrimaryDisplay();
+      auto userArea = (targetDisplay != nullptr)
+                          ? targetDisplay->userArea
                           : juce::Rectangle<int>(0, 0, 1920, 1080);
 
-      int targetW = std::min(1920, std::max(800, userArea.getWidth() - 40));
-      int targetH = std::min(1080, std::max(650, userArea.getHeight() - 60));
-
-      dw->setContentComponentSize(targetW, targetH);
-      dw->centreWithSize(targetW, targetH);
+      dw->setResizeLimits(800, 650, std::max(7680, userArea.getWidth()), std::max(4320, userArea.getHeight()));
+      dw->setBounds(userArea);
       dw->setAlpha(1.0f);
       dw->setVisible(true);
 #if JUCE_WINDOWS

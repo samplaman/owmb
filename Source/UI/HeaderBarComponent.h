@@ -79,6 +79,7 @@ private:
     juce::ImageComponent logoComponent;
     juce::Label titleLabel { {}, "OWMB" };
     juce::TextEditor searchEditor;
+    juce::TextButton clearSearchButton { "X" };
     juce::TextButton addFolderButton { "+ Add Folder" };
     juce::TextButton rescanButton { "Rescan" };
     juce::TextButton settingsButton { "Settings" };

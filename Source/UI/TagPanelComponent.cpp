@@ -1,5 +1,6 @@
 #include "TagPanelComponent.h"
 #include "OpenWavLookAndFeel.h"
+#include "ToastOverlay.h"
 
 namespace openwav
 {
@@ -57,7 +58,7 @@ TagPanelComponent::TagPanelComponent(TagDatabaseManager& db)
 
     // Section Headers styling
     auto setupSectionHeader = [](juce::Label& lbl) {
-        lbl.setFont(juce::Font(10.0f).boldened());
+        lbl.setFont(OpenWavLookAndFeel::getSectionHeaderFont(10.0f));
         lbl.setColour(juce::Label::textColourId, OpenWavLookAndFeel::accentCyan);
     };
 
@@ -176,9 +177,12 @@ TagPanelComponent::TagPanelComponent(TagDatabaseManager& db)
                 autoTagButton.setButtonText("Auto-Tag Library");
                 refreshTags();
                 repaint();
+                ToastOverlay::show("Library auto-tagging complete");
             });
     };
     addAndMakeVisible(autoTagButton);
+
+    OpenWavLookAndFeel::groupButtons({ &favoritesButton, &clearFiltersButton, &addCustomTagButton, &autoTagButton });
 
     refreshTags();
     refreshFolders();
@@ -213,6 +217,8 @@ void TagPanelComponent::paint(juce::Graphics& g)
     g.fillAll(OpenWavLookAndFeel::bgCard);
     g.setColour(OpenWavLookAndFeel::borderColour);
     g.drawRect(getLocalBounds().removeFromRight(1));
+
+    OpenWavLookAndFeel::drawButtonGroup(g, { &favoritesButton, &clearFiltersButton, &addCustomTagButton, &autoTagButton });
 
     if (isAutoTagging)
     {
