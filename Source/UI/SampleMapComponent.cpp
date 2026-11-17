@@ -3169,6 +3169,7 @@ void SampleMapComponent::mouseDown(const juce::MouseEvent& e)
                     menu.addSeparator();
                     menu.addItem(2, "Auto Pitch Map");
                     menu.addItem(3, "Auto Chromatic Map");
+                    menu.addItem(5, "Export Zones as .mid Pattern...");
                     menu.addItem(4, "Reveal in Finder");
 
                     menu.showMenuAsync(juce::PopupMenu::Options().withMousePosition(), [this, z](int result) {
@@ -3183,6 +3184,10 @@ void SampleMapComponent::mouseDown(const juce::MouseEvent& e)
                         else if (result == 3)
                         {
                             autoMapChromatic();
+                        }
+                        else if (result == 5)
+                        {
+                            exportZonesAsMidiPattern();
                         }
                         else if (result == 4)
                         {
@@ -4439,6 +4444,63 @@ void SampleMapComponent::rebuildZoneFilterOptions()
         zoneFilterBox.setSelectedId(prevId, juce::dontSendNotification);
     else
         zoneFilterBox.setSelectedId(1, juce::dontSendNotification);
+}
+
+void SampleMapComponent::exportZonesAsMidiPattern()
+{
+    if (zones.empty())
+    {
+        ToastOverlay::show("No zones mapped to export as MIDI", true);
+        return;
+    }
+
+    auto chooser = std::make_shared<juce::FileChooser>(
+        "Export Zones as MIDI Pattern",
+        juce::File::getSpecialLocation(juce::File::userDesktopDirectory).getChildFile("sample_map_pattern.mid"),
+        "*.mid");
+
+    juce::Component::SafePointer<SampleMapComponent> safeThis(this);
+    chooser->launchAsync(juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles,
+                         [safeThis, chooser](const juce::FileChooser& fc) {
+        if (safeThis == nullptr) return;
+        auto target = fc.getResult();
+        if (target == juce::File()) return;
+        if (!target.hasFileExtension("mid") && !target.hasFileExtension("midi"))
+            target = target.withFileExtension("mid");
+
+        juce::MidiMessageSequence seq;
+        const int tpq = 480;
+        seq.addEvent(juce::MidiMessage::tempoMetaEvent(500000), 0.0); // 120 BPM
+
+        const int stepTicks = tpq / 2; // 1/8th note per zone
+        const int durTicks = tpq / 2 - 20;
+        const int ch = safeThis->midiChannelSetting > 0 ? safeThis->midiChannelSetting : 1;
+
+        int step = 0;
+        for (const auto& z : safeThis->zones)
+        {
+            if (z.isReleaseTrigger || z.filePath.isEmpty())
+                continue;
+            const double onTick = static_cast<double>(step * stepTicks);
+            const double offTick = onTick + static_cast<double>(durTicks);
+            const int vel = juce::jlimit(1, 127, (z.velLow + z.velHigh) / 2);
+            seq.addEvent(juce::MidiMessage::noteOn(ch, z.rootNote, static_cast<juce::uint8>(vel)), onTick);
+            seq.addEvent(juce::MidiMessage::noteOff(ch, z.rootNote), offTick);
+            ++step;
+        }
+        seq.updateMatchedPairs();
+
+        juce::MidiFile mf;
+        mf.setTicksPerQuarterNote(tpq);
+        mf.addTrack(seq);
+
+        target.deleteFile();
+        juce::FileOutputStream fos(target);
+        if (fos.openedOk() && mf.writeTo(fos))
+            ToastOverlay::show("Exported MIDI pattern: " + target.getFileName());
+        else
+            ToastOverlay::show("Failed to write MIDI file", true);
+    });
 }
 
 } // namespace openwav

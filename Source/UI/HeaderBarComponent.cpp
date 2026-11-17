@@ -70,12 +70,13 @@ HeaderBarComponent::HeaderBarComponent(TagDatabaseManager& db, LibraryScanner& s
     formatFilterBox.addItem(".FLAC", 4);
     formatFilterBox.addItem(".OGG", 5);
     formatFilterBox.addItem(".AIFF", 6);
+    formatFilterBox.addItem(".MID", 7);
     formatFilterBox.setSelectedId(1, juce::dontSendNotification);
-    formatFilterBox.setTooltip("Filter samples by audio format");
+    formatFilterBox.setTooltip("Filter samples by audio or MIDI format");
     formatFilterBox.onChange = [this] {
-        static const juce::String formats[] = { "All", ".wav", ".mp3", ".flac", ".ogg", ".aiff" };
+        static const juce::String formats[] = { "All", ".wav", ".mp3", ".flac", ".ogg", ".aiff", ".mid" };
         int idx = formatFilterBox.getSelectedId() - 1;
-        if (idx >= 0 && idx < 6)
+        if (idx >= 0 && idx < 7)
             setFormatFilter(formats[idx]);
     };
     addAndMakeVisible(formatFilterBox);

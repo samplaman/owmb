@@ -291,6 +291,7 @@ public:
 
     void togglePlay();
     void toggleLoop();
+    std::function<void()> onStopped;
     
     void updateVoiceRatios();
 

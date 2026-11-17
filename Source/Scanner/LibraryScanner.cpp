@@ -92,7 +92,7 @@ void LibraryScanner::run()
         if (!rootDir.exists() || !rootDir.isDirectory())
             continue;
 
-        juce::DirectoryIterator iter(rootDir, true, "*.wav;*.mp3;*.flac;*.ogg;*.aif;*.aiff;*.aifc;*.WAV;*.MP3;*.FLAC;*.OGG;*.AIF;*.AIFF;*.AIFC", juce::File::findFiles);
+        juce::DirectoryIterator iter(rootDir, true, "*.wav;*.mp3;*.flac;*.ogg;*.aif;*.aiff;*.aifc;*.mid;*.midi;*.WAV;*.MP3;*.FLAC;*.OGG;*.AIF;*.AIFF;*.AIFC;*.MID;*.MIDI", juce::File::findFiles);
 
         while (iter.next())
         {
@@ -944,9 +944,25 @@ MediaItem LibraryScanner::processAudioFile(const juce::File& file, juce::AudioFo
         }
     }
 
-    // 1. Parse audio header metadata FIRST so durationSeconds & numChannels are valid for all formats (MP3/FLAC/OGG/WAV/AIFF)
+    // 1. Parse audio or MIDI header metadata FIRST
     bool headerParsed = false;
-    if (item.fileExtension == ".wav")
+    bool isMidiFile = (item.fileExtension == ".mid" || item.fileExtension == ".midi");
+    if (isMidiFile)
+    {
+        juce::FileInputStream fis(file);
+        if (fis.openedOk())
+        {
+            juce::MidiFile mf;
+            if (mf.readFrom(fis))
+            {
+                mf.convertTimestampTicksToSeconds();
+                item.durationSeconds = std::max(0.0, mf.getLastTimestamp());
+            }
+        }
+        item.tags.insert("MIDI");
+        headerParsed = true;
+    }
+    else if (item.fileExtension == ".wav")
     {
         if (parseWavHeaderFast(file, item.sampleRate, item.numChannels, item.bitDepth, item.durationSeconds))
             headerParsed = true;
@@ -957,7 +973,7 @@ MediaItem LibraryScanner::processAudioFile(const juce::File& file, juce::AudioFo
             headerParsed = true;
     }
 
-    std::unique_ptr<juce::AudioFormatReader> reader(localFormatManager.createReaderFor(file));
+    std::unique_ptr<juce::AudioFormatReader> reader(isMidiFile ? nullptr : localFormatManager.createReaderFor(file));
     if (reader != nullptr && !headerParsed)
     {
         item.sampleRate = reader->sampleRate;

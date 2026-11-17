@@ -128,6 +128,24 @@ public:
     std::function<void(const std::vector<double>&)> onSlicesGenerated;
     std::function<void(const std::vector<ResynthesizedZone>&)> onLorisResynthCompleted;
 
+    struct MidiPreviewNote
+    {
+        int noteNumber { 60 };
+        double startSec { 0.0 };
+        double endSec { 0.0 };
+        float velocity { 0.8f };
+    };
+    struct MidiPreviewState
+    {
+        bool active { false };
+        juce::String fileName;
+        double positionSec { 0.0 };
+        double durationSec { 0.0 };
+        std::vector<MidiPreviewNote> notes;
+    };
+    std::function<MidiPreviewState()> getMidiPreviewData;
+    void syncMidiPreviewNow();
+
     void openLorisResynthesis();
 
 private:
@@ -172,6 +190,11 @@ private:
     // Slices Scrollable Grid
     juce::Viewport slicesViewport;
     SlicesGridComponent slicesGrid;
+
+    // MIDI Preview Display State
+    bool midiPreviewActive { false };
+    juce::String midiPreviewFileName;
+    std::vector<MidiPreviewNote> midiPreviewNotes;
 };
 
 } // namespace openwav

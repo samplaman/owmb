@@ -51,9 +51,12 @@ public:
     ~RackKnobControl() override;
 
     void resized() override;
+    void mouseDown(const juce::MouseEvent& e) override;
     void sliderValueChanged(juce::Slider* slider) override;
     void comboBoxChanged(juce::ComboBox* comboBox) override;
     void setValue(float val, bool sendNotification = false);
+
+    std::function<void()> onRightClick;
 
 private:
     EffectParamInfo paramInfo;
@@ -81,7 +84,8 @@ public:
                       std::function<void(int)> onMoveUp,
                       std::function<void(int)> onMoveDown,
                       std::function<void(int)> onDelete,
-                      std::function<void()> onParamsChanged);
+                      std::function<void()> onParamsChanged,
+                      std::function<void(int, const EffectParamInfo&)> onKnobRightClick = {});
     ~RackUnitComponent() override;
 
     void paint(juce::Graphics& g) override;
@@ -147,6 +151,10 @@ public:
     void setState(const PerformanceRackState& state);
 
     void refreshRack();
+
+    std::function<void(int effectIndex, const EffectParamInfo& info)> onMidiLearnRequested;
+    std::function<void(int effectIndex, const juce::String& paramId)> onClearMidiLearnRequested;
+    std::function<int(int effectIndex, const juce::String& paramId)> getLearnedCcCallback;
 
 private:
     void showAddEffectMenu();

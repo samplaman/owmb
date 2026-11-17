@@ -251,6 +251,7 @@ if (APPLE)
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "${CMAKE_CURRENT_SOURCE_DIR}/overlay.png"
                 "$<TARGET_FILE_DIR:OpenWav_Standalone>/../Resources/overlay.png"
+            COMMAND codesign --force --deep --sign - "$<TARGET_BUNDLE_DIR:OpenWav_Standalone>"
             COMMENT "Updating macOS Standalone Icon.icns, SampleSonics logo, and overlay assets"
         )
     endif()
@@ -265,6 +266,7 @@ if (APPLE)
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "${CMAKE_CURRENT_SOURCE_DIR}/overlay.png"
                 "$<TARGET_FILE_DIR:OpenWav_VST3>/../Resources/overlay.png"
+            COMMAND codesign --force --deep --sign - "$<TARGET_BUNDLE_DIR:OpenWav_VST3>"
             COMMENT "Updating macOS VST3 Icon.icns, SampleSonics logo, and overlay assets"
         )
     endif()
@@ -279,6 +281,7 @@ if (APPLE)
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "${CMAKE_CURRENT_SOURCE_DIR}/overlay.png"
                 "$<TARGET_FILE_DIR:OpenWav_AU>/../Resources/overlay.png"
+            COMMAND codesign --force --deep --sign - "$<TARGET_BUNDLE_DIR:OpenWav_AU>"
             COMMENT "Updating macOS AU Icon.icns, SampleSonics logo, and overlay assets"
         )
     endif()

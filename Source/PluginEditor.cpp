@@ -105,17 +105,55 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
       { "ACTION", "Play / Pause",         "Toggle transport playback",           "Space", [this] { waveformTransport.togglePlay(); } },
       { "ACTION", "Toggle Loop",          "Enable or disable sample looping",    "L", [this] { waveformTransport.toggleLoop(); } },
       { "ACTION", "Auto-Slice Sample",    "Open slice configuration",            "",  [this] { waveformTransport.triggerSlice(); } },
+      { "ACTION", "Export Sample Map as .mid", "Export mapped zones as MIDI pattern", "", [this] { sampleMapComponent.exportZonesAsMidiPattern(); } },
+      { "ACTION", "Stop MIDI Playback",   "Stop previewing any playing .mid file", "", [this] { audioProcessor.stopMidiFilePlayback(); } },
       { "ACTION", "Keyboard Shortcuts...", "View and customize shortcuts",       "",  [this] { shortcutsDialog.showDialog(); } },
       { "ACTION", "Reset UI Scale (100%)", "Restore default 1.0x scaling",       "Cmd+0", [this] { applyUiScale(1.0f); } },
   });
   commandPalette.onSampleChosen = [this](const MediaItem& item) {
     juce::File f(item.filePath);
     if (f.existsAsFile()) {
-      audioProcessor.getAudioEngine().loadFile(f);
-      sampleSelected(item);
-      if (audioProcessor.getAudioEngine().getAutoPlay())
-        audioProcessor.getAudioEngine().play();
+      if (f.hasFileExtension("mid;midi")) {
+        sampleSelected(item);
+      } else {
+        audioProcessor.getAudioEngine().loadFile(f);
+        sampleSelected(item);
+        if (audioProcessor.getAudioEngine().getAutoPlay())
+          audioProcessor.getAudioEngine().play();
+      }
     }
+  };
+
+  performanceComponent.onMidiLearnRequested = [this](int effectIdx, const EffectParamInfo& info) {
+    audioProcessor.startMidiLearn(effectIdx, info.id, info.minValue, info.maxValue);
+    ToastOverlay::show("Move a MIDI CC knob/fader to bind " + info.name + "...");
+  };
+  performanceComponent.onClearMidiLearnRequested = [this](int effectIdx, const juce::String& paramId) {
+    audioProcessor.clearMidiLearnForParam(effectIdx, paramId);
+    ToastOverlay::show("Cleared MIDI CC binding for " + paramId);
+  };
+  performanceComponent.getLearnedCcCallback = [this](int effectIdx, const juce::String& paramId) {
+    return audioProcessor.getLearnedCcForParam(effectIdx, paramId);
+  };
+  audioProcessor.onMidiLearned = [this](int cc, int, const juce::String& paramId) {
+    ToastOverlay::show("Bound CC " + juce::String(cc) + " to " + paramId);
+    performanceComponent.refreshRack();
+  };
+
+  waveformTransport.getMidiPreviewData = [this]() {
+    WaveformTransportComponent::MidiPreviewState state;
+    state.active = audioProcessor.isMidiFilePlaying();
+    if (state.active) {
+      state.fileName = audioProcessor.getLoadedMidiFileName();
+      state.positionSec = audioProcessor.getMidiPlaybackTimeSeconds();
+      state.durationSec = audioProcessor.getMidiFileDurationSeconds();
+      auto notes = audioProcessor.getMidiDisplayNotes();
+      state.notes.reserve(notes.size());
+      for (const auto& n : notes) {
+        state.notes.push_back({ n.noteNumber, n.startSec, n.endSec, n.velocity });
+      }
+    }
+    return state;
   };
   addChildComponent(commandPalette);
   addChildComponent(toastOverlay);
@@ -522,6 +560,8 @@ void OpenWavAudioProcessorEditor::resized() {
     sampleTable.setBounds(area);
   }
 
+  waveformTransport.toFront(false);
+
   commandPalette.setBounds(getLocalBounds());
   if (commandPalette.isVisible())
     commandPalette.toFront(false);
@@ -665,6 +705,34 @@ void OpenWavAudioProcessorEditor::settingsRequested() {
   menu.addItem(20, "Phone Field Recorder Sync (LAN)...");
   menu.addSeparator();
   menu.addItem(3, "Audio / MIDI Device Settings...");
+
+  const auto midiInputs = juce::MidiInput::getAvailableDevices();
+  const auto midiOutputs = juce::MidiOutput::getAvailableDevices();
+  if (juce::JUCEApplicationBase::isStandaloneApp()) {
+    if (auto *sfw = findParentComponentOfClass<juce::StandaloneFilterWindow>()) {
+      if (auto *holder = sfw->getPluginHolder()) {
+        juce::PopupMenu midiInMenu;
+        if (midiInputs.isEmpty()) {
+          midiInMenu.addItem(0, "(No MIDI inputs found)", false);
+        } else {
+          for (int i = 0; i < midiInputs.size(); ++i) {
+            bool enabled = holder->deviceManager.isMidiInputDeviceEnabled(midiInputs[i].identifier);
+            midiInMenu.addItem(1000 + i, midiInputs[i].name, true, enabled);
+          }
+        }
+        menu.addSubMenu("MIDI Input Devices", midiInMenu);
+
+        juce::PopupMenu midiOutMenu;
+        const auto currentOutId = audioProcessor.getMidiOutputDeviceId();
+        midiOutMenu.addItem(2000, "None", true, currentOutId.isEmpty());
+        for (int i = 0; i < midiOutputs.size(); ++i) {
+          midiOutMenu.addItem(2001 + i, midiOutputs[i].name, true, currentOutId == midiOutputs[i].identifier);
+        }
+        menu.addSubMenu("MIDI Output Device", midiOutMenu);
+      }
+    }
+  }
+
   menu.addSeparator();
   menu.addItem(4, "Reset All Library Data...");
   menu.addSeparator();
@@ -675,7 +743,7 @@ void OpenWavAudioProcessorEditor::settingsRequested() {
           .withTargetComponent(&headerBar.getSettingsButton())
           .withPreferredPopupDirection(juce::PopupMenu::Options::PopupDirection::downwards)
           .withStandardItemHeight(28),
-      [this](int result) {
+      [this, midiInputs, midiOutputs](int result) {
     auto applyColour = [this](juce::Colour c, const juce::String &hexStr) {
       OpenWavLookAndFeel::setPrimaryColour(c);
       audioProcessor.getDatabaseManager().setPrimaryColourHex(hexStr);
@@ -797,6 +865,27 @@ void OpenWavAudioProcessorEditor::settingsRequested() {
           "In VST3 / AU plugin mode, Audio and MIDI devices are managed by "
           "your host DAW.",
           "OK");
+    } else if (result >= 1000 && result < 2000) {
+      int idx = result - 1000;
+      if (idx >= 0 && idx < midiInputs.size()) {
+        if (auto *sfw = findParentComponentOfClass<juce::StandaloneFilterWindow>()) {
+          if (auto *holder = sfw->getPluginHolder()) {
+            const auto &dev = midiInputs[idx];
+            bool wasEnabled = holder->deviceManager.isMidiInputDeviceEnabled(dev.identifier);
+            holder->deviceManager.setMidiInputDeviceEnabled(dev.identifier, !wasEnabled);
+            ToastOverlay::show(juce::String(!wasEnabled ? "Enabled MIDI In: " : "Disabled MIDI In: ") + dev.name);
+          }
+        }
+      }
+    } else if (result == 2000) {
+      audioProcessor.setMidiOutputDevice({});
+      ToastOverlay::show("MIDI Output disabled");
+    } else if (result >= 2001 && result < 3000) {
+      int idx = result - 2001;
+      if (idx >= 0 && idx < midiOutputs.size()) {
+        audioProcessor.setMidiOutputDevice(midiOutputs[idx].identifier);
+        ToastOverlay::show("MIDI Output: " + midiOutputs[idx].name);
+      }
     } else if (result == 4) // Reset All Library Data
     {
       juce::AlertWindow::showAsync(
@@ -845,6 +934,16 @@ void OpenWavAudioProcessorEditor::sampleSelected(const MediaItem &item) {
   folderBrowser.selectItemById(item.id, false);
   sampleCloud.selectItemById(item.id);
   analysisComponent.setItem(item);
+
+  juce::File f(item.filePath);
+  if (f.existsAsFile() && f.hasFileExtension("mid;midi")) {
+    audioProcessor.loadAndPlayMidiFile(f);
+    waveformTransport.syncMidiPreviewNow();
+    ToastOverlay::show("Playing MIDI: " + f.getFileName());
+  } else if (audioProcessor.isMidiFilePlaying()) {
+    audioProcessor.stopMidiFilePlayback();
+    waveformTransport.syncMidiPreviewNow();
+  }
 }
 
 void OpenWavAudioProcessorEditor::sampleDoubleClicked(

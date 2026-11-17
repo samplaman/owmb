@@ -248,6 +248,7 @@ RackKnobControl::RackKnobControl(const EffectParamInfo& info,
 
         knobSlider.setValue(initialValue, juce::dontSendNotification);
         knobSlider.addListener(this);
+        knobSlider.addMouseListener(this, false);
         addAndMakeVisible(knobSlider);
 
         // Value readout label
@@ -280,6 +281,12 @@ void RackKnobControl::resized()
         valueLabel.setBounds(area.removeFromBottom(16));
         knobSlider.setBounds(area.reduced(2));
     }
+}
+
+void RackKnobControl::mouseDown(const juce::MouseEvent& e)
+{
+    if (e.mods.isPopupMenu() && onRightClick)
+        onRightClick();
 }
 
 void RackKnobControl::sliderValueChanged(juce::Slider* slider)
@@ -345,7 +352,8 @@ RackUnitComponent::RackUnitComponent(std::shared_ptr<RackEffectBase> fx,
                                      std::function<void(int)> onMoveUp,
                                      std::function<void(int)> onMoveDown,
                                      std::function<void(int)> onDelete,
-                                     std::function<void()> onParamsChanged)
+                                     std::function<void()> onParamsChanged,
+                                     std::function<void(int, const EffectParamInfo&)> onKnobRightClick)
     : effect(std::move(fx)),
       index(unitIndex),
       totalCount(totalUnits),
@@ -424,6 +432,12 @@ RackUnitComponent::RackUnitComponent(std::shared_ptr<RackEffectBase> fx,
                 if (paramsChangedCallback)
                     paramsChangedCallback();
             });
+            if (onKnobRightClick)
+            {
+                ctrl->onRightClick = [this, onKnobRightClick, info]() {
+                    onKnobRightClick(index, info);
+                };
+            }
             controls.add(ctrl);
             addAndMakeVisible(ctrl);
         }
@@ -876,7 +890,10 @@ void PerformanceComponent::timerCallback()
     for (auto* unit : rackUnits)
     {
         if (unit)
+        {
             unit->updateTelemetry();
+            unit->syncKnobValues();
+        }
     }
 }
 
@@ -998,6 +1015,21 @@ void PerformanceComponent::refreshRack()
             },
             [this]() {
                 // Params tweaked
+            },
+            [this](int fxIdx, const EffectParamInfo& info) {
+                juce::PopupMenu menu;
+                const int learnedCc = getLearnedCcCallback ? getLearnedCcCallback(fxIdx, info.id) : -1;
+                menu.addItem(1, "MIDI Learn (CC): " + info.name);
+                if (learnedCc >= 0)
+                    menu.addItem(2, "Clear MIDI CC (" + juce::String(learnedCc) + ")");
+
+                menu.showMenuAsync(juce::PopupMenu::Options().withMousePosition(),
+                    [this, fxIdx, info](int res) {
+                        if (res == 1 && onMidiLearnRequested)
+                            onMidiLearnRequested(fxIdx, info);
+                        else if (res == 2 && onClearMidiLearnRequested)
+                            onClearMidiLearnRequested(fxIdx, info.id);
+                    });
             }
         );
         rackUnits.add(unit);

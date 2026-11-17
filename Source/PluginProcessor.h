@@ -61,6 +61,40 @@ public:
     PluginFullState getFullPluginState() const;
     void setFullPluginState(const PluginFullState& s, bool preloadSamples = false);
 
+    // MIDI File Playback
+    struct MidiDisplayNote
+    {
+        int noteNumber { 60 };
+        double startSec { 0.0 };
+        double endSec { 0.0 };
+        float velocity { 0.8f };
+    };
+    bool loadAndPlayMidiFile(const juce::File& midiFile);
+    void stopMidiFilePlayback(bool stopAudioVoices = true);
+    bool isMidiFilePlaying() const { return midiPlaybackActive.load(std::memory_order_relaxed); }
+    double getMidiPlaybackTimeSeconds() const { return midiPlayTimeAtomic.load(std::memory_order_relaxed); }
+    double getMidiFileDurationSeconds() const { return midiFileDurationAtomic.load(std::memory_order_relaxed); }
+    juce::String getLoadedMidiFileName() const;
+    std::vector<MidiDisplayNote> getMidiDisplayNotes() const;
+
+    // MIDI Learn (CC Mapping for Performance Rack)
+    struct MidiCcBinding
+    {
+        int ccNumber { -1 };
+        int effectIndex { -1 };
+        juce::String paramId;
+        float minVal { 0.0f };
+        float maxVal { 1.0f };
+    };
+    void startMidiLearn(int effectIndex, const juce::String& paramId, float minVal, float maxVal);
+    void clearMidiLearnForParam(int effectIndex, const juce::String& paramId);
+    int getLearnedCcForParam(int effectIndex, const juce::String& paramId) const;
+    std::function<void(int cc, int effectIndex, const juce::String& paramId)> onMidiLearned;
+
+    // MIDI Output Device
+    void setMidiOutputDevice(const juce::String& deviceId);
+    juce::String getMidiOutputDeviceId() const { return midiOutputDeviceId; }
+
 private:
     TagDatabaseManager dbManager;
     LibraryScanner libraryScanner { dbManager };
@@ -80,6 +114,28 @@ private:
     std::array<int, 128> noteChannels {};
     std::array<float, 128> lastNoteOnVelocities {};
     bool sustainPedalDown { false };
+
+    // MIDI File Playback State
+    mutable juce::CriticalSection midiSeqLock;
+    juce::MidiMessageSequence midiPlaySequence;
+    int midiPlayEventIndex { 0 };
+    double midiPlayTimeSec { 0.0 };
+    std::atomic<double> midiPlayTimeAtomic { 0.0 };
+    std::atomic<double> midiFileDurationAtomic { 0.0 };
+    juce::String loadedMidiFileName;
+    std::vector<MidiDisplayNote> midiDisplayNotes;
+    std::atomic<bool> midiPlaybackActive { false };
+
+    // MIDI Learn State
+    mutable juce::CriticalSection midiCcLock;
+    std::vector<MidiCcBinding> midiCcBindings;
+    bool midiLearnPending { false };
+    MidiCcBinding pendingLearnTarget;
+
+    // MIDI Output
+    juce::CriticalSection midiOutLock;
+    std::unique_ptr<juce::MidiOutput> activeMidiOutput;
+    juce::String midiOutputDeviceId;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(OpenWavAudioProcessor)
 };

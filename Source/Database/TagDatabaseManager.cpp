@@ -94,6 +94,12 @@ std::vector<MediaItem> TagDatabaseManager::getFilteredItems(const juce::String& 
                     !item.fileExtension.equalsIgnoreCase(".aifc"))
                     continue;
             }
+            else if (extensionFilter.equalsIgnoreCase(".mid") || extensionFilter.equalsIgnoreCase(".midi"))
+            {
+                if (!item.fileExtension.equalsIgnoreCase(".mid") &&
+                    !item.fileExtension.equalsIgnoreCase(".midi"))
+                    continue;
+            }
             else if (!item.fileExtension.endsWithIgnoreCase(extensionFilter))
             {
                 continue;

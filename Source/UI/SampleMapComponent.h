@@ -164,6 +164,7 @@ public:
     void downloadAndImportInstrument(const juce::String& urlOrRepo);
     bool loadSampleMapFile(const juce::File& file);
     void exportSampleMapToZip();
+    void exportZonesAsMidiPattern();
     void openLorisResynthesisDialog();
     void openLorisResynthesisForSample(const juce::File& file);
     void applyResynthesizedZones(const std::vector<ResynthesizedZone>& generatedZones);

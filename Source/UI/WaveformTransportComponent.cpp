@@ -429,6 +429,7 @@ WaveformTransportComponent::WaveformTransportComponent(AudioEngine& engine)
       bpmControl(engine),
       slicesGrid(engine, [this](int idx) { exportAndDragSlice(idx); })
 {
+    setOpaque(true);
     slicesGrid.onSliceSelected = [this](int idx, double startR, double endR) {
         setActiveSliceIndex(idx);
         audioEngine.setSampleRange(startR, endR);
@@ -551,6 +552,28 @@ WaveformTransportComponent::~WaveformTransportComponent()
 
 void WaveformTransportComponent::paint(juce::Graphics& g)
 {
+    if (getMidiPreviewData)
+    {
+        auto midiData = getMidiPreviewData();
+        if (midiData.active)
+        {
+            if (!midiPreviewActive || midiPreviewFileName != midiData.fileName)
+            {
+                midiPreviewActive = true;
+                midiPreviewFileName = midiData.fileName;
+                midiPreviewNotes = std::move(midiData.notes);
+            }
+            currentPositionSecs = midiData.positionSec;
+            totalDurationSecs = midiData.durationSec;
+        }
+        else if (midiPreviewActive)
+        {
+            midiPreviewActive = false;
+            midiPreviewFileName.clear();
+            midiPreviewNotes.clear();
+        }
+    }
+
     g.fillAll(OpenWavLookAndFeel::bgHeader);
 
     // Border line at top
@@ -565,8 +588,8 @@ void WaveformTransportComponent::paint(juce::Graphics& g)
     area.removeFromTop(32); // Space for top buttons and sample name
     area.removeFromTop(8);  // Spacing gap
 
-    // Only reserve space for Slices section when slices exist
-    if (!sliceRatios.empty())
+    // Only reserve space for Slices section when slices exist and not in MIDI preview
+    if (!midiPreviewActive && !sliceRatios.empty())
     {
         area.removeFromBottom(92);
         area.removeFromBottom(8); // Gap between waveform and slices section
@@ -576,6 +599,82 @@ void WaveformTransportComponent::paint(juce::Graphics& g)
 
     // Track Background Card
     OpenWavLookAndFeel::drawPanelCard(g, trackBounds, 8.0f, true);
+
+    if (midiPreviewActive && totalDurationSecs > 0.0)
+    {
+        auto midiRect = trackBounds.reduced(8.0f, 8.0f);
+        float totalWidth = midiRect.getWidth();
+        float progressRatio = juce::jlimit(0.0f, 1.0f, static_cast<float>(currentPositionSecs / totalDurationSecs));
+        float playheadX = midiRect.getX() + totalWidth * progressRatio;
+
+        int minNote = 127;
+        int maxNote = 0;
+        for (const auto& n : midiPreviewNotes)
+        {
+            minNote = std::min(minNote, n.noteNumber);
+            maxNote = std::max(maxNote, n.noteNumber);
+        }
+        if (midiPreviewNotes.empty())
+        {
+            minNote = 48;
+            maxNote = 72;
+        }
+        if (maxNote - minNote < 11)
+        {
+            int center = (minNote + maxNote) / 2;
+            minNote = juce::jlimit(0, 115, center - 6);
+            maxNote = minNote + 12;
+        }
+
+        const int pitchSpan = std::max(1, maxNote - minNote + 1);
+        const float noteRowH = juce::jlimit(2.0f, 8.0f, midiRect.getHeight() / static_cast<float>(pitchSpan));
+
+        // Subtle horizontal pitch grid lines
+        g.setColour(OpenWavLookAndFeel::borderColour.withAlpha(0.22f));
+        for (int row = 1; row < 4; ++row)
+        {
+            float y = midiRect.getY() + midiRect.getHeight() * (static_cast<float>(row) / 4.0f);
+            g.drawHorizontalLine(static_cast<int>(y), midiRect.getX(), midiRect.getRight());
+        }
+
+        g.saveState();
+        g.reduceClipRegion(midiRect.toNearestInt());
+
+        for (const auto& n : midiPreviewNotes)
+        {
+            float x0 = midiRect.getX() + static_cast<float>(n.startSec / totalDurationSecs) * totalWidth;
+            float x1 = midiRect.getX() + static_cast<float>(n.endSec / totalDurationSecs) * totalWidth;
+            float w = std::max(3.0f, x1 - x0);
+
+            float normPitch = static_cast<float>(n.noteNumber - minNote) / static_cast<float>(pitchSpan - 1);
+            float yCenter = midiRect.getBottom() - noteRowH * 0.5f - normPitch * (midiRect.getHeight() - noteRowH);
+            juce::Rectangle<float> noteRect(x0, yCenter - noteRowH * 0.45f, w, std::max(2.0f, noteRowH * 0.9f));
+
+            bool isActiveNow = (currentPositionSecs >= n.startSec && currentPositionSecs <= n.endSec);
+            bool isPlayed = (x0 <= playheadX);
+
+            if (isActiveNow)
+                g.setColour(OpenWavLookAndFeel::accentCyan.brighter(0.35f));
+            else if (isPlayed)
+                g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.85f));
+            else
+                g.setColour(OpenWavLookAndFeel::textPrimary.withAlpha(0.45f + 0.4f * juce::jlimit(0.0f, 1.0f, n.velocity)));
+
+            g.fillRoundedRectangle(noteRect, 1.5f);
+        }
+
+        g.restoreState();
+
+        // Draw Playhead Line & Glowing Playhead Knob
+        g.setColour(OpenWavLookAndFeel::accentCyan.brighter(0.5f));
+        g.drawLine(playheadX, trackBounds.getY() + 2.0f, playheadX, trackBounds.getBottom() - 2.0f, 2.0f);
+        g.setColour(juce::Colours::white);
+        g.fillEllipse(playheadX - 6.0f, trackBounds.getCentreY() - 6.0f, 12.0f, 12.0f);
+        g.setColour(OpenWavLookAndFeel::accentCyan);
+        g.drawEllipse(playheadX - 6.0f, trackBounds.getCentreY() - 6.0f, 12.0f, 12.0f, 1.5f);
+        return;
+    }
+
     double dur = totalDurationSecs;
     if (dur <= 0.0)
         dur = audioEngine.getTotalLengthSeconds();
@@ -844,6 +943,11 @@ void WaveformTransportComponent::playbackStateChanged(bool isPlaying)
     repaint();
 }
 
+void WaveformTransportComponent::syncMidiPreviewNow()
+{
+    timerCallback();
+}
+
 void WaveformTransportComponent::timerCallback()
 {
     if (audioEngine.isHostSyncEnabled())
@@ -868,6 +972,46 @@ void WaveformTransportComponent::timerCallback()
     {
         loopButton.setToggleState(isLooping, juce::dontSendNotification);
         repaint();
+    }
+
+    // Check MIDI file preview state first (only active while MIDI is playing)
+    if (getMidiPreviewData)
+    {
+        auto midiData = getMidiPreviewData();
+        if (midiData.active)
+        {
+            bool fileChanged = (!midiPreviewActive || midiPreviewFileName != midiData.fileName);
+            midiPreviewActive = true;
+            if (fileChanged)
+            {
+                midiPreviewFileName = midiData.fileName;
+                midiPreviewNotes = std::move(midiData.notes);
+                sampleNameLabel.setText(midiPreviewFileName, juce::dontSendNotification);
+                slicesViewport.setVisible(false);
+            }
+
+            currentPositionSecs = midiData.positionSec;
+            totalDurationSecs = midiData.durationSec;
+
+            int curMins = static_cast<int>(currentPositionSecs) / 60;
+            int curSecs = static_cast<int>(currentPositionSecs) % 60;
+            int totMins = static_cast<int>(totalDurationSecs) / 60;
+            int totSecs = static_cast<int>(totalDurationSecs) % 60;
+            timeLabel.setText(juce::String::formatted("%02d:%02d / %02d:%02d", curMins, curSecs, totMins, totSecs),
+                              juce::dontSendNotification);
+            repaint();
+            return;
+        }
+        else if (midiPreviewActive)
+        {
+            midiPreviewActive = false;
+            midiPreviewFileName.clear();
+            midiPreviewNotes.clear();
+            slicesViewport.setVisible(!sliceRatios.empty());
+            auto curFile = audioEngine.getCurrentFile();
+            sampleNameLabel.setText(curFile.existsAsFile() ? curFile.getFileName() : "", juce::dontSendNotification);
+            repaint();
+        }
     }
 
     // Always sync position from audioEngine so both transports stay in sync

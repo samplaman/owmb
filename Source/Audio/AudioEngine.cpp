@@ -1758,6 +1758,8 @@ void AudioEngine::stop()
 
     lastNotifiedPlayingState = false;
     listeners.call([](AudioEngineListener& l) { l.playbackStateChanged(false); });
+    if (onStopped)
+        onStopped();
 }
 
 void AudioEngine::restartPlayback()
