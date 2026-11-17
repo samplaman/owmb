@@ -206,10 +206,10 @@ private:
     std::unique_ptr<juce::OpenGLShaderProgram> bgShaderProgram;
     std::unique_ptr<juce::OpenGLShaderProgram> lineShaderProgram;
     std::unique_ptr<juce::OpenGLShaderProgram> shaderProgram;
-    juce::gl::GLuint vao { 0 };
-    juce::gl::GLuint bgVbo { 0 };
-    juce::gl::GLuint vbo { 0 };
-    juce::gl::GLuint lineVbo { 0 };
+    GLuint vao { 0 };
+    GLuint bgVbo { 0 };
+    GLuint vbo { 0 };
+    GLuint lineVbo { 0 };
     bool vboNeedsUpdate { false };
     bool lineVboNeedsUpdate { false };
 #endif

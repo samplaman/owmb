@@ -3078,6 +3078,43 @@ void SampleCloudComponent::showContextMenuForNode(int nodeIndex) {
 
 #if !JUCE_MAC
 
+#ifndef GL_FALSE
+#define GL_FALSE 0
+#endif
+#ifndef GL_FLOAT
+#define GL_FLOAT 0x1406
+#endif
+#ifndef GL_POINTS
+#define GL_POINTS 0x0000
+#endif
+#ifndef GL_LINES
+#define GL_LINES 0x0001
+#endif
+#ifndef GL_TRIANGLES
+#define GL_TRIANGLES 0x0004
+#endif
+#ifndef GL_ARRAY_BUFFER
+#define GL_ARRAY_BUFFER 0x8892
+#endif
+#ifndef GL_STATIC_DRAW
+#define GL_STATIC_DRAW 0x88E4
+#endif
+#ifndef GL_BLEND
+#define GL_BLEND 0x0BE2
+#endif
+#ifndef GL_ONE
+#define GL_ONE 1
+#endif
+#ifndef GL_SRC_ALPHA
+#define GL_SRC_ALPHA 0x0302
+#endif
+#ifndef GL_ONE_MINUS_SRC_ALPHA
+#define GL_ONE_MINUS_SRC_ALPHA 0x0303
+#endif
+#ifndef GL_PROGRAM_POINT_SIZE
+#define GL_PROGRAM_POINT_SIZE 0x8642
+#endif
+
 void SampleCloudComponent::newOpenGLContextCreated() {
   openGLContext.extensions.glGenVertexArrays(1, &vao);
   openGLContext.extensions.glBindVertexArray(vao);
@@ -3094,8 +3131,8 @@ void SampleCloudComponent::newOpenGLContextCreated() {
        3.0f, -1.0f,
       -1.0f,  3.0f
   };
-  openGLContext.extensions.glBindBuffer(juce::gl::GL_ARRAY_BUFFER, bgVbo);
-  openGLContext.extensions.glBufferData(juce::gl::GL_ARRAY_BUFFER, sizeof(bgTriVerts), bgTriVerts, juce::gl::GL_STATIC_DRAW);
+  openGLContext.extensions.glBindBuffer(GL_ARRAY_BUFFER, bgVbo);
+  openGLContext.extensions.glBufferData(GL_ARRAY_BUFFER, sizeof(bgTriVerts), bgTriVerts, GL_STATIC_DRAW);
 
   // 1. Background Deep Space Nebula & Cosmic Dust Shader
   juce::String bgVertexShader =
@@ -3311,12 +3348,12 @@ void SampleCloudComponent::renderOpenGL() {
 
   juce::gl::glViewport(0, 0, juce::roundToInt(getWidth() * scaleFactor),
                        juce::roundToInt(getHeight() * scaleFactor));
-  juce::gl::glDisable(juce::gl::GL_BLEND);
+  juce::gl::glDisable(GL_BLEND);
 
   // 1. Draw Deep Space Nebula & Cosmic Dust Background
   if (bgShaderProgram) {
     bgShaderProgram->use();
-    juce::gl::GLuint bgProg = bgShaderProgram->getProgramID();
+    GLuint bgProg = bgShaderProgram->getProgramID();
     openGLContext.extensions.glUniform1f(
         openGLContext.extensions.glGetUniformLocation(bgProg, "time"), timeSec);
     openGLContext.extensions.glUniform3f(
@@ -3326,12 +3363,12 @@ void SampleCloudComponent::renderOpenGL() {
         openGLContext.extensions.glGetUniformLocation(bgProg, "viewportSize"),
         effW, effH);
 
-    openGLContext.extensions.glBindBuffer(juce::gl::GL_ARRAY_BUFFER, bgVbo);
-    juce::gl::GLint bgPosAttr = openGLContext.extensions.glGetAttribLocation(bgProg, "pos");
+    openGLContext.extensions.glBindBuffer(GL_ARRAY_BUFFER, bgVbo);
+    GLint bgPosAttr = openGLContext.extensions.glGetAttribLocation(bgProg, "pos");
     if (bgPosAttr >= 0) {
-      openGLContext.extensions.glVertexAttribPointer(bgPosAttr, 2, juce::gl::GL_FLOAT, juce::gl::GL_FALSE, 0, nullptr);
+      openGLContext.extensions.glVertexAttribPointer(bgPosAttr, 2, GL_FLOAT, GL_FALSE, 0, nullptr);
       openGLContext.extensions.glEnableVertexAttribArray(bgPosAttr);
-      juce::gl::glDrawArrays(juce::gl::GL_TRIANGLES, 0, 3);
+      juce::gl::glDrawArrays(GL_TRIANGLES, 0, 3);
       openGLContext.extensions.glDisableVertexAttribArray(bgPosAttr);
     }
   }
@@ -3362,60 +3399,60 @@ void SampleCloudComponent::renderOpenGL() {
   lastViewProjectionMatrix = projectionMatrix * viewMatrix;
 
   // 2. Draw Constellation Lines (Alpha Blend)
-  juce::gl::glEnable(juce::gl::GL_BLEND);
-  juce::gl::glBlendFunc(juce::gl::GL_SRC_ALPHA, juce::gl::GL_ONE_MINUS_SRC_ALPHA);
+  juce::gl::glEnable(GL_BLEND);
+  juce::gl::glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
   if (lineShaderProgram && !lineVertexBuffer.empty()) {
     lineShaderProgram->use();
-    juce::gl::GLuint lineProg = lineShaderProgram->getProgramID();
+    GLuint lineProg = lineShaderProgram->getProgramID();
     openGLContext.extensions.glUniformMatrix4fv(
         openGLContext.extensions.glGetUniformLocation(lineProg, "projectionMatrix"),
-        1, juce::gl::GL_FALSE, projectionMatrix.mat);
+        1, GL_FALSE, projectionMatrix.mat);
     openGLContext.extensions.glUniformMatrix4fv(
         openGLContext.extensions.glGetUniformLocation(lineProg, "viewMatrix"),
-        1, juce::gl::GL_FALSE, viewMatrix.mat);
+        1, GL_FALSE, viewMatrix.mat);
     openGLContext.extensions.glUniform1f(
         openGLContext.extensions.glGetUniformLocation(lineProg, "revealAlpha"), revealAlpha);
     openGLContext.extensions.glUniform1f(
         openGLContext.extensions.glGetUniformLocation(lineProg, "time"), timeSec);
 
-    openGLContext.extensions.glBindBuffer(juce::gl::GL_ARRAY_BUFFER, lineVbo);
+    openGLContext.extensions.glBindBuffer(GL_ARRAY_BUFFER, lineVbo);
     if (lineVboNeedsUpdate) {
-      openGLContext.extensions.glBufferData(juce::gl::GL_ARRAY_BUFFER,
+      openGLContext.extensions.glBufferData(GL_ARRAY_BUFFER,
                                             lineVertexBuffer.size() * sizeof(LineVertex),
-                                            lineVertexBuffer.data(), juce::gl::GL_STATIC_DRAW);
+                                            lineVertexBuffer.data(), GL_STATIC_DRAW);
       lineVboNeedsUpdate = false;
     }
 
-    juce::gl::GLint lPosAttr = openGLContext.extensions.glGetAttribLocation(lineProg, "position");
-    juce::gl::GLint lColAttr = openGLContext.extensions.glGetAttribLocation(lineProg, "colour");
+    GLint lPosAttr = openGLContext.extensions.glGetAttribLocation(lineProg, "position");
+    GLint lColAttr = openGLContext.extensions.glGetAttribLocation(lineProg, "colour");
     if (lPosAttr >= 0) {
       openGLContext.extensions.glVertexAttribPointer(
-          lPosAttr, 3, juce::gl::GL_FLOAT, juce::gl::GL_FALSE, sizeof(LineVertex), (juce::gl::GLvoid *)offsetof(LineVertex, x));
+          lPosAttr, 3, GL_FLOAT, GL_FALSE, sizeof(LineVertex), (GLvoid *)offsetof(LineVertex, x));
       openGLContext.extensions.glEnableVertexAttribArray(lPosAttr);
     }
     if (lColAttr >= 0) {
       openGLContext.extensions.glVertexAttribPointer(
-          lColAttr, 4, juce::gl::GL_FLOAT, juce::gl::GL_FALSE, sizeof(LineVertex), (juce::gl::GLvoid *)offsetof(LineVertex, r));
+          lColAttr, 4, GL_FLOAT, GL_FALSE, sizeof(LineVertex), (GLvoid *)offsetof(LineVertex, r));
       openGLContext.extensions.glEnableVertexAttribArray(lColAttr);
     }
-    juce::gl::glDrawArrays(juce::gl::GL_LINES, 0, (juce::gl::GLsizei)lineVertexBuffer.size());
+    juce::gl::glDrawArrays(GL_LINES, 0, (GLsizei)lineVertexBuffer.size());
     if (lPosAttr >= 0) openGLContext.extensions.glDisableVertexAttribArray(lPosAttr);
     if (lColAttr >= 0) openGLContext.extensions.glDisableVertexAttribArray(lColAttr);
   }
 
   // 3. Draw Point Cloud Particles (Luminous Additive Blend)
-  juce::gl::glBlendFunc(juce::gl::GL_SRC_ALPHA, juce::gl::GL_ONE);
-  juce::gl::glEnable(juce::gl::GL_PROGRAM_POINT_SIZE);
+  juce::gl::glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+  juce::gl::glEnable(GL_PROGRAM_POINT_SIZE);
 
   shaderProgram->use();
-  juce::gl::GLuint progID = shaderProgram->getProgramID();
+  GLuint progID = shaderProgram->getProgramID();
   openGLContext.extensions.glUniformMatrix4fv(
       openGLContext.extensions.glGetUniformLocation(progID, "projectionMatrix"),
-      1, juce::gl::GL_FALSE, projectionMatrix.mat);
+      1, GL_FALSE, projectionMatrix.mat);
   openGLContext.extensions.glUniformMatrix4fv(
       openGLContext.extensions.glGetUniformLocation(progID, "viewMatrix"), 1,
-      juce::gl::GL_FALSE, viewMatrix.mat);
+      GL_FALSE, viewMatrix.mat);
   openGLContext.extensions.glUniform1f(
       openGLContext.extensions.glGetUniformLocation(progID, "revealAlpha"),
       revealAlpha);
@@ -3441,42 +3478,42 @@ void SampleCloudComponent::renderOpenGL() {
       openGLContext.extensions.glGetUniformLocation(progID, "fogColor"),
       bgAnthracite.getFloatRed(), bgAnthracite.getFloatGreen(), bgAnthracite.getFloatBlue());
 
-  openGLContext.extensions.glBindBuffer(juce::gl::GL_ARRAY_BUFFER, vbo);
+  openGLContext.extensions.glBindBuffer(GL_ARRAY_BUFFER, vbo);
 
   if (vboNeedsUpdate) {
-    openGLContext.extensions.glBufferData(juce::gl::GL_ARRAY_BUFFER,
+    openGLContext.extensions.glBufferData(GL_ARRAY_BUFFER,
                                           vertexBuffer.size() * sizeof(Vertex),
-                                          vertexBuffer.data(), juce::gl::GL_STATIC_DRAW);
+                                          vertexBuffer.data(), GL_STATIC_DRAW);
     vboNeedsUpdate = false;
   }
 
-  juce::gl::GLint posAttr =
+  GLint posAttr =
       openGLContext.extensions.glGetAttribLocation(progID, "position");
-  juce::gl::GLint colAttr =
+  GLint colAttr =
       openGLContext.extensions.glGetAttribLocation(progID, "colour");
-  juce::gl::GLint radAttr =
+  GLint radAttr =
       openGLContext.extensions.glGetAttribLocation(progID, "radius");
 
   if (posAttr >= 0) {
     openGLContext.extensions.glVertexAttribPointer(
-        posAttr, 3, juce::gl::GL_FLOAT, juce::gl::GL_FALSE, sizeof(Vertex),
-        (juce::gl::GLvoid *)offsetof(Vertex, x));
+        posAttr, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex),
+        (GLvoid *)offsetof(Vertex, x));
     openGLContext.extensions.glEnableVertexAttribArray(posAttr);
   }
   if (colAttr >= 0) {
     openGLContext.extensions.glVertexAttribPointer(
-        colAttr, 4, juce::gl::GL_FLOAT, juce::gl::GL_FALSE, sizeof(Vertex),
-        (juce::gl::GLvoid *)offsetof(Vertex, r));
+        colAttr, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex),
+        (GLvoid *)offsetof(Vertex, r));
     openGLContext.extensions.glEnableVertexAttribArray(colAttr);
   }
   if (radAttr >= 0) {
     openGLContext.extensions.glVertexAttribPointer(
-        radAttr, 1, juce::gl::GL_FLOAT, juce::gl::GL_FALSE, sizeof(Vertex),
-        (juce::gl::GLvoid *)offsetof(Vertex, radius));
+        radAttr, 1, GL_FLOAT, GL_FALSE, sizeof(Vertex),
+        (GLvoid *)offsetof(Vertex, radius));
     openGLContext.extensions.glEnableVertexAttribArray(radAttr);
   }
-  juce::gl::glDrawArrays(juce::gl::GL_POINTS, 0, (juce::gl::GLsizei)vertexBuffer.size());
-  juce::gl::glBlendFunc(juce::gl::GL_SRC_ALPHA, juce::gl::GL_ONE_MINUS_SRC_ALPHA);
+  juce::gl::glDrawArrays(GL_POINTS, 0, (GLsizei)vertexBuffer.size());
+  juce::gl::glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
   if (posAttr >= 0)
     openGLContext.extensions.glDisableVertexAttribArray(posAttr);
   if (colAttr >= 0)
