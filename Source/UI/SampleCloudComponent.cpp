@@ -3394,12 +3394,10 @@ void SampleCloudComponent::renderOpenGL() {
 
   openGLContext.extensions.glBindVertexArray(vao);
 
-  juce::gl::glViewport(0, 0, juce::roundToInt(getWidth() * scaleFactor),
-                       juce::roundToInt(getHeight() * scaleFactor));
+  // Keep JUCE's pre-configured glViewport and GL_SCISSOR_TEST for this component's bounds;
+  // only disable depth test and face culling so the fullscreen background triangle is never rejected.
   juce::gl::glDisable(GL_DEPTH_TEST);
   juce::gl::glDisable(GL_CULL_FACE);
-  juce::gl::glDisable(GL_SCISSOR_TEST);
-  juce::gl::glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
   juce::gl::glDisable(GL_BLEND);
 
   juce::OpenGLHelpers::clear(bgAnthracite);
