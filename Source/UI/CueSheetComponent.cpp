@@ -129,8 +129,6 @@ void CueSheetComponent::paint(juce::Graphics& g)
     g.fillRoundedRectangle(topBar.toFloat(), 6.0f);
     g.setColour(OpenWavLookAndFeel::borderColour);
     g.drawRoundedRectangle(topBar.toFloat().reduced(0.5f), 6.0f, 1.0f);
-
-    OpenWavLookAndFeel::drawButtonGroup(g, { &logCurrentButton, &syncSamplerButton, &removeButton, &clearButton });
 }
 
 void CueSheetComponent::paintOverChildren(juce::Graphics& g)

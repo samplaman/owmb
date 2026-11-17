@@ -818,8 +818,6 @@ void PerformanceComponent::paint(juce::Graphics& g)
     // Toolbar bottom divider
     g.setColour(OpenWavLookAndFeel::borderColour);
     g.drawHorizontalLine(52, 0.0f, static_cast<float>(getWidth()));
-
-    OpenWavLookAndFeel::drawButtonGroup(g, { &btnAddEffect, &btnPresets, &btnClearAll });
 }
 
 void PerformanceComponent::resized()

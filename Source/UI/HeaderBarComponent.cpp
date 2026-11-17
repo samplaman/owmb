@@ -125,8 +125,6 @@ void HeaderBarComponent::paint(juce::Graphics& g)
         auto pill = viewPillBounds.toFloat();
         g.setColour(OpenWavLookAndFeel::bgDark.withAlpha(0.75f));
         g.fillRoundedRectangle(pill, 8.0f);
-        g.setColour(OpenWavLookAndFeel::borderColour);
-        g.drawRoundedRectangle(pill.reduced(0.5f), 8.0f, 1.0f);
 
         g.setColour(OpenWavLookAndFeel::borderColour.withAlpha(0.8f));
         if (!viewDivider1.isEmpty())
@@ -134,8 +132,6 @@ void HeaderBarComponent::paint(juce::Graphics& g)
         if (!viewDivider2.isEmpty())
             g.fillRect(viewDivider2);
     }
-
-    OpenWavLookAndFeel::drawButtonGroup(g, { &addFolderButton, &rescanButton, &settingsButton });
 }
 
 void HeaderBarComponent::resized()
