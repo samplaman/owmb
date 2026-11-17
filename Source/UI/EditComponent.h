@@ -15,7 +15,8 @@ namespace openwav
 class EditComponent : public juce::Component,
                       public AudioEngineListener,
                       public juce::Timer,
-                      public juce::ScrollBar::Listener
+                      public juce::ScrollBar::Listener,
+                      public juce::FileDragAndDropTarget
 {
 public:
     explicit EditComponent(AudioEngine& engine);
@@ -25,7 +26,17 @@ public:
     void setState(const EditComponentState& state);
 
     void paint(juce::Graphics& g) override;
+    void paintOverChildren(juce::Graphics& g) override;
     void resized() override;
+
+    // FileDragAndDropTarget
+    bool isInterestedInFileDrag(const juce::StringArray& files) override;
+    void fileDragEnter(const juce::StringArray& files, int x, int y) override;
+    void fileDragExit(const juce::StringArray& files) override;
+    void filesDropped(const juce::StringArray& files, int x, int y) override;
+
+    std::function<void(const juce::File&)> onSavedToLibrary;
+    std::function<void(const juce::File&)> onSendToSampleMap;
 
     void mouseMove(const juce::MouseEvent& e) override;
     void mouseExit(const juce::MouseEvent& e) override;
@@ -64,6 +75,28 @@ private:
     juce::Rectangle<float> getWaveformBounds() const;
     juce::Rectangle<int> getControlPanelBounds() const;
     void updateControlVisibility();
+    void pushUndoState();
+    void performUndo();
+    void performRedo();
+    void updateUndoRedoButtons();
+    void updateSelectionStats();
+    void saveEditedCopyToLibrary();
+    void sendEditedToSampleMap();
+    void previewLoopSeam();
+    void showMoreDspMenu();
+
+    struct EditUndoEntry
+    {
+        juce::AudioBuffer<float> buffer;
+        double sampleRate { 44100.0 };
+        double startRatio { 0.0 };
+        double endRatio { 1.0 };
+        double loopInRatio { 0.0 };
+        double loopOutRatio { 1.0 };
+        bool loopMarkersSet { false };
+    };
+    std::vector<EditUndoEntry> undoStack;
+    std::vector<EditUndoEntry> redoStack;
 
     // Painting sub-routines
     void paintTimeRuler(juce::Graphics& g, juce::Rectangle<float> bounds) const;
@@ -131,6 +164,12 @@ private:
     juce::TextButton lpFilterButton { "Hi Cut" };
     juce::TextButton monoSumButton { "Mono Sum" };
     juce::TextButton exportButton { "Export" };
+    juce::TextButton saveToLibraryButton { "Save to Library" };
+    juce::TextButton sendToSamplerButton { "To Sampler" };
+    juce::TextButton undoButton { "Undo" };
+    juce::TextButton redoButton { "Redo" };
+    juce::TextButton moreDspButton { "More DSP" };
+    juce::TextButton previewLoopSeamButton { "Loop Seam" };
     juce::TextButton revertOriginalButton { "Revert" };
 
     // Fine loop nudge controls
@@ -148,6 +187,8 @@ private:
     juce::Label endTimeLabel;
     juce::Label loopInTimeLabel;
     juce::Label loopOutTimeLabel;
+    juce::Label selectionStatsLabel;
+    bool isFileDragOver { false };
     juce::Label sampleNameLabel;
     juce::String lastLoadedFilePath;
 

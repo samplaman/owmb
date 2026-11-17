@@ -139,66 +139,68 @@ void HeaderBarComponent::paint(juce::Graphics& g)
 
 void HeaderBarComponent::resized()
 {
-    auto area = getLocalBounds().reduced(12, 10);
-    int btnHeight = 32;
+    auto area = getLocalBounds().reduced(12, 11);
+    int barHeight = 32;
+    int innerBtnH = 28;
     int gap = 4;
 
-    // 1. Far Right Actions: Settings, Rescan, Add Folder
-    settingsButton.setBounds(area.removeFromRight(34).withHeight(btnHeight));
-    area.removeFromRight(gap);
-    rescanButton.setBounds(area.removeFromRight(34).withHeight(btnHeight));
-    area.removeFromRight(gap);
-    addFolderButton.setBounds(area.removeFromRight(34).withHeight(btnHeight));
+    // 1. Far Right Actions: Settings, Rescan, Add Folder (28px buttons -> 32px outer group pill)
+    auto utilArea = area.removeFromRight(3 * 32 + 2 * gap + 6).withHeight(barHeight);
+    auto utilInner = utilArea.reduced(3, 2);
+    settingsButton.setBounds(utilInner.removeFromRight(32).withHeight(innerBtnH));
+    utilInner.removeFromRight(gap);
+    rescanButton.setBounds(utilInner.removeFromRight(32).withHeight(innerBtnH));
+    utilInner.removeFromRight(gap);
+    addFolderButton.setBounds(utilInner.removeFromRight(32).withHeight(innerBtnH));
 
     area.removeFromRight(12);
 
     // 2. Far Left: Logo / Title
     if (logoComponent.isVisible())
-        logoComponent.setBounds(area.removeFromLeft(135));
+        logoComponent.setBounds(area.removeFromLeft(135).withHeight(barHeight));
     else
-        titleLabel.setBounds(area.removeFromLeft(85));
+        titleLabel.setBounds(area.removeFromLeft(85).withHeight(barHeight));
     area.removeFromLeft(16);
 
-    // 3. View Switcher Segmented Pill on Right-of-Center
+    // 3. View Switcher Segmented Pill on Right-of-Center (32px outer pill, 28px inner buttons)
     const int viewBtnWidth = 32;
-    const int viewBtnH = 26;
     const int divGap = 9;
-    const int totalViewWidth = 9 * viewBtnWidth + 6 * gap + 2 * divGap + 8; // 8px pill padding
-    auto pillArea = area.removeFromRight(totalViewWidth).withHeight(btnHeight);
+    const int totalViewWidth = 9 * viewBtnWidth + 6 * gap + 2 * divGap + 6;
+    auto pillArea = area.removeFromRight(totalViewWidth).withHeight(barHeight);
     viewPillBounds = pillArea;
-    auto vInner = pillArea.reduced(4, 3);
+    auto vInner = pillArea.reduced(3, 2);
 
-    btnListView.setBounds(vInner.removeFromLeft(viewBtnWidth).withHeight(viewBtnH));
+    btnListView.setBounds(vInner.removeFromLeft(viewBtnWidth).withHeight(innerBtnH));
     vInner.removeFromLeft(gap);
-    btnFoldersView.setBounds(vInner.removeFromLeft(viewBtnWidth).withHeight(viewBtnH));
+    btnFoldersView.setBounds(vInner.removeFromLeft(viewBtnWidth).withHeight(innerBtnH));
     vInner.removeFromLeft(gap);
-    btnCloudView.setBounds(vInner.removeFromLeft(viewBtnWidth).withHeight(viewBtnH));
+    btnCloudView.setBounds(vInner.removeFromLeft(viewBtnWidth).withHeight(innerBtnH));
     vInner.removeFromLeft(gap);
-    btnLibrariesView.setBounds(vInner.removeFromLeft(viewBtnWidth).withHeight(viewBtnH));
+    btnLibrariesView.setBounds(vInner.removeFromLeft(viewBtnWidth).withHeight(innerBtnH));
 
-    viewDivider1 = juce::Rectangle<int>(vInner.getX() + 4, vInner.getY() + 4, 1, viewBtnH - 8);
+    viewDivider1 = juce::Rectangle<int>(vInner.getX() + 4, vInner.getY() + 4, 1, innerBtnH - 8);
     vInner.removeFromLeft(divGap);
 
-    btnRecordView.setBounds(vInner.removeFromLeft(viewBtnWidth).withHeight(viewBtnH));
+    btnRecordView.setBounds(vInner.removeFromLeft(viewBtnWidth).withHeight(innerBtnH));
     vInner.removeFromLeft(gap);
-    btnAnalysisView.setBounds(vInner.removeFromLeft(viewBtnWidth).withHeight(viewBtnH));
+    btnAnalysisView.setBounds(vInner.removeFromLeft(viewBtnWidth).withHeight(innerBtnH));
     vInner.removeFromLeft(gap);
-    btnEditView.setBounds(vInner.removeFromLeft(viewBtnWidth).withHeight(viewBtnH));
+    btnEditView.setBounds(vInner.removeFromLeft(viewBtnWidth).withHeight(innerBtnH));
     vInner.removeFromLeft(gap);
-    btnSampleMapView.setBounds(vInner.removeFromLeft(viewBtnWidth).withHeight(viewBtnH));
+    btnSampleMapView.setBounds(vInner.removeFromLeft(viewBtnWidth).withHeight(innerBtnH));
 
-    viewDivider2 = juce::Rectangle<int>(vInner.getX() + 4, vInner.getY() + 4, 1, viewBtnH - 8);
+    viewDivider2 = juce::Rectangle<int>(vInner.getX() + 4, vInner.getY() + 4, 1, innerBtnH - 8);
     vInner.removeFromLeft(divGap);
 
-    btnPerformanceView.setBounds(vInner.removeFromLeft(viewBtnWidth).withHeight(viewBtnH));
+    btnPerformanceView.setBounds(vInner.removeFromLeft(viewBtnWidth).withHeight(innerBtnH));
 
     area.removeFromRight(12);
 
-    // 4. Format Filter Dropdown + Dynamic Search Editor
-    formatFilterBox.setBounds(area.removeFromRight(106).withHeight(btnHeight));
+    // 4. Format Filter Dropdown + Dynamic Search Editor (both 32px height)
+    formatFilterBox.setBounds(area.removeFromRight(106).withHeight(barHeight));
     area.removeFromRight(8);
 
-    searchEditor.setBounds(area.withHeight(btnHeight));
+    searchEditor.setBounds(area.withHeight(barHeight));
     clearSearchButton.setBounds(searchEditor.getRight() - 26, searchEditor.getY() + 4, 22, 24);
     clearSearchButton.toFront(false);
 }

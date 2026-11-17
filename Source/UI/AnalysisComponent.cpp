@@ -53,9 +53,9 @@ void AnalysisComponent::paint(juce::Graphics& g)
 
     if (!hasItem)
     {
-        g.setColour(OpenWavLookAndFeel::textSecondary.withAlpha(0.5f));
-        g.setFont(juce::Font(20.0f));
-        g.drawText("No file selected", getLocalBounds(), juce::Justification::centred);
+        OpenWavLookAndFeel::drawEmptyState(g, getLocalBounds(),
+            "No Sample Selected",
+            "Select any sample in List, Folders, or 3D Cloud to inspect its audio metrics.");
         return;
     }
 

@@ -1145,8 +1145,21 @@ bool SampleMapComponent::isInterestedInFileDrag(const juce::StringArray& files)
     return false;
 }
 
+void SampleMapComponent::fileDragEnter(const juce::StringArray&, int, int)
+{
+    isDragOver = true;
+    repaint();
+}
+
+void SampleMapComponent::fileDragExit(const juce::StringArray&)
+{
+    isDragOver = false;
+    repaint();
+}
+
 void SampleMapComponent::filesDropped(const juce::StringArray& files, int /*x*/, int /*y*/)
 {
+    isDragOver = false;
     for (const auto& f : files)
     {
         juce::File file(f);
@@ -1155,11 +1168,15 @@ void SampleMapComponent::filesDropped(const juce::StringArray& files, int /*x*/,
             if (file.hasFileExtension("xml") || file.hasFileExtension("samplemap") || file.hasFileExtension("owmap") || file.hasFileExtension("sfz") || file.hasFileExtension("zip"))
             {
                 if (loadSampleMapFile(file))
+                {
+                    repaint();
                     return;
+                }
             }
             addSampleFile(file);
         }
     }
+    repaint();
 }
 
 bool SampleMapComponent::isInterestedInDragSource(const juce::DragAndDropTarget::SourceDetails& /*dragSourceDetails*/)
@@ -1167,8 +1184,21 @@ bool SampleMapComponent::isInterestedInDragSource(const juce::DragAndDropTarget:
     return true;
 }
 
+void SampleMapComponent::itemDragEnter(const juce::DragAndDropTarget::SourceDetails&)
+{
+    isDragOver = true;
+    repaint();
+}
+
+void SampleMapComponent::itemDragExit(const juce::DragAndDropTarget::SourceDetails&)
+{
+    isDragOver = false;
+    repaint();
+}
+
 void SampleMapComponent::itemDropped(const juce::DragAndDropTarget::SourceDetails& dragSourceDetails)
 {
+    isDragOver = false;
     juce::String description = dragSourceDetails.description.toString();
     if (description.isNotEmpty())
     {
@@ -1178,11 +1208,15 @@ void SampleMapComponent::itemDropped(const juce::DragAndDropTarget::SourceDetail
             if (file.hasFileExtension("xml") || file.hasFileExtension("samplemap") || file.hasFileExtension("owmap") || file.hasFileExtension("sfz") || file.hasFileExtension("zip"))
             {
                 if (loadSampleMapFile(file))
+                {
+                    repaint();
                     return;
+                }
             }
             addSampleFile(file);
         }
     }
+    repaint();
 }
 
 juce::Rectangle<float> SampleMapComponent::getGridBounds() const
@@ -2182,6 +2216,12 @@ void SampleMapComponent::paint(juce::Graphics& g)
 
     OpenWavLookAndFeel::drawButtonGroup(g, { &inspectorTabZonesBtn, &inspectorTabVelBtn });
     OpenWavLookAndFeel::drawButtonGroup(g, { &velLinBtn, &velSoftBtn, &velHardBtn, &velSCurveBtn, &velFixedBtn });
+}
+
+void SampleMapComponent::paintOverChildren(juce::Graphics& g)
+{
+    if (isDragOver)
+        OpenWavLookAndFeel::drawDropOverlay(g, getLocalBounds(), "Drop audio or map file to add to Sample Map");
 }
 
 void SampleMapComponent::paintZoneGrid(juce::Graphics& g, juce::Rectangle<float> area) const

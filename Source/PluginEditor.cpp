@@ -51,7 +51,8 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
       mobileTransferDialog(p.getAudioEngine(), p.getDatabaseManager(),
                            p.getLibraryScanner()),
       editComponent(p.getAudioEngine()), sampleMapComponent(p.getAudioEngine()),
-      performanceComponent(p.getAudioEngine()) {
+      performanceComponent(p.getAudioEngine()),
+      commandPalette(p.getDatabaseManager()) {
   juce::String savedColourHex =
       audioProcessor.getDatabaseManager().getPrimaryColourHex();
   if (savedColourHex.isNotEmpty()) {
@@ -86,6 +87,34 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
   addAndMakeVisible(waveformTransport);
 
   tooltipWindow = std::make_unique<juce::TooltipWindow>(this, 280);
+  commandPalette.setStaticCommands({
+      { "VIEW",   "List View",            "Browse samples in table",             "1", [this] { headerBar.setViewMode(ViewMode::List); } },
+      { "VIEW",   "Folders View",         "Browse scanned folder hierarchy",     "2", [this] { headerBar.setViewMode(ViewMode::Folders); } },
+      { "VIEW",   "3D Cloud View",        "Explore semantic 3D sample cloud",    "3", [this] { headerBar.setViewMode(ViewMode::Cloud); } },
+      { "VIEW",   "Online Libraries",     "Browse and download cloud packs",     "4", [this] { headerBar.setViewMode(ViewMode::Libraries); } },
+      { "VIEW",   "Recorder",             "Record live audio & punch-in takes",  "5", [this] { headerBar.setViewMode(ViewMode::Record); } },
+      { "VIEW",   "Analysis",             "Inspect waveform metrics & metadata", "6", [this] { headerBar.setViewMode(ViewMode::Analysis); } },
+      { "VIEW",   "Audio Editor",         "Trim, normalize & spectral edit",     "7", [this] { headerBar.setViewMode(ViewMode::Edit); } },
+      { "VIEW",   "Sample Map",           "Build multi-zone instruments & kits", "8", [this] { headerBar.setViewMode(ViewMode::SampleMap); } },
+      { "VIEW",   "Performance Rack",     "Chain real-time audio FX",            "9", [this] { headerBar.setViewMode(ViewMode::Performance); } },
+      { "ACTION", "Add Sample Folder...", "Scan a new folder into library",      "",  [this] { addFolderRequested(); } },
+      { "ACTION", "Rescan Library",       "Refresh all scanned sample folders",  "",  [this] { rescanRequested(); } },
+      { "ACTION", "Play / Pause",         "Toggle transport playback",           "Space", [this] { waveformTransport.togglePlay(); } },
+      { "ACTION", "Toggle Loop",          "Enable or disable sample looping",    "L", [this] { waveformTransport.toggleLoop(); } },
+      { "ACTION", "Auto-Slice Sample",    "Open slice configuration",            "",  [this] { waveformTransport.triggerSlice(); } },
+      { "ACTION", "Keyboard Shortcuts...", "View and customize shortcuts",       "",  [this] { shortcutsDialog.showDialog(); } },
+      { "ACTION", "Reset UI Scale (100%)", "Restore default 1.0x scaling",       "Cmd+0", [this] { applyUiScale(1.0f); } },
+  });
+  commandPalette.onSampleChosen = [this](const MediaItem& item) {
+    juce::File f(item.filePath);
+    if (f.existsAsFile()) {
+      audioProcessor.getAudioEngine().loadFile(f);
+      sampleSelected(item);
+      if (audioProcessor.getAudioEngine().getAutoPlay())
+        audioProcessor.getAudioEngine().play();
+    }
+  };
+  addChildComponent(commandPalette);
   addChildComponent(toastOverlay);
 
   std::function<void(juce::Component&)> applyButtonCursors = [&](juce::Component& c) {
@@ -213,6 +242,43 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
   waveformTransport.onLorisResynthCompleted = [this](const std::vector<ResynthesizedZone>& zones) {
     sampleMapComponent.applyResynthesizedZones(zones);
     headerBar.setViewMode(ViewMode::SampleMap);
+  };
+
+  auto indexEditedFile = [this](const juce::File& file) -> MediaItem {
+    MediaItem item;
+    item.id = juce::String(file.getFullPathName().hashCode64());
+    item.filePath = file.getFullPathName();
+    item.fileName = file.getFileName();
+    item.fileExtension = file.getFileExtension().toLowerCase();
+    item.fileSizeBytes = file.getSize();
+    item.dateAddedMs = juce::Time::currentTimeMillis();
+
+    juce::AudioFormatManager fm;
+    fm.registerBasicFormats();
+    if (std::unique_ptr<juce::AudioFormatReader> reader(fm.createReaderFor(file)); reader != nullptr)
+    {
+      item.sampleRate = reader->sampleRate;
+      item.numChannels = static_cast<int>(reader->numChannels);
+      item.bitDepth = static_cast<int>(reader->bitsPerSample);
+      if (reader->sampleRate > 0.0)
+        item.durationSeconds = static_cast<double>(reader->lengthInSamples) / reader->sampleRate;
+    }
+    item.precomputeCachedStrings();
+    audioProcessor.getDatabaseManager().addOrUpdateItem(item);
+    tagPanel.refreshTags();
+    triggerFilterUpdate();
+    return item;
+  };
+
+  editComponent.onSavedToLibrary = [indexEditedFile](const juce::File& file) {
+    indexEditedFile(file);
+    ToastOverlay::show("Saved edited copy to library: " + file.getFileName());
+  };
+
+  editComponent.onSendToSampleMap = [this, indexEditedFile](const juce::File& file) {
+    MediaItem item = indexEditedFile(file);
+    addToSampleMapRequested(item);
+    ToastOverlay::show("Sent to Sample Map: " + file.getFileName());
   };
 
   // Broadcast current LookAndFeel theme and colours to all sub-components
@@ -420,6 +486,9 @@ void OpenWavAudioProcessorEditor::resized() {
     sampleTable.setBounds(area);
   }
 
+  commandPalette.setBounds(getLocalBounds());
+  if (commandPalette.isVisible())
+    commandPalette.toFront(false);
   toastOverlay.setBounds(getLocalBounds());
   toastOverlay.toFront(false);
 }
@@ -554,6 +623,7 @@ void OpenWavAudioProcessorEditor::settingsRequested() {
   menu.addSubMenu("Text & UI Scaling", scaleSubMenu);
 
   menu.addSeparator();
+  menu.addItem(22, "Quick Command Palette... (Cmd/Ctrl+K)");
   menu.addItem(21, "Keyboard Shortcuts...");
   menu.addSeparator();
   menu.addItem(20, "Phone Field Recorder Sync (LAN)...");
@@ -578,6 +648,10 @@ void OpenWavAudioProcessorEditor::settingsRequested() {
       repaint();
     };
 
+    if (result == 22) {
+      commandPalette.open();
+      return;
+    }
     if (result == 10) // Cyan
       applyColour(juce::Colour::fromRGB(0, 200, 220), "#ff00c8dc");
     else if (result == 11) // Electric Blue
@@ -1008,6 +1082,15 @@ void OpenWavAudioProcessorEditor::applyUiScale(float scale) {
 }
 
 bool OpenWavAudioProcessorEditor::keyPressed(const juce::KeyPress &key) {
+  if (key.getModifiers().isCommandDown() &&
+      (key.getKeyCode() == 'K' || key.getKeyCode() == 'k')) {
+    if (commandPalette.isVisible())
+      commandPalette.close();
+    else
+      commandPalette.open();
+    return true;
+  }
+
   auto& sm = ShortcutManager::getInstance();
 
   if (sm.matches("ui.zoom_in", key)) {

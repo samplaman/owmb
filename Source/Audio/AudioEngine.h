@@ -262,6 +262,7 @@ public:
     // Non-destructive editing: snapshot original before edits, restore to revert
     void snapshotOriginalForEditing();
     bool restoreOriginal();
+    bool restoreBufferSnapshot(const juce::AudioBuffer<float>& buf, double sr);
     bool hasOriginalSnapshot() const;
 
     bool getAutoPlay() const { return autoPlayOnSelect; }

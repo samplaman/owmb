@@ -161,6 +161,7 @@ target_sources(OpenWav PRIVATE
     Source/UI/LorisResynthesisDialog.cpp
     Source/UI/AutoSamplerDialog.h
     Source/UI/AutoSamplerDialog.cpp
+    Source/UI/CommandPaletteOverlay.h
     Source/UI/ToastOverlay.h
     Source/Network/MobileSyncManager.h
     Source/Network/MobileSyncManager.cpp

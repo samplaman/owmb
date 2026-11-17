@@ -1,6 +1,7 @@
 #include "EditComponent.h"
 #include "OpenWavLookAndFeel.h"
 #include "ShortcutManager.h"
+#include "ToastOverlay.h"
 
 namespace openwav
 {
@@ -183,6 +184,7 @@ EditComponent::EditComponent(AudioEngine& engine)
     gainBoostButton.setComponentID("editIconBtn");
     gainBoostButton.setTooltip("Gain Boost (+3dB)");
     gainBoostButton.onClick = [this] {
+        pushUndoState();
         audioEngine.adjustGainSelection(audioEngine.getSampleStartRatio(), audioEngine.getSampleEndRatio(), 3.0f);
         restartPlaybackFromStart();
     };
@@ -191,6 +193,7 @@ EditComponent::EditComponent(AudioEngine& engine)
     gainCutButton.setComponentID("editIconBtn");
     gainCutButton.setTooltip("Gain Cut (-3dB)");
     gainCutButton.onClick = [this] {
+        pushUndoState();
         audioEngine.adjustGainSelection(audioEngine.getSampleStartRatio(), audioEngine.getSampleEndRatio(), -3.0f);
         restartPlaybackFromStart();
     };
@@ -199,6 +202,7 @@ EditComponent::EditComponent(AudioEngine& engine)
     autoTrimButton.setComponentID("editIconBtn");
     autoTrimButton.setTooltip("Auto-Trim Silence");
     autoTrimButton.onClick = [this] {
+        pushUndoState();
         audioEngine.autoTrimSilence();
         restartPlaybackFromStart();
     };
@@ -207,41 +211,45 @@ EditComponent::EditComponent(AudioEngine& engine)
     hpFilterButton.setComponentID("editIconBtn");
     hpFilterButton.setTooltip("Low Cut Filter (80Hz High-Pass)");
     hpFilterButton.onClick = [this] {
+        pushUndoState();
         audioEngine.applyHighPassFilter(audioEngine.getSampleStartRatio(), audioEngine.getSampleEndRatio(), 80.0f);
         restartPlaybackFromStart();
     };
-    addAndMakeVisible(hpFilterButton);
+    addChildComponent(hpFilterButton);
 
     invertPhaseButton.setComponentID("editIconBtn");
     invertPhaseButton.setTooltip("Invert Phase (Polarity Flip)");
     invertPhaseButton.onClick = [this] {
+        pushUndoState();
         audioEngine.invertPhaseSelection(audioEngine.getSampleStartRatio(), audioEngine.getSampleEndRatio());
         restartPlaybackFromStart();
     };
-    addAndMakeVisible(invertPhaseButton);
+    addChildComponent(invertPhaseButton);
 
     speed2xButton.setComponentID("editIconBtn");
     speed2xButton.setTooltip("Double Speed (2x)");
     speed2xButton.onClick = [this] {
+        pushUndoState();
         audioEngine.changeSampleSpeed(2.0);
         totalDurationSecs = audioEngine.getTotalLengthSeconds();
         restartPlaybackFromStart();
     };
-    addAndMakeVisible(speed2xButton);
+    addChildComponent(speed2xButton);
 
     speedHalfButton.setComponentID("editIconBtn");
     speedHalfButton.setTooltip("Half Speed (0.5x)");
     speedHalfButton.onClick = [this] {
+        pushUndoState();
         audioEngine.changeSampleSpeed(0.5);
         totalDurationSecs = audioEngine.getTotalLengthSeconds();
         restartPlaybackFromStart();
     };
-    addAndMakeVisible(speedHalfButton);
+    addChildComponent(speedHalfButton);
 
     deverbButton.setComponentID("editIconBtn");
     deverbButton.setTooltip("Deverb: Suppress reverberant tail & room reflections");
     deverbButton.onClick = [this] { deverbSelectedRegion(); };
-    addAndMakeVisible(deverbButton);
+    addChildComponent(deverbButton);
 
     bakeFadesButton.setComponentID("editIconBtn");
     bakeFadesButton.setTooltip("Bake Fades into Audio");
@@ -294,26 +302,38 @@ EditComponent::EditComponent(AudioEngine& engine)
     dcOffsetButton.setComponentID("editIconBtn");
     dcOffsetButton.setTooltip("Remove DC Offset in Selection");
     dcOffsetButton.onClick = [this] {
+        pushUndoState();
         if (audioEngine.removeDcOffsetSelection(audioEngine.getSampleStartRatio(), audioEngine.getSampleEndRatio()))
+        {
+            updateSelectionStats();
             repaint();
+        }
     };
-    addAndMakeVisible(dcOffsetButton);
+    addChildComponent(dcOffsetButton);
 
     lpFilterButton.setComponentID("editIconBtn");
     lpFilterButton.setTooltip("Low Pass / High Cut Filter (8 kHz) on Selection");
     lpFilterButton.onClick = [this] {
+        pushUndoState();
         if (audioEngine.applyLowPassFilter(audioEngine.getSampleStartRatio(), audioEngine.getSampleEndRatio(), 8000.0f))
+        {
+            updateSelectionStats();
             repaint();
+        }
     };
-    addAndMakeVisible(lpFilterButton);
+    addChildComponent(lpFilterButton);
 
     monoSumButton.setComponentID("editIconBtn");
     monoSumButton.setTooltip("Sum Stereo Selection to Mono (L+R)/2");
     monoSumButton.onClick = [this] {
+        pushUndoState();
         if (audioEngine.monoSumSelection(audioEngine.getSampleStartRatio(), audioEngine.getSampleEndRatio()))
+        {
+            updateSelectionStats();
             repaint();
+        }
     };
-    addAndMakeVisible(monoSumButton);
+    addChildComponent(monoSumButton);
 
     // ── Fine Loop Nudge controls ──────────────────────
     loopInNudgeLeft.setComponentID("editIconBtn");
@@ -360,6 +380,43 @@ EditComponent::EditComponent(AudioEngine& engine)
     };
     addAndMakeVisible(loopOutNudgeRight);
 
+    undoButton.setComponentID("editIconBtn");
+    undoButton.setTooltip("Undo Edit (Cmd/Ctrl+Z)");
+    undoButton.onClick = [this] { performUndo(); };
+    undoButton.setEnabled(false);
+    addAndMakeVisible(undoButton);
+
+    redoButton.setComponentID("editIconBtn");
+    redoButton.setTooltip("Redo Edit (Cmd/Ctrl+Shift+Z)");
+    redoButton.onClick = [this] { performRedo(); };
+    redoButton.setEnabled(false);
+    addAndMakeVisible(redoButton);
+
+    saveToLibraryButton.setComponentID("editIconBtn");
+    saveToLibraryButton.setTooltip("Save Edited Copy to Library");
+    saveToLibraryButton.onClick = [this] { saveEditedCopyToLibrary(); };
+    addAndMakeVisible(saveToLibraryButton);
+
+    sendToSamplerButton.setComponentID("editIconBtn");
+    sendToSamplerButton.setTooltip("Send Edited Audio to Sample Map");
+    sendToSamplerButton.onClick = [this] { sendEditedToSampleMap(); };
+    addAndMakeVisible(sendToSamplerButton);
+
+    moreDspButton.setComponentID("editIconBtn");
+    moreDspButton.setTooltip("More DSP & Cleanup Tools (Low/Hi Cut, DC Fix, Invert, 2x/0.5x, Deverb, Mono)");
+    moreDspButton.onClick = [this] { showMoreDspMenu(); };
+    addAndMakeVisible(moreDspButton);
+
+    previewLoopSeamButton.setComponentID("editIconBtn");
+    previewLoopSeamButton.setTooltip("Preview Loop Seam (audition last 0.5s across loop boundary)");
+    previewLoopSeamButton.onClick = [this] { previewLoopSeam(); };
+    addAndMakeVisible(previewLoopSeamButton);
+
+    selectionStatsLabel.setFont(OpenWavLookAndFeel::getMonoFont(10.5f, true));
+    selectionStatsLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::accentCyan);
+    selectionStatsLabel.setJustificationType(juce::Justification::centredLeft);
+    addAndMakeVisible(selectionStatsLabel);
+
     exportButton.setComponentID("editIconBtn");
     exportButton.setTooltip("Export Edited Audio");
     exportButton.onClick = [this] { exportEdited(); };
@@ -368,6 +425,7 @@ EditComponent::EditComponent(AudioEngine& engine)
     revertOriginalButton.setComponentID("editIconBtn");
     revertOriginalButton.setTooltip("Revert to Original Audio");
     revertOriginalButton.onClick = [this] {
+        pushUndoState();
         if (audioEngine.restoreOriginal())
         {
             currentPositionSecs = 0.0;
@@ -393,6 +451,7 @@ EditComponent::EditComponent(AudioEngine& engine)
             if (isSpectralView)
                 generateSpectrogram();
             updateControlVisibility();
+            updateSelectionStats();
             repaint();
             restartPlaybackFromStart();
         }
@@ -401,11 +460,11 @@ EditComponent::EditComponent(AudioEngine& engine)
 
     OpenWavLookAndFeel::groupButtons({ &playPauseButton, &stopButton, &playSelButton, &loopToggleButton });
     OpenWavLookAndFeel::groupButtons({ &zoomOutButton, &zoomInButton });
-    OpenWavLookAndFeel::groupButtons({ &revertOriginalButton, &exportButton });
+    OpenWavLookAndFeel::groupButtons({ &undoButton, &redoButton, &revertOriginalButton, &saveToLibraryButton, &sendToSamplerButton, &exportButton });
     OpenWavLookAndFeel::groupButtons({ &spectralBoxSelectBtn, &spectralTimeSelectBtn, &spectralFreqSelectBtn, &spectralLassoSelectBtn, &spectralEllipseSelectBtn });
     OpenWavLookAndFeel::groupButtons({ &repairSpectralButton, &deHarmonicButton, &denoiseSpectralButton, &widenSpectralButton, &warmthSpectralButton, &removeSpectralElementButton, &boostSpectralButton, &attenuateSpectralButton, &isolateSpectralButton });
     OpenWavLookAndFeel::groupButtons({ &selectAllButton, &deselectAllButton, &cropButton, &resetSelectionButton, &snapZeroCrossingButton });
-    OpenWavLookAndFeel::groupButtons({ &silenceButton, &reverseButton, &normalizeButton, &gainBoostButton, &gainCutButton, &autoTrimButton, &hpFilterButton, &invertPhaseButton, &speed2xButton, &speedHalfButton, &deverbButton, &bakeFadesButton, &loopToSelectionButton });
+    OpenWavLookAndFeel::groupButtons({ &silenceButton, &reverseButton, &normalizeButton, &gainBoostButton, &gainCutButton, &autoTrimButton, &bakeFadesButton, &loopToSelectionButton, &snapLoopZeroButton, &moreDspButton });
 
     setWantsKeyboardFocus(true);
 
@@ -657,16 +716,18 @@ void EditComponent::updateControlVisibility()
     gainCutButton.setVisible(showWaveformTools);
     autoTrimButton.setVisible(showWaveformTools);
     hpFilterButton.setVisible(showWaveformTools);
-    invertPhaseButton.setVisible(showWaveformTools);
-    speed2xButton.setVisible(showWaveformTools);
-    speedHalfButton.setVisible(showWaveformTools);
-    deverbButton.setVisible(showWaveformTools);
+    hpFilterButton.setVisible(false);
+    invertPhaseButton.setVisible(false);
+    speed2xButton.setVisible(false);
+    speedHalfButton.setVisible(false);
+    deverbButton.setVisible(false);
     bakeFadesButton.setVisible(hasSamplerSample);
     loopToSelectionButton.setVisible(showWaveformTools);
     snapLoopZeroButton.setVisible(showWaveformTools);
-    dcOffsetButton.setVisible(showWaveformTools);
-    lpFilterButton.setVisible(showWaveformTools);
-    monoSumButton.setVisible(showWaveformTools && audioEngine.getNumChannels() >= 2);
+    dcOffsetButton.setVisible(false);
+    lpFilterButton.setVisible(false);
+    monoSumButton.setVisible(false);
+    moreDspButton.setVisible(showWaveformTools);
 
     // Spectral Tools (visible whenever in Spectral mode)
     spectralBoxSelectBtn.setVisible(showSpectralTools);
@@ -685,6 +746,12 @@ void EditComponent::updateControlVisibility()
     isolateSpectralButton.setVisible(showSpectralTools);
 
     exportButton.setVisible(hasSamplerSample);
+    saveToLibraryButton.setVisible(hasSamplerSample);
+    sendToSamplerButton.setVisible(hasSamplerSample);
+    undoButton.setVisible(hasSamplerSample);
+    redoButton.setVisible(hasSamplerSample);
+    previewLoopSeamButton.setVisible(hasSamplerSample);
+    selectionStatsLabel.setVisible(hasSamplerSample);
     revertOriginalButton.setVisible(hasSamplerSample && audioEngine.hasOriginalSnapshot());
     loopInNudgeLeft.setVisible(hasSamplerSample);
     loopInNudgeRight.setVisible(hasSamplerSample);
@@ -744,7 +811,15 @@ void EditComponent::resized()
     // Right side of Row 1: Zoom & Export
     exportButton.setBounds(row1.removeFromRight(30));
     row1.removeFromRight(gap);
+    sendToSamplerButton.setBounds(row1.removeFromRight(30));
+    row1.removeFromRight(gap);
+    saveToLibraryButton.setBounds(row1.removeFromRight(30));
+    row1.removeFromRight(gap);
     revertOriginalButton.setBounds(row1.removeFromRight(30));
+    row1.removeFromRight(gap);
+    redoButton.setBounds(row1.removeFromRight(30));
+    row1.removeFromRight(gap);
+    undoButton.setBounds(row1.removeFromRight(30));
     row1.removeFromRight(gap);
     zoomInButton.setBounds(row1.removeFromRight(26));
     row1.removeFromRight(2);
@@ -823,27 +898,13 @@ void EditComponent::resized()
         row2.removeFromLeft(iconBtnGap);
         autoTrimButton.setBounds(row2.removeFromLeft(iconBtnWidth));
         row2.removeFromLeft(iconBtnGap);
-        hpFilterButton.setBounds(row2.removeFromLeft(iconBtnWidth));
-        row2.removeFromLeft(iconBtnGap);
-        invertPhaseButton.setBounds(row2.removeFromLeft(iconBtnWidth));
-        row2.removeFromLeft(iconBtnGap);
-        speed2xButton.setBounds(row2.removeFromLeft(iconBtnWidth));
-        row2.removeFromLeft(iconBtnGap);
-        speedHalfButton.setBounds(row2.removeFromLeft(iconBtnWidth));
-        row2.removeFromLeft(iconBtnGap);
-        deverbButton.setBounds(row2.removeFromLeft(iconBtnWidth));
-        row2.removeFromLeft(iconBtnGap);
         bakeFadesButton.setBounds(row2.removeFromLeft(iconBtnWidth));
         row2.removeFromLeft(iconBtnGap);
         loopToSelectionButton.setBounds(row2.removeFromLeft(iconBtnWidth));
         row2.removeFromLeft(iconBtnGap);
         snapLoopZeroButton.setBounds(row2.removeFromLeft(iconBtnWidth));
         row2.removeFromLeft(iconBtnGap);
-        dcOffsetButton.setBounds(row2.removeFromLeft(iconBtnWidth));
-        row2.removeFromLeft(iconBtnGap);
-        lpFilterButton.setBounds(row2.removeFromLeft(iconBtnWidth));
-        row2.removeFromLeft(iconBtnGap);
-        monoSumButton.setBounds(row2.removeFromLeft(iconBtnWidth));
+        moreDspButton.setBounds(row2.removeFromLeft(iconBtnWidth));
     }
 
     area.removeFromTop(8); // Gap
@@ -874,6 +935,8 @@ void EditComponent::resized()
         startLabel.setBounds(r.removeFromLeft(labelW));
         r.removeFromLeft(itemGap);
         startTimeLabel.setBounds(r.removeFromLeft(valueW));
+        r.removeFromLeft(8);
+        selectionStatsLabel.setBounds(r);
     }
     {
         auto r = cpLeft.removeFromTop(rowH);
@@ -903,6 +966,8 @@ void EditComponent::resized()
         loopOutNudgeLeft.setBounds(r.removeFromLeft(22));
         r.removeFromLeft(2);
         loopOutNudgeRight.setBounds(r.removeFromLeft(22));
+        r.removeFromLeft(4);
+        previewLoopSeamButton.setBounds(r.removeFromLeft(24));
     }
 
     // Right panel: fade controls
@@ -1020,9 +1085,9 @@ void EditComponent::paint(juce::Graphics& g)
 
     if (!hasAudioToEdit())
     {
-        g.setColour(OpenWavLookAndFeel::textSecondary.withAlpha(0.5f));
-        g.setFont(juce::Font(20.0f));
-        g.drawText("No sample loaded into editor", getLocalBounds(), juce::Justification::centred);
+        OpenWavLookAndFeel::drawEmptyState(g, getLocalBounds(),
+            "No Sample Loaded",
+            "Select a sample in List/Cloud or drop an audio file here to edit.");
         return;
     }
 
@@ -1071,6 +1136,54 @@ void EditComponent::paint(juce::Graphics& g)
     endTimeLabel.setText(formatTime(endR * totalDurationSecs) + "  (Len: " + formatTime(selLen) + ")", juce::dontSendNotification);
     loopInTimeLabel.setText(formatTime(loopInRatio * totalDurationSecs), juce::dontSendNotification);
     loopOutTimeLabel.setText(formatTime(loopOutRatio * totalDurationSecs) + (loopMarkersSet ? "  (Len: " + formatTime(loopLen) + ")" : ""), juce::dontSendNotification);
+}
+
+void EditComponent::paintOverChildren(juce::Graphics& g)
+{
+    if (isFileDragOver)
+        OpenWavLookAndFeel::drawDropOverlay(g, getLocalBounds(), "Drop audio file to open in Editor");
+}
+
+bool EditComponent::isInterestedInFileDrag(const juce::StringArray& files)
+{
+    for (const auto& f : files)
+    {
+        juce::File file(f);
+        if (file.hasFileExtension("wav") || file.hasFileExtension("mp3") ||
+            file.hasFileExtension("flac") || file.hasFileExtension("aiff") ||
+            file.hasFileExtension("aif") || file.hasFileExtension("ogg"))
+            return true;
+    }
+    return false;
+}
+
+void EditComponent::fileDragEnter(const juce::StringArray&, int, int)
+{
+    isFileDragOver = true;
+    repaint();
+}
+
+void EditComponent::fileDragExit(const juce::StringArray&)
+{
+    isFileDragOver = false;
+    repaint();
+}
+
+void EditComponent::filesDropped(const juce::StringArray& files, int, int)
+{
+    isFileDragOver = false;
+    for (const auto& f : files)
+    {
+        juce::File file(f);
+        if (file.existsAsFile())
+        {
+            audioEngine.loadFile(file);
+            sampleLoaded(file.getFullPathName());
+            audioEngine.snapshotOriginalForEditing();
+            break;
+        }
+    }
+    repaint();
 }
 
 // ─────────────────────────────────────────────────────────
@@ -2123,6 +2236,7 @@ void EditComponent::repairSpectralSelection()
     float lowF = hasSpectralBoxSelection ? spectralFreqLow : 20.0f;
     float highF = hasSpectralBoxSelection ? spectralFreqHigh : 20000.0f;
 
+    pushUndoState();
     if (audioEngine.repairSpectralRegion(startR, endR, lowF, highF))
     {
         hasSpectralBoxSelection = false;
@@ -2130,9 +2244,15 @@ void EditComponent::repairSpectralSelection()
         spectrogramGenerated = false;
         if (isSpectralView)
             generateSpectrogram();
+        updateSelectionStats();
         updateControlVisibility();
         repaint();
         restartPlaybackFromStart();
+    }
+    else if (!undoStack.empty())
+    {
+        undoStack.pop_back();
+        updateUndoRedoButtons();
     }
 }
 
@@ -2146,6 +2266,7 @@ void EditComponent::deHarmonicSelection()
     float highF = hasSpectralBoxSelection ? spectralFreqHigh : 200.0f;
     float f0 = std::sqrt(lowF * highF);
 
+    pushUndoState();
     if (audioEngine.removeSpectralHarmonics(startR, endR, f0))
     {
         hasSpectralBoxSelection = false;
@@ -2153,9 +2274,15 @@ void EditComponent::deHarmonicSelection()
         spectrogramGenerated = false;
         if (isSpectralView)
             generateSpectrogram();
+        updateSelectionStats();
         updateControlVisibility();
         repaint();
         restartPlaybackFromStart();
+    }
+    else if (!undoStack.empty())
+    {
+        undoStack.pop_back();
+        updateUndoRedoButtons();
     }
 }
 
@@ -2168,14 +2295,21 @@ void EditComponent::denoiseSpectralSelection()
     float lowF = hasSpectralBoxSelection ? spectralFreqLow : 20.0f;
     float highF = hasSpectralBoxSelection ? spectralFreqHigh : 20000.0f;
 
+    pushUndoState();
     if (audioEngine.denoiseSpectralRegion(startR, endR, lowF, highF, 18.0f))
     {
         spectrogramGenerated = false;
         if (isSpectralView)
             generateSpectrogram();
+        updateSelectionStats();
         updateControlVisibility();
         repaint();
         restartPlaybackFromStart();
+    }
+    else if (!undoStack.empty())
+    {
+        undoStack.pop_back();
+        updateUndoRedoButtons();
     }
 }
 
@@ -2188,14 +2322,21 @@ void EditComponent::widenSpectralSelection()
     float lowF = hasSpectralBoxSelection ? spectralFreqLow : 200.0f;
     float highF = hasSpectralBoxSelection ? spectralFreqHigh : 16000.0f;
 
+    pushUndoState();
     if (audioEngine.widenSpectralRegion(startR, endR, lowF, highF, 2.0f))
     {
         spectrogramGenerated = false;
         if (isSpectralView)
             generateSpectrogram();
+        updateSelectionStats();
         updateControlVisibility();
         repaint();
         restartPlaybackFromStart();
+    }
+    else if (!undoStack.empty())
+    {
+        undoStack.pop_back();
+        updateUndoRedoButtons();
     }
 }
 
@@ -2208,14 +2349,21 @@ void EditComponent::warmthSpectralSelection()
     float lowF = hasSpectralBoxSelection ? spectralFreqLow : 100.0f;
     float highF = hasSpectralBoxSelection ? spectralFreqHigh : 12000.0f;
 
+    pushUndoState();
     if (audioEngine.saturateSpectralRegion(startR, endR, lowF, highF, 0.6f))
     {
         spectrogramGenerated = false;
         if (isSpectralView)
             generateSpectrogram();
+        updateSelectionStats();
         updateControlVisibility();
         repaint();
         restartPlaybackFromStart();
+    }
+    else if (!undoStack.empty())
+    {
+        undoStack.pop_back();
+        updateUndoRedoButtons();
     }
 }
 
@@ -2228,6 +2376,7 @@ void EditComponent::removeSpectralSelection()
     float lowF = hasSpectralBoxSelection ? spectralFreqLow : 20.0f;
     float highF = hasSpectralBoxSelection ? spectralFreqHigh : 20000.0f;
 
+    pushUndoState();
     if (audioEngine.silenceSpectralRegion(startR, endR, lowF, highF))
     {
         hasSpectralBoxSelection = false;
@@ -2235,9 +2384,15 @@ void EditComponent::removeSpectralSelection()
         spectrogramGenerated = false;
         if (isSpectralView)
             generateSpectrogram();
+        updateSelectionStats();
         updateControlVisibility();
         repaint();
         restartPlaybackFromStart();
+    }
+    else if (!undoStack.empty())
+    {
+        undoStack.pop_back();
+        updateUndoRedoButtons();
     }
 }
 
@@ -2250,14 +2405,21 @@ void EditComponent::boostSpectralSelection()
     float lowF = hasSpectralBoxSelection ? spectralFreqLow : 20.0f;
     float highF = hasSpectralBoxSelection ? spectralFreqHigh : 20000.0f;
 
+    pushUndoState();
     if (audioEngine.adjustSpectralRegionGain(startR, endR, lowF, highF, 6.0f))
     {
         spectrogramGenerated = false;
         if (isSpectralView)
             generateSpectrogram();
+        updateSelectionStats();
         updateControlVisibility();
         repaint();
         restartPlaybackFromStart();
+    }
+    else if (!undoStack.empty())
+    {
+        undoStack.pop_back();
+        updateUndoRedoButtons();
     }
 }
 
@@ -2270,14 +2432,21 @@ void EditComponent::attenuateSpectralSelection()
     float lowF = hasSpectralBoxSelection ? spectralFreqLow : 20.0f;
     float highF = hasSpectralBoxSelection ? spectralFreqHigh : 20000.0f;
 
+    pushUndoState();
     if (audioEngine.adjustSpectralRegionGain(startR, endR, lowF, highF, -6.0f))
     {
         spectrogramGenerated = false;
         if (isSpectralView)
             generateSpectrogram();
+        updateSelectionStats();
         updateControlVisibility();
         repaint();
         restartPlaybackFromStart();
+    }
+    else if (!undoStack.empty())
+    {
+        undoStack.pop_back();
+        updateUndoRedoButtons();
     }
 }
 
@@ -2290,6 +2459,7 @@ void EditComponent::isolateSpectralSelection()
     float lowF = hasSpectralBoxSelection ? spectralFreqLow : 20.0f;
     float highF = hasSpectralBoxSelection ? spectralFreqHigh : 20000.0f;
 
+    pushUndoState();
     if (audioEngine.isolateSpectralRegion(startR, endR, lowF, highF))
     {
         hasSpectralBoxSelection = false;
@@ -2297,9 +2467,15 @@ void EditComponent::isolateSpectralSelection()
         spectrogramGenerated = false;
         if (isSpectralView)
             generateSpectrogram();
+        updateSelectionStats();
         updateControlVisibility();
         repaint();
         restartPlaybackFromStart();
+    }
+    else if (!undoStack.empty())
+    {
+        undoStack.pop_back();
+        updateUndoRedoButtons();
     }
 }
 
@@ -2362,6 +2538,7 @@ void EditComponent::selectAllRegion()
     loopInRatio = 0.0;
     loopOutRatio = 1.0;
     loopMarkersSet = true;
+    updateSelectionStats();
     repaint();
 }
 
@@ -2374,6 +2551,7 @@ void EditComponent::deselectAllRegion()
     loopMarkersSet = false;
     hasSpectralBoxSelection = false;
     lassoScreenPoints.clear();
+    updateSelectionStats();
     repaint();
 }
 
@@ -2385,6 +2563,7 @@ void EditComponent::cropToSelection()
     double endR = audioEngine.getSampleEndRatio();
     if (endR <= startR + 0.0001) return;
 
+    pushUndoState();
     if (audioEngine.cropLoadedSample(startR, endR))
     {
         audioEngine.setSampleRange(0.0, 1.0);
@@ -2395,6 +2574,7 @@ void EditComponent::cropToSelection()
         scrollOffset = 0.0;
         zoomSlider.setValue(1.0, juce::dontSendNotification);
         totalDurationSecs = audioEngine.getTotalLengthSeconds();
+        updateSelectionStats();
         repaint();
         restartPlaybackFromStart();
     }
@@ -2408,6 +2588,7 @@ void EditComponent::resetSelection()
     loopInRatio = 0.0;
     loopOutRatio = 1.0;
     loopMarkersSet = false;
+    updateSelectionStats();
     repaint();
 }
 
@@ -2415,9 +2596,11 @@ void EditComponent::silenceSelectedRegion()
 {
     if (!hasAudioToEdit()) return;
 
+    pushUndoState();
     double startR = audioEngine.getSampleStartRatio();
     double endR = audioEngine.getSampleEndRatio();
     audioEngine.silenceSelection(startR, endR);
+    updateSelectionStats();
     repaint();
     restartPlaybackFromStart();
 }
@@ -2426,9 +2609,11 @@ void EditComponent::reverseSelectedRegion()
 {
     if (!hasAudioToEdit()) return;
 
+    pushUndoState();
     double startR = audioEngine.getSampleStartRatio();
     double endR = audioEngine.getSampleEndRatio();
     audioEngine.reverseSelection(startR, endR);
+    updateSelectionStats();
     repaint();
     restartPlaybackFromStart();
 }
@@ -2437,7 +2622,9 @@ void EditComponent::normalizeAudioPeak()
 {
     if (!hasAudioToEdit()) return;
 
+    pushUndoState();
     audioEngine.normalizeLoadedSample();
+    updateSelectionStats();
     repaint();
     restartPlaybackFromStart();
 }
@@ -2446,10 +2633,12 @@ void EditComponent::deverbSelectedRegion()
 {
     if (!hasAudioToEdit()) return;
 
+    pushUndoState();
     double startR = audioEngine.getSampleStartRatio();
     double endR = audioEngine.getSampleEndRatio();
     if (audioEngine.deverbSelection(startR, endR, 0.75f))
     {
+        updateSelectionStats();
         repaint();
         restartPlaybackFromStart();
     }
@@ -2459,6 +2648,7 @@ void EditComponent::bakeFadesIntoBuffer()
 {
     if (!hasAudioToEdit()) return;
 
+    pushUndoState();
     audioEngine.applyFadesToBuffer(fadeInMs, fadeInCurveType, fadeOutMs, fadeOutCurveType);
     fadeInMs = 0.0;
     fadeOutMs = 0.0;
@@ -2467,6 +2657,7 @@ void EditComponent::bakeFadesIntoBuffer()
     fadeInMsLabel.setText("0 ms", juce::dontSendNotification);
     fadeOutMsLabel.setText("0 ms", juce::dontSendNotification);
     audioEngine.setFades(0.0, fadeInCurveType, 0.0, fadeOutCurveType);
+    updateSelectionStats();
     repaint();
     restartPlaybackFromStart();
 }
@@ -2486,6 +2677,40 @@ void EditComponent::playSelectionOnly()
 bool EditComponent::keyPressed(const juce::KeyPress& key)
 {
     auto& sm = ShortcutManager::getInstance();
+    const bool cmd = key.getModifiers().isCommandDown();
+    const bool shift = key.getModifiers().isShiftDown();
+    const bool noMods = !cmd && !key.getModifiers().isAltDown() && !key.getModifiers().isCtrlDown();
+
+    if (cmd && shift && (key.getKeyCode() == 'Z' || key.getKeyCode() == 'z'))
+    {
+        performRedo();
+        return true;
+    }
+    if (cmd && (key.getKeyCode() == 'Y' || key.getKeyCode() == 'y'))
+    {
+        performRedo();
+        return true;
+    }
+    if (cmd && !shift && (key.getKeyCode() == 'Z' || key.getKeyCode() == 'z'))
+    {
+        performUndo();
+        return true;
+    }
+    if (shift && key.getKeyCode() == juce::KeyPress::spaceKey)
+    {
+        playSelectionOnly();
+        return true;
+    }
+    if (noMods && !shift)
+    {
+        const int kc = key.getKeyCode();
+        if (kc == 'Z' || kc == 'z') { snapZeroCrossingButton.triggerClick(); return true; }
+        if (kc == 'N' || kc == 'n') { normalizeAudioPeak(); return true; }
+        if (kc == 'R' || kc == 'r') { reverseSelectedRegion(); return true; }
+        if (kc == 'C' || kc == 'c') { cropToSelection(); return true; }
+        if (kc == '+' || kc == '=') { zoomInButton.triggerClick(); return true; }
+        if (kc == '-' || kc == '_') { zoomOutButton.triggerClick(); return true; }
+    }
 
     if (sm.matches("edit.select_all", key))
     {
@@ -3118,6 +3343,9 @@ void EditComponent::mouseUp(const juce::MouseEvent& /*e*/)
         updateControlVisibility();
     }
 
+    if (dragTarget == DragTarget::SelectingRange || dragTarget == DragTarget::StartMarker || dragTarget == DragTarget::EndMarker)
+        updateSelectionStats();
+
     dragTarget = DragTarget::None;
     repaint();
 }
@@ -3435,6 +3663,8 @@ void EditComponent::sampleLoaded(const juce::String& filePath)
 
         // Snapshot the original buffer for non-destructive editing
         audioEngine.snapshotOriginalForEditing();
+        undoStack.clear();
+        redoStack.clear();
     }
 
     hasSpectralBoxSelection = false;
@@ -3444,6 +3674,8 @@ void EditComponent::sampleLoaded(const juce::String& filePath)
     {
         generateSpectrogram();
     }
+    updateUndoRedoButtons();
+    updateSelectionStats();
     updateControlVisibility();
     repaint();
 }
@@ -3701,6 +3933,280 @@ void EditComponent::setState(const EditComponentState& state)
             repaint();
         }
     }
+}
+
+// ─────────────────────────────────────────────────────────
+//  Workflow Refinements: Undo/Redo, Stats, Library/Sampler, Seam, More DSP
+// ─────────────────────────────────────────────────────────
+void EditComponent::pushUndoState()
+{
+    if (!hasAudioToEdit()) return;
+
+    EditUndoEntry entry;
+    if (!audioEngine.getAudioBufferCopy(entry.buffer, entry.sampleRate))
+        return;
+
+    entry.startRatio = audioEngine.getSampleStartRatio();
+    entry.endRatio = audioEngine.getSampleEndRatio();
+    entry.loopInRatio = loopInRatio;
+    entry.loopOutRatio = loopOutRatio;
+    entry.loopMarkersSet = loopMarkersSet;
+
+    undoStack.push_back(std::move(entry));
+    if (undoStack.size() > 15)
+        undoStack.erase(undoStack.begin());
+
+    redoStack.clear();
+    updateUndoRedoButtons();
+}
+
+void EditComponent::performUndo()
+{
+    if (undoStack.empty()) return;
+
+    EditUndoEntry current;
+    if (audioEngine.getAudioBufferCopy(current.buffer, current.sampleRate))
+    {
+        current.startRatio = audioEngine.getSampleStartRatio();
+        current.endRatio = audioEngine.getSampleEndRatio();
+        current.loopInRatio = loopInRatio;
+        current.loopOutRatio = loopOutRatio;
+        current.loopMarkersSet = loopMarkersSet;
+        redoStack.push_back(std::move(current));
+    }
+
+    EditUndoEntry prev = std::move(undoStack.back());
+    undoStack.pop_back();
+
+    if (audioEngine.restoreBufferSnapshot(prev.buffer, prev.sampleRate))
+    {
+        audioEngine.setSampleRange(prev.startRatio, prev.endRatio);
+        loopInRatio = prev.loopInRatio;
+        loopOutRatio = prev.loopOutRatio;
+        loopMarkersSet = prev.loopMarkersSet;
+        audioEngine.setLoopPoints(loopInRatio, loopOutRatio);
+        audioEngine.setLoopMarkersSet(loopMarkersSet);
+        totalDurationSecs = audioEngine.getTotalLengthSeconds();
+        spectrogramGenerated = false;
+        if (isSpectralView && totalDurationSecs > 0.0)
+            generateSpectrogram();
+        updateUndoRedoButtons();
+        updateSelectionStats();
+        repaint();
+    }
+}
+
+void EditComponent::performRedo()
+{
+    if (redoStack.empty()) return;
+
+    EditUndoEntry current;
+    if (audioEngine.getAudioBufferCopy(current.buffer, current.sampleRate))
+    {
+        current.startRatio = audioEngine.getSampleStartRatio();
+        current.endRatio = audioEngine.getSampleEndRatio();
+        current.loopInRatio = loopInRatio;
+        current.loopOutRatio = loopOutRatio;
+        current.loopMarkersSet = loopMarkersSet;
+        undoStack.push_back(std::move(current));
+    }
+
+    EditUndoEntry next = std::move(redoStack.back());
+    redoStack.pop_back();
+
+    if (audioEngine.restoreBufferSnapshot(next.buffer, next.sampleRate))
+    {
+        audioEngine.setSampleRange(next.startRatio, next.endRatio);
+        loopInRatio = next.loopInRatio;
+        loopOutRatio = next.loopOutRatio;
+        loopMarkersSet = next.loopMarkersSet;
+        audioEngine.setLoopPoints(loopInRatio, loopOutRatio);
+        audioEngine.setLoopMarkersSet(loopMarkersSet);
+        totalDurationSecs = audioEngine.getTotalLengthSeconds();
+        spectrogramGenerated = false;
+        if (isSpectralView && totalDurationSecs > 0.0)
+            generateSpectrogram();
+        updateUndoRedoButtons();
+        updateSelectionStats();
+        repaint();
+    }
+}
+
+void EditComponent::updateUndoRedoButtons()
+{
+    undoButton.setEnabled(!undoStack.empty());
+    redoButton.setEnabled(!redoStack.empty());
+}
+
+void EditComponent::updateSelectionStats()
+{
+    if (!hasAudioToEdit())
+    {
+        selectionStatsLabel.setText("Peak: --  |  RMS: --", juce::dontSendNotification);
+        selectionStatsLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::textSecondary);
+        return;
+    }
+
+    juce::AudioBuffer<float> buf;
+    double sr = 44100.0;
+    if (!audioEngine.getAudioBufferCopy(buf, sr) || buf.getNumSamples() <= 0)
+        return;
+
+    const int totalSamples = buf.getNumSamples();
+    const int numChannels = buf.getNumChannels();
+    const int startSample = juce::jlimit(0, totalSamples - 1, static_cast<int>(audioEngine.getSampleStartRatio() * totalSamples));
+    const int endSample = juce::jlimit(startSample + 1, totalSamples, static_cast<int>(audioEngine.getSampleEndRatio() * totalSamples));
+    const int len = endSample - startSample;
+
+    float peak = 0.0f;
+    double sumSq = 0.0;
+    for (int ch = 0; ch < numChannels; ++ch)
+    {
+        const float* data = buf.getReadPointer(ch);
+        for (int i = startSample; i < endSample; ++i)
+        {
+            const float s = data[i];
+            const float a = std::abs(s);
+            if (a > peak) peak = a;
+            sumSq += static_cast<double>(s) * static_cast<double>(s);
+        }
+    }
+
+    const float rms = static_cast<float>(std::sqrt(sumSq / static_cast<double>(len * std::max(1, numChannels))));
+    const float peakDb = juce::Decibels::gainToDecibels(peak, -100.0f);
+    const float rmsDb = juce::Decibels::gainToDecibels(rms, -100.0f);
+
+    const juce::String peakStr = (peakDb <= -99.5f) ? "-inf" : juce::String(peakDb, 1);
+    const juce::String rmsStr = (rmsDb <= -99.5f) ? "-inf" : juce::String(rmsDb, 1);
+    selectionStatsLabel.setText("Peak: " + peakStr + " dB | RMS: " + rmsStr + " dB", juce::dontSendNotification);
+    selectionStatsLabel.setColour(juce::Label::textColourId,
+        peakDb > 0.0f ? juce::Colour(0xFFFF5555) : OpenWavLookAndFeel::textSecondary);
+}
+
+static juce::File writeEditedSelectionWav(AudioEngine& engine,
+                                          std::function<void(juce::AudioBuffer<float>&, double)> applyFadesFn,
+                                          const juce::String& suffix)
+{
+    juce::AudioBuffer<float> fullBuffer;
+    double sampleRate = 44100.0;
+    if (!engine.getAudioBufferCopy(fullBuffer, sampleRate))
+        return {};
+
+    const int totalSamples = fullBuffer.getNumSamples();
+    const int startSample = juce::jlimit(0, std::max(0, totalSamples - 1),
+                                         static_cast<int>(engine.getSampleStartRatio() * totalSamples));
+    const int endSample = juce::jlimit(startSample, totalSamples,
+                                       static_cast<int>(engine.getSampleEndRatio() * totalSamples));
+    const int regionLen = endSample - startSample;
+    if (regionLen <= 0)
+        return {};
+
+    juce::AudioBuffer<float> editedBuffer(fullBuffer.getNumChannels(), regionLen);
+    for (int ch = 0; ch < fullBuffer.getNumChannels(); ++ch)
+        editedBuffer.copyFrom(ch, 0, fullBuffer, ch, startSample, regionLen);
+
+    if (applyFadesFn)
+        applyFadesFn(editedBuffer, sampleRate);
+
+    juce::File originalFile = engine.getCurrentFile();
+    juce::File targetDir = originalFile.existsAsFile()
+        ? originalFile.getParentDirectory()
+        : juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile("OWMB Edits");
+    targetDir.createDirectory();
+
+    juce::String baseName = originalFile.existsAsFile()
+        ? originalFile.getFileNameWithoutExtension()
+        : "edited_sample";
+    juce::File outFile = targetDir.getChildFile(baseName + suffix + ".wav").getNonexistentSibling();
+
+    std::unique_ptr<juce::FileOutputStream> outStream(outFile.createOutputStream());
+    if (outStream == nullptr)
+        return {};
+
+    juce::WavAudioFormat wavFormat;
+    std::unique_ptr<juce::AudioFormatWriter> writer(wavFormat.createWriterFor(
+        outStream.get(), sampleRate, static_cast<unsigned int>(editedBuffer.getNumChannels()), 24, {}, 0));
+    if (writer == nullptr)
+        return {};
+
+    outStream.release();
+    writer->writeFromAudioSampleBuffer(editedBuffer, 0, editedBuffer.getNumSamples());
+    return outFile;
+}
+
+void EditComponent::saveEditedCopyToLibrary()
+{
+    if (!hasAudioToEdit()) return;
+
+    juce::File outFile = writeEditedSelectionWav(
+        audioEngine,
+        [this](juce::AudioBuffer<float>& buf, double sr) { applyFadeToBuffer(buf, sr); },
+        "_edit");
+    if (outFile.existsAsFile() && onSavedToLibrary)
+        onSavedToLibrary(outFile);
+}
+
+void EditComponent::sendEditedToSampleMap()
+{
+    if (!hasAudioToEdit()) return;
+
+    juce::File outFile = writeEditedSelectionWav(
+        audioEngine,
+        [this](juce::AudioBuffer<float>& buf, double sr) { applyFadeToBuffer(buf, sr); },
+        "_sampler");
+    if (outFile.existsAsFile() && onSendToSampleMap)
+        onSendToSampleMap(outFile);
+}
+
+void EditComponent::previewLoopSeam()
+{
+    if (!hasAudioToEdit() || totalDurationSecs <= 0.0) return;
+
+    audioEngine.setLoopPoints(loopInRatio, loopOutRatio);
+    audioEngine.setLoopMarkersSet(true);
+    audioEngine.setLooping(true);
+    loopMarkersSet = true;
+    loopToggleButton.setToggleState(true, juce::dontSendNotification);
+
+    const double preRollRatio = 0.5 / totalDurationSecs;
+    const double span = std::max(0.002, loopOutRatio - loopInRatio);
+    const double startRatio = juce::jlimit(loopInRatio, loopOutRatio - 0.001,
+                                           loopOutRatio - std::min(preRollRatio, span * 0.5));
+    audioEngine.setPositionRatio(startRatio);
+    audioEngine.play();
+    repaint();
+}
+
+void EditComponent::showMoreDspMenu()
+{
+    juce::PopupMenu menu;
+    menu.addItem(1, "Low Cut (High-Pass 80 Hz)", hasAudioToEdit());
+    menu.addItem(2, "Hi Cut (Low-Pass 8 kHz)", hasAudioToEdit());
+    menu.addItem(3, "Remove DC Offset", hasAudioToEdit());
+    menu.addSeparator();
+    menu.addItem(4, "Invert Phase", hasAudioToEdit());
+    menu.addItem(5, "Sum Stereo to Mono (L+R)/2", hasAudioToEdit());
+    menu.addSeparator();
+    menu.addItem(6, "2x Speed (Octave Up)", hasAudioToEdit());
+    menu.addItem(7, "0.5x Speed (Octave Down)", hasAudioToEdit());
+    menu.addItem(8, "Deverb / Transient Clean", hasAudioToEdit());
+
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&moreDspButton),
+        [this](int result)
+        {
+            switch (result)
+            {
+                case 1: hpFilterButton.triggerClick(); break;
+                case 2: lpFilterButton.triggerClick(); break;
+                case 3: dcOffsetButton.triggerClick(); break;
+                case 4: invertPhaseButton.triggerClick(); break;
+                case 5: monoSumButton.triggerClick(); break;
+                case 6: speed2xButton.triggerClick(); break;
+                case 7: speedHalfButton.triggerClick(); break;
+                case 8: deverbButton.triggerClick(); break;
+                default: break;
+            }
+        });
 }
 
 } // namespace openwav

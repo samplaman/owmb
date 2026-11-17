@@ -2460,6 +2460,22 @@ bool AudioEngine::restoreOriginal()
     return true;
 }
 
+bool AudioEngine::restoreBufferSnapshot(const juce::AudioBuffer<float>& buf, double sr)
+{
+    const juce::ScopedLock sl(uiDataLock);
+    if (buf.getNumSamples() == 0 || loadedVoice == nullptr)
+        return false;
+
+    loadedVoice->buffer.makeCopyOf(buf);
+    if (sr > 0.0)
+        currentFileSampleRateAtomic.store(sr, std::memory_order_relaxed);
+
+    stoppedPositionSecs.store(0.0, std::memory_order_relaxed);
+    rebuildWaveformPeaks();
+    replaceEditedSampleInMemory();
+    return true;
+}
+
 bool AudioEngine::hasOriginalSnapshot() const
 {
     const juce::ScopedLock sl(uiDataLock);

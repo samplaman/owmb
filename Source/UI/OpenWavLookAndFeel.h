@@ -107,6 +107,10 @@ public:
     static juce::Font getMonoFont(float size, bool bold = false);
     static void groupButtons(const std::vector<juce::Button*>& buttons, bool vertical = false);
     static void drawButtonGroup(juce::Graphics& g, const std::vector<juce::Component*>& buttons);
+    static void drawEmptyState(juce::Graphics& g, juce::Rectangle<int> bounds,
+                               const juce::String& title, const juce::String& subtitle);
+    static void drawDropOverlay(juce::Graphics& g, juce::Rectangle<int> bounds,
+                                const juce::String& label);
     juce::Typeface::Ptr getTypefaceForFont(const juce::Font& font) override;
     juce::Font getLabelFont(juce::Label& label) override;
     juce::Font getTextButtonFont(juce::TextButton& button, int buttonHeight) override;

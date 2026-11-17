@@ -434,6 +434,14 @@ void OpenWavLookAndFeel::drawButtonText(juce::Graphics &g,
       svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"6\" y=\"4\" width=\"4\" height=\"16\"/><rect x=\"14\" y=\"4\" width=\"4\" height=\"16\"/></svg>";
   } else if (text == "RESUME") {
       svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><polygon points=\"5 3 14 12 5 21 5 3\"/><line x1=\"18\" y1=\"4\" x2=\"18\" y2=\"20\"/></svg>";
+  } else if (text == "Undo") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><polyline points=\"9 14 4 9 9 4\"/><path d=\"M20 20v-7a4 4 0 0 0-4-4H4\"/></svg>";
+  } else if (text == "Redo") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><polyline points=\"15 14 20 9 15 4\"/><path d=\"M4 20v-7a4 4 0 0 1 4-4h12\"/></svg>";
+  } else if (text == "More DSP") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"1\"/><circle cx=\"19\" cy=\"12\" r=\"1\"/><circle cx=\"5\" cy=\"12\" r=\"1\"/></svg>";
+  } else if (text == "Loop Seam") {
+      svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M17 2.1l4 4-4 4\"/><path d=\"M3 12a9 9 0 0 1 15-6.7L21 8\"/><circle cx=\"12\" cy=\"12\" r=\"2.5\"/></svg>";
   } else if (text == "Move Up") {
       svgString = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><polyline points=\"18 15 12 9 6 15\"/></svg>";
   } else if (text == "Move Down") {
@@ -1103,6 +1111,73 @@ void OpenWavLookAndFeel::drawButtonGroup(juce::Graphics& g, const std::vector<ju
             g.fillRect(divX, unionRect.getY() + 4, 1, unionRect.getHeight() - 8);
         }
     }
+}
+
+void OpenWavLookAndFeel::drawEmptyState(juce::Graphics& g, juce::Rectangle<int> bounds,
+                                        const juce::String& title, const juce::String& subtitle)
+{
+    int cardW = std::min(420, std::max(240, bounds.getWidth() - 40));
+    int cardH = 148;
+    auto card = bounds.withSizeKeepingCentre(cardW, cardH).toFloat();
+
+    g.setColour(bgCard);
+    g.fillRoundedRectangle(card, 10.0f);
+    g.setColour(borderColour);
+    g.drawRoundedRectangle(card.reduced(0.5f), 10.0f, 1.0f);
+
+    // Minimal centered waveform icon
+    auto iconRect = juce::Rectangle<float>(card.getCentreX() - 16.0f, card.getY() + 24.0f, 32.0f, 24.0f);
+    g.setColour(accentCyan.withAlpha(0.75f));
+    float cx = iconRect.getX() + 4.0f;
+    float midY = iconRect.getCentreY();
+    const float heights[5] = { 6.0f, 14.0f, 20.0f, 12.0f, 7.0f };
+    for (int i = 0; i < 5; ++i)
+    {
+        float h = heights[i];
+        g.fillRoundedRectangle(cx + i * 5.5f, midY - h * 0.5f, 3.0f, h, 1.5f);
+    }
+
+    g.setColour(textPrimary);
+    g.setFont(getTitleFont(15.0f));
+    g.drawText(title, card.withTrimmedTop(58.0f).removeFromTop(24.0f).reduced(16.0f, 0.0f).toNearestInt(),
+               juce::Justification::centred, true);
+
+    g.setColour(textSecondary);
+    g.setFont(getBodyFont(12.0f, false));
+    g.drawFittedText(subtitle, card.withTrimmedTop(86.0f).reduced(20.0f, 8.0f).toNearestInt(),
+                     juce::Justification::centredTop, 2);
+}
+
+void OpenWavLookAndFeel::drawDropOverlay(juce::Graphics& g, juce::Rectangle<int> bounds,
+                                         const juce::String& label)
+{
+    auto area = bounds.toFloat().reduced(8.0f);
+    g.setColour(accentCyan.withAlpha(0.10f));
+    g.fillRoundedRectangle(area, 10.0f);
+
+    juce::Path borderPath;
+    borderPath.addRoundedRectangle(area.reduced(1.0f), 10.0f);
+    float dashes[2] = { 8.0f, 6.0f };
+    juce::PathStrokeType stroke(2.0f);
+    juce::Path dashed;
+    stroke.createDashedStroke(dashed, borderPath, dashes, 2);
+    g.setColour(accentCyan);
+    g.fillPath(dashed);
+
+    auto font = getBodyFont(13.0f, true);
+    juce::GlyphArrangement ga;
+    ga.addLineOfText(font, label, 0.0f, 0.0f);
+    float pillW = std::min(static_cast<float>(bounds.getWidth()) - 40.0f,
+                           ga.getBoundingBox(0, -1, false).getWidth() + 36.0f);
+    auto pill = bounds.toFloat().withSizeKeepingCentre(std::max(180.0f, pillW), 36.0f);
+
+    g.setColour(bgHeader.withAlpha(0.96f));
+    g.fillRoundedRectangle(pill, 8.0f);
+    g.setColour(accentCyan);
+    g.drawRoundedRectangle(pill.reduced(0.5f), 8.0f, 1.2f);
+    g.setColour(textPrimary);
+    g.setFont(font);
+    g.drawText(label, pill.toNearestInt(), juce::Justification::centred, true);
 }
 
 juce::Typeface::Ptr OpenWavLookAndFeel::getTypefaceForFont(const juce::Font& font)
