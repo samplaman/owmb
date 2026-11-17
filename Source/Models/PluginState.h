@@ -125,6 +125,7 @@ struct SampleMapZoneState
     int fadeOutCurveType { 0 };
     bool loopMarkersSet { false };
     bool isLooping { false };
+    bool isReleaseTrigger { false };
 
     juce::var toVar() const
     {
@@ -155,6 +156,7 @@ struct SampleMapZoneState
         obj->setProperty("fadeOutCurveType", fadeOutCurveType);
         obj->setProperty("loopMarkersSet", loopMarkersSet);
         obj->setProperty("isLooping", isLooping);
+        obj->setProperty("isReleaseTrigger", isReleaseTrigger);
         return juce::var(obj);
     }
 
@@ -196,6 +198,7 @@ struct SampleMapZoneState
         if (obj->hasProperty("fadeOutCurveType")) z.fadeOutCurveType = static_cast<int>(obj->getProperty("fadeOutCurveType"));
         if (obj->hasProperty("loopMarkersSet")) z.loopMarkersSet = static_cast<bool>(obj->getProperty("loopMarkersSet"));
         if (obj->hasProperty("isLooping")) z.isLooping = static_cast<bool>(obj->getProperty("isLooping"));
+        if (obj->hasProperty("isReleaseTrigger")) z.isReleaseTrigger = static_cast<bool>(obj->getProperty("isReleaseTrigger"));
         return z;
     }
 
@@ -228,6 +231,7 @@ struct SampleMapZoneState
         xml->setAttribute("fadeOutCurveType", fadeOutCurveType);
         xml->setAttribute("loopMarkersSet", loopMarkersSet ? 1 : 0);
         xml->setAttribute("isLooping", isLooping ? 1 : 0);
+        xml->setAttribute("isReleaseTrigger", isReleaseTrigger ? 1 : 0);
         return xml;
     }
 
@@ -291,6 +295,7 @@ struct SampleMapZoneState
         z.fadeOutCurveType = xml.getIntAttribute("fadeOutCurveType", 0);
         z.loopMarkersSet = xml.getIntAttribute("loopMarkersSet", 0) != 0;
         z.isLooping = xml.getIntAttribute("isLooping", 0) != 0;
+        z.isReleaseTrigger = xml.getIntAttribute("isReleaseTrigger", 0) != 0;
         return z;
     }
 };
@@ -828,6 +833,7 @@ struct SampleEditSettingsState
     int fadeOutCurveType { 0 };
     bool loopMarkersSet { false };
     bool isLooping { false };
+    bool isReleaseTrigger { false };
 
     juce::var toVar() const
     {
@@ -844,6 +850,7 @@ struct SampleEditSettingsState
         obj->setProperty("fadeOutCurveType", fadeOutCurveType);
         obj->setProperty("loopMarkersSet", loopMarkersSet);
         obj->setProperty("isLooping", isLooping);
+        obj->setProperty("isReleaseTrigger", isReleaseTrigger);
         return juce::var(obj);
     }
 

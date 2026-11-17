@@ -54,6 +54,64 @@ AutoSamplerDialog::AutoSamplerDialog(std::function<void(const SampleMapState& re
     nameEditor.setText("AutoSampled Instrument", juce::dontSendNotification);
     addAndMakeVisible(nameEditor);
 
+    styleLabel(templateLabel);
+    templateCombo.addItem("Custom", 1);
+    templateCombo.addItem("Piano (Keys + Release)", 2);
+    templateCombo.addItem("Drum Kit (Chromatic)", 3);
+    templateCombo.addItem("Synth / Lead / Bass", 4);
+    templateCombo.addItem("Lush Pad / Strings", 5);
+    templateCombo.setSelectedId(1, juce::dontSendNotification);
+    templateCombo.onChange = [this] {
+        const int id = templateCombo.getSelectedId();
+        if (id == 2) { // Piano
+            minNoteCombo.setSelectedId(36 + 1, juce::dontSendNotification);
+            maxNoteCombo.setSelectedId(84 + 1, juce::dontSendNotification);
+            strideCombo.setSelectedId(3, juce::dontSendNotification);
+            velLayersCombo.setSelectedId(3, juce::dontSendNotification);
+            rrCombo.setSelectedId(2, juce::dontSendNotification);
+            sustainSlider.setValue(1.8, juce::dontSendNotification);
+            tailSlider.setValue(3.5, juce::dontSendNotification);
+            autoTailToggle.setToggleState(true, juce::dontSendNotification);
+            trimSilenceToggle.setToggleState(true, juce::dontSendNotification);
+            captureReleaseToggle.setToggleState(true, juce::dontSendNotification);
+        } else if (id == 3) { // Drum Kit
+            minNoteCombo.setSelectedId(36 + 1, juce::dontSendNotification);
+            maxNoteCombo.setSelectedId(60 + 1, juce::dontSendNotification);
+            strideCombo.setSelectedId(1, juce::dontSendNotification);
+            velLayersCombo.setSelectedId(3, juce::dontSendNotification);
+            rrCombo.setSelectedId(3, juce::dontSendNotification);
+            sustainSlider.setValue(0.4, juce::dontSendNotification);
+            tailSlider.setValue(1.5, juce::dontSendNotification);
+            autoTailToggle.setToggleState(true, juce::dontSendNotification);
+            trimSilenceToggle.setToggleState(true, juce::dontSendNotification);
+            captureReleaseToggle.setToggleState(false, juce::dontSendNotification);
+        } else if (id == 4) { // Synth / Bass
+            minNoteCombo.setSelectedId(36 + 1, juce::dontSendNotification);
+            maxNoteCombo.setSelectedId(84 + 1, juce::dontSendNotification);
+            strideCombo.setSelectedId(4, juce::dontSendNotification);
+            velLayersCombo.setSelectedId(2, juce::dontSendNotification);
+            rrCombo.setSelectedId(1, juce::dontSendNotification);
+            sustainSlider.setValue(2.0, juce::dontSendNotification);
+            tailSlider.setValue(2.5, juce::dontSendNotification);
+            autoTailToggle.setToggleState(true, juce::dontSendNotification);
+            trimSilenceToggle.setToggleState(true, juce::dontSendNotification);
+            captureReleaseToggle.setToggleState(false, juce::dontSendNotification);
+        } else if (id == 5) { // Pad / Strings
+            minNoteCombo.setSelectedId(36 + 1, juce::dontSendNotification);
+            maxNoteCombo.setSelectedId(72 + 1, juce::dontSendNotification);
+            strideCombo.setSelectedId(6, juce::dontSendNotification);
+            velLayersCombo.setSelectedId(1, juce::dontSendNotification);
+            rrCombo.setSelectedId(1, juce::dontSendNotification);
+            sustainSlider.setValue(3.0, juce::dontSendNotification);
+            tailSlider.setValue(4.5, juce::dontSendNotification);
+            autoTailToggle.setToggleState(true, juce::dontSendNotification);
+            trimSilenceToggle.setToggleState(true, juce::dontSendNotification);
+            captureReleaseToggle.setToggleState(false, juce::dontSendNotification);
+        }
+        updateEstimateLabel();
+    };
+    addAndMakeVisible(templateCombo);
+
     auto populateNoteCombo = [](juce::ComboBox& cb, int defaultNote) {
         for (int n = 0; n <= 127; ++n)
             cb.addItem(AutoSamplerEngine::midiNoteToName(n) + " (" + juce::String(n) + ")", n + 1);
@@ -133,6 +191,10 @@ AutoSamplerDialog::AutoSamplerDialog(std::function<void(const SampleMapState& re
 
     exportSfzToggle.setToggleState(true, juce::dontSendNotification);
     addAndMakeVisible(exportSfzToggle);
+
+    captureReleaseToggle.setToggleState(false, juce::dontSendNotification);
+    captureReleaseToggle.setTooltip("Record the post-Note-Off release sound of the VST as separate Release Trigger zones");
+    addAndMakeVisible(captureReleaseToggle);
 
     estimateLabel.setFont(juce::Font(12.0f, juce::Font::bold));
     estimateLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::accentCyan);
@@ -279,6 +341,7 @@ void AutoSamplerDialog::setControlsEnabled(bool enabled)
     autoTailToggle.setEnabled(enabled);
     trimSilenceToggle.setEnabled(enabled);
     exportSfzToggle.setEnabled(enabled);
+    captureReleaseToggle.setEnabled(enabled);
     startBtn.setEnabled(enabled && loadedPlugin != nullptr);
     cancelBtn.setButtonText(enabled ? "Close" : "Cancel");
 }
@@ -305,6 +368,7 @@ void AutoSamplerDialog::startSampling()
     cfg.autoTailDetect = autoTailToggle.getToggleState();
     cfg.trimLeadingSilence = trimSilenceToggle.getToggleState();
     cfg.exportSfz = exportSfzToggle.getToggleState();
+    cfg.captureReleaseTriggers = captureReleaseToggle.getToggleState();
 
     setControlsEnabled(false);
     progressValue = 0.0;
@@ -366,10 +430,14 @@ void AutoSamplerDialog::resized()
     }
     area.removeFromTop(gap);
 
-    // Name row
+    // Name & Template row
     {
         auto r = area.removeFromTop(rowH);
         nameLabel.setBounds(r.removeFromLeft(88));
+        templateCombo.setBounds(r.removeFromRight(175));
+        r.removeFromRight(6);
+        templateLabel.setBounds(r.removeFromRight(68));
+        r.removeFromRight(8);
         nameEditor.setBounds(r);
     }
     area.removeFromTop(gap);
@@ -424,9 +492,10 @@ void AutoSamplerDialog::resized()
     // Checkboxes row
     {
         auto r = area.removeFromTop(24);
-        autoTailToggle.setBounds(r.removeFromLeft(190));
-        trimSilenceToggle.setBounds(r.removeFromLeft(185));
-        exportSfzToggle.setBounds(r);
+        autoTailToggle.setBounds(r.removeFromLeft(175));
+        trimSilenceToggle.setBounds(r.removeFromLeft(160));
+        exportSfzToggle.setBounds(r.removeFromLeft(95));
+        captureReleaseToggle.setBounds(r);
     }
     area.removeFromTop(10);
 

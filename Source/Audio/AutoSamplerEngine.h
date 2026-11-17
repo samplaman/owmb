@@ -38,6 +38,7 @@ struct AutoSamplerConfig
     int normalizeMode { 1 };      // 0 = Off, 1 = Group Peak (-1 dBFS), 2 = Per-Sample (-1 dBFS)
     double sampleRate { 44100.0 };
     bool exportSfz { true };
+    bool captureReleaseTriggers { false };
 };
 
 class AutoSamplerEngine : private juce::Timer

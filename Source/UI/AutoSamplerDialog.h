@@ -68,9 +68,11 @@ private:
     juce::TextButton scanPluginsBtn { "Scan" };
     juce::TextButton openEditorBtn { "Open UI" };
 
-    // Instrument name & output
+    // Instrument name & template
     juce::Label nameLabel { {}, "Name:" };
     juce::TextEditor nameEditor;
+    juce::Label templateLabel { {}, "Template:" };
+    juce::ComboBox templateCombo;
 
     // Key range & stride
     juce::Label minNoteLabel { {}, "Key Low:" };
@@ -99,6 +101,7 @@ private:
     juce::ToggleButton autoTailToggle { "Auto-Detect Tail Silence" };
     juce::ToggleButton trimSilenceToggle { "Trim Leading Silence" };
     juce::ToggleButton exportSfzToggle { "Export .sfz" };
+    juce::ToggleButton captureReleaseToggle { "Capture Note-Off (Release)" };
 
     // Estimate & progress
     juce::Label estimateLabel;

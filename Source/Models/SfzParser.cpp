@@ -414,6 +414,9 @@ void applyOpcodesToZone(const OpcodeMap& opcodes,
 
     if (hasKey("pitch_keytrack") && getStr("pitch_keytrack").getIntValue() == 0)
         hasPitchTrackZero = true;
+
+    if (hasKey("trigger") && getStr("trigger").trim().equalsIgnoreCase("release"))
+        zone.isReleaseTrigger = true;
 }
 
 } // namespace

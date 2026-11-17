@@ -190,6 +190,7 @@ public:
     float getSamplerReverbAmount() const { return samplerReverbAmount.load(std::memory_order_relaxed); }
     void setPitchTrackingEnabled(bool enabled);
     bool isPitchTrackingEnabled() const { return pitchTrackingEnabled.load(std::memory_order_relaxed); }
+    void setPitchBend(float semitones) { pitchBendMultiplierAtomic.store(std::pow(2.0, static_cast<double>(semitones) / 12.0), std::memory_order_relaxed); }
     void setOneShotEnabled(bool enabled);
     bool isOneShotEnabled() const { return oneShotEnabled.load(std::memory_order_relaxed); }
     void stopZoneVoice(int triggerMidiNote);
@@ -394,6 +395,7 @@ private:
     std::atomic<double> stoppedPositionSecs { 0.0 };
     std::atomic<double> engineSampleRateAtomic { 44100.0 };
     std::atomic<double> currentFileSampleRateAtomic { 44100.0 };
+    std::atomic<double> pitchBendMultiplierAtomic { 1.0 };
 
     juce::File currentFile;
     juce::File loadedMasterFile;

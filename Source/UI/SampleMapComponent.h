@@ -43,6 +43,7 @@ struct SampleMapZone
     int fadeOutCurveType { 0 };
     bool loopMarkersSet { false };
     bool isLooping { false };
+    bool isReleaseTrigger { false };
     bool isSelected { false };
 };
 
@@ -159,6 +160,8 @@ public:
     void autoMapRoundRobin();
     void saveSampleMapToFile();
     void loadSampleMapFromFile();
+    void loadSampleMapFromUrlDialog();
+    void downloadAndImportInstrument(const juce::String& urlOrRepo);
     bool loadSampleMapFile(const juce::File& file);
     void exportSampleMapToZip();
     void openLorisResynthesisDialog();
@@ -212,6 +215,7 @@ private:
     juce::TextButton clearMapButton { "Clear Map" };
     juce::TextButton saveMapButton { "Save Map" };
     juce::TextButton loadMapButton { "Load Map" };
+    juce::TextButton urlImportButton { "Load URL" };
     juce::TextButton exportZipButton { "Export ZIP" };
     juce::TextButton roundRobinButton { "RR: Cycle" };
     juce::TextButton pitchTrackButton { "Pitch Track: ON" };
@@ -232,6 +236,12 @@ private:
     void applyVelocityPreset(int mode);
     void updateVelocityCurveUI();
     float computeEffectiveVelocity(float inVelocity, const SampleMapZone* zone = nullptr) const;
+    bool isZoneVisibleInGrid(const SampleMapZone& z) const;
+    void rebuildZoneFilterOptions();
+    void showInstrumentPresetMenu();
+
+    juce::ComboBox zoneFilterBox;
+    juce::TextButton instrumentPresetButton { "Presets" };
 
     int midiChannelSetting { 0 };
     float globalVelocitySensitivity { 1.0f };
@@ -289,6 +299,8 @@ private:
     juce::Slider tuneSlider;
     juce::Label gainTitle { {}, "Gain (dB):" };
     juce::Slider gainSlider;
+    juce::Label triggerModeTitle { {}, "Trigger:" };
+    juce::ComboBox triggerModeBox;
 
     bool isZoneSelected(int index) const { return selectedZoneIndices.count(index) > 0; }
     void selectZone(int index, bool addToSelection = false);

@@ -888,6 +888,7 @@ void PerformanceComponent::showAddEffectMenu()
 
     juce::PopupMenu spatialMenu;
     spatialMenu.addItem(1, "Studio Reverb");
+    spatialMenu.addItem(19, "Shimmer Reverb");
     spatialMenu.addItem(2, "Stereo Delay");
     spatialMenu.addItem(11, "Tape & BBD Flanger");
     spatialMenu.addItem(12, "Stereo Width & Imager");
@@ -895,6 +896,7 @@ void PerformanceComponent::showAddEffectMenu()
 
     juce::PopupMenu dynamicsMenu;
     dynamicsMenu.addItem(17, "Global ADSR Envelope");
+    dynamicsMenu.addItem(21, "Transient Shaper");
     dynamicsMenu.addItem(3, "Analog Saturation");
     dynamicsMenu.addItem(4, "VCA Compressor");
     dynamicsMenu.addItem(5, "3-Band Parametric EQ");
@@ -912,6 +914,8 @@ void PerformanceComponent::showAddEffectMenu()
     m.addSubMenu("Modulation & Pitch", modMenu);
 
     juce::PopupMenu lofiMenu;
+    lofiMenu.addItem(18, "Live Granulator");
+    lofiMenu.addItem(20, "Tape Wow & Flutter");
     lofiMenu.addItem(10, "Vintage Bitcrusher");
     m.addSubMenu("Lo-Fi & Creative", lofiMenu);
 
@@ -939,6 +943,10 @@ void PerformanceComponent::showAddEffectMenu()
             case 15: type = PerformanceEffectType::Phaser; break;
             case 16: type = PerformanceEffectType::RingModulator; break;
             case 17: type = PerformanceEffectType::ADSREnvelope; break;
+            case 18: type = PerformanceEffectType::Granulator; break;
+            case 19: type = PerformanceEffectType::ShimmerReverb; break;
+            case 20: type = PerformanceEffectType::TapeFlutter; break;
+            case 21: type = PerformanceEffectType::TransientShaper; break;
             default: return;
         }
 

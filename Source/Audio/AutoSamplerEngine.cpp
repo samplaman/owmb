@@ -438,6 +438,46 @@ void AutoSamplerEngine::startAutoSample(
                         zone.roundRobinIndex = rrIdx + 1;
 
                         takes.push_back({ std::move(finalBuf), wavFile, std::move(zone), peak });
+
+                        // Capture dedicated Note-Off / Release sample from the post-noteOff segment
+                        if (config.captureReleaseTriggers && writtenSamples > sustainSamples + 32)
+                        {
+                            const int relStart = sustainSamples;
+                            const int relLen = writtenSamples - relStart;
+                            juce::AudioBuffer<float> relBuf(2, relLen);
+                            for (int ch = 0; ch < 2; ++ch)
+                                relBuf.copyFrom(ch, 0, captureBuf, ch, relStart, relLen);
+
+                            const float relPeak = relBuf.getMagnitude(0, 0, relLen);
+                            if (relPeak >= 0.0003f) // > ~-70 dBFS
+                            {
+                                const int fadeSamples = std::min(64, relLen / 4);
+                                if (fadeSamples > 0)
+                                    relBuf.applyGainRamp(0, 0, fadeSamples, 0.0f, 1.0f);
+
+                                globalMaxPeak = std::max(globalMaxPeak, relPeak);
+                                juce::String relFileName = cleanInstName + "_" + noteNameClean
+                                                         + "_v" + juce::String(triggerVel)
+                                                         + "_rr" + juce::String(rrIdx + 1) + "_rel.wav";
+                                juce::File relWavFile = outDir.getChildFile(relFileName);
+
+                                SampleMapZoneState relZone;
+                                relZone.filePath = relWavFile.getFullPathName();
+                                relZone.sampleName = relFileName;
+                                relZone.rootNote = rootNote;
+                                relZone.keyLow = juce::jlimit(0, 127, keyLow);
+                                relZone.keyHigh = juce::jlimit(relZone.keyLow, 127, keyHigh);
+                                relZone.velLow = juce::jlimit(0, 127, velLow);
+                                relZone.velHigh = juce::jlimit(relZone.velLow, 127, velHigh);
+                                relZone.roundRobinIndex = rrIdx + 1;
+                                relZone.attackMs = 2.0f;
+                                relZone.releaseMs = 250.0f;
+                                relZone.isReleaseTrigger = true;
+
+                                takes.push_back({ std::move(relBuf), relWavFile, std::move(relZone), relPeak });
+                            }
+                        }
+
                         ++completedJobs;
                     }
                 }
@@ -494,6 +534,8 @@ void AutoSamplerEngine::startAutoSample(
                             << " hivel=" << z.velHigh;
                     if (rrCount > 1)
                         sfzText << " seq_length=" << rrCount << " seq_position=" << z.roundRobinIndex;
+                    if (z.isReleaseTrigger)
+                        sfzText << " trigger=release";
                     sfzText << "\n";
 
                     resultState.zones.push_back(z);

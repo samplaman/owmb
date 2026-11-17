@@ -4,7 +4,10 @@
 #include "ShortcutManager.h"
 #include "../Models/SfzParser.h"
 #include "AutoSamplerDialog.h"
+#include "ToastOverlay.h"
+#include <algorithm>
 #include <regex>
+#include <thread>
 // Rebuild trigger
 
 namespace openwav
@@ -395,6 +398,10 @@ SampleMapComponent::SampleMapComponent(AudioEngine& engine)
     addAndMakeVisible(loadMapButton);
     loadMapButton.addListener(this);
 
+    setupIconBtn(urlImportButton, "Download Instrument / SFZ / ZIP from URL or GitHub Repo (owner/repo)");
+    addAndMakeVisible(urlImportButton);
+    urlImportButton.addListener(this);
+
     setupIconBtn(exportZipButton, "Export Sample Map & Audio as .zip Bundle");
     addAndMakeVisible(exportZipButton);
     exportZipButton.addListener(this);
@@ -509,7 +516,7 @@ SampleMapComponent::SampleMapComponent(AudioEngine& engine)
 
     OpenWavLookAndFeel::groupButtons({ &addSampleButton, &lorisResynthButton, &deleteSelectedButton });
     OpenWavLookAndFeel::groupButtons({ &autoMapPitchButton, &autoMapChromaticButton, &autoMapVelButton, &autoMapRRButton });
-    OpenWavLookAndFeel::groupButtons({ &clearMapButton, &saveMapButton, &loadMapButton, &exportZipButton });
+    OpenWavLookAndFeel::groupButtons({ &clearMapButton, &saveMapButton, &loadMapButton, &urlImportButton, &exportZipButton });
     OpenWavLookAndFeel::groupButtons({ &roundRobinButton, &pitchTrackButton, &oneShotButton, &loopButton });
     OpenWavLookAndFeel::groupButtons({ &openFxRackButton, &instrumentModeButton, &autoSampleButton, &aiKitButton });
     OpenWavLookAndFeel::groupButtons({ &velCurveButton, &midiChannelButton });
@@ -614,6 +621,53 @@ SampleMapComponent::SampleMapComponent(AudioEngine& engine)
     setupSlider(tuneSlider, tuneTitle, "Fine Tune:", -100.0, 100.0, 1.0, 0.0);
     setupSlider(gainSlider, gainTitle, "Gain (dB):", -24.0, 12.0, 0.5, 0.0);
 
+    triggerModeTitle.setFont(juce::Font(11.0f));
+    triggerModeTitle.setColour(juce::Label::textColourId, OpenWavLookAndFeel::textSecondary);
+    addChildComponent(triggerModeTitle);
+
+    triggerModeBox.addItem("Note-On", 1);
+    triggerModeBox.addItem("Note-Off (Release)", 2);
+    triggerModeBox.setSelectedId(1, juce::dontSendNotification);
+    triggerModeBox.onChange = [this] {
+        if (selectedZoneIndex >= 0 && selectedZoneIndex < static_cast<int>(zones.size()))
+        {
+            const bool isRel = (triggerModeBox.getSelectedId() == 2);
+            for (int idx : selectedZoneIndices)
+            {
+                if (idx >= 0 && idx < static_cast<int>(zones.size()))
+                    zones[static_cast<size_t>(idx)].isReleaseTrigger = isRel;
+            }
+            rebuildZoneFilterOptions();
+            if (onStateChanged) onStateChanged();
+            repaint();
+        }
+    };
+    addChildComponent(triggerModeBox);
+
+    zoneFilterBox.setTooltip("Filter visible zones in the Sample Map grid (All, Note-On, Release, or Round Robin group)");
+    zoneFilterBox.onChange = [this] {
+        // Deselect any zones hidden by the new filter
+        std::set<int> remaining;
+        for (int idx : selectedZoneIndices)
+        {
+            if (idx >= 0 && idx < static_cast<int>(zones.size()) && isZoneVisibleInGrid(zones[static_cast<size_t>(idx)]))
+                remaining.insert(idx);
+        }
+        selectedZoneIndices = std::move(remaining);
+        selectedZoneIndex = selectedZoneIndices.empty() ? -1 : *selectedZoneIndices.begin();
+        for (size_t i = 0; i < zones.size(); ++i)
+            zones[i].isSelected = (selectedZoneIndices.count(static_cast<int>(i)) > 0);
+        resized();
+        repaint();
+    };
+    addAndMakeVisible(zoneFilterBox);
+    rebuildZoneFilterOptions();
+
+    instrumentPresetButton.setComponentID("iconOnlyBtn");
+    instrumentPresetButton.setTooltip("Quick Instrument Presets (Piano, Drum Kit, Synth Lead, Lush Pad)");
+    instrumentPresetButton.onClick = [this] { showInstrumentPresetMenu(); };
+    addAndMakeVisible(instrumentPresetButton);
+
     inspectorDeleteButton.setColour(juce::TextButton::buttonColourId, OpenWavLookAndFeel::favoriteRed.darker(0.3f));
     inspectorDeleteButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
     inspectorDeleteButton.onClick = [this] {
@@ -700,7 +754,7 @@ SampleMapComponent::SampleMapComponent(AudioEngine& engine)
     setupPresetBtn(velSoftBtn, 1, "Soft / Exponential curve (requires harder strike for loud volume)");
     setupPresetBtn(velHardBtn, 2, "Hard / Logarithmic curve (reaches loud volume easily)");
     setupPresetBtn(velSCurveBtn, 3, "S-Curve dynamic transfer response");
-    setupPresetBtn(velFixedBtn, 4, "Fixed volume (0% velocity sensitivity / constant output)");
+    setupPresetBtn(velFixedBtn, 4, "Fixed volume (0 velocity sensitivity / constant output)");
 
     // Sliders
     velSensitivityLabel.setFont(juce::Font(10.5f));
@@ -906,6 +960,7 @@ SampleMapComponent::~SampleMapComponent()
     clearMapButton.removeListener(this);
     saveMapButton.removeListener(this);
     loadMapButton.removeListener(this);
+    urlImportButton.removeListener(this);
     exportZipButton.removeListener(this);
     roundRobinButton.removeListener(this);
     pitchTrackButton.removeListener(this);
@@ -1715,6 +1770,7 @@ void SampleMapComponent::deleteSelectedZones()
         }
     }
 
+    rebuildZoneFilterOptions();
     resized();
     repaint();
     if (onStateChanged) onStateChanged();
@@ -1726,6 +1782,7 @@ void SampleMapComponent::clearAllZones()
     selectedZoneIndex = -1;
     selectedZoneIndices.clear();
     audioEngine.clearMasterSample();
+    rebuildZoneFilterOptions();
     resized();
     repaint();
     if (onStateChanged) onStateChanged();
@@ -1912,6 +1969,457 @@ void SampleMapComponent::loadSampleMapFromFile()
             safeThis->loadSampleMapFile(result);
         }
     });
+}
+
+namespace
+{
+juce::File getSavedReposFile()
+{
+    auto dir = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+                   .getChildFile("OpenWav");
+    dir.createDirectory();
+    return dir.getChildFile("saved_instrument_repos.txt");
+}
+
+juce::StringArray loadSavedRepos()
+{
+    juce::StringArray list;
+    auto f = getSavedReposFile();
+    if (f.existsAsFile())
+    {
+        juce::StringArray lines;
+        f.readLines(lines);
+        for (const auto& line : lines)
+        {
+            auto trimmed = line.trim();
+            if (trimmed.isNotEmpty() && !list.contains(trimmed))
+                list.add(trimmed);
+        }
+    }
+    return list;
+}
+
+void saveRepoHistory(const juce::String& entry)
+{
+    auto trimmed = entry.trim();
+    if (trimmed.isEmpty()) return;
+
+    auto list = loadSavedRepos();
+    list.removeString(trimmed);
+    list.insert(0, trimmed);
+    while (list.size() > 15)
+        list.remove(list.size() - 1);
+
+    getSavedReposFile().replaceWithText(list.joinIntoString("\n"));
+}
+
+juce::URL::InputStreamOptions makeDownloadOptions(int timeoutMs = 20000)
+{
+    return juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+        .withConnectionTimeoutMs(timeoutMs)
+        .withNumRedirectsToFollow(5)
+        .withExtraHeaders("User-Agent: OWMB-SampleMapper/1.0\r\n");
+}
+} // namespace
+
+void SampleMapComponent::loadSampleMapFromUrlDialog()
+{
+    auto* aw = new juce::AlertWindow(
+        "Download Instrument from URL / Repo",
+        "Enter a direct instrument .zip URL (web, CDN, Dropbox, Google Drive, GitHub Releases),\n"
+        "a .sfz / .owmap / .samplemap / .xml URL, or a GitHub repo (owner/repo):",
+        juce::AlertWindow::NoIcon);
+
+    auto saved = loadSavedRepos();
+    aw->addTextEditor("urlInput", saved.isEmpty() ? "" : saved[0], "Instrument URL or Repo:");
+    if (!saved.isEmpty())
+    {
+        aw->addComboBox("savedRepos", saved, "Recent / Saved URLs:");
+        if (auto* combo = aw->getComboBoxComponent("savedRepos"))
+        {
+            combo->onChange = [aw, combo] {
+                if (auto* ed = aw->getTextEditor("urlInput"))
+                    if (combo->getSelectedId() > 0)
+                        ed->setText(combo->getText(), false);
+            };
+        }
+    }
+
+    aw->addButton("Download & Load", 1, juce::KeyPress(juce::KeyPress::returnKey));
+    aw->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+
+    juce::Component::SafePointer<SampleMapComponent> safeThis(this);
+    aw->enterModalState(true, juce::ModalCallbackFunction::create([safeThis, aw](int result) {
+        if (safeThis == nullptr || result != 1)
+            return;
+
+        if (auto* ed = aw->getTextEditor("urlInput"))
+        {
+            const juce::String input = ed->getText().trim();
+            if (input.isNotEmpty())
+                safeThis->downloadAndImportInstrument(input);
+        }
+    }), true);
+}
+
+void SampleMapComponent::downloadAndImportInstrument(const juce::String& rawInput)
+{
+    juce::String input = rawInput.trim();
+    if (input.isEmpty())
+        return;
+
+    saveRepoHistory(input);
+    ToastOverlay::show("Downloading instrument from " + input + "...");
+
+    // Normalize shorthand: "owner/repo" -> GitHub, "domain.com/file.zip" -> https://domain.com/file.zip
+    if (!input.contains("://") && input.containsChar('/') && !input.containsChar(' '))
+    {
+        const juce::String firstSeg = input.upToFirstOccurrenceOf("/", false, false);
+        if (firstSeg.containsChar('.'))
+            input = "https://" + input;
+        else
+            input = "https://github.com/" + input;
+    }
+
+    // Normalize Dropbox share links (?dl=0 -> ?dl=1)
+    if (input.containsIgnoreCase("dropbox.com/"))
+    {
+        if (input.contains("dl=0"))
+            input = input.replace("dl=0", "dl=1");
+        else if (!input.contains("dl=1"))
+            input += (input.containsChar('?') ? "&dl=1" : "?dl=1");
+    }
+
+    // Normalize Google Drive file share links (/file/d/<ID>/view -> uc?export=download&id=<ID>)
+    if (input.containsIgnoreCase("drive.google.com/file/d/"))
+    {
+        juce::String id = input.fromFirstOccurrenceOf("/file/d/", false, true)
+                               .upToFirstOccurrenceOf("/", false, false);
+        if (id.isNotEmpty())
+            input = "https://drive.google.com/uc?export=download&id=" + id;
+    }
+
+    // Convert github.com/.../blob/... -> raw.githubusercontent.com/...
+    if (input.containsIgnoreCase("github.com/") && input.contains("/blob/"))
+    {
+        input = input.replace("https://github.com/", "https://raw.githubusercontent.com/")
+                     .replace("http://github.com/", "https://raw.githubusercontent.com/")
+                     .replace("/blob/", "/");
+    }
+
+    juce::Component::SafePointer<SampleMapComponent> safeThis(this);
+    std::thread([safeThis, input]() mutable
+    {
+        auto importsRoot = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+                               .getChildFile("OpenWav")
+                               .getChildFile("ImportedMaps");
+        auto downloadsDir = importsRoot.getChildFile("Downloads");
+        downloadsDir.createDirectory();
+
+        // Check if this is a GitHub repository URL (not a direct file link)
+        const bool isDirectAsset = input.endsWithIgnoreCase(".zip")
+                                || input.endsWithIgnoreCase(".sfz")
+                                || input.endsWithIgnoreCase(".owmap")
+                                || input.endsWithIgnoreCase(".samplemap")
+                                || input.endsWithIgnoreCase(".xml");
+
+        const bool isGitHubRepo = input.containsIgnoreCase("github.com/") && !isDirectAsset
+                               && !input.contains("/releases/download/") && !input.contains("/archive/");
+
+        if (isGitHubRepo)
+        {
+            juce::String pathPart = input.fromFirstOccurrenceOf("github.com/", false, true);
+            if (pathPart.containsChar('?')) pathPart = pathPart.upToFirstOccurrenceOf("?", false, false);
+            if (pathPart.containsChar('#')) pathPart = pathPart.upToFirstOccurrenceOf("#", false, false);
+            while (pathPart.endsWithChar('/')) pathPart = pathPart.dropLastCharacters(1);
+
+            juce::StringArray segs;
+            segs.addTokens(pathPart, "/", "");
+            segs.removeEmptyStrings();
+            if (segs.size() < 2)
+            {
+                juce::MessageManager::callAsync([] {
+                    ToastOverlay::show("Invalid GitHub repository URL (expected owner/repo)", true);
+                });
+                return;
+            }
+
+            const juce::String owner = segs[0];
+            juce::String repo = segs[1];
+            if (repo.endsWithIgnoreCase(".git"))
+                repo = repo.dropLastCharacters(4);
+
+            juce::String branch;
+            juce::String subPath;
+            if (segs.size() >= 4 && segs[2] == "tree")
+            {
+                branch = segs[3];
+                for (int i = 4; i < segs.size(); ++i)
+                    subPath += (subPath.isEmpty() ? "" : "/") + segs[i];
+            }
+
+            if (branch.isEmpty())
+            {
+                juce::URL apiUrl("https://api.github.com/repos/" + owner + "/" + repo);
+                if (auto apiStream = apiUrl.createInputStream(makeDownloadOptions(10000)))
+                {
+                    auto json = juce::JSON::parse(apiStream->readEntireStreamAsString());
+                    if (auto* obj = json.getDynamicObject())
+                        branch = obj->getProperty("default_branch").toString();
+                }
+            }
+
+            juce::StringArray branchesToTry;
+            if (branch.isNotEmpty()) branchesToTry.add(branch);
+            else { branchesToTry.add("main"); branchesToTry.add("master"); }
+
+            juce::File zipFile = downloadsDir.getChildFile(owner + "_" + repo + ".zip");
+            bool downloaded = false;
+            for (const auto& br : branchesToTry)
+            {
+                juce::URL archiveUrl("https://github.com/" + owner + "/" + repo + "/archive/refs/heads/" + br + ".zip");
+                if (auto stream = archiveUrl.createInputStream(makeDownloadOptions(30000)))
+                {
+                    zipFile.deleteFile();
+                    juce::FileOutputStream out(zipFile);
+                    if (out.openedOk() && out.writeFromInputStream(*stream, -1) > 0)
+                    {
+                        downloaded = true;
+                        break;
+                    }
+                }
+            }
+
+            if (!downloaded || !zipFile.existsAsFile())
+            {
+                juce::MessageManager::callAsync([owner, repo] {
+                    ToastOverlay::show("Failed to download GitHub repo: " + owner + "/" + repo, true);
+                });
+                return;
+            }
+
+            juce::File extractDir = importsRoot.getChildFile(owner + "_" + repo);
+            extractDir.deleteRecursively();
+            extractDir.createDirectory();
+
+            juce::ZipFile zip(zipFile);
+            if (zip.getNumEntries() == 0)
+            {
+                juce::MessageManager::callAsync([] {
+                    ToastOverlay::show("Downloaded archive was empty or invalid", true);
+                });
+                return;
+            }
+            for (int i = 0; i < zip.getNumEntries(); ++i)
+                zip.uncompressEntry(i, extractDir, true);
+
+            juce::File searchRoot = extractDir;
+            if (subPath.isNotEmpty())
+            {
+                juce::Array<juce::File> topDirs;
+                extractDir.findChildFiles(topDirs, juce::File::findDirectories, false);
+                if (!topDirs.isEmpty())
+                {
+                    auto sub = topDirs.getFirst().getChildFile(subPath);
+                    if (sub.isDirectory())
+                        searchRoot = sub;
+                }
+            }
+
+            juce::Array<juce::File> instrumentFiles;
+            searchRoot.findChildFiles(instrumentFiles, juce::File::findFiles, true, "*.sfz;*.owmap;*.samplemap;*.xml");
+
+            // Filter out non-instrument XMLs like pom.xml if .sfz/.owmap/.samplemap exist
+            juce::Array<juce::File> preferred;
+            for (const auto& f : instrumentFiles)
+            {
+                if (!f.hasFileExtension("xml") || f.getFileName().equalsIgnoreCase("SampleMap.xml")
+                    || f.loadFileAsString().containsIgnoreCase("<SampleMap"))
+                {
+                    preferred.add(f);
+                }
+            }
+
+            if (preferred.isEmpty())
+            {
+                // Fallback: raw audio files in the repo -> chromatic auto-map
+                juce::Array<juce::File> audioFiles;
+                searchRoot.findChildFiles(audioFiles, juce::File::findFiles, true, "*.wav;*.flac;*.aif;*.aiff;*.mp3;*.ogg");
+                if (audioFiles.isEmpty())
+                {
+                    juce::MessageManager::callAsync([] {
+                        ToastOverlay::show("No SFZ, SampleMap, or audio files found in repository", true);
+                    });
+                    return;
+                }
+
+                juce::MessageManager::callAsync([safeThis, audioFiles, owner, repo] {
+                    if (safeThis == nullptr) return;
+                    safeThis->clearAllZones();
+                    for (const auto& af : audioFiles)
+                        safeThis->addSampleFile(af);
+                    safeThis->autoMapChromatic();
+                    ToastOverlay::show("Imported " + juce::String(audioFiles.size()) + " audio samples from " + owner + "/" + repo);
+                });
+                return;
+            }
+
+            juce::MessageManager::callAsync([safeThis, preferred, owner, repo] {
+                if (safeThis == nullptr) return;
+                if (preferred.size() == 1)
+                {
+                    if (safeThis->loadSampleMapFile(preferred.getFirst()))
+                        ToastOverlay::show("Loaded instrument: " + preferred.getFirst().getFileName());
+                    else
+                        ToastOverlay::show("Failed to parse instrument file", true);
+                    return;
+                }
+
+                juce::PopupMenu menu;
+                for (int i = 0; i < preferred.size(); ++i)
+                    menu.addItem(i + 1, preferred[i].getFileName());
+
+                menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&safeThis->urlImportButton),
+                    [safeThis, preferred](int chosen) {
+                        if (safeThis == nullptr || chosen <= 0 || chosen > preferred.size())
+                            return;
+                        const auto& f = preferred[chosen - 1];
+                        if (safeThis->loadSampleMapFile(f))
+                            ToastOverlay::show("Loaded instrument: " + f.getFileName());
+                    });
+            });
+            return;
+        }
+
+        // Direct URL (.zip from any host, or .sfz / .owmap / .samplemap / .xml)
+        juce::URL url(input);
+        juce::String fileName = juce::URL::removeEscapeChars(input.fromLastOccurrenceOf("/", false, false));
+        if (fileName.containsChar('?')) fileName = fileName.upToFirstOccurrenceOf("?", false, false);
+        if (fileName.isEmpty() || !fileName.containsChar('.'))
+            fileName = "downloaded_instrument.zip";
+
+        juce::File outFile = downloadsDir.getChildFile(fileName);
+        if (auto stream = url.createInputStream(makeDownloadOptions(30000)))
+        {
+            outFile.deleteFile();
+            {
+                juce::FileOutputStream out(outFile);
+                if (!out.openedOk() || out.writeFromInputStream(*stream, -1) <= 0)
+                {
+                    juce::MessageManager::callAsync([input] {
+                        ToastOverlay::show("Failed to download from URL: " + input, true);
+                    });
+                    return;
+                }
+            }
+
+            // Detect ZIP magic bytes (PK\x03\x04) even if URL had no .zip extension
+            if (!outFile.hasFileExtension("zip"))
+            {
+                juce::FileInputStream fin(outFile);
+                char magic[4] = {};
+                if (fin.openedOk() && fin.read(magic, 4) == 4
+                    && magic[0] == 'P' && magic[1] == 'K' && magic[2] == 3 && magic[3] == 4)
+                {
+                    juce::File zipTarget = outFile.withFileExtension("zip").getNonexistentSibling();
+                    if (outFile.moveFileTo(zipTarget))
+                        outFile = zipTarget;
+                }
+            }
+
+            if (outFile.hasFileExtension("zip"))
+            {
+                juce::File extractDir = importsRoot.getChildFile(outFile.getFileNameWithoutExtension());
+                extractDir.deleteRecursively();
+                extractDir.createDirectory();
+
+                juce::ZipFile zip(outFile);
+                if (zip.getNumEntries() == 0)
+                {
+                    juce::MessageManager::callAsync([] {
+                        ToastOverlay::show("Downloaded .zip archive was empty or invalid", true);
+                    });
+                    return;
+                }
+                for (int i = 0; i < zip.getNumEntries(); ++i)
+                    zip.uncompressEntry(i, extractDir, true);
+
+                juce::Array<juce::File> instrumentFiles;
+                extractDir.findChildFiles(instrumentFiles, juce::File::findFiles, true, "*.sfz;*.owmap;*.samplemap;*.xml");
+                juce::Array<juce::File> preferred;
+                for (const auto& f : instrumentFiles)
+                {
+                    if (!f.hasFileExtension("xml") || f.getFileName().equalsIgnoreCase("SampleMap.xml")
+                        || f.loadFileAsString().containsIgnoreCase("<SampleMap"))
+                    {
+                        preferred.add(f);
+                    }
+                }
+
+                if (preferred.isEmpty())
+                {
+                    juce::Array<juce::File> audioFiles;
+                    extractDir.findChildFiles(audioFiles, juce::File::findFiles, true, "*.wav;*.flac;*.aif;*.aiff;*.mp3;*.ogg");
+                    if (audioFiles.isEmpty())
+                    {
+                        juce::MessageManager::callAsync([] {
+                            ToastOverlay::show("No SFZ, SampleMap, or audio files found in ZIP", true);
+                        });
+                        return;
+                    }
+
+                    juce::MessageManager::callAsync([safeThis, audioFiles, outFile] {
+                        if (safeThis == nullptr) return;
+                        safeThis->clearAllZones();
+                        for (const auto& af : audioFiles)
+                            safeThis->addSampleFile(af);
+                        safeThis->autoMapChromatic();
+                        ToastOverlay::show("Imported " + juce::String(audioFiles.size()) + " samples from " + outFile.getFileName());
+                    });
+                    return;
+                }
+
+                juce::MessageManager::callAsync([safeThis, preferred] {
+                    if (safeThis == nullptr) return;
+                    if (preferred.size() == 1)
+                    {
+                        if (safeThis->loadSampleMapFile(preferred.getFirst()))
+                            ToastOverlay::show("Loaded instrument: " + preferred.getFirst().getFileName());
+                        else
+                            ToastOverlay::show("Failed to parse instrument file", true);
+                        return;
+                    }
+
+                    juce::PopupMenu menu;
+                    for (int i = 0; i < preferred.size(); ++i)
+                        menu.addItem(i + 1, preferred[i].getFileName());
+
+                    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&safeThis->urlImportButton),
+                        [safeThis, preferred](int chosen) {
+                            if (safeThis == nullptr || chosen <= 0 || chosen > preferred.size())
+                                return;
+                            const auto& f = preferred[chosen - 1];
+                            if (safeThis->loadSampleMapFile(f))
+                                ToastOverlay::show("Loaded instrument: " + f.getFileName());
+                        });
+                });
+                return;
+            }
+
+            juce::MessageManager::callAsync([safeThis, outFile] {
+                if (safeThis == nullptr) return;
+                if (safeThis->loadSampleMapFile(outFile))
+                    ToastOverlay::show("Loaded instrument from URL: " + outFile.getFileName());
+                else
+                    ToastOverlay::show("Downloaded file could not be loaded as a Sample Map", true);
+            });
+            return;
+        }
+
+        juce::MessageManager::callAsync([input] {
+            ToastOverlay::show("Failed to download from URL: " + input, true);
+        });
+    }).detach();
 }
 
 bool SampleMapComponent::loadSampleMapFile(const juce::File& file)
@@ -2192,7 +2700,7 @@ void SampleMapComponent::paint(juce::Graphics& g)
 
     OpenWavLookAndFeel::drawButtonGroup(g, { &addSampleButton, &lorisResynthButton, &deleteSelectedButton });
     OpenWavLookAndFeel::drawButtonGroup(g, { &autoMapPitchButton, &autoMapChromaticButton, &autoMapVelButton, &autoMapRRButton });
-    OpenWavLookAndFeel::drawButtonGroup(g, { &clearMapButton, &saveMapButton, &loadMapButton, &exportZipButton });
+    OpenWavLookAndFeel::drawButtonGroup(g, { &clearMapButton, &saveMapButton, &loadMapButton, &urlImportButton, &exportZipButton });
     OpenWavLookAndFeel::drawButtonGroup(g, { &roundRobinButton, &pitchTrackButton, &oneShotButton, &loopButton });
     OpenWavLookAndFeel::drawButtonGroup(g, { &openFxRackButton, &instrumentModeButton, &autoSampleButton, &aiKitButton });
     OpenWavLookAndFeel::drawButtonGroup(g, { &velCurveButton, &midiChannelButton });
@@ -2263,6 +2771,8 @@ void SampleMapComponent::paintZoneGrid(juce::Graphics& g, juce::Rectangle<float>
     for (size_t i = 0; i < zones.size(); ++i)
     {
         const auto& z = zones[i];
+        if (!isZoneVisibleInGrid(z))
+            continue;
         auto key = std::make_tuple(z.keyLow, z.keyHigh, z.velLow, z.velHigh);
         auto& info = stackMap[key];
         info.count++;
@@ -2273,10 +2783,10 @@ void SampleMapComponent::paintZoneGrid(juce::Graphics& g, juce::Rectangle<float>
     std::vector<size_t> drawOrder;
     drawOrder.reserve(zones.size());
     for (size_t i = 0; i < zones.size(); ++i)
-        if (!isZoneSelected(static_cast<int>(i)))
+        if (isZoneVisibleInGrid(zones[i]) && !isZoneSelected(static_cast<int>(i)))
             drawOrder.push_back(i);
     for (size_t i = 0; i < zones.size(); ++i)
-        if (isZoneSelected(static_cast<int>(i)))
+        if (isZoneVisibleInGrid(zones[i]) && isZoneSelected(static_cast<int>(i)))
             drawOrder.push_back(i);
 
     for (size_t i : drawOrder)
@@ -2293,9 +2803,11 @@ void SampleMapComponent::paintZoneGrid(juce::Graphics& g, juce::Rectangle<float>
         const auto& stack = stackMap[std::make_tuple(z.keyLow, z.keyHigh, z.velLow, z.velHigh)];
         bool isTopOfStack = (stack.topIndex == static_cast<int>(i));
 
-        // Base color with slight hue shift for different Round Robin layers
+        // Base color with slight hue shift for different Round Robin layers (amber for Note-Off / Release zones)
         float hueShift = (z.roundRobinIndex > 1) ? (0.07f * (z.roundRobinIndex - 1)) : 0.0f;
-        juce::Colour baseAccent = OpenWavLookAndFeel::accentCyan.withRotatedHue(hueShift);
+        juce::Colour baseAccent = z.isReleaseTrigger
+            ? juce::Colour(255, 165, 50).withRotatedHue(hueShift * 0.5f)
+            : OpenWavLookAndFeel::accentCyan.withRotatedHue(hueShift);
         juce::Colour zoneCol = isSelected ? baseAccent : baseAccent.withAlpha(0.65f);
 
         // Zone background fill (avoid stacking alpha opaquely when multiple RR layers share identical bounds)
@@ -2337,7 +2849,7 @@ void SampleMapComponent::paintZoneGrid(juce::Graphics& g, juce::Rectangle<float>
             g.setColour(OpenWavLookAndFeel::textPrimary);
             g.setFont(juce::Font(10.0f).boldened());
 
-            juce::String labelText = z.sampleName;
+            juce::String labelText = z.isReleaseTrigger ? ("[REL] " + z.sampleName) : z.sampleName;
             juce::String tag;
             if (stack.count > 1)
                 tag += "RR" + juce::String(z.roundRobinIndex) + "/" + juce::String(stack.count);
@@ -2407,12 +2919,12 @@ void SampleMapComponent::triggerKeybedNote(int note, float velocity, int velInt)
     if (note < 0 || note > 127)
         return;
 
-    // Strictly match BOTH note AND velocity within mapped zones
+    // Strictly match BOTH note AND velocity within mapped Note-On zones
     std::vector<int> matchingZoneIndices;
     for (size_t i = 0; i < zones.size(); ++i)
     {
         const auto& z = zones[i];
-        if (note >= z.keyLow && note <= z.keyHigh && velInt >= z.velLow && velInt <= z.velHigh && z.filePath.isNotEmpty())
+        if (!z.isReleaseTrigger && note >= z.keyLow && note <= z.keyHigh && velInt >= z.velLow && velInt <= z.velHigh && z.filePath.isNotEmpty())
         {
             matchingZoneIndices.push_back(static_cast<int>(i));
         }
@@ -2635,6 +3147,8 @@ void SampleMapComponent::mouseDown(const juce::MouseEvent& e)
         for (int i = static_cast<int>(zones.size()) - 1; i >= 0; --i)
         {
             const auto& z = zones[i];
+            if (!isZoneVisibleInGrid(z))
+                continue;
             float x1 = xForNoteNumber(z.keyLow, inner);
             float x2 = xForNoteNumber(z.keyHigh + 1, inner);
             float y1 = yForVelocity(z.velHigh, inner);
@@ -2884,6 +3398,22 @@ void SampleMapComponent::mouseDrag(const juce::MouseEvent& e)
             if (auditionNote >= 0)
             {
                 audioEngine.stopZoneVoice(auditionNote);
+                const float relVel = juce::jlimit(0.05f, 1.0f, static_cast<float>(auditionVelocity) / 127.0f);
+                for (const auto& z : zones)
+                {
+                    if (z.isReleaseTrigger && auditionNote >= z.keyLow && auditionNote <= z.keyHigh
+                        && auditionVelocity >= z.velLow && auditionVelocity <= z.velHigh && z.filePath.isNotEmpty())
+                    {
+                        juce::File fileToLoad(z.filePath);
+                        if (fileToLoad.existsAsFile())
+                        {
+                            float effectiveVelocity = computeEffectiveVelocity(relVel, &z);
+                            audioEngine.playZoneVoice(fileToLoad, auditionNote, z.rootNote, z.fineTuneCents, z.gainDb, effectiveVelocity,
+                                                      z.attackMs / 1000.0f, z.decayMs / 1000.0f, z.sustainLevel, z.releaseMs / 1000.0f,
+                                                      true, false);
+                        }
+                    }
+                }
                 int ch = midiChannelSetting > 0 ? midiChannelSetting : 1;
                 audioEngine.getKeyboardState().noteOff(ch, auditionNote, 0.0f);
                 auditionNote = -1;
@@ -2917,6 +3447,8 @@ void SampleMapComponent::mouseDrag(const juce::MouseEvent& e)
         for (int i = 0; i < static_cast<int>(zones.size()); ++i)
         {
             const auto& z = zones[i];
+            if (!isZoneVisibleInGrid(z))
+                continue;
             float x1 = xForNoteNumber(z.keyLow, inner);
             float x2 = xForNoteNumber(z.keyHigh + 1, inner);
             float y1 = yForVelocity(z.velHigh, inner);
@@ -3024,6 +3556,22 @@ void SampleMapComponent::mouseUp(const juce::MouseEvent& /*e*/)
     {
         int ch = midiChannelSetting > 0 ? midiChannelSetting : 1;
         audioEngine.stopZoneVoice(auditionNote);
+        const float relVel = juce::jlimit(0.05f, 1.0f, static_cast<float>(auditionVelocity) / 127.0f);
+        for (const auto& z : zones)
+        {
+            if (z.isReleaseTrigger && auditionNote >= z.keyLow && auditionNote <= z.keyHigh
+                && auditionVelocity >= z.velLow && auditionVelocity <= z.velHigh && z.filePath.isNotEmpty())
+            {
+                juce::File fileToLoad(z.filePath);
+                if (fileToLoad.existsAsFile())
+                {
+                    float effectiveVelocity = computeEffectiveVelocity(relVel, &z);
+                    audioEngine.playZoneVoice(fileToLoad, auditionNote, z.rootNote, z.fineTuneCents, z.gainDb, effectiveVelocity,
+                                              z.attackMs / 1000.0f, z.decayMs / 1000.0f, z.sustainLevel, z.releaseMs / 1000.0f,
+                                              true, false);
+                }
+            }
+        }
         audioEngine.getKeyboardState().noteOff(ch, auditionNote, 0.0f);
         audioEngine.triggerNoteOff(auditionNote);
     }
@@ -3087,6 +3635,8 @@ void SampleMapComponent::resized()
     topRow.removeFromLeft(gap);
     loadMapButton.setBounds(topRow.removeFromLeft(iconBtnW));
     topRow.removeFromLeft(gap);
+    urlImportButton.setBounds(topRow.removeFromLeft(iconBtnW));
+    topRow.removeFromLeft(gap);
     exportZipButton.setBounds(topRow.removeFromLeft(iconBtnW));
     topRow.removeFromLeft(gap + 4);
     roundRobinButton.setBounds(topRow.removeFromLeft(iconBtnW));
@@ -3108,6 +3658,10 @@ void SampleMapComponent::resized()
     topRow.removeFromLeft(gap);
     aiKitButton.setBounds(topRow.removeFromLeft(iconBtnW));
 
+    zoneFilterBox.setBounds(topRow.removeFromRight(136));
+    topRow.removeFromRight(gap);
+    instrumentPresetButton.setBounds(topRow.removeFromRight(58));
+
     if (instrumentModeActive)
     {
         inspectorTabZonesBtn.setVisible(false);
@@ -3122,6 +3676,7 @@ void SampleMapComponent::resized()
         rrTitle.setVisible(false); rrSlider.setVisible(false);
         tuneTitle.setVisible(false); tuneSlider.setVisible(false);
         gainTitle.setVisible(false); gainSlider.setVisible(false);
+        triggerModeTitle.setVisible(false); triggerModeBox.setVisible(false);
         inspectorDeleteButton.setVisible(false);
 
         velocityCurveView.setVisible(false);
@@ -3171,6 +3726,7 @@ void SampleMapComponent::resized()
         rrTitle.setVisible(false); rrSlider.setVisible(false);
         tuneTitle.setVisible(false); tuneSlider.setVisible(false);
         gainTitle.setVisible(false); gainSlider.setVisible(false);
+        triggerModeTitle.setVisible(false); triggerModeBox.setVisible(false);
         inspectorDeleteButton.setVisible(false);
         sampleNameValue.setVisible(false);
 
@@ -3271,6 +3827,13 @@ void SampleMapComponent::resized()
             setupRow(tuneTitle, tuneSlider, z.fineTuneCents);
             setupRow(gainTitle, gainSlider, z.gainDb);
 
+            auto trigRow = inspectorArea.removeFromTop(rowH).toNearestInt();
+            triggerModeTitle.setVisible(true);
+            triggerModeBox.setVisible(true);
+            triggerModeTitle.setBounds(trigRow.removeFromLeft(74));
+            triggerModeBox.setBounds(trigRow);
+            triggerModeBox.setSelectedId(z.isReleaseTrigger ? 2 : 1, juce::dontSendNotification);
+
             inspectorArea.removeFromTop(8);
             inspectorDeleteButton.setVisible(true);
             inspectorDeleteButton.setBounds(inspectorArea.removeFromTop(24).toNearestInt());
@@ -3296,6 +3859,7 @@ void SampleMapComponent::resized()
             rrTitle.setVisible(false); rrSlider.setVisible(false);
             tuneTitle.setVisible(false); tuneSlider.setVisible(false);
             gainTitle.setVisible(false); gainSlider.setVisible(false);
+            triggerModeTitle.setVisible(false); triggerModeBox.setVisible(false);
             inspectorDeleteButton.setVisible(false);
 
             sampleNameValue.setVisible(true);
@@ -3409,6 +3973,7 @@ void SampleMapComponent::buttonClicked(juce::Button* button)
     else if (button == &clearMapButton) clearAllZones();
     else if (button == &saveMapButton) saveSampleMapToFile();
     else if (button == &loadMapButton) loadSampleMapFromFile();
+    else if (button == &urlImportButton) loadSampleMapFromUrlDialog();
     else if (button == &exportZipButton) exportSampleMapToZip();
     else if (button == &velLinBtn) applyVelocityPreset(0);
     else if (button == &velSoftBtn) applyVelocityPreset(1);
@@ -3534,6 +4099,7 @@ SampleMapState SampleMapComponent::getState() const
             zs.loopMarkersSet = z.loopMarkersSet;
             zs.isLooping = z.isLooping;
         }
+        zs.isReleaseTrigger = z.isReleaseTrigger;
         s.zones.push_back(zs);
     }
     s.globalAttackMs = globalAttackMs;
@@ -3587,6 +4153,7 @@ void SampleMapComponent::setState(const SampleMapState& state)
         z.fadeOutCurveType = zs.fadeOutCurveType;
         z.loopMarkersSet = zs.loopMarkersSet;
         z.isLooping = zs.isLooping;
+        z.isReleaseTrigger = zs.isReleaseTrigger;
         z.isSelected = false;
         zones.push_back(z);
 
@@ -3667,6 +4234,7 @@ void SampleMapComponent::setState(const SampleMapState& state)
         }
     }
 
+    rebuildZoneFilterOptions();
     resized();
     repaint();
 }
@@ -3775,6 +4343,102 @@ void SampleMapComponent::applyResynthesizedZones(const std::vector<Resynthesized
     resized();
     repaint();
     if (onStateChanged) onStateChanged();
+}
+
+void SampleMapComponent::showInstrumentPresetMenu()
+{
+    juce::PopupMenu menu;
+    menu.addItem(1, "Piano (Pitch Track, Soft Vel, 350ms Release, 18% Reverb)");
+    menu.addItem(2, "Drum Kit (One-Shot, No Pitch Track, Punchy 5% Reverb)");
+    menu.addItem(3, "Synth Lead / Bass (Pitch Track, Snappy 160ms Release)");
+    menu.addItem(4, "Lush Pad / Strings (Pitch Track, 180ms Attack, 900ms Release, 30% Reverb)");
+
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&instrumentPresetButton),
+        [this](int id)
+        {
+            if (id <= 0) return;
+
+            bool pitchTrack = true;
+            bool oneShot = false;
+            float atk = 5.0f, dec = 200.0f, sus = 1.0f, rel = 200.0f, rev = 0.12f;
+            int velPreset = 0;
+
+            if (id == 1)      { pitchTrack = true;  oneShot = false; atk = 2.0f;   dec = 600.0f; sus = 0.85f; rel = 350.0f; rev = 0.18f; velPreset = 1; }
+            else if (id == 2) { pitchTrack = false; oneShot = true;  atk = 0.0f;   dec = 100.0f; sus = 1.00f; rel = 150.0f; rev = 0.05f; velPreset = 0; }
+            else if (id == 3) { pitchTrack = true;  oneShot = false; atk = 3.0f;   dec = 200.0f; sus = 1.00f; rel = 160.0f; rev = 0.10f; velPreset = 0; }
+            else if (id == 4) { pitchTrack = true;  oneShot = false; atk = 180.0f; dec = 450.0f; sus = 0.90f; rel = 900.0f; rev = 0.30f; velPreset = 1; }
+
+            audioEngine.setPitchTrackingEnabled(pitchTrack);
+            pitchTrackButton.setToggleState(pitchTrack, juce::dontSendNotification);
+            pitchTrackButton.setButtonText(pitchTrack ? "Pitch Track: ON" : "Pitch Track: OFF");
+
+            audioEngine.setOneShotEnabled(oneShot);
+            oneShotButton.setToggleState(oneShot, juce::dontSendNotification);
+            oneShotButton.setButtonText(oneShot ? "One Shot: ON" : "One Shot: OFF");
+
+            globalAttackMs = atk;
+            globalDecayMs = dec;
+            globalSustainLevel = sus;
+            globalReleaseMs = rel;
+            audioEngine.setSamplerReverbAmount(rev);
+            applyVelocityPreset(velPreset);
+
+            for (auto& z : zones)
+            {
+                if (!z.isReleaseTrigger)
+                {
+                    z.attackMs = atk;
+                    z.decayMs = dec;
+                    z.sustainLevel = sus;
+                    z.releaseMs = rel;
+                }
+            }
+
+            if (onStateChanged) onStateChanged();
+            repaint();
+            ToastOverlay::show("Applied Instrument Preset");
+        });
+}
+
+bool SampleMapComponent::isZoneVisibleInGrid(const SampleMapZone& z) const
+{
+    const int filterId = zoneFilterBox.getSelectedId();
+    if (filterId <= 1) return true; // All
+    if (filterId == 2) return !z.isReleaseTrigger; // Note-On Only
+    if (filterId == 3) return z.isReleaseTrigger;  // Release Only
+    if (filterId >= 100) return z.roundRobinIndex == (filterId - 100);
+    return true;
+}
+
+void SampleMapComponent::rebuildZoneFilterOptions()
+{
+    const int prevId = zoneFilterBox.getSelectedId() > 0 ? zoneFilterBox.getSelectedId() : 1;
+
+    std::set<int> rrGroups;
+    int releaseCount = 0;
+    for (const auto& z : zones)
+    {
+        rrGroups.insert(std::max(1, z.roundRobinIndex));
+        if (z.isReleaseTrigger)
+            ++releaseCount;
+    }
+
+    zoneFilterBox.clear(juce::dontSendNotification);
+    zoneFilterBox.addItem("Show: All (" + juce::String(zones.size()) + ")", 1);
+    zoneFilterBox.addItem("Show: Note-On Only", 2);
+    zoneFilterBox.addItem("Show: Release Only (" + juce::String(releaseCount) + ")", 3);
+
+    if (rrGroups.size() > 1 || (rrGroups.size() == 1 && *rrGroups.begin() > 1))
+    {
+        zoneFilterBox.addSeparator();
+        for (int rr : rrGroups)
+            zoneFilterBox.addItem("Show: RR " + juce::String(rr), 100 + rr);
+    }
+
+    if (zoneFilterBox.indexOfItemId(prevId) >= 0)
+        zoneFilterBox.setSelectedId(prevId, juce::dontSendNotification);
+    else
+        zoneFilterBox.setSelectedId(1, juce::dontSendNotification);
 }
 
 } // namespace openwav

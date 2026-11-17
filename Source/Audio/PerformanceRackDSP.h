@@ -38,7 +38,11 @@ enum class PerformanceEffectType : int
     AutoWah,
     RingModulator,
     AmpCabinet,
-    ADSREnvelope
+    ADSREnvelope,
+    Granulator,
+    ShimmerReverb,
+    TapeFlutter,
+    TransientShaper
 };
 
 struct EffectParamInfo
@@ -703,6 +707,184 @@ private:
 
     float fastEnv[2] { 0.0f, 0.0f };
     float slowEnv[2] { 0.0f, 0.0f };
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  18. Live Granulator (Real-Time Ring Buffer + Freeze + Pitch/Spray/Spread)
+// ─────────────────────────────────────────────────────────────────────────────
+class RackGranulator : public RackEffectBase
+{
+public:
+    RackGranulator();
+    void prepare(double sampleRate, int maxBlockSize) override;
+    void reset() override;
+    void process(juce::AudioBuffer<float>& buffer) override;
+
+    PerformanceEffectType getType() const override { return PerformanceEffectType::Granulator; }
+    juce::String getName() const override { return "Live Granulator"; }
+    juce::Colour getAccentColour() const override { return juce::Colour(0, 210, 235); }
+
+    std::vector<EffectParamInfo> getParameterInfos() const override;
+    void setParameter(const juce::String& paramId, float value) override;
+    float getParameter(const juce::String& paramId) const override;
+
+    juce::StringArray getPresetNames() const override;
+    void loadPreset(int presetIndex) override;
+
+    float getTelemetryMeter() const override { return currentTelemetryMeter.load(std::memory_order_relaxed); }
+
+private:
+    struct Grain
+    {
+        bool active { false };
+        double readPos { 0.0 };
+        double pitchRatio { 1.0 };
+        int ageSamples { 0 };
+        int totalSamples { 1 };
+        float panL { 1.0f };
+        float panR { 1.0f };
+    };
+
+    static constexpr int kMaxGrains = 16;
+    std::array<Grain, kMaxGrains> grains;
+
+    juce::AudioBuffer<float> ringBuffer;
+    int ringSize { 88200 };
+    int writePos { 0 };
+    double spawnCounter { 0.0 };
+    double currentSr { 44100.0 };
+    juce::Random rng;
+
+    std::atomic<float> sizeMs { 120.0f };
+    std::atomic<float> densityHz { 18.0f };
+    std::atomic<float> pitchSemitones { 0.0f };
+    std::atomic<float> sprayPercent { 25.0f };
+    std::atomic<float> spreadPercent { 65.0f };
+    std::atomic<float> freezeState { 0.0f };
+    std::atomic<float> mixPercent { 55.0f };
+    std::atomic<float> currentTelemetryMeter { 0.0f };
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  19. Shimmer Reverb (Octave/Fifth Feedback Pitch-Shifted Reverb)
+// ─────────────────────────────────────────────────────────────────────────────
+class RackShimmerReverb : public RackEffectBase
+{
+public:
+    RackShimmerReverb();
+    void prepare(double sampleRate, int maxBlockSize) override;
+    void reset() override;
+    void process(juce::AudioBuffer<float>& buffer) override;
+
+    PerformanceEffectType getType() const override { return PerformanceEffectType::ShimmerReverb; }
+    juce::String getName() const override { return "Shimmer Reverb"; }
+    juce::Colour getAccentColour() const override { return juce::Colour(155, 110, 255); }
+
+    std::vector<EffectParamInfo> getParameterInfos() const override;
+    void setParameter(const juce::String& paramId, float value) override;
+    float getParameter(const juce::String& paramId) const override;
+
+    juce::StringArray getPresetNames() const override;
+    void loadPreset(int presetIndex) override;
+
+    float getTelemetryMeter() const override { return currentTelemetryMeter.load(std::memory_order_relaxed); }
+
+private:
+    juce::dsp::Reverb reverb;
+    juce::AudioBuffer<float> pitchDelayBuf;
+    int pitchBufSize { 8192 };
+    int pitchWritePos { 0 };
+    double phaseA { 0.0 };
+    double phaseB { 0.5 };
+    double currentSr { 44100.0 };
+    float fbStateL { 0.0f };
+    float fbStateR { 0.0f };
+
+    std::atomic<float> roomSize { 82.0f };
+    std::atomic<float> shimmerAmount { 55.0f };
+    std::atomic<float> pitchSemi { 12.0f };
+    std::atomic<float> damping { 35.0f };
+    std::atomic<float> mixPercent { 45.0f };
+    std::atomic<float> currentTelemetryMeter { 0.0f };
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  20. Tape Wow & Flutter (Pitch Drift + Warm Tape Saturation + Tone)
+// ─────────────────────────────────────────────────────────────────────────────
+class RackTapeFlutter : public RackEffectBase
+{
+public:
+    RackTapeFlutter();
+    void prepare(double sampleRate, int maxBlockSize) override;
+    void reset() override;
+    void process(juce::AudioBuffer<float>& buffer) override;
+
+    PerformanceEffectType getType() const override { return PerformanceEffectType::TapeFlutter; }
+    juce::String getName() const override { return "Tape Wow & Flutter"; }
+    juce::Colour getAccentColour() const override { return juce::Colour(235, 130, 70); }
+
+    std::vector<EffectParamInfo> getParameterInfos() const override;
+    void setParameter(const juce::String& paramId, float value) override;
+    float getParameter(const juce::String& paramId) const override;
+
+    juce::StringArray getPresetNames() const override;
+    void loadPreset(int presetIndex) override;
+
+    float getTelemetryMeter() const override { return currentTelemetryMeter.load(std::memory_order_relaxed); }
+
+private:
+    juce::AudioBuffer<float> delayBuf;
+    int delayBufSize { 8192 };
+    int writePos { 0 };
+    double wowPhase { 0.0 };
+    double flutterPhase { 0.0 };
+    double currentSr { 44100.0 };
+    float lpStateL { 0.0f };
+    float lpStateR { 0.0f };
+
+    std::atomic<float> wowAmount { 35.0f };
+    std::atomic<float> flutterAmount { 25.0f };
+    std::atomic<float> warmthAmount { 40.0f };
+    std::atomic<float> toneHz { 9500.0f };
+    std::atomic<float> mixPercent { 80.0f };
+    std::atomic<float> currentTelemetryMeter { 0.0f };
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  21. Transient Shaper (Attack Punch & Sustain Sculptor)
+// ─────────────────────────────────────────────────────────────────────────────
+class RackTransientShaper : public RackEffectBase
+{
+public:
+    RackTransientShaper();
+    void prepare(double sampleRate, int maxBlockSize) override;
+    void reset() override;
+    void process(juce::AudioBuffer<float>& buffer) override;
+
+    PerformanceEffectType getType() const override { return PerformanceEffectType::TransientShaper; }
+    juce::String getName() const override { return "Transient Shaper"; }
+    juce::Colour getAccentColour() const override { return juce::Colour(60, 220, 140); }
+
+    std::vector<EffectParamInfo> getParameterInfos() const override;
+    void setParameter(const juce::String& paramId, float value) override;
+    float getParameter(const juce::String& paramId) const override;
+
+    juce::StringArray getPresetNames() const override;
+    void loadPreset(int presetIndex) override;
+
+    float getTelemetryMeter() const override { return currentTelemetryMeter.load(std::memory_order_relaxed); }
+
+private:
+    double currentSr { 44100.0 };
+    float fastEnvL { 0.0f }, fastEnvR { 0.0f };
+    float slowEnvL { 0.0f }, slowEnvR { 0.0f };
+    float sustainEnvL { 0.0f }, sustainEnvR { 0.0f };
+
+    std::atomic<float> attackAmt { 35.0f };
+    std::atomic<float> sustainAmt { 0.0f };
+    std::atomic<float> outputDb { 0.0f };
+    std::atomic<float> mixPercent { 100.0f };
+    std::atomic<float> currentTelemetryMeter { 0.0f };
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

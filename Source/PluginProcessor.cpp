@@ -93,13 +93,15 @@ void OpenWavAudioProcessor::handleNoteOn(juce::MidiKeyboardState*, int midiChann
 
     if (hasMappedZones)
     {
+        lastNoteOnVelocities[static_cast<size_t>(midiNoteNumber)] = velocity;
         bool zoneTriggered = false;
 
-        // 1. Check Sample Map Zones for matching Key and Velocity
+        // 1. Check Sample Map Zones for matching Key and Velocity (Note-On zones only)
         std::vector<const SampleMapZoneState*> matchingZones;
         for (const auto& z : currentSampleMap.zones)
         {
-            if (midiNoteNumber >= z.keyLow && midiNoteNumber <= z.keyHigh && velInt >= z.velLow && velInt <= z.velHigh && z.filePath.isNotEmpty())
+            if (!z.isReleaseTrigger && midiNoteNumber >= z.keyLow && midiNoteNumber <= z.keyHigh
+                && velInt >= z.velLow && velInt <= z.velHigh && z.filePath.isNotEmpty())
             {
                 matchingZones.push_back(&z);
             }
@@ -176,6 +178,25 @@ void OpenWavAudioProcessor::handleNoteOff(juce::MidiKeyboardState*, int midiChan
     if (hasMappedZones)
     {
         audioEngine.stopZoneVoice(midiNoteNumber);
+
+        // Trigger any Release / Note-Off zones matching this key
+        const float relVel = juce::jlimit(0.05f, 1.0f, lastNoteOnVelocities[static_cast<size_t>(midiNoteNumber)] > 0.0f
+                                                            ? lastNoteOnVelocities[static_cast<size_t>(midiNoteNumber)]
+                                                            : 0.8f);
+        const int velInt = juce::jlimit(1, 127, static_cast<int>(std::round(relVel * 127.0f)));
+        for (const auto& z : currentSampleMap.zones)
+        {
+            if (z.isReleaseTrigger && midiNoteNumber >= z.keyLow && midiNoteNumber <= z.keyHigh
+                && velInt >= z.velLow && velInt <= z.velHigh && z.filePath.isNotEmpty())
+            {
+                juce::File fileToLoad(z.filePath);
+                float effectiveVelocity = currentSampleMap.computeVelocityResponse(relVel, z.velocitySensitivity);
+                audioEngine.playZoneVoice(fileToLoad, midiNoteNumber, z.rootNote, z.fineTuneCents, z.gainDb, effectiveVelocity,
+                                          z.attackMs / 1000.0f, z.decayMs / 1000.0f, z.sustainLevel, z.releaseMs / 1000.0f,
+                                          true, false);
+            }
+        }
+
         audioEngine.getKeyboardState().noteOff(mapChannel, midiNoteNumber, 0.0f);
     }
     else
@@ -328,6 +349,11 @@ void OpenWavAudioProcessor::processIncomingMidiMessage(const juce::MidiMessage& 
             audioEngine.stopAllVoices();
             audioEngine.getKeyboardState().allNotesOff(0);
         }
+    }
+    else if (message.isPitchWheel())
+    {
+        const float norm = (static_cast<float>(message.getPitchWheelValue()) - 8192.0f) / 8192.0f;
+        audioEngine.setPitchBend(juce::jlimit(-2.0f, 2.0f, norm * 2.0f));
     }
     else if (message.isAllNotesOff() || message.isAllSoundOff())
     {

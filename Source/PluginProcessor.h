@@ -78,6 +78,7 @@ private:
     std::array<bool, 128> physicalNotesHeld {};
     std::array<bool, 128> sustainedNotes {};
     std::array<int, 128> noteChannels {};
+    std::array<float, 128> lastNoteOnVelocities {};
     bool sustainPedalDown { false };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(OpenWavAudioProcessor)

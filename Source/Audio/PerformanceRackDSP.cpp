@@ -2561,27 +2561,628 @@ void PerformanceRackDSP::process(juce::AudioBuffer<float>& buffer)
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+//  18. Live Granulator Implementation
+// ─────────────────────────────────────────────────────────────────────────────
+RackGranulator::RackGranulator() = default;
+
+void RackGranulator::prepare(double sampleRate, int /*maxBlockSize*/)
+{
+    currentSr = (sampleRate > 0.0) ? sampleRate : 44100.0;
+    ringSize = std::max(4096, static_cast<int>(currentSr * 2.0));
+    ringBuffer.setSize(2, ringSize);
+    reset();
+}
+
+void RackGranulator::reset()
+{
+    ringBuffer.clear();
+    writePos = 0;
+    spawnCounter = 0.0;
+    for (auto& g : grains)
+        g.active = false;
+    currentTelemetryMeter.store(0.0f, std::memory_order_relaxed);
+}
+
+void RackGranulator::process(juce::AudioBuffer<float>& buffer)
+{
+    if (getBypassed() || ringSize <= 0)
+        return;
+
+    const int numSamples = buffer.getNumSamples();
+    const int numCh = buffer.getNumChannels();
+    if (numSamples <= 0 || numCh <= 0)
+        return;
+
+    const float gSizeMs = juce::jlimit(15.0f, 400.0f, sizeMs.load(std::memory_order_relaxed));
+    const float dens = juce::jlimit(4.0f, 45.0f, densityHz.load(std::memory_order_relaxed));
+    const float pSemi = juce::jlimit(-24.0f, 24.0f, pitchSemitones.load(std::memory_order_relaxed));
+    const float spray = juce::jlimit(0.0f, 100.0f, sprayPercent.load(std::memory_order_relaxed)) * 0.01f;
+    const float spread = juce::jlimit(0.0f, 100.0f, spreadPercent.load(std::memory_order_relaxed)) * 0.01f;
+    const bool frozen = (freezeState.load(std::memory_order_relaxed) >= 0.5f);
+    const float wetMix = juce::jlimit(0.0f, 100.0f, mixPercent.load(std::memory_order_relaxed)) * 0.01f;
+    const float dryMix = 1.0f - wetMix;
+
+    const int grainLenSamples = std::max(64, static_cast<int>((gSizeMs * 0.001) * currentSr));
+    const double spawnInterval = std::max(32.0, currentSr / static_cast<double>(dens));
+    const double pitchRatio = std::pow(2.0, static_cast<double>(pSemi) / 12.0);
+    const double maxSprayOffset = static_cast<double>(ringSize) * 0.45 * static_cast<double>(spray);
+
+    float* ch0 = buffer.getWritePointer(0);
+    float* ch1 = (numCh > 1) ? buffer.getWritePointer(1) : nullptr;
+    const float* ringL = ringBuffer.getReadPointer(0);
+    const float* ringR = ringBuffer.getReadPointer(1);
+    float* ringWriteL = ringBuffer.getWritePointer(0);
+    float* ringWriteR = ringBuffer.getWritePointer(1);
+
+    float meterPeak = 0.0f;
+
+    for (int i = 0; i < numSamples; ++i)
+    {
+        const float inL = ch0[i];
+        const float inR = (ch1 != nullptr) ? ch1[i] : inL;
+
+        if (!frozen)
+        {
+            ringWriteL[writePos] = inL;
+            ringWriteR[writePos] = inR;
+            writePos = (writePos + 1) % ringSize;
+        }
+
+        spawnCounter += 1.0;
+        if (spawnCounter >= spawnInterval)
+        {
+            spawnCounter -= spawnInterval;
+            for (auto& g : grains)
+            {
+                if (!g.active)
+                {
+                    g.active = true;
+                    g.ageSamples = 0;
+                    g.totalSamples = grainLenSamples;
+                    g.pitchRatio = pitchRatio;
+
+                    const double backOff = std::max(static_cast<double>(grainLenSamples) * std::max(1.0, pitchRatio) + 64.0,
+                                                    rng.nextDouble() * maxSprayOffset + 64.0);
+                    double startPos = static_cast<double>(writePos) - backOff;
+                    while (startPos < 0.0) startPos += static_cast<double>(ringSize);
+                    g.readPos = std::fmod(startPos, static_cast<double>(ringSize));
+
+                    const float pan = 0.5f + (rng.nextFloat() - 0.5f) * spread;
+                    g.panL = std::cos(pan * juce::MathConstants<float>::halfPi);
+                    g.panR = std::sin(pan * juce::MathConstants<float>::halfPi);
+                    break;
+                }
+            }
+        }
+
+        float wetL = 0.0f;
+        float wetR = 0.0f;
+
+        for (auto& g : grains)
+        {
+            if (!g.active)
+                continue;
+
+            const double phase = static_cast<double>(g.ageSamples) / static_cast<double>(g.totalSamples);
+            const float win = 0.5f * (1.0f - std::cos(juce::MathConstants<float>::twoPi * static_cast<float>(phase)));
+
+            const int idx0 = static_cast<int>(g.readPos) % ringSize;
+            const int idx1 = (idx0 + 1) % ringSize;
+            const float frac = static_cast<float>(g.readPos - std::floor(g.readPos));
+
+            const float sL = ringL[idx0] + frac * (ringL[idx1] - ringL[idx0]);
+            const float sR = ringR[idx0] + frac * (ringR[idx1] - ringR[idx0]);
+            const float mono = 0.5f * (sL + sR);
+
+            wetL += mono * win * g.panL * 0.55f;
+            wetR += mono * win * g.panR * 0.55f;
+
+            g.readPos += g.pitchRatio;
+            if (g.readPos >= static_cast<double>(ringSize))
+                g.readPos -= static_cast<double>(ringSize);
+
+            if (++g.ageSamples >= g.totalSamples)
+                g.active = false;
+        }
+
+        const float outL = inL * dryMix + wetL * wetMix;
+        const float outR = inR * dryMix + wetR * wetMix;
+        ch0[i] = outL;
+        if (ch1 != nullptr) ch1[i] = outR;
+
+        meterPeak = std::max(meterPeak, std::max(std::abs(wetL), std::abs(wetR)));
+    }
+
+    currentTelemetryMeter.store(juce::jlimit(0.0f, 1.0f, meterPeak), std::memory_order_relaxed);
+}
+
+std::vector<EffectParamInfo> RackGranulator::getParameterInfos() const
+{
+    return {
+        { "size",    "Grain Size",   15.0f,  400.0f, 120.0f, " ms", false },
+        { "density", "Density",      4.0f,   45.0f,  18.0f,  " Hz", false },
+        { "pitch",   "Pitch",       -24.0f,  24.0f,  0.0f,   " st", false },
+        { "spray",   "Spray",        0.0f,   100.0f, 25.0f,  "%",   false },
+        { "spread",  "Stereo",       0.0f,   100.0f, 65.0f,  "%",   false },
+        { "freeze",  "Freeze",       0.0f,   1.0f,   0.0f,   "",    true, { "Live", "Frozen" } },
+        { "mix",     "Mix",          0.0f,   100.0f, 55.0f,  "%",   false }
+    };
+}
+
+void RackGranulator::setParameter(const juce::String& paramId, float value)
+{
+    if (paramId == "size") sizeMs.store(value, std::memory_order_relaxed);
+    else if (paramId == "density") densityHz.store(value, std::memory_order_relaxed);
+    else if (paramId == "pitch") pitchSemitones.store(value, std::memory_order_relaxed);
+    else if (paramId == "spray") sprayPercent.store(value, std::memory_order_relaxed);
+    else if (paramId == "spread") spreadPercent.store(value, std::memory_order_relaxed);
+    else if (paramId == "freeze") freezeState.store(value, std::memory_order_relaxed);
+    else if (paramId == "mix") mixPercent.store(value, std::memory_order_relaxed);
+}
+
+float RackGranulator::getParameter(const juce::String& paramId) const
+{
+    if (paramId == "size") return sizeMs.load(std::memory_order_relaxed);
+    if (paramId == "density") return densityHz.load(std::memory_order_relaxed);
+    if (paramId == "pitch") return pitchSemitones.load(std::memory_order_relaxed);
+    if (paramId == "spray") return sprayPercent.load(std::memory_order_relaxed);
+    if (paramId == "spread") return spreadPercent.load(std::memory_order_relaxed);
+    if (paramId == "freeze") return freezeState.load(std::memory_order_relaxed);
+    if (paramId == "mix") return mixPercent.load(std::memory_order_relaxed);
+    return 0.0f;
+}
+
+juce::StringArray RackGranulator::getPresetNames() const
+{
+    return { "Shimmer Cloud (+12st)", "Frozen Pad", "Glitch Scatter", "Subtle Texture" };
+}
+
+void RackGranulator::loadPreset(int presetIndex)
+{
+    if (presetIndex == 0) { sizeMs = 150.0f; densityHz = 22.0f; pitchSemitones = 12.0f; sprayPercent = 30.0f; spreadPercent = 80.0f; freezeState = 0.0f; mixPercent = 50.0f; }
+    else if (presetIndex == 1) { sizeMs = 260.0f; densityHz = 16.0f; pitchSemitones = 0.0f; sprayPercent = 45.0f; spreadPercent = 75.0f; freezeState = 1.0f; mixPercent = 85.0f; }
+    else if (presetIndex == 2) { sizeMs = 45.0f; densityHz = 34.0f; pitchSemitones = 7.0f; sprayPercent = 85.0f; spreadPercent = 95.0f; freezeState = 0.0f; mixPercent = 65.0f; }
+    else { sizeMs = 110.0f; densityHz = 14.0f; pitchSemitones = 0.0f; sprayPercent = 18.0f; spreadPercent = 45.0f; freezeState = 0.0f; mixPercent = 35.0f; }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  19. Shimmer Reverb Implementation
+// ─────────────────────────────────────────────────────────────────────────────
+RackShimmerReverb::RackShimmerReverb() = default;
+
+void RackShimmerReverb::prepare(double sampleRate, int maxBlockSize)
+{
+    currentSr = (sampleRate > 0.0) ? sampleRate : 44100.0;
+    juce::dsp::ProcessSpec spec { currentSr, static_cast<juce::uint32>(std::max(1, maxBlockSize)), 2 };
+    reverb.prepare(spec);
+    pitchBufSize = std::max(4096, static_cast<int>(currentSr * 0.2));
+    pitchDelayBuf.setSize(2, pitchBufSize);
+    reset();
+}
+
+void RackShimmerReverb::reset()
+{
+    reverb.reset();
+    pitchDelayBuf.clear();
+    pitchWritePos = 0;
+    phaseA = 0.0;
+    phaseB = 0.5;
+    fbStateL = fbStateR = 0.0f;
+    currentTelemetryMeter.store(0.0f, std::memory_order_relaxed);
+}
+
+void RackShimmerReverb::process(juce::AudioBuffer<float>& buffer)
+{
+    if (getBypassed() || pitchBufSize <= 0)
+        return;
+
+    const int numSamples = buffer.getNumSamples();
+    const int numCh = buffer.getNumChannels();
+    if (numSamples <= 0 || numCh <= 0)
+        return;
+
+    const float size = juce::jlimit(0.0f, 100.0f, roomSize.load(std::memory_order_relaxed)) * 0.01f;
+    const float shim = juce::jlimit(0.0f, 100.0f, shimmerAmount.load(std::memory_order_relaxed)) * 0.01f;
+    const float pSemi = juce::jlimit(-12.0f, 24.0f, pitchSemi.load(std::memory_order_relaxed));
+    const float damp = juce::jlimit(0.0f, 100.0f, damping.load(std::memory_order_relaxed)) * 0.01f;
+    const float mix = juce::jlimit(0.0f, 100.0f, mixPercent.load(std::memory_order_relaxed)) * 0.01f;
+
+    juce::dsp::Reverb::Parameters rp;
+    rp.roomSize = size;
+    rp.damping = damp;
+    rp.wetLevel = 1.0f;
+    rp.dryLevel = 0.0f;
+    rp.width = 1.0f;
+    reverb.setParameters(rp);
+
+    juce::AudioBuffer<float> wetBuf(2, numSamples);
+    wetBuf.copyFrom(0, 0, buffer, 0, 0, numSamples);
+    wetBuf.copyFrom(1, 0, buffer, numCh > 1 ? 1 : 0, 0, numSamples);
+
+    const double pitchRatio = std::pow(2.0, static_cast<double>(pSemi) / 12.0);
+    const double phInc = (1.0 - pitchRatio) * (currentSr > 0.0 ? 1.0 / static_cast<double>(pitchBufSize) : 0.0001);
+    float* pWriteL = pitchDelayBuf.getWritePointer(0);
+    float* pWriteR = pitchDelayBuf.getWritePointer(1);
+    const float* pReadL = pitchDelayBuf.getReadPointer(0);
+    const float* pReadR = pitchDelayBuf.getReadPointer(1);
+
+    float* wL = wetBuf.getWritePointer(0);
+    float* wR = wetBuf.getWritePointer(1);
+
+    for (int i = 0; i < numSamples; ++i)
+    {
+        pWriteL[pitchWritePos] = wL[i] + fbStateL * shim * 0.45f;
+        pWriteR[pitchWritePos] = wR[i] + fbStateR * shim * 0.45f;
+
+        auto readDelay = [&](double ph, const float* buf) -> float {
+            double d = ph * static_cast<double>(pitchBufSize);
+            double rpPos = static_cast<double>(pitchWritePos) - d;
+            while (rpPos < 0.0) rpPos += static_cast<double>(pitchBufSize);
+            int i0 = static_cast<int>(rpPos) % pitchBufSize;
+            int i1 = (i0 + 1) % pitchBufSize;
+            float frac = static_cast<float>(rpPos - std::floor(rpPos));
+            return buf[i0] + frac * (buf[i1] - buf[i0]);
+        };
+
+        const float wA = 0.5f * (1.0f - std::cos(juce::MathConstants<float>::twoPi * static_cast<float>(phaseA)));
+        const float wB = 0.5f * (1.0f - std::cos(juce::MathConstants<float>::twoPi * static_cast<float>(phaseB)));
+
+        const float shL = readDelay(phaseA, pReadL) * wA + readDelay(phaseB, pReadL) * wB;
+        const float shR = readDelay(phaseA, pReadR) * wA + readDelay(phaseB, pReadR) * wB;
+
+        fbStateL = shL;
+        fbStateR = shR;
+
+        wL[i] = wL[i] * (1.0f - shim * 0.4f) + shL * shim;
+        wR[i] = wR[i] * (1.0f - shim * 0.4f) + shR * shim;
+
+        pitchWritePos = (pitchWritePos + 1) % pitchBufSize;
+        phaseA += phInc;
+        phaseB += phInc;
+        while (phaseA >= 1.0) phaseA -= 1.0;
+        while (phaseA < 0.0) phaseA += 1.0;
+        while (phaseB >= 1.0) phaseB -= 1.0;
+        while (phaseB < 0.0) phaseB += 1.0;
+    }
+
+    juce::dsp::AudioBlock<float> block(wetBuf);
+    juce::dsp::ProcessContextReplacing<float> ctx(block);
+    reverb.process(ctx);
+
+    float meterPeak = 0.0f;
+    float* outL = buffer.getWritePointer(0);
+    float* outR = (numCh > 1) ? buffer.getWritePointer(1) : nullptr;
+    for (int i = 0; i < numSamples; ++i)
+    {
+        outL[i] = outL[i] * (1.0f - mix) + wL[i] * mix;
+        if (outR != nullptr)
+            outR[i] = outR[i] * (1.0f - mix) + wR[i] * mix;
+        meterPeak = std::max(meterPeak, std::max(std::abs(wL[i]), std::abs(wR[i])));
+    }
+    currentTelemetryMeter.store(juce::jlimit(0.0f, 1.0f, meterPeak), std::memory_order_relaxed);
+}
+
+std::vector<EffectParamInfo> RackShimmerReverb::getParameterInfos() const
+{
+    return {
+        { "size",    "Room Size", 10.0f, 100.0f, 82.0f, "%",   false },
+        { "shimmer", "Shimmer",   0.0f,  100.0f, 55.0f, "%",   false },
+        { "pitch",   "Pitch",    -12.0f, 24.0f,  12.0f, " st", false },
+        { "damping", "Damping",   0.0f,  100.0f, 35.0f, "%",   false },
+        { "mix",     "Mix",       0.0f,  100.0f, 45.0f, "%",   false }
+    };
+}
+
+void RackShimmerReverb::setParameter(const juce::String& paramId, float value)
+{
+    if (paramId == "size") roomSize.store(value, std::memory_order_relaxed);
+    else if (paramId == "shimmer") shimmerAmount.store(value, std::memory_order_relaxed);
+    else if (paramId == "pitch") pitchSemi.store(value, std::memory_order_relaxed);
+    else if (paramId == "damping") damping.store(value, std::memory_order_relaxed);
+    else if (paramId == "mix") mixPercent.store(value, std::memory_order_relaxed);
+}
+
+float RackShimmerReverb::getParameter(const juce::String& paramId) const
+{
+    if (paramId == "size") return roomSize.load(std::memory_order_relaxed);
+    if (paramId == "shimmer") return shimmerAmount.load(std::memory_order_relaxed);
+    if (paramId == "pitch") return pitchSemi.load(std::memory_order_relaxed);
+    if (paramId == "damping") return damping.load(std::memory_order_relaxed);
+    if (paramId == "mix") return mixPercent.load(std::memory_order_relaxed);
+    return 0.0f;
+}
+
+juce::StringArray RackShimmerReverb::getPresetNames() const
+{
+    return { "Cathedral Shimmer", "Fifths Halo (+7st)", "Dark Ambient" };
+}
+
+void RackShimmerReverb::loadPreset(int presetIndex)
+{
+    if (presetIndex == 0) { roomSize = 88.0f; shimmerAmount = 65.0f; pitchSemi = 12.0f; damping = 28.0f; mixPercent = 50.0f; }
+    else if (presetIndex == 1) { roomSize = 78.0f; shimmerAmount = 50.0f; pitchSemi = 7.0f; damping = 40.0f; mixPercent = 45.0f; }
+    else { roomSize = 92.0f; shimmerAmount = 35.0f; pitchSemi = -12.0f; damping = 72.0f; mixPercent = 55.0f; }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  20. Tape Wow & Flutter Implementation
+// ─────────────────────────────────────────────────────────────────────────────
+RackTapeFlutter::RackTapeFlutter() = default;
+
+void RackTapeFlutter::prepare(double sampleRate, int /*maxBlockSize*/)
+{
+    currentSr = (sampleRate > 0.0) ? sampleRate : 44100.0;
+    delayBufSize = std::max(4096, static_cast<int>(currentSr * 0.15));
+    delayBuf.setSize(2, delayBufSize);
+    reset();
+}
+
+void RackTapeFlutter::reset()
+{
+    delayBuf.clear();
+    writePos = 0;
+    wowPhase = flutterPhase = 0.0;
+    lpStateL = lpStateR = 0.0f;
+    currentTelemetryMeter.store(0.0f, std::memory_order_relaxed);
+}
+
+void RackTapeFlutter::process(juce::AudioBuffer<float>& buffer)
+{
+    if (getBypassed() || delayBufSize <= 0)
+        return;
+
+    const int numSamples = buffer.getNumSamples();
+    const int numCh = buffer.getNumChannels();
+    if (numSamples <= 0 || numCh <= 0)
+        return;
+
+    const float wow = juce::jlimit(0.0f, 100.0f, wowAmount.load(std::memory_order_relaxed)) * 0.01f;
+    const float flutter = juce::jlimit(0.0f, 100.0f, flutterAmount.load(std::memory_order_relaxed)) * 0.01f;
+    const float warmth = juce::jlimit(0.0f, 100.0f, warmthAmount.load(std::memory_order_relaxed)) * 0.01f;
+    const float cutoff = juce::jlimit(2000.0f, 18000.0f, toneHz.load(std::memory_order_relaxed));
+    const float mix = juce::jlimit(0.0f, 100.0f, mixPercent.load(std::memory_order_relaxed)) * 0.01f;
+
+    const float lpAlpha = juce::jlimit(0.01f, 0.99f, 1.0f - std::exp(-juce::MathConstants<float>::twoPi * cutoff / static_cast<float>(currentSr)));
+    const double wowInc = juce::MathConstants<double>::twoPi * 0.85 / currentSr;
+    const double flutterInc = juce::MathConstants<double>::twoPi * 6.4 / currentSr;
+    const float drive = 1.0f + warmth * 2.5f;
+
+    float* ch0 = buffer.getWritePointer(0);
+    float* ch1 = (numCh > 1) ? buffer.getWritePointer(1) : nullptr;
+    float* dWriteL = delayBuf.getWritePointer(0);
+    float* dWriteR = delayBuf.getWritePointer(1);
+    const float* dReadL = delayBuf.getReadPointer(0);
+    const float* dReadR = delayBuf.getReadPointer(1);
+
+    float meterPeak = 0.0f;
+
+    for (int i = 0; i < numSamples; ++i)
+    {
+        const float inL = ch0[i];
+        const float inR = (ch1 != nullptr) ? ch1[i] : inL;
+
+        dWriteL[writePos] = inL;
+        dWriteR[writePos] = inR;
+
+        const double modMs = 6.0 + wow * 5.5 * std::sin(wowPhase) + flutter * 1.3 * std::sin(flutterPhase);
+        const double delaySamples = juce::jlimit(1.0, static_cast<double>(delayBufSize - 2), modMs * 0.001 * currentSr);
+
+        double rp = static_cast<double>(writePos) - delaySamples;
+        while (rp < 0.0) rp += static_cast<double>(delayBufSize);
+        const int i0 = static_cast<int>(rp) % delayBufSize;
+        const int i1 = (i0 + 1) % delayBufSize;
+        const float frac = static_cast<float>(rp - std::floor(rp));
+
+        float wL = dReadL[i0] + frac * (dReadL[i1] - dReadL[i0]);
+        float wR = dReadR[i0] + frac * (dReadR[i1] - dReadR[i0]);
+
+        if (warmth > 0.001f)
+        {
+            wL = std::tanh(wL * drive) / std::tanh(drive);
+            wR = std::tanh(wR * drive) / std::tanh(drive);
+        }
+
+        lpStateL += lpAlpha * (wL - lpStateL);
+        lpStateR += lpAlpha * (wR - lpStateR);
+        wL = lpStateL;
+        wR = lpStateR;
+
+        ch0[i] = inL * (1.0f - mix) + wL * mix;
+        if (ch1 != nullptr) ch1[i] = inR * (1.0f - mix) + wR * mix;
+
+        writePos = (writePos + 1) % delayBufSize;
+        wowPhase += wowInc;
+        flutterPhase += flutterInc;
+        if (wowPhase >= juce::MathConstants<double>::twoPi) wowPhase -= juce::MathConstants<double>::twoPi;
+        if (flutterPhase >= juce::MathConstants<double>::twoPi) flutterPhase -= juce::MathConstants<double>::twoPi;
+
+        meterPeak = std::max(meterPeak, std::max(std::abs(wL), std::abs(wR)));
+    }
+    currentTelemetryMeter.store(juce::jlimit(0.0f, 1.0f, meterPeak), std::memory_order_relaxed);
+}
+
+std::vector<EffectParamInfo> RackTapeFlutter::getParameterInfos() const
+{
+    return {
+        { "wow",     "Wow",     0.0f,    100.0f,   35.0f,   "%",  false },
+        { "flutter", "Flutter", 0.0f,    100.0f,   25.0f,   "%",  false },
+        { "warmth",  "Warmth",  0.0f,    100.0f,   40.0f,   "%",  false },
+        { "tone",    "Tone",    2000.0f, 18000.0f, 9500.0f, " Hz", false },
+        { "mix",     "Mix",     0.0f,    100.0f,   80.0f,   "%",  false }
+    };
+}
+
+void RackTapeFlutter::setParameter(const juce::String& paramId, float value)
+{
+    if (paramId == "wow") wowAmount.store(value, std::memory_order_relaxed);
+    else if (paramId == "flutter") flutterAmount.store(value, std::memory_order_relaxed);
+    else if (paramId == "warmth") warmthAmount.store(value, std::memory_order_relaxed);
+    else if (paramId == "tone") toneHz.store(value, std::memory_order_relaxed);
+    else if (paramId == "mix") mixPercent.store(value, std::memory_order_relaxed);
+}
+
+float RackTapeFlutter::getParameter(const juce::String& paramId) const
+{
+    if (paramId == "wow") return wowAmount.load(std::memory_order_relaxed);
+    if (paramId == "flutter") return flutterAmount.load(std::memory_order_relaxed);
+    if (paramId == "warmth") return warmthAmount.load(std::memory_order_relaxed);
+    if (paramId == "tone") return toneHz.load(std::memory_order_relaxed);
+    if (paramId == "mix") return mixPercent.load(std::memory_order_relaxed);
+    return 0.0f;
+}
+
+juce::StringArray RackTapeFlutter::getPresetNames() const
+{
+    return { "VHS Lo-Fi", "Warm Mastering Tape", "Broken Cassette" };
+}
+
+void RackTapeFlutter::loadPreset(int presetIndex)
+{
+    if (presetIndex == 0) { wowAmount = 48.0f; flutterAmount = 35.0f; warmthAmount = 55.0f; toneHz = 6200.0f; mixPercent = 90.0f; }
+    else if (presetIndex == 1) { wowAmount = 12.0f; flutterAmount = 8.0f; warmthAmount = 35.0f; toneHz = 14500.0f; mixPercent = 70.0f; }
+    else { wowAmount = 80.0f; flutterAmount = 70.0f; warmthAmount = 75.0f; toneHz = 3800.0f; mixPercent = 100.0f; }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  21. Transient Shaper Implementation
+// ─────────────────────────────────────────────────────────────────────────────
+RackTransientShaper::RackTransientShaper() = default;
+
+void RackTransientShaper::prepare(double sampleRate, int /*maxBlockSize*/)
+{
+    currentSr = (sampleRate > 0.0) ? sampleRate : 44100.0;
+    reset();
+}
+
+void RackTransientShaper::reset()
+{
+    fastEnvL = fastEnvR = 0.0f;
+    slowEnvL = slowEnvR = 0.0f;
+    sustainEnvL = sustainEnvR = 0.0f;
+    currentTelemetryMeter.store(0.0f, std::memory_order_relaxed);
+}
+
+void RackTransientShaper::process(juce::AudioBuffer<float>& buffer)
+{
+    if (getBypassed())
+        return;
+
+    const int numSamples = buffer.getNumSamples();
+    const int numCh = buffer.getNumChannels();
+    if (numSamples <= 0 || numCh <= 0)
+        return;
+
+    const float atkAmt = juce::jlimit(-100.0f, 100.0f, attackAmt.load(std::memory_order_relaxed)) * 0.01f;
+    const float susAmt = juce::jlimit(-100.0f, 100.0f, sustainAmt.load(std::memory_order_relaxed)) * 0.01f;
+    const float outGain = std::pow(10.0f, juce::jlimit(-12.0f, 12.0f, outputDb.load(std::memory_order_relaxed)) / 20.0f);
+    const float mix = juce::jlimit(0.0f, 100.0f, mixPercent.load(std::memory_order_relaxed)) * 0.01f;
+
+    const float fastAtk = 1.0f - std::exp(-1.0f / (0.002f * static_cast<float>(currentSr)));
+    const float fastRel = 1.0f - std::exp(-1.0f / (0.025f * static_cast<float>(currentSr)));
+    const float slowAtk = 1.0f - std::exp(-1.0f / (0.020f * static_cast<float>(currentSr)));
+    const float slowRel = 1.0f - std::exp(-1.0f / (0.180f * static_cast<float>(currentSr)));
+    const float susRel  = 1.0f - std::exp(-1.0f / (0.350f * static_cast<float>(currentSr)));
+
+    float* ch0 = buffer.getWritePointer(0);
+    float* ch1 = (numCh > 1) ? buffer.getWritePointer(1) : nullptr;
+    float meterMax = 0.0f;
+
+    for (int i = 0; i < numSamples; ++i)
+    {
+        const float inL = ch0[i];
+        const float inR = (ch1 != nullptr) ? ch1[i] : inL;
+
+        auto shapeChannel = [&](float sample, float& fEnv, float& sEnv, float& susEnv) -> float {
+            const float absS = std::abs(sample);
+            fEnv += (absS > fEnv ? fastAtk : fastRel) * (absS - fEnv);
+            sEnv += (absS > sEnv ? slowAtk : slowRel) * (absS - sEnv);
+            susEnv += (absS > susEnv ? slowAtk : susRel) * (absS - susEnv);
+
+            const float diff = std::max(0.0f, fEnv - sEnv);
+            const float normDiff = juce::jlimit(0.0f, 1.0f, diff / (sEnv + 0.01f));
+            const float tailFactor = juce::jlimit(0.0f, 1.0f, (susEnv - diff) / (susEnv + 0.01f));
+
+            const float gain = juce::jlimit(0.15f, 4.0f, 1.0f + atkAmt * normDiff * 2.2f + susAmt * tailFactor * 1.4f);
+            return sample * gain * outGain;
+        };
+
+        const float wetL = shapeChannel(inL, fastEnvL, slowEnvL, sustainEnvL);
+        const float wetR = shapeChannel(inR, fastEnvR, slowEnvR, sustainEnvR);
+
+        ch0[i] = inL * (1.0f - mix) + wetL * mix;
+        if (ch1 != nullptr) ch1[i] = inR * (1.0f - mix) + wetR * mix;
+
+        meterMax = std::max(meterMax, std::abs(fastEnvL - slowEnvL) * 4.0f);
+    }
+
+    currentTelemetryMeter.store(juce::jlimit(0.0f, 1.0f, meterMax), std::memory_order_relaxed);
+}
+
+std::vector<EffectParamInfo> RackTransientShaper::getParameterInfos() const
+{
+    return {
+        { "attack",  "Attack",  -100.0f, 100.0f, 35.0f,  "%",   false },
+        { "sustain", "Sustain", -100.0f, 100.0f, 0.0f,   "%",   false },
+        { "output",  "Output",  -12.0f,  12.0f,  0.0f,   " dB", false },
+        { "mix",     "Mix",      0.0f,   100.0f, 100.0f, "%",   false }
+    };
+}
+
+void RackTransientShaper::setParameter(const juce::String& paramId, float value)
+{
+    if (paramId == "attack") attackAmt.store(value, std::memory_order_relaxed);
+    else if (paramId == "sustain") sustainAmt.store(value, std::memory_order_relaxed);
+    else if (paramId == "output") outputDb.store(value, std::memory_order_relaxed);
+    else if (paramId == "mix") mixPercent.store(value, std::memory_order_relaxed);
+}
+
+float RackTransientShaper::getParameter(const juce::String& paramId) const
+{
+    if (paramId == "attack") return attackAmt.load(std::memory_order_relaxed);
+    if (paramId == "sustain") return sustainAmt.load(std::memory_order_relaxed);
+    if (paramId == "output") return outputDb.load(std::memory_order_relaxed);
+    if (paramId == "mix") return mixPercent.load(std::memory_order_relaxed);
+    return 0.0f;
+}
+
+juce::StringArray RackTransientShaper::getPresetNames() const
+{
+    return { "Punchy Drums", "Tight & Dry", "Roomy Sustain" };
+}
+
+void RackTransientShaper::loadPreset(int presetIndex)
+{
+    if (presetIndex == 0) { attackAmt = 65.0f; sustainAmt = -15.0f; outputDb = 0.0f; mixPercent = 100.0f; }
+    else if (presetIndex == 1) { attackAmt = 30.0f; sustainAmt = -70.0f; outputDb = 1.0f; mixPercent = 100.0f; }
+    else { attackAmt = -10.0f; sustainAmt = 70.0f; outputDb = -1.5f; mixPercent = 100.0f; }
+}
+
 std::shared_ptr<RackEffectBase> PerformanceRackDSP::createEffect(PerformanceEffectType type)
 {
     switch (type)
     {
-        case PerformanceEffectType::Reverb:       return std::make_shared<RackReverb>();
-        case PerformanceEffectType::Delay:        return std::make_shared<RackDelay>();
-        case PerformanceEffectType::Filter:       return std::make_shared<RackFilter>();
-        case PerformanceEffectType::Distortion:   return std::make_shared<RackDistortion>();
-        case PerformanceEffectType::Chorus:       return std::make_shared<RackChorus>();
-        case PerformanceEffectType::Compressor:   return std::make_shared<RackCompressor>();
-        case PerformanceEffectType::Bitcrusher:   return std::make_shared<RackBitcrusher>();
-        case PerformanceEffectType::ParametricEQ: return std::make_shared<RackParametricEQ>();
-        case PerformanceEffectType::PitchShifter: return std::make_shared<RackPitchShifter>();
-        case PerformanceEffectType::Tremolo:      return std::make_shared<RackTremolo>();
-        case PerformanceEffectType::Phaser:       return std::make_shared<RackPhaser>();
-        case PerformanceEffectType::Flanger:      return std::make_shared<RackFlanger>();
-        case PerformanceEffectType::StereoImager: return std::make_shared<RackStereoImager>();
-        case PerformanceEffectType::AutoWah:      return std::make_shared<RackAutoWah>();
-        case PerformanceEffectType::RingModulator:return std::make_shared<RackRingModulator>();
-        case PerformanceEffectType::AmpCabinet:   return std::make_shared<RackAmpCabinet>();
-        case PerformanceEffectType::ADSREnvelope: return std::make_shared<RackADSREnvelope>();
+        case PerformanceEffectType::Reverb:          return std::make_shared<RackReverb>();
+        case PerformanceEffectType::Delay:           return std::make_shared<RackDelay>();
+        case PerformanceEffectType::Filter:          return std::make_shared<RackFilter>();
+        case PerformanceEffectType::Distortion:      return std::make_shared<RackDistortion>();
+        case PerformanceEffectType::Chorus:          return std::make_shared<RackChorus>();
+        case PerformanceEffectType::Compressor:      return std::make_shared<RackCompressor>();
+        case PerformanceEffectType::Bitcrusher:      return std::make_shared<RackBitcrusher>();
+        case PerformanceEffectType::ParametricEQ:    return std::make_shared<RackParametricEQ>();
+        case PerformanceEffectType::PitchShifter:    return std::make_shared<RackPitchShifter>();
+        case PerformanceEffectType::Tremolo:         return std::make_shared<RackTremolo>();
+        case PerformanceEffectType::Phaser:          return std::make_shared<RackPhaser>();
+        case PerformanceEffectType::Flanger:         return std::make_shared<RackFlanger>();
+        case PerformanceEffectType::StereoImager:    return std::make_shared<RackStereoImager>();
+        case PerformanceEffectType::AutoWah:         return std::make_shared<RackAutoWah>();
+        case PerformanceEffectType::RingModulator:   return std::make_shared<RackRingModulator>();
+        case PerformanceEffectType::AmpCabinet:      return std::make_shared<RackAmpCabinet>();
+        case PerformanceEffectType::ADSREnvelope:    return std::make_shared<RackADSREnvelope>();
+        case PerformanceEffectType::Granulator:      return std::make_shared<RackGranulator>();
+        case PerformanceEffectType::ShimmerReverb:   return std::make_shared<RackShimmerReverb>();
+        case PerformanceEffectType::TapeFlutter:     return std::make_shared<RackTapeFlutter>();
+        case PerformanceEffectType::TransientShaper: return std::make_shared<RackTransientShaper>();
         default: break;
     }
     return nullptr;

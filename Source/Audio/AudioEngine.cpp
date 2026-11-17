@@ -781,6 +781,8 @@ void AudioEngine::processNextAudioBlock(juce::AudioBuffer<float>& outputBuffer, 
         auto& destBuffer = slot.isZoneVoice ? zoneBuffer : outputBuffer;
         double pos = slot.readPosition;
         double ratio = (slot.ratio > 0.0) ? slot.ratio : 1.0;
+        if (slot.isZoneVoice && pitchTrackingEnabled.load(std::memory_order_relaxed))
+            ratio *= pitchBendMultiplierAtomic.load(std::memory_order_relaxed);
 
         int startSample = static_cast<int>(slot.startRatio * voiceLength);
         int endSample = static_cast<int>(slot.endRatio * voiceLength);
