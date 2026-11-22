@@ -2,6 +2,7 @@
 #include "OpenWavLookAndFeel.h"
 #include "SliceConfigComponent.h"
 #include "LorisResynthesisDialog.h"
+#include <algorithm>
 #if JUCE_WINDOWS
  #ifndef NOMINMAX
   #define NOMINMAX

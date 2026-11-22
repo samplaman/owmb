@@ -9,6 +9,9 @@
 #include "Scanner/LibraryScanner.h"
 #include "Audio/AudioEngine.h"
 #include "Models/PluginState.h"
+#include <atomic>
+#include <functional>
+#include <vector>
 
 namespace openwav
 {
