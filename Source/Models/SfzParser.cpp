@@ -1,4 +1,9 @@
 #include "SfzParser.h"
+#if __has_include(<JuceHeader.h>)
+ #include <JuceHeader.h>
+#else
+ #include <juce_audio_formats/juce_audio_formats.h>
+#endif
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -417,6 +422,59 @@ void applyOpcodesToZone(const OpcodeMap& opcodes,
 
     if (hasKey("trigger") && getStr("trigger").trim().equalsIgnoreCase("release"))
         zone.isReleaseTrigger = true;
+
+    // SFZ loop_mode, loop_start/loopstart, loop_end/loopend, offset, end, and loop_crossfade opcodes
+    if (hasKey("loop_crossfade"))
+    {
+        double xfSec = getStr("loop_crossfade").getDoubleValue();
+        if (xfSec > 0.0)
+            zone.loopCrossfadeMs = juce::jlimit(0.0, 500.0, xfSec * 1000.0);
+    }
+
+    const juce::String loopModeStr = getStr("loop_mode").trim().toLowerCase();
+    const bool sfzDisablesLoop = (loopModeStr == "no_loop" || loopModeStr == "one_shot");
+    const bool sfzEnablesLoop  = (loopModeStr == "loop_continuous" || loopModeStr == "loop_sustain");
+    const bool hasSfzLoopStart = (hasKey("loop_start") || hasKey("loopstart"));
+    const bool hasSfzLoopEnd   = (hasKey("loop_end") || hasKey("loopend"));
+    const bool hasSfzTrim      = (hasKey("offset") || hasKey("end"));
+
+    if ((sfzEnablesLoop || hasSfzLoopStart || hasSfzLoopEnd || hasSfzTrim) && sampleFile.existsAsFile())
+    {
+        juce::AudioFormatManager fm;
+        fm.registerBasicFormats();
+        std::unique_ptr<juce::AudioFormatReader> reader(fm.createReaderFor(sampleFile));
+        if (reader != nullptr && reader->lengthInSamples > 8)
+        {
+            const int64_t totalLen = reader->lengthInSamples;
+            if (hasKey("offset"))
+            {
+                int64_t off = juce::jlimit<int64_t>(0, totalLen - 1, getStr("offset").getLargeIntValue());
+                zone.sampleStartRatio = static_cast<double>(off) / static_cast<double>(totalLen);
+            }
+            if (hasKey("end"))
+            {
+                int64_t endSmp = juce::jlimit<int64_t>(1, totalLen, getStr("end").getLargeIntValue() + 1);
+                if (endSmp > static_cast<int64_t>(zone.sampleStartRatio * totalLen))
+                    zone.sampleEndRatio = static_cast<double>(endSmp) / static_cast<double>(totalLen);
+            }
+            if (!sfzDisablesLoop && (hasSfzLoopStart || hasSfzLoopEnd || sfzEnablesLoop))
+            {
+                int64_t ls = hasKey("loop_start") ? getStr("loop_start").getLargeIntValue()
+                           : (hasKey("loopstart") ? getStr("loopstart").getLargeIntValue() : 0);
+                int64_t le = hasKey("loop_end") ? (getStr("loop_end").getLargeIntValue() + 1)
+                           : (hasKey("loopend") ? (getStr("loopend").getLargeIntValue() + 1) : totalLen);
+                ls = juce::jlimit<int64_t>(0, totalLen - 1, ls);
+                le = juce::jlimit<int64_t>(0, totalLen, le);
+                if (le > ls + 8)
+                {
+                    zone.loopInRatio = static_cast<double>(ls) / static_cast<double>(totalLen);
+                    zone.loopOutRatio = static_cast<double>(le) / static_cast<double>(totalLen);
+                    zone.loopMarkersSet = true;
+                    zone.isLooping = true;
+                }
+            }
+        }
+    }
 }
 
 } // namespace

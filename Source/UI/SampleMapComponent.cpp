@@ -1401,18 +1401,59 @@ void SampleMapComponent::addSample(const MediaItem& item)
     z.filePath = item.filePath;
     z.sampleName = item.fileName;
     z.rootNote = parseRootNoteFromFilename(item.fileName);
-    z.keyLow = z.rootNote;
-    z.keyHigh = z.rootNote;
     z.velLow = 0;
     z.velHigh = 127;
     z.roundRobinIndex = parseRoundRobinFromFilename(item.fileName);
+
+    juce::File itemFile(item.filePath);
+    if (itemFile.existsAsFile())
+    {
+        SampleEditSettings saved;
+        if (audioEngine.getSampleEditSettings(item.filePath, saved) && (saved.loopMarkersSet || saved.isLooping))
+        {
+            z.loopInRatio = saved.loopInRatio;
+            z.loopOutRatio = saved.loopOutRatio;
+            z.loopCrossfadeMs = saved.loopCrossfadeMs;
+            z.loopMarkersSet = saved.loopMarkersSet;
+            z.isLooping = saved.isLooping;
+        }
+        else
+        {
+            double loopIn = 0.0, loopOut = 1.0, loopXfadeMs = 0.0;
+            bool hasLoopPts = false;
+            int metaRoot = -1;
+            if (audioEngine.extractMetadataLoopAndRoot(itemFile, nullptr, loopIn, loopOut, loopXfadeMs, hasLoopPts, metaRoot))
+            {
+                if (z.rootNote == 60 && metaRoot >= 0 && metaRoot <= 127)
+                    z.rootNote = metaRoot;
+                if (hasLoopPts)
+                {
+                    z.loopInRatio = loopIn;
+                    z.loopOutRatio = loopOut;
+                    z.loopCrossfadeMs = loopXfadeMs;
+                    z.loopMarkersSet = true;
+                    z.isLooping = true;
+
+                    SampleEditSettings seeded;
+                    seeded.loopInRatio = loopIn;
+                    seeded.loopOutRatio = loopOut;
+                    seeded.loopCrossfadeMs = loopXfadeMs;
+                    seeded.loopMarkersSet = true;
+                    seeded.isLooping = true;
+                    audioEngine.setSampleEditSettings(item.filePath, seeded);
+                }
+            }
+        }
+    }
+
+    z.keyLow = z.rootNote;
+    z.keyHigh = z.rootNote;
 
     zones.push_back(z);
     selectedZoneIndex = static_cast<int>(zones.size()) - 1;
     selectedZoneIndices.clear();
     selectedZoneIndices.insert(selectedZoneIndex);
 
-    juce::File itemFile(item.filePath);
     if (itemFile.existsAsFile())
     {
         audioEngine.loadFile(itemFile, false, true);
@@ -1426,15 +1467,54 @@ void SampleMapComponent::addSampleFile(const juce::File& file)
 {
     if (!file.existsAsFile()) return;
 
+    const juce::String fullPath = file.getFullPathName();
     SampleMapZone z;
-    z.filePath = file.getFullPathName();
+    z.filePath = fullPath;
     z.sampleName = file.getFileName();
     z.rootNote = parseRootNoteFromFilename(file.getFileName());
-    z.keyLow = z.rootNote;
-    z.keyHigh = z.rootNote;
     z.velLow = 0;
     z.velHigh = 127;
     z.roundRobinIndex = parseRoundRobinFromFilename(file.getFileName());
+
+    SampleEditSettings saved;
+    if (audioEngine.getSampleEditSettings(fullPath, saved) && (saved.loopMarkersSet || saved.isLooping))
+    {
+        z.loopInRatio = saved.loopInRatio;
+        z.loopOutRatio = saved.loopOutRatio;
+        z.loopCrossfadeMs = saved.loopCrossfadeMs;
+        z.loopMarkersSet = saved.loopMarkersSet;
+        z.isLooping = saved.isLooping;
+    }
+    else
+    {
+        double loopIn = 0.0, loopOut = 1.0, loopXfadeMs = 0.0;
+        bool hasLoopPts = false;
+        int metaRoot = -1;
+        if (audioEngine.extractMetadataLoopAndRoot(file, nullptr, loopIn, loopOut, loopXfadeMs, hasLoopPts, metaRoot))
+        {
+            if (z.rootNote == 60 && metaRoot >= 0 && metaRoot <= 127)
+                z.rootNote = metaRoot;
+            if (hasLoopPts)
+            {
+                z.loopInRatio = loopIn;
+                z.loopOutRatio = loopOut;
+                z.loopCrossfadeMs = loopXfadeMs;
+                z.loopMarkersSet = true;
+                z.isLooping = true;
+
+                SampleEditSettings seeded;
+                seeded.loopInRatio = loopIn;
+                seeded.loopOutRatio = loopOut;
+                seeded.loopCrossfadeMs = loopXfadeMs;
+                seeded.loopMarkersSet = true;
+                seeded.isLooping = true;
+                audioEngine.setSampleEditSettings(fullPath, seeded);
+            }
+        }
+    }
+
+    z.keyLow = z.rootNote;
+    z.keyHigh = z.rootNote;
 
     zones.push_back(z);
     selectedZoneIndex = static_cast<int>(zones.size()) - 1;
@@ -3001,7 +3081,7 @@ void SampleMapComponent::triggerKeybedNote(int note, float velocity, int velInt)
                 audioEngine.playZoneVoice(fileToLoad, note, z.rootNote, z.fineTuneCents, z.gainDb, effectiveVelocity,
                                           z.attackMs / 1000.0f, z.decayMs / 1000.0f, z.sustainLevel, z.releaseMs / 1000.0f,
                                           oneShotButton.getToggleState() || audioEngine.isOneShotEnabled(),
-                                          loopButton.getToggleState() || audioEngine.isLooping());
+                                          z.isLooping || loopButton.getToggleState() || audioEngine.isLooping());
             }
         }
 
@@ -3261,7 +3341,7 @@ void SampleMapComponent::mouseDown(const juce::MouseEvent& e)
                     audioEngine.playZoneVoice(fileToLoad, activeZone.rootNote, activeZone.rootNote, activeZone.fineTuneCents, activeZone.gainDb, 0.8f,
                                               activeZone.attackMs / 1000.0f, activeZone.decayMs / 1000.0f, activeZone.sustainLevel, activeZone.releaseMs / 1000.0f,
                                               oneShotButton.getToggleState() || audioEngine.isOneShotEnabled(),
-                                              loopButton.getToggleState() || audioEngine.isLooping());
+                                              activeZone.isLooping || loopButton.getToggleState() || audioEngine.isLooping());
                 }
                 auditionNote = activeZone.rootNote;
                 auditionVelocity = 100;

@@ -233,6 +233,13 @@ public:
     int getFadeOutCurve() const { return fadeOutCurveAtomic.load(std::memory_order_relaxed); }
     void setSampleEditSettings(const juce::String& filePath, const SampleEditSettings& settings);
     bool getSampleEditSettings(const juce::String& filePath, SampleEditSettings& outSettings) const;
+    bool extractMetadataLoopAndRoot(const juce::File& file,
+                                    const juce::AudioFormatReader* existingReader,
+                                    double& outLoopInRatio,
+                                    double& outLoopOutRatio,
+                                    double& outLoopCrossfadeMs,
+                                    bool& outHasLoopPoints,
+                                    int& outRootNote);
     std::map<juce::String, SampleEditSettings> getAllSampleEditSettings() const;
     void setAllSampleEditSettings(const std::map<juce::String, SampleEditSettings>& settingsMap);
     bool getAudioBufferCopy(juce::AudioBuffer<float>& destBuffer, double& sampleRate) const;
@@ -455,6 +462,9 @@ private:
     std::map<juce::String, SampleEditSettings> perSampleEditSettings;
     void updateCurrentSampleEditSettings();
     void applyEditSettingsAtomicsForFile(const juce::String& filePath);
+    bool seedLoopSettingsFromMetadataIfUnset(const juce::String& filePath,
+                                             const juce::AudioFormatReader* reader,
+                                             int* outRootNote = nullptr);
     void syncUiToPlayedSample(const juce::File& audioFile, const std::shared_ptr<CachedSample>& cached);
 
     PerformanceRackDSP performanceRack;

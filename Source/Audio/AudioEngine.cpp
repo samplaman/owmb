@@ -996,9 +996,12 @@ void AudioEngine::preloadSampleFiles(const std::vector<juce::File>& files)
             std::unique_ptr<juce::AudioFormatReader> reader(formatManager.createReaderFor(file));
             if (reader != nullptr && reader->lengthInSamples > 0 && reader->numChannels > 0)
             {
+                int metaRoot = -1;
+                seedLoopSettingsFromMetadataIfUnset(filePath, reader.get(), &metaRoot);
+
                 auto cached = std::make_shared<CachedSample>();
                 cached->sampleRate = (reader->sampleRate > 0.0) ? reader->sampleRate : 44100.0;
-                cached->rootNote = getRootNoteFromWavSmplHeader(file);
+                cached->rootNote = (metaRoot >= 0 && metaRoot <= 127) ? metaRoot : getRootNoteFromWavSmplHeader(file);
                 if (cached->rootNote < 0 || cached->rootNote > 127) cached->rootNote = 60;
                 cached->buffer.setSize(static_cast<int>(reader->numChannels), static_cast<int>(reader->lengthInSamples));
                 reader->read(&cached->buffer, 0, static_cast<int>(reader->lengthInSamples), 0, true, true);
@@ -1067,6 +1070,8 @@ void AudioEngine::playZoneVoice(const juce::File& file, int triggerMidiNote, int
 
         std::unique_ptr<juce::AudioFormatReader> reader(formatManager.createReaderFor(file));
         if (reader == nullptr || reader->lengthInSamples <= 0 || reader->numChannels <= 0) return;
+
+        seedLoopSettingsFromMetadataIfUnset(filePath, reader.get(), nullptr);
 
         cached = std::make_shared<CachedSample>();
         cached->sampleRate = (reader->sampleRate > 0.0) ? reader->sampleRate : 44100.0;
@@ -1443,8 +1448,16 @@ bool AudioEngine::loadFile(const juce::File& audioFile, bool autoPlay, bool isSa
         }
 
         int numSamples = static_cast<int>(numSamples64);
-        int rootNoteVal = getRootNoteFromWavSmplHeader(audioFile);
+        int rootNoteVal = -1;
+        const bool seededLoopMeta = seedLoopSettingsFromMetadataIfUnset(fp, reader.get(), &rootNoteVal);
+        if (rootNoteVal < 0 || rootNoteVal > 127)
+            rootNoteVal = getRootNoteFromWavSmplHeader(audioFile);
         if (rootNoteVal < 0 || rootNoteVal > 127) rootNoteVal = 60;
+
+        if (seededLoopMeta && loadId == currentLoadId.load(std::memory_order_relaxed))
+        {
+            applyEditSettingsAtomicsForFile(fp);
+        }
 
         if (loadId != currentLoadId.load(std::memory_order_relaxed))
             return;
@@ -2453,7 +2466,359 @@ void AudioEngine::applyEditSettingsAtomicsForFile(const juce::String& filePath)
     fadeInCurveAtomic.store(s.fadeInCurveType, std::memory_order_relaxed);
     fadeOutCurveAtomic.store(s.fadeOutCurveType, std::memory_order_relaxed);
     loopMarkersSetAtomic.store(s.loopMarkersSet, std::memory_order_relaxed);
-    isLoopingAtomic.store(s.isLooping, std::memory_order_relaxed);
+    if (isLoadedInSampler.load(std::memory_order_relaxed))
+        isLoopingAtomic.store(s.isLooping, std::memory_order_relaxed);
+    else if (!s.isLooping)
+        isLoopingAtomic.store(false, std::memory_order_relaxed);
+}
+
+bool AudioEngine::extractMetadataLoopAndRoot(const juce::File& file,
+                                             const juce::AudioFormatReader* existingReader,
+                                             double& outLoopInRatio,
+                                             double& outLoopOutRatio,
+                                             double& outLoopCrossfadeMs,
+                                             bool& outHasLoopPoints,
+                                             int& outRootNote)
+{
+    outLoopInRatio = 0.0;
+    outLoopOutRatio = 1.0;
+    outLoopCrossfadeMs = 0.0;
+    outHasLoopPoints = false;
+    outRootNote = -1;
+
+    std::unique_ptr<juce::AudioFormatReader> ownedReader;
+    const juce::AudioFormatReader* r = existingReader;
+    if (r == nullptr)
+    {
+        if (!file.existsAsFile())
+            return false;
+        ownedReader.reset(formatManager.createReaderFor(file));
+        r = ownedReader.get();
+    }
+    if (r == nullptr || r->lengthInSamples <= 8)
+        return false;
+
+    const int64_t totalSamples = r->lengthInSamples;
+    const double sr = (r->sampleRate > 0.0) ? r->sampleRate : 44100.0;
+    const auto& meta = r->metadataValues;
+
+    if (meta.containsKey("MidiUnityNote"))
+    {
+        int unity = meta.getValue("MidiUnityNote", "-1").getIntValue();
+        if (unity >= 0 && unity <= 127)
+            outRootNote = unity;
+    }
+    else if (meta.getValue(juce::WavAudioFormat::acidRootSet, "0").getIntValue() != 0 &&
+             meta.containsKey(juce::WavAudioFormat::acidRootNote))
+    {
+        int acidNote = meta.getValue(juce::WavAudioFormat::acidRootNote, "-1").getIntValue();
+        if (acidNote >= 0 && acidNote <= 127)
+            outRootNote = acidNote;
+    }
+
+    int64_t resolvedLoopStartFrame = 0;
+    int64_t resolvedLoopEndFrame = totalSamples;
+
+    // 1. WAV 'smpl' chunk loop points (Loop0Start .. Loop0End in sample frames)
+    const int numSampleLoops = meta.getValue("NumSampleLoops", "0").getIntValue();
+    if (numSampleLoops > 0 && meta.containsKey("Loop0Start") && meta.containsKey("Loop0End"))
+    {
+        int64_t startFrame = meta.getValue("Loop0Start", "0").getLargeIntValue();
+        int64_t endFrame   = meta.getValue("Loop0End", "0").getLargeIntValue() + 1; // RIFF smpl dwEnd is inclusive
+        startFrame = juce::jlimit<int64_t>(0, totalSamples - 1, startFrame);
+        endFrame   = juce::jlimit<int64_t>(0, totalSamples, endFrame);
+        if (endFrame > startFrame + 8)
+        {
+            resolvedLoopStartFrame = startFrame;
+            resolvedLoopEndFrame   = endFrame;
+            outLoopInRatio  = static_cast<double>(startFrame) / static_cast<double>(totalSamples);
+            outLoopOutRatio = static_cast<double>(endFrame) / static_cast<double>(totalSamples);
+            outHasLoopPoints = true;
+        }
+    }
+
+    // 2. AIFF / AIFC 'INST' + 'MARK' sustain loop (Loop0Type > 0, Start/End Cue Identifiers -> Cue<N>Offset)
+    if (!outHasLoopPoints && meta.getValue("Loop0Type", "0").getIntValue() > 0 &&
+        meta.containsKey("Loop0StartIdentifier") && meta.containsKey("Loop0EndIdentifier"))
+    {
+        const int startId = meta.getValue("Loop0StartIdentifier", "-1").getIntValue();
+        const int endId   = meta.getValue("Loop0EndIdentifier", "-1").getIntValue();
+        const int numCues = meta.getValue("NumCuePoints", "0").getIntValue();
+        int64_t startFrame = -1;
+        int64_t endFrame   = -1;
+
+        for (int i = 0; i < numCues; ++i)
+        {
+            const juce::String prefix = "Cue" + juce::String(i);
+            const int cueId = meta.getValue(prefix + "Identifier", "-2").getIntValue();
+            if (cueId == startId)
+                startFrame = meta.getValue(prefix + "Offset", "-1").getLargeIntValue();
+            if (cueId == endId)
+                endFrame = meta.getValue(prefix + "Offset", "-1").getLargeIntValue();
+        }
+
+        if (startFrame >= 0 && endFrame > startFrame + 8)
+        {
+            startFrame = juce::jlimit<int64_t>(0, totalSamples - 1, startFrame);
+            endFrame   = juce::jlimit<int64_t>(0, totalSamples, endFrame);
+            if (endFrame > startFrame + 8)
+            {
+                resolvedLoopStartFrame = startFrame;
+                resolvedLoopEndFrame   = endFrame;
+                outLoopInRatio  = static_cast<double>(startFrame) / static_cast<double>(totalSamples);
+                outLoopOutRatio = static_cast<double>(endFrame) / static_cast<double>(totalSamples);
+                outHasLoopPoints = true;
+            }
+        }
+    }
+
+    // 3. WAV 'cue ' + 'adtl' 'ltxt' CueRegion loop (CueRegion0Identifier -> Cue<N>Offset + SampleLength)
+    const int numCuePoints  = meta.getValue("NumCuePoints", "0").getIntValue();
+    const int numCueLabels  = meta.getValue("NumCueLabels", "0").getIntValue();
+    const int numCueNotes   = meta.getValue("NumCueNotes", "0").getIntValue();
+    const int numCueRegions = meta.getValue("NumCueRegions", "0").getIntValue();
+
+    auto getCueTextForId = [&](int targetId) -> juce::String {
+        for (int i = 0; i < numCueLabels; ++i)
+        {
+            const juce::String p = "CueLabel" + juce::String(i);
+            if (meta.getValue(p + "Identifier", "-2").getIntValue() == targetId)
+                return meta.getValue(p + "Text", "");
+        }
+        for (int i = 0; i < numCueNotes; ++i)
+        {
+            const juce::String p = "CueNote" + juce::String(i);
+            if (meta.getValue(p + "Identifier", "-2").getIntValue() == targetId)
+                return meta.getValue(p + "Text", "");
+        }
+        return {};
+    };
+
+    auto isXfadeLabel = [](const juce::String& txt) -> bool {
+        const auto lower = txt.trim().toLowerCase();
+        return lower.contains("xfade") || lower.contains("x-fade") ||
+               lower.contains("crossfade") || lower.contains("cross-fade") ||
+               lower.contains("loopfade");
+    };
+
+    if (!outHasLoopPoints && numCueRegions > 0)
+    {
+        for (int rIdx = 0; rIdx < numCueRegions; ++rIdx)
+        {
+            const juce::String rPrefix = "CueRegion" + juce::String(rIdx);
+            const int regId = meta.getValue(rPrefix + "Identifier", "-1").getIntValue();
+            const int64_t regLen = meta.getValue(rPrefix + "SampleLength", "0").getLargeIntValue();
+            if (regId < 0 || regLen <= 8)
+                continue;
+            // Skip regions explicitly labeled solely as xfade (handled below as crossfade length)
+            if (numCueRegions > 1 && isXfadeLabel(getCueTextForId(regId)))
+                continue;
+
+            for (int i = 0; i < numCuePoints; ++i)
+            {
+                const juce::String prefix = "Cue" + juce::String(i);
+                if (meta.getValue(prefix + "Identifier", "-2").getIntValue() == regId)
+                {
+                    int64_t startFrame = juce::jlimit<int64_t>(0, totalSamples - 1, meta.getValue(prefix + "Offset", "0").getLargeIntValue());
+                    int64_t endFrame   = juce::jlimit<int64_t>(0, totalSamples, startFrame + regLen);
+                    if (endFrame > startFrame + 8)
+                    {
+                        resolvedLoopStartFrame = startFrame;
+                        resolvedLoopEndFrame   = endFrame;
+                        outLoopInRatio  = static_cast<double>(startFrame) / static_cast<double>(totalSamples);
+                        outLoopOutRatio = static_cast<double>(endFrame) / static_cast<double>(totalSamples);
+                        outHasLoopPoints = true;
+                    }
+                    break;
+                }
+            }
+            if (outHasLoopPoints)
+                break;
+        }
+    }
+
+    // 4. Extract Loop Crossfade (X-Fade) from Cue Markers / Cue Regions / Metadata Keys / Text & XMP Tags
+    double foundXfadeMs = 0.0;
+
+    // 4a. CueRegion labeled as xfade/crossfade -> region SampleLength is exact xfade duration
+    for (int rIdx = 0; rIdx < numCueRegions && foundXfadeMs <= 0.0; ++rIdx)
+    {
+        const juce::String rPrefix = "CueRegion" + juce::String(rIdx);
+        const int regId = meta.getValue(rPrefix + "Identifier", "-1").getIntValue();
+        const int64_t regLen = meta.getValue(rPrefix + "SampleLength", "0").getLargeIntValue();
+        if (regId >= 0 && regLen > 0 && isXfadeLabel(getCueTextForId(regId)))
+        {
+            foundXfadeMs = (static_cast<double>(regLen) / sr) * 1000.0;
+        }
+    }
+
+    // 4b. Cue point marker labeled as xfade/x-fade/crossfade (e.g. Reaper / Sound Forge / Loop Auditioneer)
+    if (foundXfadeMs <= 0.0 && outHasLoopPoints && numCuePoints > 0)
+    {
+        for (int i = 0; i < numCuePoints; ++i)
+        {
+            const juce::String prefix = "Cue" + juce::String(i);
+            const int cueId = meta.getValue(prefix + "Identifier", "-2").getIntValue();
+            if (!isXfadeLabel(getCueTextForId(cueId)))
+                continue;
+
+            const int64_t offset = meta.getValue(prefix + "Offset", "-1").getLargeIntValue();
+            if (offset > resolvedLoopStartFrame && offset < resolvedLoopEndFrame)
+            {
+                // Standard X-Fade start marker before Loop Out (or symmetric after Loop In)
+                const int64_t distToEnd   = resolvedLoopEndFrame - offset;
+                const int64_t distFromIn  = offset - resolvedLoopStartFrame;
+                const int64_t xfadeFrames = std::min(distToEnd, (distToEnd <= (resolvedLoopEndFrame - resolvedLoopStartFrame) / 2) ? distToEnd : distFromIn);
+                if (xfadeFrames > 0)
+                {
+                    foundXfadeMs = (static_cast<double>(xfadeFrames) / sr) * 1000.0;
+                    break;
+                }
+            }
+            else if (offset >= 0 && offset < resolvedLoopStartFrame)
+            {
+                // Pre-loop crossfade marker placed before Loop Start
+                const int64_t xfadeFrames = resolvedLoopStartFrame - offset;
+                if (xfadeFrames > 0)
+                {
+                    foundXfadeMs = (static_cast<double>(xfadeFrames) / sr) * 1000.0;
+                    break;
+                }
+            }
+        }
+    }
+
+    // 4c. Explicit metadata dictionary keys (e.g. LoopCrossfadeMs, loop_crossfade, Loop0Crossfade, xfade)
+    auto parseCrossfadeValueString = [&](const juce::String& keyLower, const juce::String& rawVal) -> double {
+        juce::String v = rawVal.trim().toLowerCase();
+        if (v.isEmpty()) return 0.0;
+        const double num = v.getDoubleValue();
+        if (num <= 0.0) return 0.0;
+        if (v.endsWith("ms") || keyLower.contains("ms"))
+            return num;
+        if (v.endsWith("smp") || v.endsWith("samples") || keyLower.contains("sample") || keyLower.contains("frame"))
+            return (num / sr) * 1000.0;
+        if (v.endsWith("s"))
+            return num * 1000.0;
+        // Heuristic: SFZ / Kontakt 'loop_crossfade' is in seconds when <= 5.0; sample frames when integer >= 16 and > loopms
+        if (keyLower.contains("loop_crossfade") || (num < 5.0 && v.containsChar('.')))
+            return num * 1000.0;
+        if (keyLower.startsWith("loop0") && num >= 32.0)
+            return (num / sr) * 1000.0;
+        return num; // Default milliseconds
+    };
+
+    if (foundXfadeMs <= 0.0)
+    {
+        const auto& allKeys = meta.getAllKeys();
+        for (int k = 0; k < allKeys.size(); ++k)
+        {
+            const juce::String keyLower = allKeys[k].toLowerCase();
+            if (keyLower.contains("crossfade") || keyLower.contains("xfade") || keyLower.contains("x-fade"))
+            {
+                foundXfadeMs = parseCrossfadeValueString(keyLower, meta.getValue(allKeys[k], ""));
+                if (foundXfadeMs > 0.0)
+                    break;
+            }
+        }
+    }
+
+    // 4d. Embedded key=value or XML tags inside Comment / BWF Description / iXML / Tracktion info
+    if (foundXfadeMs <= 0.0)
+    {
+        const char* textFields[] = {
+            juce::WavAudioFormat::riffInfoComment,
+            juce::WavAudioFormat::riffInfoComments,
+            juce::WavAudioFormat::bwavDescription,
+            juce::WavAudioFormat::aswgNotes,
+            juce::WavAudioFormat::aswgUserData,
+            juce::WavAudioFormat::tracktionLoopInfo
+        };
+        for (const char* tf : textFields)
+        {
+            const juce::String blob = meta.getValue(tf, "");
+            if (blob.isEmpty()) continue;
+            const juce::String lower = blob.toLowerCase();
+            const char* tokens[] = { "loop_crossfade", "loopcrossfadems", "loopcrossfade", "xfade_ms", "xfade", "crossfade" };
+            for (const char* tok : tokens)
+            {
+                int idx = lower.indexOf(tok);
+                if (idx >= 0)
+                {
+                    int eq = idx + static_cast<int>(std::strlen(tok));
+                    while (eq < lower.length() && (lower[eq] == ' ' || lower[eq] == '=' || lower[eq] == ':' || lower[eq] == '"' || lower[eq] == '>'))
+                        ++eq;
+                    int endPos = eq;
+                    while (endPos < lower.length() && ((lower[endPos] >= '0' && lower[endPos] <= '9') || lower[endPos] == '.' || lower[endPos] == 'm' || lower[endPos] == 's'))
+                        ++endPos;
+                    if (endPos > eq)
+                    {
+                        foundXfadeMs = parseCrossfadeValueString(tok, lower.substring(eq, endPos));
+                        if (foundXfadeMs > 0.0)
+                            break;
+                    }
+                }
+            }
+            if (foundXfadeMs > 0.0)
+                break;
+        }
+    }
+
+    if (foundXfadeMs > 0.0 && outHasLoopPoints)
+    {
+        const double loopDurationMs = (static_cast<double>(resolvedLoopEndFrame - resolvedLoopStartFrame) / sr) * 1000.0;
+        const double maxAllowedMs   = std::min(500.0, std::max(0.0, loopDurationMs * 0.5));
+        outLoopCrossfadeMs = juce::jlimit(0.0, maxAllowedMs, foundXfadeMs);
+    }
+
+    return outHasLoopPoints || (outRootNote >= 0);
+}
+
+bool AudioEngine::seedLoopSettingsFromMetadataIfUnset(const juce::String& filePath,
+                                                      const juce::AudioFormatReader* reader,
+                                                      int* outRootNote)
+{
+    if (filePath.isEmpty())
+        return false;
+
+    {
+        const juce::ScopedLock sl(cacheLock);
+        if (perSampleEditSettings.find(filePath) != perSampleEditSettings.end())
+        {
+            if (outRootNote != nullptr && reader != nullptr && reader->metadataValues.containsKey("MidiUnityNote"))
+            {
+                int u = reader->metadataValues.getValue("MidiUnityNote", "-1").getIntValue();
+                if (u >= 0 && u <= 127)
+                    *outRootNote = u;
+            }
+            return false;
+        }
+    }
+
+    double loopIn = 0.0, loopOut = 1.0, loopXfadeMs = 0.0;
+    bool hasLoopPoints = false;
+    int metaRoot = -1;
+    extractMetadataLoopAndRoot(juce::File(filePath), reader, loopIn, loopOut, loopXfadeMs, hasLoopPoints, metaRoot);
+
+    if (outRootNote != nullptr && metaRoot >= 0 && metaRoot <= 127)
+        *outRootNote = metaRoot;
+
+    if (!hasLoopPoints)
+        return false;
+
+    SampleEditSettings s;
+    s.loopInRatio = loopIn;
+    s.loopOutRatio = loopOut;
+    s.loopCrossfadeMs = loopXfadeMs;
+    s.loopMarkersSet = true;
+    s.isLooping = true;
+
+    {
+        const juce::ScopedLock sl(cacheLock);
+        if (perSampleEditSettings.find(filePath) == perSampleEditSettings.end())
+            perSampleEditSettings[filePath] = s;
+    }
+    return true;
 }
 
 bool AudioEngine::getAudioBufferCopy(juce::AudioBuffer<float>& destBuffer, double& sampleRate) const

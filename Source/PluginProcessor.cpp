@@ -157,7 +157,7 @@ void OpenWavAudioProcessor::handleNoteOn(juce::MidiKeyboardState*, int midiChann
                     float effectiveVelocity = currentSampleMap.computeVelocityResponse(velocity, chosenZone->velocitySensitivity);
                     audioEngine.playZoneVoice(fileToLoad, midiNoteNumber, chosenZone->rootNote, chosenZone->fineTuneCents, chosenZone->gainDb, effectiveVelocity,
                                               chosenZone->attackMs / 1000.0f, chosenZone->decayMs / 1000.0f, chosenZone->sustainLevel, chosenZone->releaseMs / 1000.0f,
-                                              audioEngine.isOneShotEnabled(), audioEngine.isLooping());
+                                              audioEngine.isOneShotEnabled(), chosenZone->isLooping || audioEngine.isLooping());
                     zoneTriggered = true;
                 }
             }
