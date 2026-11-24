@@ -182,7 +182,8 @@ public:
                       const std::set<juce::String>& selectedTags,
                       bool matchAllTags,
                       const juce::String& extensionFilter,
-                      bool favoritesOnly);
+                      bool favoritesOnly,
+                      SampleTypeFilter sampleTypeFilter = SampleTypeFilter::All);
 
     const std::vector<MediaItem>& getDisplayedItems() const { return allFilteredItems; }
 
@@ -257,6 +258,7 @@ private:
     bool currentMatchAll { false };
     juce::String currentExtFilter { "All" };
     bool currentFavOnly { false };
+    SampleTypeFilter currentSampleTypeFilter { SampleTypeFilter::All };
 
     juce::ListenerList<SampleTableListener> listeners;
     bool isSynchronizingSelection { false };

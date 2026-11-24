@@ -11,6 +11,16 @@ OpenWavAudioProcessor::OpenWavAudioProcessor()
                      .withOutput("Output", juce::AudioChannelSet::stereo(), true))
 {
     audioEngine.onStopped = [this] { stopMidiFilePlayback(false); };
+    audioEngine.onMidiFileAudition = [this](const juce::File& f) { loadAndPlayMidiFile(f); };
+    audioEngine.isMidiFileCurrentlyPlaying = [this](const juce::File& f) {
+        return isMidiFilePlaying() && getLoadedMidiFilePath() == f.getFullPathName();
+    };
+    audioEngine.getMidiAuditionProgressRatio = [this]() {
+        const double dur = getMidiFileDurationSeconds();
+        if (!isMidiFilePlaying() || dur <= 0.0)
+            return 0.0;
+        return juce::jlimit(0.0, 1.0, getMidiPlaybackTimeSeconds() / dur);
+    };
 }
 
 OpenWavAudioProcessor::~OpenWavAudioProcessor()
@@ -549,6 +559,7 @@ bool OpenWavAudioProcessor::loadAndPlayMidiFile(const juce::File& midiFile)
     midiPlaySequence = std::move(merged);
     midiDisplayNotes = std::move(notes);
     loadedMidiFileName = midiFile.getFileName();
+    loadedMidiFilePath = midiFile.getFullPathName();
     midiPlayEventIndex = 0;
     midiPlayTimeSec = 0.0;
     midiPlayTimeAtomic.store(0.0, std::memory_order_relaxed);
@@ -581,6 +592,12 @@ juce::String OpenWavAudioProcessor::getLoadedMidiFileName() const
 {
     const juce::ScopedLock sl(midiSeqLock);
     return loadedMidiFileName;
+}
+
+juce::String OpenWavAudioProcessor::getLoadedMidiFilePath() const
+{
+    const juce::ScopedLock sl(midiSeqLock);
+    return loadedMidiFilePath;
 }
 
 std::vector<OpenWavAudioProcessor::MidiDisplayNote> OpenWavAudioProcessor::getMidiDisplayNotes() const

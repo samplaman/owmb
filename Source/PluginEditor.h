@@ -53,6 +53,7 @@ public:
     // HeaderBarListener Callbacks
     void searchTextChanged(const juce::String& newText) override;
     void formatFilterChanged(const juce::String& extension) override;
+    void sampleTypeFilterChanged(SampleTypeFilter filter) override;
     void addFolderRequested() override;
     void rescanRequested() override;
     void settingsRequested() override;
@@ -62,6 +63,7 @@ public:
 
     // TagPanelListener Callbacks
     void tagFilterSelectionChanged(const std::set<juce::String>& selectedTags, bool matchAllTags, bool favoritesOnly) override;
+    void sampleTypeQuickFilterChanged(SampleTypeFilter typeFilter) override;
     void scannedFolderClicked(const juce::String& folderPath) override;
 
     // SampleTableListener Callbacks

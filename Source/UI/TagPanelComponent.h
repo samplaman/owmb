@@ -16,6 +16,7 @@ class TagPanelListener
 public:
     virtual ~TagPanelListener() = default;
     virtual void tagFilterSelectionChanged(const std::set<juce::String>& selectedTags, bool matchAllTags, bool favoritesOnly) = 0;
+    virtual void sampleTypeQuickFilterChanged(SampleTypeFilter /*typeFilter*/) {}
     virtual void scannedFolderClicked(const juce::String& /*folderPath*/) {}
 };
 
@@ -37,6 +38,8 @@ public:
     const std::set<juce::String>& getSelectedTags() const { return selectedTags; }
     bool getMatchAllTags() const { return matchAll; }
     bool getFavoritesOnly() const { return favoritesOnly; }
+    SampleTypeFilter getSampleTypeFilter() const { return sampleTypeFilter; }
+    void setSampleTypeFilter(SampleTypeFilter filter, bool sendNotification = false);
 
     void addListener(TagPanelListener* listener);
     void removeListener(TagPanelListener* listener);
@@ -56,6 +59,9 @@ private:
     juce::ToggleButton matchModeToggle { "Match All Tags (AND)" };
     juce::TextButton addCustomTagButton { "+ Add Custom Tag..." };
     juce::TextButton autoTagButton { "Auto-Tag Library" };
+    juce::TextButton typeAllButton { "All" };
+    juce::TextButton typeLoopsButton { "Loops" };
+    juce::TextButton typeOneShotsButton { "1-Shots" };
 
     juce::Label tagsHeaderLabel { {}, "TAGS" };
     juce::TextButton showBpmButton { "+ BPM" };
@@ -72,6 +78,7 @@ private:
     std::set<juce::String> selectedTags;
 
     bool favoritesOnly { false };
+    SampleTypeFilter sampleTypeFilter { SampleTypeFilter::All };
     bool matchAll { false };
     bool showBpmTags { false };
     bool isAutoTagging { false };

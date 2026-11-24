@@ -56,7 +56,8 @@ std::vector<MediaItem> TagDatabaseManager::getFilteredItems(const juce::String& 
                                                              const std::set<juce::String>& selectedTags,
                                                              bool matchAllTags,
                                                              const juce::String& extensionFilter,
-                                                             bool favoritesOnly) const
+                                                             bool favoritesOnly,
+                                                             SampleTypeFilter sampleTypeFilter) const
 {
     const juce::ScopedLock sl(lock);
     std::vector<MediaItem> filtered;
@@ -82,6 +83,12 @@ std::vector<MediaItem> TagDatabaseManager::getFilteredItems(const juce::String& 
 
         // 1. Favorites check
         if (favoritesOnly && !item.isFavorite)
+            continue;
+
+        // 1b. Loop vs One-Shot filter check
+        if (sampleTypeFilter == SampleTypeFilter::Loops && !item.isLoopSample())
+            continue;
+        if (sampleTypeFilter == SampleTypeFilter::OneShots && !item.isOneShotSample())
             continue;
 
         // 2. Extension check
@@ -336,6 +343,45 @@ void TagDatabaseManager::setComment(const juce::String& itemId, const juce::Stri
     }
     notifyIndexUpdated();
     saveToFile();
+}
+
+void TagDatabaseManager::setSampleTypeOverride(const juce::String& itemId, int overrideMode)
+{
+    bool changed = false;
+    {
+        const juce::ScopedLock sl(lock);
+        auto it = itemsMap.find(itemId);
+        if (it != itemsMap.end())
+        {
+            auto& item = it->second;
+            item.sampleTypeOverride = juce::jlimit(0, 2, overrideMode);
+            if (item.sampleTypeOverride == 1)
+            {
+                item.tags.insert("#Loop");
+                item.tags.erase("#OneShot");
+            }
+            else if (item.sampleTypeOverride == 2)
+            {
+                item.tags.insert("#OneShot");
+                item.tags.erase("#Loop");
+                item.tags.erase("#DrumLoop");
+                item.tags.erase("#TopLoop");
+                item.tags.erase("#PercLoop");
+                item.tags.erase("#BassLoop");
+                item.tags.erase("#MelodicLoop");
+                item.tags.erase("#VocalLoop");
+            }
+            sanitizeItem(item);
+            item.precomputeCachedStrings();
+            changed = true;
+        }
+    }
+    if (changed)
+    {
+        notifyIndexUpdated();
+        notifyTagsUpdated();
+        triggerAsyncSave();
+    }
 }
 
 void TagDatabaseManager::removeMissingFiles()
@@ -1522,6 +1568,24 @@ void TagDatabaseManager::sanitizeItem(MediaItem& item)
 {
     sanitizeTags(item.tags);
 
+    // Enforce explicit user Loop / One-Shot override before finalizing BPM & embeddings
+    if (item.sampleTypeOverride == 1)
+    {
+        item.tags.insert("#Loop");
+        item.tags.erase("#OneShot");
+    }
+    else if (item.sampleTypeOverride == 2)
+    {
+        item.tags.insert("#OneShot");
+        item.tags.erase("#Loop");
+        item.tags.erase("#DrumLoop");
+        item.tags.erase("#TopLoop");
+        item.tags.erase("#PercLoop");
+        item.tags.erase("#BassLoop");
+        item.tags.erase("#MelodicLoop");
+        item.tags.erase("#VocalLoop");
+    }
+
     // Keep item.bpm 100% synchronized with sanitized #*BPM tags
     double tagBpm = 0.0;
     for (const auto& t : item.tags)
@@ -1837,13 +1901,17 @@ std::set<juce::String> TagDatabaseManager::inferTagsFromPath(const juce::String&
         { "fill", "#Fill", false }, { "fills", "#Fill", false },
         { "stem", "#Stem", false }, { "stems", "#Stem", false },
         { "dry", "#Dry", false }, { "wet", "#Wet", false },
-        { "loop", "#Loop", false }, { "loops", "#Loop", false },
+        { "loop", "#Loop", false }, { "loops", "#Loop", false }, { "looped", "#Loop", false },
+        { "2bar", "#Loop", false }, { "4bar", "#Loop", false }, { "8bar", "#Loop", false }, { "16bar", "#Loop", false },
         { "groove", "#Loop", false }, { "grooves", "#Loop", false },
         { "break", "#Loop", false }, { "breaks", "#Loop", false },
         { "beat", "#Loop", false }, { "beats", "#Loop", false },
         { "oneshot", "#OneShot", false }, { "oneshots", "#OneShot", false },
         { "one_shot", "#OneShot", false }, { "one_shots", "#OneShot", false },
         { "one-shot", "#OneShot", false }, { "one-shots", "#OneShot", false },
+        { "1shot", "#OneShot", false }, { "1shots", "#OneShot", false },
+        { "1_shot", "#OneShot", false }, { "1-shot", "#OneShot", false },
+        { "shot", "#OneShot", false }, { "shots", "#OneShot", false },
         { "hit", "#OneShot", false }, { "hits", "#OneShot", false },
         { "stab", "#OneShot", false }, { "stabs", "#OneShot", false },
         { "acoustic", "#Acoustic", false }, { "digital", "#Digital", false }

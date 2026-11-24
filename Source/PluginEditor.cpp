@@ -107,6 +107,9 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
       { "ACTION", "Auto-Slice Sample",    "Open slice configuration",            "",  [this] { waveformTransport.triggerSlice(); } },
       { "ACTION", "Export Sample Map as .mid", "Export mapped zones as MIDI pattern", "", [this] { sampleMapComponent.exportZonesAsMidiPattern(); } },
       { "ACTION", "Stop MIDI Playback",   "Stop previewing any playing .mid file", "", [this] { audioProcessor.stopMidiFilePlayback(); } },
+      { "FILTER", "Show Loops Only",      "Filter library to loop samples",       "",  [this] { sampleTypeFilterChanged(SampleTypeFilter::Loops); } },
+      { "FILTER", "Show One-Shots Only",  "Filter library to one-shot samples",   "",  [this] { sampleTypeFilterChanged(SampleTypeFilter::OneShots); } },
+      { "FILTER", "Show All Sample Types","Show both loops and one-shots",        "",  [this] { sampleTypeFilterChanged(SampleTypeFilter::All); } },
       { "ACTION", "Keyboard Shortcuts...", "View and customize shortcuts",       "",  [this] { shortcutsDialog.showDialog(); } },
       { "ACTION", "Reset UI Scale (100%)", "Restore default 1.0x scaling",       "Cmd+0", [this] { applyUiScale(1.0f); } },
   });
@@ -598,6 +601,13 @@ void OpenWavAudioProcessorEditor::formatFilterChanged(
   triggerFilterUpdate();
 }
 
+void OpenWavAudioProcessorEditor::sampleTypeFilterChanged(
+    SampleTypeFilter filter) {
+  headerBar.setSelectedSampleType(filter, false);
+  tagPanel.setSampleTypeFilter(filter, false);
+  triggerFilterUpdate();
+}
+
 void OpenWavAudioProcessorEditor::addFolderRequested() {
   auto chooser = std::make_shared<juce::FileChooser>(
       "Select Audio Folder to Scan...",
@@ -923,6 +933,12 @@ void OpenWavAudioProcessorEditor::tagFilterSelectionChanged(
   triggerFilterUpdate();
 }
 
+void OpenWavAudioProcessorEditor::sampleTypeQuickFilterChanged(
+    SampleTypeFilter typeFilter) {
+  headerBar.setSelectedSampleType(typeFilter, false);
+  triggerFilterUpdate();
+}
+
 void OpenWavAudioProcessorEditor::scannedFolderClicked(
     const juce::String &folderPath) {
   headerBar.setViewMode(ViewMode::Folders);
@@ -1032,7 +1048,9 @@ bool OpenWavAudioProcessorEditor::isInterestedInFileDrag(
         file.getFileExtension().containsIgnoreCase("ogg") ||
         file.getFileExtension().containsIgnoreCase("aif") ||
         file.getFileExtension().containsIgnoreCase("aiff") ||
-        file.getFileExtension().containsIgnoreCase("aifc"))
+        file.getFileExtension().containsIgnoreCase("aifc") ||
+        file.getFileExtension().containsIgnoreCase("mid") ||
+        file.getFileExtension().containsIgnoreCase("midi"))
       return true;
   }
   return false;
@@ -1164,6 +1182,7 @@ void OpenWavAudioProcessorEditor::cloudSampleSelected(const MediaItem &item) {
   sampleTable.selectItemById(item.id, false);
   folderBrowser.selectItemById(item.id, false);
   analysisComponent.setItem(item);
+  waveformTransport.syncMidiPreviewNow();
 }
 
 void OpenWavAudioProcessorEditor::cloudSampleDoubleClicked(
@@ -1176,7 +1195,7 @@ void OpenWavAudioProcessorEditor::triggerFilterUpdate() {
   sampleTable.updateFilter(
       headerBar.getSearchText(), tagPanel.getSelectedTags(),
       tagPanel.getMatchAllTags(), headerBar.getSelectedFormat(),
-      tagPanel.getFavoritesOnly());
+      tagPanel.getFavoritesOnly(), headerBar.getSelectedSampleType());
 
   if (headerBar.getCurrentViewMode() == ViewMode::Cloud) {
     sampleCloud.setItems(sampleTable.getDisplayedItems());

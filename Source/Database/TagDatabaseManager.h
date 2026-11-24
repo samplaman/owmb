@@ -39,7 +39,8 @@ public:
                                            const std::set<juce::String>& selectedTags,
                                            bool matchAllTags,
                                            const juce::String& extensionFilter,
-                                           bool favoritesOnly) const;
+                                           bool favoritesOnly,
+                                           SampleTypeFilter sampleTypeFilter = SampleTypeFilter::All) const;
 
     std::set<juce::String> getAllKnownTags() const;
     std::map<juce::String, int> getTagFrequencies() const;
@@ -53,6 +54,7 @@ public:
     void toggleFavorite(const juce::String& itemId);
     void setRating(const juce::String& itemId, int rating);
     void setComment(const juce::String& itemId, const juce::String& comment);
+    void setSampleTypeOverride(const juce::String& itemId, int overrideMode);
     void removeMissingFiles();
     void clearLibrary();
     void clearAllData();

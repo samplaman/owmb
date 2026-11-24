@@ -316,8 +316,11 @@ static double decodeIEEEExtended(const unsigned char* bytes)
     return sign ? -val : val;
 }
 
-static bool parseAiffHeaderFast(const juce::File& file, double& sampleRate, int& numChannels, int& bitDepth, double& durationSeconds)
+static bool parseAiffHeaderFast(const juce::File& file, double& sampleRate, int& numChannels, int& bitDepth, double& durationSeconds,
+                                int& appleLoopHint, double& embeddedBpm)
 {
+    appleLoopHint = 0;
+    embeddedBpm = 0.0;
     juce::FileInputStream stream(file);
     if (!stream.openedOk() || stream.getTotalLength() < 44)
         return false;
@@ -336,6 +339,8 @@ static bool parseAiffHeaderFast(const juce::File& file, double& sampleRate, int&
     int64_t chunkPos = 12;
     int iterations = 0;
     bool foundComm = false;
+    uint32_t appleLoopBeats = 0;
+    bool foundBasc = false;
 
     while (chunkPos >= 12 && chunkPos < streamLength - 8 && iterations++ < 60)
     {
@@ -376,9 +381,23 @@ static bool parseAiffHeaderFast(const juce::File& file, double& sampleRate, int&
                 sampleRate = rate;
                 durationSeconds = static_cast<double>(frames) / rate;
                 foundComm = true;
-                break;
             }
         }
+        else if (std::memcmp(chunkId, "basc", 4) == 0 && chunkSize >= 12)
+        {
+            uint8_t bascData[12];
+            if (stream.read(bascData, 12) == 12)
+            {
+                appleLoopBeats = (static_cast<uint32_t>(bascData[4]) << 24) |
+                                 (static_cast<uint32_t>(bascData[5]) << 16) |
+                                 (static_cast<uint32_t>(bascData[6]) << 8)  |
+                                 static_cast<uint32_t>(bascData[7]);
+                foundBasc = true;
+            }
+        }
+
+        if (foundComm && foundBasc)
+            break;
 
         int64_t paddedSize = static_cast<int64_t>(chunkSize) + (chunkSize & 1);
         int64_t nextPos = chunkPos + 8 + paddedSize;
@@ -386,6 +405,24 @@ static bool parseAiffHeaderFast(const juce::File& file, double& sampleRate, int&
             break;
 
         chunkPos = nextPos;
+    }
+
+    if (foundComm && foundBasc)
+    {
+        if (appleLoopBeats > 0)
+        {
+            appleLoopHint = 1; // Looping Apple Loop
+            if (durationSeconds > 0.25)
+            {
+                double calcBpm = (60.0 * static_cast<double>(appleLoopBeats)) / durationSeconds;
+                if (calcBpm >= 40.0 && calcBpm <= 260.0)
+                    embeddedBpm = std::round(calcBpm * 10.0) / 10.0;
+            }
+        }
+        else
+        {
+            appleLoopHint = 2; // Non-looping One-Shot Apple Loop
+        }
     }
 
     return foundComm && durationSeconds > 0.0 && durationSeconds <= 86400.0;
@@ -416,7 +453,7 @@ static void computeQuarterRms(const float* data, int len, double outRms[4])
     }
 }
 
-static void analyzeAudioData(juce::AudioFormatReader* reader, MediaItem& item)
+static void analyzeAudioData(juce::AudioFormatReader* reader, MediaItem& item, int metadataLoopHint = 0)
 {
     if (reader == nullptr || reader->sampleRate <= 0.0 || reader->lengthInSamples <= 0 || reader->numChannels <= 0)
         return;
@@ -542,6 +579,29 @@ static void analyzeAudioData(juce::AudioFormatReader* reader, MediaItem& item)
     const double duration = item.durationSeconds > 0.0 ? item.durationSeconds
                                                        : (static_cast<double>(lengthInSamples) / sampleRate);
 
+    // Check true end-of-file tail RMS when file exceeds the 4.5s initial read window
+    // (prevents 6..12s crashes, risers, impacts, and reverb tails from appearing sustained!)
+    double eofDecayRatio = fullDecayRatio;
+    if (lengthInSamples > maxSamplesToRead + 256)
+    {
+        const int tailSamples = static_cast<int>(std::min<juce::int64>(
+            lengthInSamples - maxSamplesToRead,
+            std::max<juce::int64>(256, static_cast<juce::int64>(sampleRate * 0.45))));
+        juce::AudioBuffer<float> tailBuf(numReadCh, tailSamples);
+        reader->read(&tailBuf, 0, tailSamples, lengthInSamples - tailSamples, true, numReadCh >= 2);
+
+        double tailSumSq = 0.0;
+        const float* tL = tailBuf.getReadPointer(0);
+        const float* tR = numReadCh >= 2 ? tailBuf.getReadPointer(1) : nullptr;
+        for (int i = 0; i < tailSamples; ++i)
+        {
+            float m = (tR != nullptr) ? (0.5f * (tL[i] + tR[i])) : tL[i];
+            tailSumSq += static_cast<double>(m) * m;
+        }
+        const double tailRms = std::sqrt(tailSumSq / std::max(1, tailSamples));
+        eofDecayRatio = juce::jlimit(0.0, 1.25, tailRms / denomFull);
+    }
+
     bool hasExplicitLoopTag = (item.tags.find("#Loop") != item.tags.end() ||
                                item.tags.find("#DrumLoop") != item.tags.end() ||
                                item.tags.find("#TopLoop") != item.tags.end() ||
@@ -551,15 +611,192 @@ static void analyzeAudioData(juce::AudioFormatReader* reader, MediaItem& item)
                                item.tags.find("#VocalLoop") != item.tags.end());
     bool hasExplicitOneShotTag = (item.tags.find("#OneShot") != item.tags.end());
 
+    // Pre-evaluate rhythmic onset periodicity & BPM autocorrelation for potential loops (>= 1.0s)
+    double estimatedBpm = 0.0;
+    double bestPeriodicR = 0.0;
+    int periodicOnsetCount = 0;
+
+    if (duration >= 1.0 && metadataLoopHint != 2 && !hasExplicitOneShotTag)
+    {
+        const int envBlockSize = std::max(64, juce::roundToInt(sampleRate / 172.265625));
+        const int numEnvBlocks = maxSamplesToRead / envBlockSize;
+        if (numEnvBlocks > 36)
+        {
+            std::vector<float> env(static_cast<size_t>(numEnvBlocks), 0.0f);
+            for (int b = 0; b < numEnvBlocks; ++b)
+            {
+                float bMax = 0.0f;
+                int start = b * envBlockSize;
+                int end = std::min(maxSamplesToRead, (b + 1) * envBlockSize);
+                for (int i = start; i < end; ++i)
+                {
+                    float val = std::abs(mono[static_cast<size_t>(i)]);
+                    if (val > bMax) bMax = val;
+                }
+                env[static_cast<size_t>(b)] = bMax / maxVal;
+            }
+
+            std::vector<float> onsets(static_cast<size_t>(numEnvBlocks), 0.0f);
+            for (int i = 1; i < numEnvBlocks; ++i)
+            {
+                float diff = std::max(0.0f, env[static_cast<size_t>(i)] - env[static_cast<size_t>(i - 1)]);
+                onsets[static_cast<size_t>(i)] = diff;
+                if (diff > 0.075f) ++periodicOnsetCount;
+            }
+
+            if (periodicOnsetCount >= 3)
+            {
+                const double fsEnv = sampleRate / static_cast<double>(envBlockSize);
+                int minLag = std::max(2, static_cast<int>(60.0 * fsEnv / 200.0));
+                int maxLag = std::min(numEnvBlocks - 2, static_cast<int>(60.0 * fsEnv / 60.0));
+
+                if (maxLag > minLag + 2)
+                {
+                    std::vector<double> rValues(static_cast<size_t>(maxLag + 2), 0.0);
+                    double maxR = -1.0;
+                    int bestLag = 0;
+
+                    for (int lag = minLag; lag <= maxLag; ++lag)
+                    {
+                        double sumXY = 0.0, sumX2 = 0.0, sumY2 = 0.0;
+                        int count = 0;
+                        for (int i = lag; i < numEnvBlocks; ++i)
+                        {
+                            float x = onsets[static_cast<size_t>(i)];
+                            float y = onsets[static_cast<size_t>(i - lag)];
+                            sumXY += static_cast<double>(x) * y;
+                            sumX2 += static_cast<double>(x) * x;
+                            sumY2 += static_cast<double>(y) * y;
+                            ++count;
+                        }
+
+                        if (count >= 16 && sumX2 > 1e-9 && sumY2 > 1e-9)
+                        {
+                            double r = sumXY / std::sqrt(sumX2 * sumY2);
+                            rValues[static_cast<size_t>(lag)] = r;
+                            if (r > maxR)
+                            {
+                                maxR = r;
+                                bestLag = lag;
+                            }
+                        }
+                    }
+
+                    bestPeriodicR = std::max(0.0, maxR);
+                    if (bestLag > minLag && bestLag < maxLag && maxR >= 0.36)
+                    {
+                        double y1 = rValues[static_cast<size_t>(bestLag - 1)];
+                        double y2 = rValues[static_cast<size_t>(bestLag)];
+                        double y3 = rValues[static_cast<size_t>(bestLag + 1)];
+                        double denom = (y1 - 2.0 * y2 + y3);
+                        double delta = 0.0;
+                        if (std::abs(denom) > 1e-7)
+                            delta = juce::jlimit(-0.5, 0.5, (y1 - y3) / (2.0 * denom));
+
+                        double refinedLag = static_cast<double>(bestLag) + delta;
+                        double dspBpm = (60.0 * fsEnv) / refinedLag;
+
+                        if (dspBpm < 75.0)
+                        {
+                            int doubleLag = juce::roundToInt(bestLag / 2.0);
+                            if (doubleLag >= minLag && rValues[static_cast<size_t>(doubleLag)] > maxR * 0.68)
+                                dspBpm *= 2.0;
+                        }
+                        else if (dspBpm > 175.0)
+                        {
+                            int halfLag = juce::roundToInt(bestLag * 2.0);
+                            if (halfLag <= maxLag && rValues[static_cast<size_t>(halfLag)] > maxR * 0.68)
+                                dspBpm /= 2.0;
+                        }
+
+                        double nearestInt = std::round(dspBpm);
+                        if (std::abs(dspBpm - nearestInt) < 0.35)
+                            dspBpm = nearestInt;
+                        else
+                            dspBpm = std::round(dspBpm * 10.0) / 10.0;
+
+                        double bestBarBpm = 0.0;
+                        const int candidateBeats[] = { 4, 8, 16, 32, 64 };
+                        for (int b : candidateBeats)
+                        {
+                            double testBpm = (60.0 * b) / duration;
+                            if (std::abs(testBpm - dspBpm) < 2.5)
+                            {
+                                double roundedBar = std::round(testBpm);
+                                if (std::abs(testBpm - roundedBar) < 0.25)
+                                {
+                                    bestBarBpm = roundedBar;
+                                    break;
+                                }
+                            }
+                        }
+
+                        estimatedBpm = (bestBarBpm > 0.0) ? bestBarBpm : dspBpm;
+                    }
+                }
+            }
+        }
+    }
+
+    // Check whether file duration matches an exact 1/2/4/8/16-bar musical grid
+    bool matchesMusicalBarGrid = false;
+    if (duration >= 1.2)
+    {
+        const double refBpm = (item.bpm >= 50.0 && item.bpm <= 220.0) ? item.bpm : estimatedBpm;
+        const int barBeats[] = { 4, 8, 16, 32, 64 };
+        if (refBpm >= 50.0)
+        {
+            for (int b : barBeats)
+            {
+                double expectedDur = (60.0 * b) / refBpm;
+                if (std::abs(duration - expectedDur) <= expectedDur * 0.022)
+                {
+                    matchesMusicalBarGrid = true;
+                    break;
+                }
+            }
+        }
+        else
+        {
+            for (int b : barBeats)
+            {
+                double impliedBpm = (60.0 * b) / duration;
+                if (impliedBpm >= 70.0 && impliedBpm <= 180.0 &&
+                    std::abs(impliedBpm - std::round(impliedBpm)) <= 0.08)
+                {
+                    matchesMusicalBarGrid = true;
+                    break;
+                }
+            }
+        }
+    }
+
     bool isLoop = false;
-    if (hasExplicitLoopTag && duration >= 0.65)
+    if (metadataLoopHint == 1 && duration >= 0.40)
+    {
+        // Authoritative WAV/AIFF loop chunk (acid, smpl full-phrase, iXML, Apple Loop, Tracktion)
+        isLoop = true;
+    }
+    else if (metadataLoopHint == 2 && !hasExplicitLoopTag)
+    {
+        // Authoritative WAV/AIFF One-Shot chunk (acidOneShot=1, smpl sustain/single-cycle, non-looping Apple Loop)
+        isLoop = false;
+    }
+    else if (hasExplicitLoopTag && duration >= 0.60)
     {
         isLoop = true;
     }
-    else if (!hasExplicitOneShotTag && duration >= 1.35 &&
-             (fullDecayRatio >= 0.26 || (sustainedQuarters >= 3 && isNonMonotonic)))
+    else if (!hasExplicitOneShotTag && duration >= 1.25 && eofDecayRatio >= 0.14)
     {
-        isLoop = true;
+        // Rhythmic loop (periodic onsets + sustained non-silent tail)
+        const bool isRhythmicLoop = (periodicOnsetCount >= 4 && bestPeriodicR >= 0.35 &&
+                                     (eofDecayRatio >= 0.18 || (sustainedQuarters >= 3 && isNonMonotonic)));
+        // Seamless melodic/pad/drone loop cut cleanly on a musical bar boundary
+        const bool isSeamlessSustainedLoop = (eofDecayRatio >= 0.38 && fullDecayRatio >= 0.34 &&
+                                              sustainedQuarters >= 4 && matchesMusicalBarGrid &&
+                                              attackTimeMs <= 260.0);
+        if (isRhythmicLoop || isSeamlessSustainedLoop)
+            isLoop = true;
     }
 
     if (isLoop)
@@ -574,7 +811,7 @@ static void analyzeAudioData(juce::AudioFormatReader* reader, MediaItem& item)
             item.tags.erase("#Loop");
     }
 
-    const double decayRatio = isLoop ? fullDecayRatio : activeDecayRatio;
+    const double decayRatio = isLoop ? eofDecayRatio : activeDecayRatio;
 
     // 4. Sample-Rate-Invariant Spectral Features (Hz Crossovers + 44.1 kHz Reference ZCR & HF Ratio)
     const int specLen = std::min(activeLen, std::max(128, static_cast<int>(sampleRate * 1.5)));
@@ -774,138 +1011,11 @@ static void analyzeAudioData(juce::AudioFormatReader* reader, MediaItem& item)
         }
     }
 
-    // 6. Sample-Rate-Invariant Loop BPM Autocorrelation (4.5s window captures 60..200 BPM reliably)
-    if (item.bpm <= 0.0 && isLoop && duration >= 1.0)
+    // 6. Apply pre-computed Loop BPM Autocorrelation when no filename/chunk BPM was present
+    if (item.bpm <= 0.0 && isLoop && estimatedBpm >= 60.0 && estimatedBpm <= 200.0)
     {
-        double estimatedBpm = 0.0;
-
-        // Constant ~5.8 ms envelope frame size across all sample rates (256 @ 44.1k, 279 @ 48k, 557 @ 96k)
-        const int envBlockSize = std::max(64, juce::roundToInt(sampleRate / 172.265625));
-        const int numEnvBlocks = maxSamplesToRead / envBlockSize;
-        if (numEnvBlocks > 36)
-        {
-            std::vector<float> env(static_cast<size_t>(numEnvBlocks), 0.0f);
-            for (int b = 0; b < numEnvBlocks; ++b)
-            {
-                float bMax = 0.0f;
-                int start = b * envBlockSize;
-                int end = std::min(maxSamplesToRead, (b + 1) * envBlockSize);
-                for (int i = start; i < end; ++i)
-                {
-                    float val = std::abs(mono[static_cast<size_t>(i)]);
-                    if (val > bMax) bMax = val;
-                }
-                env[static_cast<size_t>(b)] = bMax / maxVal; // Peak-normalized envelope for gain invariance
-            }
-
-            std::vector<float> onsets(static_cast<size_t>(numEnvBlocks), 0.0f);
-            int onsetCount = 0;
-            for (int i = 1; i < numEnvBlocks; ++i)
-            {
-                float diff = std::max(0.0f, env[static_cast<size_t>(i)] - env[static_cast<size_t>(i - 1)]);
-                onsets[static_cast<size_t>(i)] = diff;
-                if (diff > 0.075f) ++onsetCount;
-            }
-
-            if (onsetCount >= 3)
-            {
-                const double fsEnv = sampleRate / static_cast<double>(envBlockSize);
-                int minLag = std::max(2, static_cast<int>(60.0 * fsEnv / 200.0));
-                int maxLag = std::min(numEnvBlocks - 2, static_cast<int>(60.0 * fsEnv / 60.0));
-
-                if (maxLag > minLag + 2)
-                {
-                    std::vector<double> rValues(static_cast<size_t>(maxLag + 2), 0.0);
-                    double maxR = -1.0;
-                    int bestLag = 0;
-
-                    for (int lag = minLag; lag <= maxLag; ++lag)
-                    {
-                        double sumXY = 0.0, sumX2 = 0.0, sumY2 = 0.0;
-                        int count = 0;
-                        for (int i = lag; i < numEnvBlocks; ++i)
-                        {
-                            float x = onsets[static_cast<size_t>(i)];
-                            float y = onsets[static_cast<size_t>(i - lag)];
-                            sumXY += static_cast<double>(x) * y;
-                            sumX2 += static_cast<double>(x) * x;
-                            sumY2 += static_cast<double>(y) * y;
-                            ++count;
-                        }
-
-                        if (count >= 16 && sumX2 > 1e-9 && sumY2 > 1e-9)
-                        {
-                            double r = sumXY / std::sqrt(sumX2 * sumY2);
-                            rValues[static_cast<size_t>(lag)] = r;
-                            if (r > maxR)
-                            {
-                                maxR = r;
-                                bestLag = lag;
-                            }
-                        }
-                    }
-
-                    if (bestLag > minLag && bestLag < maxLag && maxR >= 0.36)
-                    {
-                        double y1 = rValues[static_cast<size_t>(bestLag - 1)];
-                        double y2 = rValues[static_cast<size_t>(bestLag)];
-                        double y3 = rValues[static_cast<size_t>(bestLag + 1)];
-                        double denom = (y1 - 2.0 * y2 + y3);
-                        double delta = 0.0;
-                        if (std::abs(denom) > 1e-7)
-                        {
-                            delta = juce::jlimit(-0.5, 0.5, (y1 - y3) / (2.0 * denom));
-                        }
-
-                        double refinedLag = static_cast<double>(bestLag) + delta;
-                        double dspBpm = (60.0 * fsEnv) / refinedLag;
-
-                        if (dspBpm < 75.0)
-                        {
-                            int doubleLag = juce::roundToInt(bestLag / 2.0);
-                            if (doubleLag >= minLag && rValues[static_cast<size_t>(doubleLag)] > maxR * 0.68)
-                                dspBpm *= 2.0;
-                        }
-                        else if (dspBpm > 175.0)
-                        {
-                            int halfLag = juce::roundToInt(bestLag * 2.0);
-                            if (halfLag <= maxLag && rValues[static_cast<size_t>(halfLag)] > maxR * 0.68)
-                                dspBpm /= 2.0;
-                        }
-
-                        double nearestInt = std::round(dspBpm);
-                        if (std::abs(dspBpm - nearestInt) < 0.35)
-                            dspBpm = nearestInt;
-                        else
-                            dspBpm = std::round(dspBpm * 10.0) / 10.0;
-
-                        double bestBarBpm = 0.0;
-                        const int candidateBeats[] = { 4, 8, 16, 32, 64 };
-                        for (int b : candidateBeats)
-                        {
-                            double testBpm = (60.0 * b) / duration;
-                            if (std::abs(testBpm - dspBpm) < 2.5)
-                            {
-                                double roundedBar = std::round(testBpm);
-                                if (std::abs(testBpm - roundedBar) < 0.25)
-                                {
-                                    bestBarBpm = roundedBar;
-                                    break;
-                                }
-                            }
-                        }
-
-                        estimatedBpm = (bestBarBpm > 0.0) ? bestBarBpm : dspBpm;
-                    }
-                }
-            }
-        }
-
-        if (estimatedBpm >= 60.0 && estimatedBpm <= 200.0)
-        {
-            item.bpm = estimatedBpm;
-            item.tags.insert("#" + juce::String(juce::roundToInt(estimatedBpm)) + "BPM");
-        }
+        item.bpm = estimatedBpm;
+        item.tags.insert("#" + juce::String(juce::roundToInt(estimatedBpm)) + "BPM");
     }
 
     // 7. Acoustic DSP Character Tagging
@@ -947,6 +1057,9 @@ MediaItem LibraryScanner::processAudioFile(const juce::File& file, juce::AudioFo
     // 1. Parse audio or MIDI header metadata FIRST
     bool headerParsed = false;
     bool isMidiFile = (item.fileExtension == ".mid" || item.fileExtension == ".midi");
+    int metadataLoopHint = 0; // 0 = unknown, 1 = Loop, 2 = One-Shot
+    double embeddedHeaderBpm = 0.0;
+
     if (isMidiFile)
     {
         juce::FileInputStream fis(file);
@@ -969,7 +1082,8 @@ MediaItem LibraryScanner::processAudioFile(const juce::File& file, juce::AudioFo
     }
     else if (item.fileExtension == ".aif" || item.fileExtension == ".aiff" || item.fileExtension == ".aifc")
     {
-        if (parseAiffHeaderFast(file, item.sampleRate, item.numChannels, item.bitDepth, item.durationSeconds))
+        if (parseAiffHeaderFast(file, item.sampleRate, item.numChannels, item.bitDepth, item.durationSeconds,
+                                metadataLoopHint, embeddedHeaderBpm))
             headerParsed = true;
     }
 
@@ -990,11 +1104,77 @@ MediaItem LibraryScanner::processAudioFile(const juce::File& file, juce::AudioFo
         }
     }
 
-    // 2. Extract BPM from filename or parent folder path as authoritative ground truth
+    // 1b. Extract embedded WAV / AIFF / Broadcast loop & tempo metadata chunks (acid, smpl, iXML/ASWG, Tracktion)
+    if (reader != nullptr)
+    {
+        const auto& meta = reader->metadataValues;
+        if (meta.containsKey(juce::WavAudioFormat::acidOneShot))
+        {
+            const auto val = meta.getValue(juce::WavAudioFormat::acidOneShot, "").trim();
+            if (val == "1" || val.equalsIgnoreCase("true"))
+                metadataLoopHint = 2; // Explicit Acid One-Shot
+            else if (val == "0" || val.equalsIgnoreCase("false"))
+                metadataLoopHint = 1; // Explicit Acid Loop
+        }
+        if (metadataLoopHint == 0 && meta.getValue(juce::WavAudioFormat::acidBeats, "0").getIntValue() > 0)
+        {
+            metadataLoopHint = 1;
+        }
+
+        const double acidBpm = meta.getValue(juce::WavAudioFormat::acidTempo, "0").getDoubleValue();
+        if (embeddedHeaderBpm <= 0.0 && metadataLoopHint != 2 && acidBpm >= 40.0 && acidBpm <= 260.0)
+            embeddedHeaderBpm = std::round(acidBpm * 10.0) / 10.0;
+
+        if (metadataLoopHint == 0 && meta.containsKey(juce::WavAudioFormat::aswgIsLoop))
+        {
+            const auto v = meta.getValue(juce::WavAudioFormat::aswgIsLoop, "").trim();
+            if (v == "1" || v.equalsIgnoreCase("true") || v.equalsIgnoreCase("yes"))
+                metadataLoopHint = 1;
+            else if (v == "0" || v.equalsIgnoreCase("false") || v.equalsIgnoreCase("no"))
+                metadataLoopHint = 2;
+        }
+
+        const double aswgBpm = meta.getValue(juce::WavAudioFormat::aswgTempo, "0").getDoubleValue();
+        if (embeddedHeaderBpm <= 0.0 && metadataLoopHint != 2 && aswgBpm >= 40.0 && aswgBpm <= 260.0)
+            embeddedHeaderBpm = std::round(aswgBpm * 10.0) / 10.0;
+
+        if (metadataLoopHint == 0 && meta.getValue(juce::WavAudioFormat::tracktionLoopInfo, "").trim().isNotEmpty())
+        {
+            metadataLoopHint = 1;
+        }
+
+        if (metadataLoopHint == 0)
+        {
+            const int numSampleLoops = meta.getValue("NumSampleLoops", "0").getIntValue();
+            if (numSampleLoops > 0 && reader->lengthInSamples > 0)
+            {
+                const juce::int64 loopStart = meta.getValue("Loop0Start", "0").getLargeIntValue();
+                const juce::int64 loopEnd   = meta.getValue("Loop0End", "0").getLargeIntValue();
+                const juce::int64 loopSpan  = loopEnd - loopStart;
+                const double totalLen = static_cast<double>(reader->lengthInSamples);
+                if (item.durationSeconds >= 0.65 &&
+                    loopSpan >= static_cast<juce::int64>(totalLen * 0.75) &&
+                    loopStart <= static_cast<juce::int64>(totalLen * 0.15))
+                {
+                    metadataLoopHint = 1; // Full-phrase sampler loop
+                }
+                else if (loopSpan > 0)
+                {
+                    metadataLoopHint = 2; // Single-cycle wave or mid-sample instrument sustain loop -> One-Shot
+                }
+            }
+        }
+    }
+
+    // 2. Extract BPM from filename, parent folder path, or embedded header chunk
     double fnBpm = TagDatabaseManager::extractBpmFromFilename(file.getFileNameWithoutExtension());
     if (fnBpm <= 0.0)
     {
         fnBpm = TagDatabaseManager::extractBpmFromFilename(file.getParentDirectory().getFileName());
+    }
+    if (fnBpm <= 0.0 && embeddedHeaderBpm >= 40.0 && embeddedHeaderBpm <= 260.0)
+    {
+        fnBpm = embeddedHeaderBpm;
     }
 
     if (fnBpm >= 40.0 && fnBpm <= 260.0)
@@ -1010,10 +1190,20 @@ MediaItem LibraryScanner::processAudioFile(const juce::File& file, juce::AudioFo
         item.tags.insert(t);
     }
 
+    if (metadataLoopHint == 1)
+    {
+        item.tags.insert("#Loop");
+        item.tags.erase("#OneShot");
+    }
+    else if (metadataLoopHint == 2 && item.tags.find("#Loop") == item.tags.end())
+    {
+        item.tags.insert("#OneShot");
+    }
+
     // 4. Run sample-rate-invariant multi-band DSP classifier and loop BPM estimation
     if (reader != nullptr)
     {
-        analyzeAudioData(reader.get(), item);
+        analyzeAudioData(reader.get(), item, metadataLoopHint);
     }
 
     // 5. Final conflict sanitization & BPM synchronization

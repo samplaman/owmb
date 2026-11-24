@@ -292,6 +292,9 @@ public:
     void togglePlay();
     void toggleLoop();
     std::function<void()> onStopped;
+    std::function<void(const juce::File&)> onMidiFileAudition;
+    std::function<bool(const juce::File&)> isMidiFileCurrentlyPlaying;
+    std::function<double()> getMidiAuditionProgressRatio;
     
     void updateVoiceRatios();
 

@@ -78,6 +78,7 @@ public:
     double getMidiPlaybackTimeSeconds() const { return midiPlayTimeAtomic.load(std::memory_order_relaxed); }
     double getMidiFileDurationSeconds() const { return midiFileDurationAtomic.load(std::memory_order_relaxed); }
     juce::String getLoadedMidiFileName() const;
+    juce::String getLoadedMidiFilePath() const;
     std::vector<MidiDisplayNote> getMidiDisplayNotes() const;
 
     // MIDI Learn (CC Mapping for Performance Rack)
@@ -126,6 +127,7 @@ private:
     std::atomic<double> midiPlayTimeAtomic { 0.0 };
     std::atomic<double> midiFileDurationAtomic { 0.0 };
     juce::String loadedMidiFileName;
+    juce::String loadedMidiFilePath;
     std::vector<MidiDisplayNote> midiDisplayNotes;
     std::atomic<bool> midiPlaybackActive { false };
 

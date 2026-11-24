@@ -18,6 +18,7 @@
 #include <atomic>
 #include <mutex>
 #include <vector>
+#include <map>
 #include <set>
 #include <utility>
 #include "../Models/MediaItem.h"
@@ -261,6 +262,13 @@ private:
     void updateSimilarStack();
     void drawMiniWaveform(juce::Graphics& g, const juce::Rectangle<float>& bounds,
                           const MediaItem& item, juce::Colour waveColour);
+
+    struct MiniMidiNote {
+        float startNorm { 0.0f };
+        float endNorm { 0.08f };
+        float pitchNorm { 0.5f };
+    };
+    std::map<juce::String, std::vector<MiniMidiNote>> miniMidiCache;
 
     bool showSimilarStack { false };
     std::vector<SimilarItemEntry> similarAbove;

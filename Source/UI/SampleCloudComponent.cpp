@@ -40,6 +40,8 @@ juce::String SampleCloudComponent::getAtlasCategoryName(const juce::String& tag)
 }
 
 juce::String SampleCloudComponent::getCanonicalAtlasCategory(const MediaItem& item) {
+    if (item.fileExtension.equalsIgnoreCase(".mid") || item.fileExtension.equalsIgnoreCase(".midi"))
+        return "midi";
     return TagDatabaseManager::getCanonicalCategoryForItem(item);
 }
 
@@ -1113,6 +1115,100 @@ void SampleCloudComponent::drawMiniWaveform(juce::Graphics &g, const juce::Recta
   if (bounds.getWidth() < 4.0f || bounds.getHeight() < 4.0f)
     return;
 
+  if (item.fileExtension.equalsIgnoreCase(".mid") || item.fileExtension.equalsIgnoreCase(".midi")) {
+    auto it = miniMidiCache.find(item.filePath);
+    if (it == miniMidiCache.end()) {
+      if (miniMidiCache.size() > 128)
+        miniMidiCache.clear();
+      std::vector<MiniMidiNote> parsed;
+      juce::File mfFile(item.filePath);
+      juce::FileInputStream fis(mfFile);
+      if (fis.openedOk()) {
+        juce::MidiFile mf;
+        if (mf.readFrom(fis)) {
+          mf.convertTimestampTicksToSeconds();
+          juce::MidiMessageSequence merged;
+          for (int t = 0; t < mf.getNumTracks(); ++t) {
+            if (const auto *trk = mf.getTrack(t))
+              merged.addSequence(*trk, 0.0);
+          }
+          merged.updateMatchedPairs();
+          merged.sort();
+          double maxEnd = std::max(0.25, merged.getEndTime());
+          int minN = 127, maxN = 0;
+          struct RawNote { double s; double e; int n; };
+          std::vector<RawNote> raw;
+          for (int i = 0; i < merged.getNumEvents() && raw.size() < 96; ++i) {
+            const auto *ev = merged.getEventPointer(i);
+            if (ev != nullptr && ev->message.isNoteOn()) {
+              double s = ev->message.getTimeStamp();
+              double e = merged.getTimeOfMatchingKeyUp(i);
+              if (e <= s) e = s + 0.12;
+              if (e > maxEnd) maxEnd = e;
+              int nn = ev->message.getNoteNumber();
+              minN = std::min(minN, nn);
+              maxN = std::max(maxN, nn);
+              raw.push_back({ s, e, nn });
+            }
+          }
+          if (maxN - minN < 8) {
+            int c = (minN + maxN) / 2;
+            minN = juce::jlimit(0, 118, c - 4);
+            maxN = minN + 8;
+          }
+          const float span = static_cast<float>(std::max(1, maxN - minN));
+          parsed.reserve(raw.size());
+          for (const auto &rn : raw) {
+            parsed.push_back({
+              juce::jlimit(0.0f, 1.0f, static_cast<float>(rn.s / maxEnd)),
+              juce::jlimit(0.0f, 1.0f, static_cast<float>(rn.e / maxEnd)),
+              juce::jlimit(0.0f, 1.0f, static_cast<float>(rn.n - minN) / span)
+            });
+          }
+        }
+      }
+      it = miniMidiCache.emplace(item.filePath, std::move(parsed)).first;
+    }
+
+    const auto &notes = it->second;
+    const auto inner = bounds.reduced(2.0f, 2.0f);
+    const bool isPlayingMidi = audioEngine.isMidiFileCurrentlyPlaying &&
+                               audioEngine.isMidiFileCurrentlyPlaying(juce::File(item.filePath));
+    const float prog = (isPlayingMidi && audioEngine.getMidiAuditionProgressRatio)
+                           ? static_cast<float>(audioEngine.getMidiAuditionProgressRatio())
+                           : -1.0f;
+
+    g.setColour(waveColour.withAlpha(0.16f));
+    g.drawHorizontalLine(juce::roundToInt(inner.getCentreY()), inner.getX(), inner.getRight());
+
+    if (notes.empty()) {
+      g.setFont(juce::Font(9.5f, juce::Font::bold));
+      g.setColour(waveColour.withAlpha(0.75f));
+      g.drawText("MIDI", inner, juce::Justification::centred, false);
+      return;
+    }
+
+    const float barH = juce::jlimit(2.0f, 4.0f, inner.getHeight() * 0.22f);
+    for (const auto &n : notes) {
+      float nx0 = inner.getX() + n.startNorm * inner.getWidth();
+      float nx1 = inner.getX() + n.endNorm * inner.getWidth();
+      float nw = std::max(2.2f, nx1 - nx0);
+      float ny = inner.getBottom() - barH - n.pitchNorm * std::max(1.0f, inner.getHeight() - barH);
+      if (isPlayingMidi && n.startNorm <= prog)
+        g.setColour(OpenWavLookAndFeel::accentCyan);
+      else
+        g.setColour(waveColour.withAlpha(0.88f));
+      g.fillRoundedRectangle(nx0, ny, nw, barH, 1.0f);
+    }
+
+    if (isPlayingMidi && prog >= 0.0f) {
+      float px = inner.getX() + prog * inner.getWidth();
+      g.setColour(OpenWavLookAndFeel::accentCyan.brighter(0.4f));
+      g.drawLine(px, bounds.getY() + 1.0f, px, bounds.getBottom() - 1.0f, 1.4f);
+    }
+    return;
+  }
+
   const float midY = bounds.getCentreY();
   const float halfH = (bounds.getHeight() * 0.5f) - 0.8f;
   const float w = bounds.getWidth();
@@ -1710,7 +1806,10 @@ void SampleCloudComponent::paintOverlay(juce::Graphics &g) {
       float pcx = playButtonBounds.getCentreX();
       float pcy = playButtonBounds.getCentreY();
       g.setColour(neutralHoverWhite);
-      if (audioEngine.isPlaying() && audioEngine.getCurrentFile() == juce::File(selItem.filePath)) {
+      const bool isSelPlaying =
+          (audioEngine.isPlaying() && audioEngine.getCurrentFile() == juce::File(selItem.filePath)) ||
+          (audioEngine.isMidiFileCurrentlyPlaying && audioEngine.isMidiFileCurrentlyPlaying(juce::File(selItem.filePath)));
+      if (isSelPlaying) {
         g.fillRect(pcx - 4.5f, pcy - 5.0f, 3.0f, 10.0f);
         g.fillRect(pcx + 1.5f, pcy - 5.0f, 3.0f, 10.0f);
       } else {
@@ -1893,7 +1992,10 @@ void SampleCloudComponent::paintOverlay(juce::Graphics &g) {
       float pcx = playButtonBounds.getCentreX();
       float pcy = playButtonBounds.getCentreY();
       g.setColour(neutralHoverWhite);
-      if (audioEngine.isPlaying() && audioEngine.getCurrentFile() == juce::File(selItem.filePath)) {
+      const bool isSelPlaying =
+          (audioEngine.isPlaying() && audioEngine.getCurrentFile() == juce::File(selItem.filePath)) ||
+          (audioEngine.isMidiFileCurrentlyPlaying && audioEngine.isMidiFileCurrentlyPlaying(juce::File(selItem.filePath)));
+      if (isSelPlaying) {
         g.fillRect(pcx - 4.5f, pcy - 5.0f, 3.0f, 10.0f);
         g.fillRect(pcx + 1.5f, pcy - 5.0f, 3.0f, 10.0f);
       } else {
@@ -2352,7 +2454,10 @@ void SampleCloudComponent::mouseDown(const juce::MouseEvent &e) {
       if (playButtonBounds.expanded(3.0f).contains(e.position)) {
         auto &item = nodes[selectedNodeIndex].item;
         juce::File targetFile(item.filePath);
-        if (audioEngine.isPlaying() && audioEngine.getCurrentFile() == targetFile) {
+        const bool isTargetPlaying =
+            (audioEngine.isPlaying() && audioEngine.getCurrentFile() == targetFile) ||
+            (audioEngine.isMidiFileCurrentlyPlaying && audioEngine.isMidiFileCurrentlyPlaying(targetFile));
+        if (isTargetPlaying) {
           audioEngine.stop();
         } else {
           audioEngine.auditionFile(targetFile);
@@ -2943,11 +3048,15 @@ void SampleCloudComponent::removeListener(SampleCloudListener *listener) {
 
 juce::String SampleCloudComponent::getPrimaryCategoryTag(
     const std::set<juce::String> &tags) const {
+  if (tags.find("MIDI") != tags.end())
+    return "MIDI";
   return TagDatabaseManager::getPrimaryCategoryTag(tags);
 }
 
 juce::Colour
 SampleCloudComponent::getColourForTag(const juce::String &tag) const {
+  if (tag.equalsIgnoreCase("MIDI") || tag.equalsIgnoreCase("#MIDI"))
+    return juce::Colour(0xff38bdf8); // Neon Sky Blue (#38BDF8)
   juce::String cat = TagDatabaseManager::getCanonicalCategory(tag);
 
   if (cat == "kick")              return juce::Colour(0xffff1493); // Vivid Neon Hot Pink (#FF1493)

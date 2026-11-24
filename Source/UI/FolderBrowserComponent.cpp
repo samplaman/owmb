@@ -1639,6 +1639,19 @@ void FolderBrowserComponent::showSampleContextMenu(size_t itemIdx, int rowNumber
         ratingMenu.addItem(10 + r, (r == 0) ? "No Rating" : juce::String(r) + " Stars", true, r == item.rating);
     menu.addSubMenu("Set Rating", ratingMenu);
 
+    if (item.fileExtension != ".mid" && item.fileExtension != ".midi")
+    {
+        juce::PopupMenu sampleTypeMenu;
+        sampleTypeMenu.addItem(21, "Loop", true, item.isLoopSample());
+        sampleTypeMenu.addItem(22, "One-Shot", true, item.isOneShotSample());
+        if (item.sampleTypeOverride != 0)
+        {
+            sampleTypeMenu.addSeparator();
+            sampleTypeMenu.addItem(20, "Reset to Auto-Detected");
+        }
+        menu.addSubMenu("Set Sample Type", sampleTypeMenu);
+    }
+
     menu.addSeparator();
     menu.addItem(2, "Add Custom Tag...");
 
@@ -1675,6 +1688,10 @@ void FolderBrowserComponent::showSampleContextMenu(size_t itemIdx, int rowNumber
             }
             dbManager.setRating(item.id, newRating);
             listBox.repaintRow(rowNumber);
+        }
+        else if (result >= 20 && result <= 22)
+        {
+            dbManager.setSampleTypeOverride(item.id, result - 20);
         }
         else if (result == 2)
         {

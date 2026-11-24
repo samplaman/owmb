@@ -61,7 +61,7 @@ SampleTableComponent::SampleTableComponent(TagDatabaseManager& db, AudioEngine& 
     clearSimilarityButton.onClick = [this] {
         similarityTargetId = "";
         similarityTargetName = "";
-        updateFilter(currentKeyword, currentSelectedTags, currentMatchAll, currentExtFilter, currentFavOnly);
+        updateFilter(currentKeyword, currentSelectedTags, currentMatchAll, currentExtFilter, currentFavOnly, currentSampleTypeFilter);
     };
     addChildComponent(clearSimilarityButton);
 
@@ -345,13 +345,15 @@ void SampleTableComponent::updateFilter(const juce::String& searchKeyword,
                                          const std::set<juce::String>& selectedTags,
                                          bool matchAllTags,
                                          const juce::String& extensionFilter,
-                                         bool favoritesOnly)
+                                         bool favoritesOnly,
+                                         SampleTypeFilter sampleTypeFilter)
 {
     if (currentKeyword != searchKeyword ||
         currentSelectedTags != selectedTags ||
         currentMatchAll != matchAllTags ||
         currentExtFilter != extensionFilter ||
-        currentFavOnly != favoritesOnly)
+        currentFavOnly != favoritesOnly ||
+        currentSampleTypeFilter != sampleTypeFilter)
     {
         similarityTargetId = "";
     }
@@ -361,8 +363,9 @@ void SampleTableComponent::updateFilter(const juce::String& searchKeyword,
     currentMatchAll = matchAllTags;
     currentExtFilter = extensionFilter;
     currentFavOnly = favoritesOnly;
+    currentSampleTypeFilter = sampleTypeFilter;
 
-    allFilteredItems = dbManager.getFilteredItems(currentKeyword, currentSelectedTags, currentMatchAll, currentExtFilter, currentFavOnly);
+    allFilteredItems = dbManager.getFilteredItems(currentKeyword, currentSelectedTags, currentMatchAll, currentExtFilter, currentFavOnly, currentSampleTypeFilter);
 
     if (similarityTargetId.isNotEmpty())
     {
@@ -1037,6 +1040,21 @@ void SampleTableComponent::showContextMenuForRow(int rowNumber)
     }
     menu.addSubMenu("Set Rating", ratingMenu);
 
+    if (item.fileExtension != ".mid" && item.fileExtension != ".midi")
+    {
+        juce::PopupMenu sampleTypeMenu;
+        const bool isLoopNow = item.isLoopSample();
+        const bool isOneShotNow = item.isOneShotSample();
+        sampleTypeMenu.addItem(21, "Loop", true, isLoopNow);
+        sampleTypeMenu.addItem(22, "One-Shot", true, isOneShotNow);
+        if (item.sampleTypeOverride != 0)
+        {
+            sampleTypeMenu.addSeparator();
+            sampleTypeMenu.addItem(20, "Reset to Auto-Detected");
+        }
+        menu.addSubMenu("Set Sample Type", sampleTypeMenu);
+    }
+
     menu.addSeparator();
     menu.addItem(2, "Add Custom Tag...");
     
@@ -1110,10 +1128,14 @@ void SampleTableComponent::showContextMenuForRow(int rowNumber)
                 dbManager.removeTagFromItem(item.id, *it);
             }
         }
+        else if (result >= 20 && result <= 22) // Set Sample Type (Auto / Loop / One-Shot)
+        {
+            dbManager.setSampleTypeOverride(item.id, result - 20);
+        }
         else if (result == 3) // Find Similar Sounds
         {
             similarityTargetId = item.id;
-            updateFilter(currentKeyword, currentSelectedTags, currentMatchAll, currentExtFilter, currentFavOnly);
+            updateFilter(currentKeyword, currentSelectedTags, currentMatchAll, currentExtFilter, currentFavOnly, currentSampleTypeFilter);
         }
         else if (result == 4) // Reveal in Finder
         {
@@ -1193,7 +1215,7 @@ void SampleTableComponent::libraryIndexUpdated()
     juce::Component::SafePointer<SampleTableComponent> safeThis(this);
     juce::MessageManager::callAsync([safeThis] {
         if (safeThis != nullptr)
-            safeThis->updateFilter(safeThis->currentKeyword, safeThis->currentSelectedTags, safeThis->currentMatchAll, safeThis->currentExtFilter, safeThis->currentFavOnly);
+            safeThis->updateFilter(safeThis->currentKeyword, safeThis->currentSelectedTags, safeThis->currentMatchAll, safeThis->currentExtFilter, safeThis->currentFavOnly, safeThis->currentSampleTypeFilter);
     });
 }
 
@@ -1202,7 +1224,7 @@ void SampleTableComponent::tagsUpdated()
     juce::Component::SafePointer<SampleTableComponent> safeThis(this);
     juce::MessageManager::callAsync([safeThis] {
         if (safeThis != nullptr)
-            safeThis->updateFilter(safeThis->currentKeyword, safeThis->currentSelectedTags, safeThis->currentMatchAll, safeThis->currentExtFilter, safeThis->currentFavOnly);
+            safeThis->updateFilter(safeThis->currentKeyword, safeThis->currentSelectedTags, safeThis->currentMatchAll, safeThis->currentExtFilter, safeThis->currentFavOnly, safeThis->currentSampleTypeFilter);
     });
 }
 

@@ -1788,6 +1788,23 @@ void AudioEngine::restartPlayback()
 
 void AudioEngine::auditionFile(const juce::File& audioFile)
 {
+    if (audioFile.hasFileExtension("mid;midi"))
+    {
+        cancelPendingHoverAudition();
+        ++currentLoadId;
+        loadInProgress.store(false, std::memory_order_release);
+        EngineCommand cmd;
+        cmd.type = EngineCommandType::Stop;
+        pushCommand(cmd);
+        lastNotifiedPlayingState = false;
+        listeners.call([](AudioEngineListener& l) { l.playbackStateChanged(false); });
+        if (onMidiFileAudition)
+            onMidiFileAudition(audioFile);
+        return;
+    }
+
+    if (onStopped)
+        onStopped();
     loadFile(audioFile, true, false);
 }
 
@@ -1804,6 +1821,22 @@ void AudioEngine::auditionHover(const juce::File& audioFile)
     const juce::String filePath = audioFile.getFullPathName();
     if (isShuttingDown.load(std::memory_order_acquire) || filePath.isEmpty())
         return;
+
+    if (audioFile.hasFileExtension("mid;midi"))
+    {
+        cancelPendingHoverAudition();
+        EngineCommand cmd;
+        cmd.type = EngineCommandType::Stop;
+        pushCommand(cmd);
+        lastNotifiedPlayingState = false;
+        listeners.call([](AudioEngineListener& l) { l.playbackStateChanged(false); });
+        if (onMidiFileAudition)
+            onMidiFileAudition(audioFile);
+        return;
+    }
+
+    if (onStopped)
+        onStopped();
 
     isLoadedInSampler.store(false, std::memory_order_relaxed);
     sampleStartRatioAtomic.store(0.0, std::memory_order_relaxed);

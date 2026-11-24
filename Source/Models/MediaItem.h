@@ -13,6 +13,13 @@
 namespace openwav
 {
 
+enum class SampleTypeFilter
+{
+    All = 0,
+    Loops = 1,
+    OneShots = 2
+};
+
 struct MediaItem
 {
     juce::String id;                 // Unique identifier (hash of canonical path)
@@ -34,7 +41,35 @@ struct MediaItem
     double highFreqRatio { 0.0 };    // High frequency ratio
     double decayRatio { 0.0 };       // Decay ratio
     double crestFactor { 0.0 };      // Crest factor
+    int sampleTypeOverride { 0 };    // 0 = Auto, 1 = Force Loop, 2 = Force One-Shot
     std::vector<float> embedding;    // 64-dim acoustic-semantic embedding
+
+    bool isLoopSample() const
+    {
+        if (fileExtension == ".mid" || fileExtension == ".midi")
+            return false;
+        if (sampleTypeOverride == 1) return true;
+        if (sampleTypeOverride == 2) return false;
+        return tags.find("#Loop") != tags.end() ||
+               tags.find("#DrumLoop") != tags.end() ||
+               tags.find("#TopLoop") != tags.end() ||
+               tags.find("#PercLoop") != tags.end() ||
+               tags.find("#BassLoop") != tags.end() ||
+               tags.find("#MelodicLoop") != tags.end() ||
+               tags.find("#VocalLoop") != tags.end();
+    }
+
+    bool isOneShotSample() const
+    {
+        if (fileExtension == ".mid" || fileExtension == ".midi")
+            return false;
+        if (tags.find("#Silent") != tags.end() && sampleTypeOverride == 0)
+            return false;
+        if (sampleTypeOverride == 2) return true;
+        if (sampleTypeOverride == 1) return false;
+        if (isLoopSample()) return false;
+        return tags.find("#OneShot") != tags.end() || durationSeconds > 0.0;
+    }
 
     struct CachedTag
     {
@@ -103,6 +138,8 @@ struct MediaItem
         obj->setProperty("highFreqRatio", highFreqRatio);
         obj->setProperty("decayRatio", decayRatio);
         obj->setProperty("crestFactor", crestFactor);
+        if (sampleTypeOverride != 0)
+            obj->setProperty("sampleTypeOverride", sampleTypeOverride);
 
         juce::Array<juce::var> tagArray;
         for (const auto& tag : tags)
@@ -147,6 +184,8 @@ struct MediaItem
         item.highFreqRatio = static_cast<double>(obj->getProperty("highFreqRatio"));
         item.decayRatio = static_cast<double>(obj->getProperty("decayRatio"));
         item.crestFactor = static_cast<double>(obj->getProperty("crestFactor"));
+        if (obj->hasProperty("sampleTypeOverride"))
+            item.sampleTypeOverride = static_cast<int>(obj->getProperty("sampleTypeOverride"));
 
         if (obj->hasProperty("tags"))
         {

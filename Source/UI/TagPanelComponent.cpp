@@ -107,10 +107,23 @@ TagPanelComponent::TagPanelComponent(TagDatabaseManager& db)
         selectedTags.clear();
         favoritesOnly = false;
         favoritesButton.setToggleState(false, juce::dontSendNotification);
+        setSampleTypeFilter(SampleTypeFilter::All, true);
         refreshTags();
         notifySelectionChanged();
     };
     addAndMakeVisible(clearFiltersButton);
+
+    // Loop / One-Shot quick segmented filter buttons
+    auto setupTypeBtn = [this](juce::TextButton& btn, SampleTypeFilter mode, const juce::String& tip) {
+        btn.setTooltip(tip);
+        btn.onClick = [this, mode] { setSampleTypeFilter(mode, true); };
+        addAndMakeVisible(btn);
+    };
+    setupTypeBtn(typeAllButton, SampleTypeFilter::All, "Show both Loops and One-Shots");
+    setupTypeBtn(typeLoopsButton, SampleTypeFilter::Loops, "Filter to Loops only");
+    setupTypeBtn(typeOneShotsButton, SampleTypeFilter::OneShots, "Filter to One-Shots only");
+    typeAllButton.setToggleState(true, juce::dontSendNotification);
+    OpenWavLookAndFeel::groupButtons({ &typeAllButton, &typeLoopsButton, &typeOneShotsButton });
 
     // Match mode toggle (AND / OR)
     matchModeToggle.onClick = [this] {
@@ -193,6 +206,7 @@ void TagPanelComponent::clearAllFiltersAndSelection()
     selectedTags.clear();
     favoritesOnly = false;
     favoritesButton.setToggleState(false, juce::dontSendNotification);
+    setSampleTypeFilter(SampleTypeFilter::All, false);
     refreshTags();
     notifySelectionChanged();
 }
@@ -219,6 +233,7 @@ void TagPanelComponent::paint(juce::Graphics& g)
     g.drawRect(getLocalBounds().removeFromRight(1));
 
     OpenWavLookAndFeel::drawButtonGroup(g, { &favoritesButton, &clearFiltersButton, &addCustomTagButton, &autoTagButton });
+    OpenWavLookAndFeel::drawButtonGroup(g, { &typeAllButton, &typeLoopsButton, &typeOneShotsButton });
 
     if (isAutoTagging)
     {
@@ -388,17 +403,29 @@ void TagPanelComponent::resized()
     filterHeaderLabel.setBounds(area.removeFromTop(16));
     area.removeFromTop(4);
 
-    // Quick Filters Row (Favorites, Clear, Add Tag, Auto-Tag)
-    auto filterRow = area.removeFromTop(28);
-    int iconW = 32;
+    // Quick Filters Row (Favorites, Clear, Add Tag, Auto-Tag) — stretches full width
+    auto filterRow = area.removeFromTop(28).reduced(3, 0);
+    int qGap = 6;
+    int iconW = std::max(28, (filterRow.getWidth() - 3 * qGap) / 4);
     favoritesButton.setBounds(filterRow.removeFromLeft(iconW));
-    filterRow.removeFromLeft(6);
+    filterRow.removeFromLeft(qGap);
     clearFiltersButton.setBounds(filterRow.removeFromLeft(iconW));
-    filterRow.removeFromLeft(6);
+    filterRow.removeFromLeft(qGap);
     addCustomTagButton.setBounds(filterRow.removeFromLeft(iconW));
-    filterRow.removeFromLeft(6);
-    autoTagButton.setBounds(filterRow.removeFromLeft(iconW));
-    area.removeFromTop(6);
+    filterRow.removeFromLeft(qGap);
+    autoTagButton.setBounds(filterRow);
+    area.removeFromTop(8);
+
+    // Loop / One-Shot Segmented Filter Row — stretches full width
+    auto typeRow = area.removeFromTop(24).reduced(3, 0);
+    int segGap = 4;
+    int segW = std::max(36, (typeRow.getWidth() - 2 * segGap) / 3);
+    typeAllButton.setBounds(typeRow.removeFromLeft(segW));
+    typeRow.removeFromLeft(segGap);
+    typeLoopsButton.setBounds(typeRow.removeFromLeft(segW));
+    typeRow.removeFromLeft(segGap);
+    typeOneShotsButton.setBounds(typeRow);
+    area.removeFromTop(8);
 
     matchModeToggle.setBounds(area.removeFromTop(20));
     area.removeFromTop(10);
@@ -458,6 +485,21 @@ void TagPanelComponent::notifySelectionChanged()
     listeners.call([this](TagPanelListener& l) {
         l.tagFilterSelectionChanged(selectedTags, matchAll, favoritesOnly);
     });
+}
+
+void TagPanelComponent::setSampleTypeFilter(SampleTypeFilter filter, bool sendNotification)
+{
+    sampleTypeFilter = filter;
+    typeAllButton.setToggleState(filter == SampleTypeFilter::All, juce::dontSendNotification);
+    typeLoopsButton.setToggleState(filter == SampleTypeFilter::Loops, juce::dontSendNotification);
+    typeOneShotsButton.setToggleState(filter == SampleTypeFilter::OneShots, juce::dontSendNotification);
+    repaint();
+    if (sendNotification)
+    {
+        listeners.call([filter](TagPanelListener& l) {
+            l.sampleTypeQuickFilterChanged(filter);
+        });
+    }
 }
 
 void TagPanelComponent::libraryIndexUpdated()

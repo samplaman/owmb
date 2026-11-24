@@ -31,6 +31,7 @@ public:
     virtual ~HeaderBarListener() = default;
     virtual void searchTextChanged(const juce::String& newText) = 0;
     virtual void formatFilterChanged(const juce::String& extension) = 0;
+    virtual void sampleTypeFilterChanged(SampleTypeFilter /*filter*/) {}
     virtual void addFolderRequested() = 0;
     virtual void rescanRequested() = 0;
     virtual void settingsRequested() = 0;
@@ -55,6 +56,8 @@ public:
     juce::String getSearchText() const { return searchEditor.getText(); }
     void setSearchText(const juce::String& text);
     juce::String getSelectedFormat() const { return activeFormat; }
+    SampleTypeFilter getSelectedSampleType() const { return activeSampleType; }
+    void setSelectedSampleType(SampleTypeFilter type, bool sendNotification = false);
     ViewMode getCurrentViewMode() const { return currentViewMode; }
     bool isCloudViewActive() const { return currentViewMode == ViewMode::Cloud; }
     int getSearchEditorRight() const { return searchEditor.getRight(); }
@@ -86,6 +89,7 @@ private:
     juce::TextButton settingsButton { "Settings" };
 
     juce::ComboBox formatFilterBox;
+    juce::ComboBox typeFilterBox;
 
     juce::TextButton btnListView { "List" };
     juce::TextButton btnFoldersView { "Folders" };
@@ -103,6 +107,7 @@ private:
     juce::Rectangle<int> viewDivider2;
 
     juce::String activeFormat { "All" };
+    SampleTypeFilter activeSampleType { SampleTypeFilter::All };
     ViewMode currentViewMode { ViewMode::List };
     juce::ListenerList<HeaderBarListener> listeners;
 };

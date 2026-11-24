@@ -81,6 +81,22 @@ HeaderBarComponent::HeaderBarComponent(TagDatabaseManager& db, LibraryScanner& s
     };
     addAndMakeVisible(formatFilterBox);
 
+    // Sample Type Filter Dropdown (All / Loops / One-Shots)
+    typeFilterBox.addItem("All Types", 1);
+    typeFilterBox.addItem("Loops", 2);
+    typeFilterBox.addItem("One-Shots", 3);
+    typeFilterBox.setSelectedId(1, juce::dontSendNotification);
+    typeFilterBox.setTooltip("Filter samples by Loops or One-Shots");
+    typeFilterBox.onChange = [this] {
+        int id = typeFilterBox.getSelectedId();
+        SampleTypeFilter f = SampleTypeFilter::All;
+        if (id == 2) f = SampleTypeFilter::Loops;
+        else if (id == 3) f = SampleTypeFilter::OneShots;
+        activeSampleType = f;
+        listeners.call([f](HeaderBarListener& l) { l.sampleTypeFilterChanged(f); });
+    };
+    addAndMakeVisible(typeFilterBox);
+
     // View Switcher (List vs Cloud vs Library vs Record vs Analysis vs Edit vs Sample Map vs Rack)
     auto setupViewBtn = [this](juce::TextButton& btn, const juce::String& viewName, const juce::String& tooltipText, ViewMode mode) {
         btn.setComponentID("headerViewBtn");
@@ -196,9 +212,19 @@ void HeaderBarComponent::resized()
 
     area.removeFromRight(12);
 
-    // 4. Format Filter Dropdown + Dynamic Search Editor (both 32px height)
-    formatFilterBox.setBounds(area.removeFromRight(106).withHeight(barHeight));
-    area.removeFromRight(8);
+    // 4. Format & Sample Type Filter Dropdowns + Dynamic Search Editor (32px height)
+    formatFilterBox.setBounds(area.removeFromRight(98).withHeight(barHeight));
+    area.removeFromRight(6);
+    if (area.getWidth() >= 250)
+    {
+        typeFilterBox.setVisible(true);
+        typeFilterBox.setBounds(area.removeFromRight(98).withHeight(barHeight));
+        area.removeFromRight(8);
+    }
+    else
+    {
+        typeFilterBox.setVisible(false);
+    }
 
     searchEditor.setBounds(area.withHeight(barHeight));
     clearSearchButton.setBounds(searchEditor.getRight() - 26, searchEditor.getY() + 4, 22, 24);
@@ -222,6 +248,21 @@ void HeaderBarComponent::setFormatFilter(const juce::String& ext)
     listeners.call([ext](HeaderBarListener& l) {
         l.formatFilterChanged(ext);
     });
+}
+
+void HeaderBarComponent::setSelectedSampleType(SampleTypeFilter type, bool sendNotification)
+{
+    activeSampleType = type;
+    int id = 1;
+    if (type == SampleTypeFilter::Loops) id = 2;
+    else if (type == SampleTypeFilter::OneShots) id = 3;
+    typeFilterBox.setSelectedId(id, juce::dontSendNotification);
+    if (sendNotification)
+    {
+        listeners.call([type](HeaderBarListener& l) {
+            l.sampleTypeFilterChanged(type);
+        });
+    }
 }
 
 void HeaderBarComponent::scanStarted()
