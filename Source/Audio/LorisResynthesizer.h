@@ -28,6 +28,11 @@ struct ResynthesizedZone
     double sampleRate { 44100.0 };
     int numChannels { 1 };
     int numSamples { 0 };
+    bool isLooping { false };
+    bool loopMarkersSet { false };
+    double loopInRatio { 0.0 };
+    double loopOutRatio { 1.0 };
+    double loopCrossfadeMs { 0.0 };
 };
 
 struct LorisResynthesisConfig
@@ -50,6 +55,12 @@ struct LorisResynthesisConfig
     
     float timeStretchRatio { 1.0f }; // 1.0 = same duration as source
     float gainDb { 0.0f };           // Post-synthesis gain adjustment
+
+    bool enableLooping { false };
+    bool hasSourceLoopPoints { false };
+    double loopInRatio { 0.0 };
+    double loopOutRatio { 1.0 };
+    double loopCrossfadeMs { 25.0 };
     
     juce::File outputDirectory;      // Directory to write generated WAV files
 };

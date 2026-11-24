@@ -544,6 +544,7 @@ struct SampleMapState
     float globalReleaseMs { 200.0f };
     float samplerReverbAmount { 0.0f };
     bool pitchTrackingEnabled { true };
+    bool randomLoopPosition { false };
     int roundRobinMode { 0 }; // 0 = Cycle, 1 = Random, 2 = Off
     int midiChannel { 0 };    // 0 = Omni (All Channels)
     float velocitySensitivity { 1.0f }; // 0.0 (flat/fixed) to 1.0 (full dynamic range)
@@ -625,6 +626,7 @@ struct SampleMapState
         obj->setProperty("globalReleaseMs", globalReleaseMs);
         obj->setProperty("samplerReverbAmount", samplerReverbAmount);
         obj->setProperty("pitchTrackingEnabled", pitchTrackingEnabled);
+        obj->setProperty("randomLoopPosition", randomLoopPosition);
         obj->setProperty("roundRobinMode", roundRobinMode);
         obj->setProperty("midiChannel", midiChannel);
         obj->setProperty("velocitySensitivity", velocitySensitivity);
@@ -653,6 +655,7 @@ struct SampleMapState
         if (obj->hasProperty("globalReleaseMs")) s.globalReleaseMs = static_cast<float>(obj->getProperty("globalReleaseMs"));
         if (obj->hasProperty("samplerReverbAmount")) s.samplerReverbAmount = static_cast<float>(obj->getProperty("samplerReverbAmount"));
         if (obj->hasProperty("pitchTrackingEnabled")) s.pitchTrackingEnabled = static_cast<bool>(obj->getProperty("pitchTrackingEnabled"));
+        if (obj->hasProperty("randomLoopPosition")) s.randomLoopPosition = static_cast<bool>(obj->getProperty("randomLoopPosition"));
         if (obj->hasProperty("roundRobinMode")) s.roundRobinMode = static_cast<int>(obj->getProperty("roundRobinMode"));
         if (obj->hasProperty("midiChannel")) s.midiChannel = static_cast<int>(obj->getProperty("midiChannel"));
         else s.midiChannel = 0;
@@ -674,6 +677,7 @@ struct SampleMapState
         xml->setAttribute("globalReleaseMs", static_cast<double>(globalReleaseMs));
         xml->setAttribute("samplerReverbAmount", static_cast<double>(samplerReverbAmount));
         xml->setAttribute("pitchTrackingEnabled", pitchTrackingEnabled ? 1 : 0);
+        xml->setAttribute("randomLoopPosition", randomLoopPosition ? 1 : 0);
         xml->setAttribute("roundRobinMode", roundRobinMode);
         xml->setAttribute("midiChannel", midiChannel);
         xml->setAttribute("velocitySensitivity", static_cast<double>(velocitySensitivity));
@@ -708,6 +712,7 @@ struct SampleMapState
         s.globalReleaseMs = static_cast<float>(xml.getDoubleAttribute("globalReleaseMs", 200.0));
         s.samplerReverbAmount = static_cast<float>(xml.getDoubleAttribute("samplerReverbAmount", 0.0));
         s.pitchTrackingEnabled = xml.getBoolAttribute("pitchTrackingEnabled", true);
+        s.randomLoopPosition = xml.getBoolAttribute("randomLoopPosition", false);
         s.roundRobinMode = xml.getIntAttribute("roundRobinMode", 0);
         s.midiChannel = xml.getIntAttribute("midiChannel", 0);
         s.velocitySensitivity = static_cast<float>(xml.getDoubleAttribute("velocitySensitivity", 1.0));

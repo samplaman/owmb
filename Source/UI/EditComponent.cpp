@@ -51,6 +51,29 @@ EditComponent::EditComponent(AudioEngine& engine)
     };
     addAndMakeVisible(loopToggleButton);
 
+    randomLoopToggleButton.setTooltip("Randomize Loop Position Every Pass (Preserves Loop Length & Crossfade)");
+    randomLoopToggleButton.setClickingTogglesState(true);
+    randomLoopToggleButton.setToggleState(audioEngine.isRandomLoopPositionEnabled(), juce::dontSendNotification);
+    randomLoopToggleButton.onClick = [this] {
+        bool randOn = randomLoopToggleButton.getToggleState();
+        audioEngine.setRandomLoopPositionEnabled(randOn);
+        if (randOn && !loopToggleButton.getToggleState())
+        {
+            loopToggleButton.setToggleState(true, juce::dontSendNotification);
+            audioEngine.setLooping(true);
+            if (!loopMarkersSet)
+            {
+                loopInRatio = audioEngine.getSampleStartRatio();
+                loopOutRatio = audioEngine.getSampleEndRatio();
+                loopMarkersSet = true;
+                audioEngine.setLoopPoints(loopInRatio, loopOutRatio);
+                audioEngine.setLoopMarkersSet(true);
+            }
+        }
+        repaint();
+    };
+    addAndMakeVisible(randomLoopToggleButton);
+
     playSelButton.setComponentID("editIconBtn");
     playSelButton.setTooltip("Play Selection Only");
     playSelButton.onClick = [this] { playSelectionOnly(); };
@@ -461,7 +484,7 @@ EditComponent::EditComponent(AudioEngine& engine)
     };
     addAndMakeVisible(revertOriginalButton);
 
-    OpenWavLookAndFeel::groupButtons({ &playPauseButton, &stopButton, &playSelButton, &loopToggleButton });
+    OpenWavLookAndFeel::groupButtons({ &playPauseButton, &stopButton, &playSelButton, &loopToggleButton, &randomLoopToggleButton });
     OpenWavLookAndFeel::groupButtons({ &zoomOutButton, &zoomInButton });
     OpenWavLookAndFeel::groupButtons({ &undoButton, &redoButton, &revertOriginalButton, &saveToLibraryButton, &sendToSamplerButton, &exportButton });
     OpenWavLookAndFeel::groupButtons({ &spectralBoxSelectBtn, &spectralTimeSelectBtn, &spectralFreqSelectBtn, &spectralLassoSelectBtn, &spectralEllipseSelectBtn });
@@ -704,6 +727,7 @@ void EditComponent::updateControlVisibility()
     stopButton.setVisible(hasSamplerSample);
     playSelButton.setVisible(hasSamplerSample);
     loopToggleButton.setVisible(hasSamplerSample);
+    randomLoopToggleButton.setVisible(hasSamplerSample);
     spectralToggleButton.setVisible(hasSamplerSample);
 
     // Waveform / Time-Domain Tools
@@ -806,7 +830,9 @@ void EditComponent::resized()
     row1.removeFromLeft(gap);
     playSelButton.setBounds(row1.removeFromLeft(30));
     row1.removeFromLeft(gap);
-    loopToggleButton.setBounds(row1.removeFromLeft(65));
+    loopToggleButton.setBounds(row1.removeFromLeft(58));
+    row1.removeFromLeft(gap);
+    randomLoopToggleButton.setBounds(row1.removeFromLeft(54));
     row1.removeFromLeft(gap);
     spectralToggleButton.setBounds(row1.removeFromLeft(95));
     row1.removeFromLeft(12);
@@ -1100,7 +1126,7 @@ void EditComponent::paint(juce::Graphics& g)
     auto topBarRect = juce::Rectangle<float>(10.0f, 8.0f, static_cast<float>(getWidth() - 20), std::max(32.0f, wfBounds.getY() - 14.0f));
     OpenWavLookAndFeel::drawPanelCard(g, topBarRect, 8.0f, false);
 
-    OpenWavLookAndFeel::drawButtonGroup(g, { &playPauseButton, &stopButton, &playSelButton, &loopToggleButton });
+    OpenWavLookAndFeel::drawButtonGroup(g, { &playPauseButton, &stopButton, &playSelButton, &loopToggleButton, &randomLoopToggleButton });
     OpenWavLookAndFeel::drawButtonGroup(g, { &zoomOutButton, &zoomInButton });
     OpenWavLookAndFeel::drawButtonGroup(g, { &revertOriginalButton, &exportButton });
     OpenWavLookAndFeel::drawButtonGroup(g, { &spectralBoxSelectBtn, &spectralTimeSelectBtn, &spectralFreqSelectBtn, &spectralLassoSelectBtn, &spectralEllipseSelectBtn });
@@ -1469,6 +1495,22 @@ void EditComponent::paintMarkers(juce::Graphics& g, juce::Rectangle<float> bound
                 g.setFont(juce::Font(8.5f).boldened());
                 g.drawText(loopText, juce::Rectangle<float>(loopInX + 12.0f, bounds.getBottom() - 12.0f, (loopOutX - loopInX) - 24.0f, 12.0f),
                            juce::Justification::centred, true);
+            }
+        }
+
+        // Live Random Loop Pass roaming window indicator (when Rand Loop is active during playback)
+        double randWinStart = 0.0, randWinEnd = 0.0;
+        if (audioEngine.getActiveRandomLoopWindow(randWinStart, randWinEnd))
+        {
+            float rwX0 = ratioToX(randWinStart, bounds);
+            float rwX1 = ratioToX(randWinEnd, bounds);
+            if (rwX1 > rwX0 + 1.0f)
+            {
+                juce::Rectangle<float> rwRect(rwX0, bounds.getY() + 2.0f, rwX1 - rwX0, bounds.getHeight() - 4.0f);
+                g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.14f));
+                g.fillRoundedRectangle(rwRect, 3.0f);
+                g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.75f));
+                g.drawRoundedRectangle(rwRect, 3.0f, 1.2f);
             }
         }
 
@@ -3834,6 +3876,13 @@ void EditComponent::timerCallback()
         if (loopToggleButton.getToggleState() != isLooping)
         {
             loopToggleButton.setToggleState(isLooping, juce::dontSendNotification);
+            repaint();
+        }
+
+        bool isRandLoop = audioEngine.isRandomLoopPositionEnabled();
+        if (randomLoopToggleButton.getToggleState() != isRandLoop)
+        {
+            randomLoopToggleButton.setToggleState(isRandLoop, juce::dontSendNotification);
             repaint();
         }
 

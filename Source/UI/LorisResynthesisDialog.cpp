@@ -1,5 +1,6 @@
 #include "LorisResynthesisDialog.h"
 #include "OpenWavLookAndFeel.h"
+#include "../Audio/AudioEngine.h"
 
 namespace openwav
 {
@@ -8,7 +9,7 @@ LorisResynthesisDialog::LorisResynthesisDialog(std::function<void(const std::vec
     : onFinished(std::move(onFinishedCallback)),
       progressBar(progressValue)
 {
-    setSize(480, 440);
+    setSize(480, 520);
 
     titleLabel.setText("Loris Additive Resynthesis", juce::dontSendNotification);
     titleLabel.setFont(juce::FontOptions(18.0f, juce::Font::bold));
@@ -74,6 +75,25 @@ LorisResynthesisDialog::LorisResynthesisDialog(std::function<void(const std::vec
     formantLockToggle.setToggleState(true, juce::dontSendNotification);
     addAndMakeVisible(formantLockToggle);
 
+    // Loop Resynthesized Zones Toggle & Crossfade Slider
+    loopZonesToggle.setToggleState(false, juce::dontSendNotification);
+    loopZonesToggle.addListener(this);
+    addAndMakeVisible(loopZonesToggle);
+
+    xfadeLabel.setText("Loop Crossfade:", juce::dontSendNotification);
+    xfadeLabel.setFont(juce::FontOptions(13.0f));
+    xfadeLabel.setColour(juce::Label::textColourId, juce::Colours::white.withAlpha(0.85f));
+    addAndMakeVisible(xfadeLabel);
+
+    xfadeSlider.setSliderStyle(juce::Slider::LinearHorizontal);
+    xfadeSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 68, 22);
+    xfadeSlider.setRange(0.0, 500.0, 1.0);
+    xfadeSlider.setSkewFactorFromMidPoint(60.0);
+    xfadeSlider.setTextValueSuffix(" ms");
+    xfadeSlider.setValue(25.0, juce::dontSendNotification);
+    xfadeSlider.setEnabled(false);
+    addAndMakeVisible(xfadeSlider);
+
     // Quality Preset
     qualityLabel.setText("Quality / Preset:", juce::dontSendNotification);
     qualityLabel.setFont(juce::FontOptions(13.0f));
@@ -120,7 +140,15 @@ void LorisResynthesisDialog::populateNoteComboBox(juce::ComboBox& box, int defau
     box.setSelectedId(defaultNote + 1, juce::dontSendNotification);
 }
 
-void LorisResynthesisDialog::setSourceSample(const juce::File& file, const juce::AudioBuffer<float>& buffer, double sampleRate, int initialRootNote)
+void LorisResynthesisDialog::setSourceSample(const juce::File& file,
+                                             const juce::AudioBuffer<float>& buffer,
+                                             double sampleRate,
+                                             int initialRootNote,
+                                             bool initialLoopEnabled,
+                                             bool hasExplicitLoopRegion,
+                                             double initialLoopInRatio,
+                                             double initialLoopOutRatio,
+                                             double initialCrossfadeMs)
 {
     config.sourceFile = file;
     config.sourceBuffer.makeCopyOf(buffer);
@@ -135,6 +163,55 @@ void LorisResynthesisDialog::setSourceSample(const juce::File& file, const juce:
     {
         detectedRoot = LorisResynthesizer::detectRootMidiNote(buffer, sampleRate);
     }
+
+    // Auto-inspect file metadata for loop points, crossfade, and root note if not already provided
+    bool loopOn = initialLoopEnabled;
+    bool hasLoopPts = hasExplicitLoopRegion;
+    double loopIn = initialLoopInRatio;
+    double loopOut = initialLoopOutRatio;
+    double xfadeMs = initialCrossfadeMs;
+
+    if (!hasLoopPts && file.existsAsFile())
+    {
+        double metaIn = 0.0, metaOut = 1.0, metaXf = 0.0;
+        bool metaHasLoop = false;
+        int metaRoot = -1;
+        if (AudioEngine::extractMetadataLoopAndRoot(file, nullptr, metaIn, metaOut, metaXf, metaHasLoop, metaRoot))
+        {
+            if (metaRoot >= 0 && metaRoot <= 127 && initialRootNote == 60)
+                detectedRoot = metaRoot;
+            if (metaHasLoop)
+            {
+                loopOn = true;
+                hasLoopPts = true;
+                loopIn = metaIn;
+                loopOut = metaOut;
+                if (xfadeMs < 0.0)
+                    xfadeMs = (metaXf > 0.0) ? metaXf : 25.0;
+            }
+        }
+    }
+
+    if (xfadeMs < 0.0)
+        xfadeMs = 25.0;
+
+    config.enableLooping = loopOn;
+    config.hasSourceLoopPoints = hasLoopPts;
+    config.loopInRatio = loopIn;
+    config.loopOutRatio = loopOut;
+    config.loopCrossfadeMs = xfadeMs;
+
+    loopZonesToggle.setToggleState(loopOn, juce::dontSendNotification);
+    xfadeSlider.setValue(xfadeMs, juce::dontSendNotification);
+    xfadeSlider.setEnabled(loopOn);
+    xfadeLabel.setAlpha(loopOn ? 1.0f : 0.45f);
+
+    if (loopOn && hasLoopPts)
+    {
+        statusLabel.setText("Loop metadata detected — all resynthesized notes will loop with crossfade.",
+                            juce::dontSendNotification);
+    }
+
     rootNoteBox.setSelectedId(detectedRoot + 1, juce::dontSendNotification);
 
     // Default range around root note
@@ -199,7 +276,15 @@ void LorisResynthesisDialog::resized()
     bounds.removeFromTop(10);
 
     // Formant Lock Toggle
-    formantLockToggle.setBounds(bounds.removeFromTop(26));
+    formantLockToggle.setBounds(bounds.removeFromTop(24));
+    bounds.removeFromTop(6);
+
+    // Loop Resynthesized Notes Toggle + Crossfade Slider Row
+    loopZonesToggle.setBounds(bounds.removeFromTop(24));
+    bounds.removeFromTop(6);
+    auto xfadeRow = bounds.removeFromTop(26);
+    xfadeLabel.setBounds(xfadeRow.removeFromLeft(130));
+    xfadeSlider.setBounds(xfadeRow);
     bounds.removeFromTop(12);
 
     // Progress Bar & Status
@@ -225,6 +310,12 @@ void LorisResynthesisDialog::buttonClicked(juce::Button* button)
             rootNoteBox.setSelectedId(detected + 1, juce::sendNotificationSync);
             statusLabel.setText("Detected root note: " + LorisResynthesizer::getMidiNoteName(detected), juce::dontSendNotification);
         }
+    }
+    else if (button == &loopZonesToggle)
+    {
+        const bool on = loopZonesToggle.getToggleState();
+        xfadeSlider.setEnabled(on);
+        xfadeLabel.setAlpha(on ? 1.0f : 0.45f);
     }
     else if (button == &startBtn)
     {
@@ -271,6 +362,8 @@ void LorisResynthesisDialog::startResynthesis()
     config.maxNote = maxNoteBox.getSelectedId() - 1;
     config.noteStride = strideBox.getSelectedId();
     config.preserveFormants = formantLockToggle.getToggleState();
+    config.enableLooping = loopZonesToggle.getToggleState();
+    config.loopCrossfadeMs = xfadeSlider.getValue();
 
     int qPreset = qualityBox.getSelectedId();
     double fundamentalHz = 440.0 * std::pow(2.0, (config.rootNote - 69) / 12.0);
@@ -308,6 +401,8 @@ void LorisResynthesisDialog::startResynthesis()
     strideBox.setEnabled(false);
     qualityBox.setEnabled(false);
     formantLockToggle.setEnabled(false);
+    loopZonesToggle.setEnabled(false);
+    xfadeSlider.setEnabled(false);
     cancelBtn.setButtonText("Cancel");
 
     updateStatus(0.02f, "Starting Loris partial analysis...");
@@ -326,6 +421,8 @@ void LorisResynthesisDialog::startResynthesis()
             strideBox.setEnabled(true);
             qualityBox.setEnabled(true);
             formantLockToggle.setEnabled(true);
+            loopZonesToggle.setEnabled(true);
+            xfadeSlider.setEnabled(loopZonesToggle.getToggleState());
             cancelBtn.setButtonText("Close");
 
             if (success)
@@ -364,10 +461,17 @@ void LorisResynthesisDialog::showDialog(
     const juce::AudioBuffer<float>& buffer,
     double sampleRate,
     int rootNote,
-    std::function<void(const std::vector<ResynthesizedZone>&)> onFinished)
+    std::function<void(const std::vector<ResynthesizedZone>&)> onFinished,
+    bool initialLoopEnabled,
+    bool hasExplicitLoopRegion,
+    double initialLoopInRatio,
+    double initialLoopOutRatio,
+    double initialCrossfadeMs)
 {
     auto* dialog = new LorisResynthesisDialog(std::move(onFinished));
-    dialog->setSourceSample(sourceFile, buffer, sampleRate, rootNote);
+    dialog->setSourceSample(sourceFile, buffer, sampleRate, rootNote,
+                            initialLoopEnabled, hasExplicitLoopRegion,
+                            initialLoopInRatio, initialLoopOutRatio, initialCrossfadeMs);
 
     juce::DialogWindow::LaunchOptions options;
     options.dialogTitle = "Loris Additive Resynthesis";

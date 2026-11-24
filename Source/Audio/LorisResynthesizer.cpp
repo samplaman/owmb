@@ -356,7 +356,41 @@ void LorisResynthesizer::runProcessing(
             keyLow = std::clamp(keyLow, 0, 127);
             keyHigh = std::clamp(keyHigh, keyLow, 127);
 
-            // Save WAV File
+            // Determine effective sustain loop bounds & crossfade if looping is enabled
+            double effLoopIn = 0.0;
+            double effLoopOut = 1.0;
+            double effCrossfadeMs = 0.0;
+            const bool applyLoop = config.enableLooping && maxLen > 32;
+
+            if (applyLoop)
+            {
+                if (config.hasSourceLoopPoints && (config.loopOutRatio - config.loopInRatio) > 0.005)
+                {
+                    effLoopIn  = std::clamp(config.loopInRatio, 0.0, 0.99);
+                    effLoopOut = std::clamp(config.loopOutRatio, effLoopIn + 0.005, 1.0);
+                }
+                else
+                {
+                    // Auto-pick sustained interior body when user enables looping on a non-looped source
+                    const double totalDurSec = static_cast<double>(maxLen) / sr;
+                    if (totalDurSec >= 0.45)
+                    {
+                        effLoopIn  = 0.15;
+                        effLoopOut = 0.88;
+                    }
+                    else
+                    {
+                        effLoopIn  = 0.05;
+                        effLoopOut = 0.95;
+                    }
+                }
+
+                const double loopDurMs = ((effLoopOut - effLoopIn) * static_cast<double>(maxLen) / sr) * 1000.0;
+                const double maxXfMs   = std::min(500.0, std::max(0.0, loopDurMs * 0.5));
+                effCrossfadeMs = std::clamp(config.loopCrossfadeMs, 0.0, maxXfMs);
+            }
+
+            // Save WAV File (embedding MidiUnityNote, smpl loop points, and loop_crossfade metadata)
             juce::String cleanBaseName = config.baseSampleName.isEmpty() ? "LorisSample" : config.baseSampleName;
             cleanBaseName = juce::File::createLegalFileName(cleanBaseName);
 
@@ -366,12 +400,34 @@ void LorisResynthesizer::runProcessing(
                 noteFile.deleteFile();
 
             {
+                juce::StringPairArray wavMeta;
+                wavMeta.set("MidiUnityNote", juce::String(midiNote));
+                if (applyLoop)
+                {
+                    const int64_t ls = std::clamp<int64_t>(static_cast<int64_t>(std::llround(effLoopIn * static_cast<double>(maxLen))),
+                                                           0, static_cast<int64_t>(maxLen) - 2);
+                    const int64_t le = std::clamp<int64_t>(static_cast<int64_t>(std::llround(effLoopOut * static_cast<double>(maxLen))) - 1,
+                                                           ls + 1, static_cast<int64_t>(maxLen) - 1);
+                    wavMeta.set("NumSampleLoops", "1");
+                    wavMeta.set("Loop0Identifier", "0");
+                    wavMeta.set("Loop0Type", "0");
+                    wavMeta.set("Loop0Start", juce::String(ls));
+                    wavMeta.set("Loop0End", juce::String(le));
+                    wavMeta.set("Loop0Fraction", "0");
+                    wavMeta.set("Loop0PlayCount", "0");
+                    if (effCrossfadeMs > 0.0)
+                    {
+                        wavMeta.set(juce::WavAudioFormat::riffInfoComment,
+                                    "loop_crossfade=" + juce::String(effCrossfadeMs / 1000.0, 4));
+                    }
+                }
+
                 std::unique_ptr<juce::FileOutputStream> outStream(noteFile.createOutputStream());
                 if (outStream != nullptr)
                 {
                     juce::WavAudioFormat wavFormat;
                     std::unique_ptr<juce::AudioFormatWriter> writer(
-                        wavFormat.createWriterFor(outStream.get(), sr, renderedBuffer.getNumChannels(), 24, {}, 0));
+                        wavFormat.createWriterFor(outStream.get(), sr, renderedBuffer.getNumChannels(), 24, wavMeta, 0));
 
                     if (writer != nullptr)
                     {
@@ -391,6 +447,11 @@ void LorisResynthesizer::runProcessing(
             zone.sampleRate = sr;
             zone.numChannels = numChannels;
             zone.numSamples = (int)maxLen;
+            zone.isLooping = applyLoop;
+            zone.loopMarkersSet = applyLoop;
+            zone.loopInRatio = effLoopIn;
+            zone.loopOutRatio = effLoopOut;
+            zone.loopCrossfadeMs = effCrossfadeMs;
 
             resultZones.push_back(zone);
         }

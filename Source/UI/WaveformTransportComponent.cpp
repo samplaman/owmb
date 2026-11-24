@@ -1399,12 +1399,43 @@ void WaveformTransportComponent::openLorisResynthesis()
 
     int rootNote = LorisResynthesizer::detectRootMidiNote(buffer, sampleRate);
 
+    bool initLoop = false;
+    bool hasLoopRegion = false;
+    double loopIn = 0.0, loopOut = 1.0, xfadeMs = -1.0;
+
+    if (currentFile.existsAsFile())
+    {
+        SampleEditSettings saved;
+        if (audioEngine.getSampleEditSettings(currentFile.getFullPathName(), saved) && (saved.isLooping || saved.loopMarkersSet))
+        {
+            initLoop = true;
+            hasLoopRegion = true;
+            loopIn = saved.loopInRatio;
+            loopOut = saved.loopOutRatio;
+            xfadeMs = (saved.loopCrossfadeMs > 0.0) ? saved.loopCrossfadeMs : 25.0;
+        }
+        else
+        {
+            double metaIn = 0.0, metaOut = 1.0, metaXf = 0.0;
+            bool metaHasLoop = false;
+            int metaRoot = -1;
+            if (audioEngine.extractMetadataLoopAndRoot(currentFile, nullptr, metaIn, metaOut, metaXf, metaHasLoop, metaRoot) && metaHasLoop)
+            {
+                initLoop = true;
+                hasLoopRegion = true;
+                loopIn = metaIn;
+                loopOut = metaOut;
+                xfadeMs = (metaXf > 0.0) ? metaXf : 25.0;
+            }
+        }
+    }
+
     LorisResynthesisDialog::showDialog(this, currentFile, buffer, sampleRate, rootNote, [this](const std::vector<ResynthesizedZone>& zones) {
         if (onLorisResynthCompleted)
         {
             onLorisResynthCompleted(zones);
         }
-    });
+    }, initLoop, hasLoopRegion, loopIn, loopOut, xfadeMs);
 }
 
 } // namespace openwav

@@ -117,6 +117,7 @@ public:
     void pitchTrackingStateChanged(bool enabled) override;
     void oneShotStateChanged(bool enabled) override;
     void loopingStateChanged(bool enabled) override;
+    void randomLoopStateChanged(bool enabled) override;
 
     void handleNoteOn(juce::MidiKeyboardState* state, int midiChannel, int midiNoteNumber, float velocity) override;
     void handleNoteOff(juce::MidiKeyboardState* state, int midiChannel, int midiNoteNumber, float velocity) override;
@@ -222,6 +223,7 @@ private:
     juce::TextButton pitchTrackButton { "Pitch Track: ON" };
     juce::TextButton oneShotButton { "One Shot: OFF" };
     juce::TextButton loopButton { "Loop: OFF" };
+    juce::TextButton randomLoopButton { "Rand Loop: OFF" };
     juce::TextButton openFxRackButton { "FX Rack" };
     juce::TextButton instrumentModeButton { "Instrument" };
     juce::TextButton autoSampleButton { "Auto Sample" };

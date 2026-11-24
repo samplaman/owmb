@@ -361,6 +361,12 @@ void AudioEngine::drainCommandsOnAudioThread()
                     slot.isMetronome = false;
                     slot.isLooping = cmd.boolVal1 || cmd.editSettings.isLooping
                         || (!slot.isOneShot && hasCustomLoopPoints);
+                    slot.activeLoopStartSample = -1;
+                    slot.nextLoopStartSample = -1;
+                    slot.rngState = static_cast<uint32_t>(slot.startOrder * 2654435761u)
+                                  ^ static_cast<uint32_t>((cmd.intVal1 + 17) * 2246822519u)
+                                  ^ 0x9E3779B9u;
+                    if (slot.rngState == 0) slot.rngState = 0x6D2B79F5u;
                     slot.active = true;
                     slot.rootNote = cmd.intVal2;
                     slot.triggerMidiNote = cmd.intVal1;
@@ -516,6 +522,10 @@ void AudioEngine::startPlaybackInternal(double startRatio)
     slot.endRatio = sampleEndRatioAtomic.load(std::memory_order_relaxed);
     slot.loopInRatio = loopInRatioAtomic.load(std::memory_order_relaxed);
     slot.loopOutRatio = loopOutRatioAtomic.load(std::memory_order_relaxed);
+    slot.activeLoopStartSample = -1;
+    slot.nextLoopStartSample = -1;
+    slot.rngState = static_cast<uint32_t>(slot.startOrder * 2654435761u) ^ 0xA5A5F00Du;
+    if (slot.rngState == 0) slot.rngState = 0x6D2B79F5u;
     slot.loopCrossfadeMs = loopCrossfadeMsAtomic.load(std::memory_order_relaxed);
     slot.fadeInMs = fadeInMsAtomic.load(std::memory_order_relaxed);
     slot.fadeOutMs = fadeOutMsAtomic.load(std::memory_order_relaxed);
@@ -788,24 +798,95 @@ void AudioEngine::processNextAudioBlock(juce::AudioBuffer<float>& outputBuffer, 
         int endSample = static_cast<int>(slot.endRatio * voiceLength);
         if (endSample <= startSample) endSample = voiceLength;
 
-        int loopStartSample = static_cast<int>(slot.loopInRatio * voiceLength);
-        int loopEndSample = static_cast<int>(slot.loopOutRatio * voiceLength);
-        if (loopEndSample <= loopStartSample)
+        int baseLoopStart = static_cast<int>(slot.loopInRatio * voiceLength);
+        int baseLoopEnd = static_cast<int>(slot.loopOutRatio * voiceLength);
+        if (baseLoopEnd <= baseLoopStart)
         {
-            loopStartSample = startSample;
-            loopEndSample = endSample;
+            baseLoopStart = startSample;
+            baseLoopEnd = endSample;
         }
-        int loopLen = loopEndSample - loopStartSample;
+        baseLoopStart = juce::jlimit(startSample, std::max(startSample, endSample - 1), baseLoopStart);
+        baseLoopEnd   = juce::jlimit(baseLoopStart + 1, std::max(baseLoopStart + 1, endSample), baseLoopEnd);
+        int loopLen = baseLoopEnd - baseLoopStart;
 
-        // Loop crossfade length
+        const bool randLoop = randomLoopEnabledAtomic.load(std::memory_order_relaxed)
+                              && slot.isLooping && !slot.isMetronome
+                              && (endSample - startSample) > 128;
+
+        int roamMin = startSample;
+        int roamMax = startSample;
+        auto pickNextRandomLoopStart = [&](int currentStart) -> int {
+            if (roamMax <= roamMin)
+                return roamMin;
+            uint32_t x = (slot.rngState != 0) ? slot.rngState : 0x9E3779B9u;
+            x ^= x << 13;
+            x ^= x >> 17;
+            x ^= x << 5;
+            slot.rngState = x;
+            const int span = roamMax - roamMin + 1;
+            int candidate = roamMin + static_cast<int>(x % static_cast<uint32_t>(span));
+            // Nudge if too close to current window so each pass shifts audibly
+            const int minShift = std::min(span / 3, std::max(32, loopLen / 6));
+            if (minShift > 0 && std::abs(candidate - currentStart) < minShift)
+            {
+                candidate = roamMin + ((candidate - roamMin + span / 2) % span);
+            }
+            return juce::jlimit(roamMin, roamMax, candidate);
+        };
+
+        int loopStartSample = baseLoopStart;
+        int loopEndSample = baseLoopEnd;
+        int nextPassLoopStart = baseLoopStart;
+
+        if (randLoop)
+        {
+            // Preserve exact loop length if sub-region loop markers exist; otherwise use a 45% window so full samples can roam
+            if (!slot.hasCustomLoopPoints && loopLen >= (endSample - startSample) - 32)
+            {
+                loopLen = std::max(64, static_cast<int>((endSample - startSample) * 0.45));
+            }
+            loopLen = std::min(loopLen, std::max(64, endSample - startSample));
+            roamMin = (baseLoopStart > startSample)
+                          ? std::min(baseLoopStart, startSample + (endSample - startSample) / 16)
+                          : startSample;
+            roamMax = std::max(roamMin, endSample - loopLen);
+
+            if (slot.activeLoopStartSample < 0)
+                slot.activeLoopStartSample = juce::jlimit(roamMin, roamMax, baseLoopStart);
+            loopStartSample = juce::jlimit(roamMin, roamMax, slot.activeLoopStartSample);
+            loopEndSample = std::min(endSample, loopStartSample + loopLen);
+            slot.activeLoopStartSample = loopStartSample;
+
+            if (slot.nextLoopStartSample < 0)
+                slot.nextLoopStartSample = pickNextRandomLoopStart(loopStartSample);
+            nextPassLoopStart = juce::jlimit(roamMin, roamMax, slot.nextLoopStartSample);
+
+            if (voiceLength > 0)
+            {
+                activeRandomLoopStartAtomic.store(static_cast<double>(loopStartSample) / static_cast<double>(voiceLength), std::memory_order_relaxed);
+                activeRandomLoopEndAtomic.store(static_cast<double>(loopEndSample) / static_cast<double>(voiceLength), std::memory_order_relaxed);
+            }
+        }
+        else
+        {
+            slot.activeLoopStartSample = -1;
+            slot.nextLoopStartSample = -1;
+        }
+
+        // Loop crossfade length (preserves exact loopCrossfadeMs; ensures click-free 15ms minimum when randomizing unlabeled loops)
         int xfadeLen = 0;
         if (slot.isLooping && loopLen >= 64)
         {
             double sr = engineSampleRateAtomic.load(std::memory_order_relaxed);
             if (sr <= 0.0) sr = 44100.0;
             int desiredXfade = static_cast<int>((slot.loopCrossfadeMs / 1000.0) * sr);
-            if (slot.isZoneVoice && !slot.matchesEditorSample && desiredXfade == 0)
-                desiredXfade = static_cast<int>(0.005 * sr);
+            if (desiredXfade == 0)
+            {
+                if (randLoop)
+                    desiredXfade = static_cast<int>(0.015 * sr);
+                else if (slot.isZoneVoice && !slot.matchesEditorSample)
+                    desiredXfade = static_cast<int>(0.005 * sr);
+            }
             xfadeLen = std::min(desiredXfade, loopLen / 2);
         }
 
@@ -847,6 +928,19 @@ void AudioEngine::processNextAudioBlock(juce::AudioBuffer<float>& outputBuffer, 
                 if (slot.isLooping && loopLen > 0 && adsrActive)
                 {
                     double overshoot = pos - loopEndSample;
+                    if (randLoop)
+                    {
+                        loopStartSample = nextPassLoopStart;
+                        loopEndSample = std::min(endSample, loopStartSample + loopLen);
+                        slot.activeLoopStartSample = loopStartSample;
+                        slot.nextLoopStartSample = pickNextRandomLoopStart(loopStartSample);
+                        nextPassLoopStart = slot.nextLoopStartSample;
+                        if (voiceLength > 0)
+                        {
+                            activeRandomLoopStartAtomic.store(static_cast<double>(loopStartSample) / static_cast<double>(voiceLength), std::memory_order_relaxed);
+                            activeRandomLoopEndAtomic.store(static_cast<double>(loopEndSample) / static_cast<double>(voiceLength), std::memory_order_relaxed);
+                        }
+                    }
                     pos = loopStartSample + xfadeLen + overshoot;
                     if (pos >= loopEndSample) pos = loopStartSample;
                 }
@@ -888,7 +982,7 @@ void AudioEngine::processNextAudioBlock(juce::AudioBuffer<float>& outputBuffer, 
                 float wOut = std::cos(theta);
                 float wIn = std::sin(theta);
 
-                double inPos = loopStartSample + delta;
+                double inPos = (randLoop ? nextPassLoopStart : loopStartSample) + delta;
                 if (inPos >= voiceLength) inPos = voiceLength - 1;
 
                 for (int ch = 0; ch < outChannels; ++ch)
@@ -927,6 +1021,11 @@ void AudioEngine::processNextAudioBlock(juce::AudioBuffer<float>& outputBuffer, 
 
     // 5. Update Real-Time Telemetry Atomics
     isPlayingAtomic.store(hasActiveVoices, std::memory_order_relaxed);
+    if (!hasActiveVoices || !randomLoopEnabledAtomic.load(std::memory_order_relaxed))
+    {
+        activeRandomLoopStartAtomic.store(-1.0, std::memory_order_relaxed);
+        activeRandomLoopEndAtomic.store(-1.0, std::memory_order_relaxed);
+    }
     if (latestPreviewPosSec >= 0.0)
     {
         currentPositionAtomic.store(latestPreviewPosSec, std::memory_order_relaxed);
@@ -2486,13 +2585,15 @@ bool AudioEngine::extractMetadataLoopAndRoot(const juce::File& file,
     outHasLoopPoints = false;
     outRootNote = -1;
 
+    juce::AudioFormatManager localFormatMgr;
     std::unique_ptr<juce::AudioFormatReader> ownedReader;
     const juce::AudioFormatReader* r = existingReader;
     if (r == nullptr)
     {
         if (!file.existsAsFile())
             return false;
-        ownedReader.reset(formatManager.createReaderFor(file));
+        localFormatMgr.registerBasicFormats();
+        ownedReader.reset(localFormatMgr.createReaderFor(file));
         r = ownedReader.get();
     }
     if (r == nullptr || r->lengthInSamples <= 8)
@@ -4016,6 +4117,32 @@ void AudioEngine::togglePlay()
 void AudioEngine::toggleLoop()
 {
     setLooping(!isLooping());
+}
+
+void AudioEngine::setRandomLoopPositionEnabled(bool enabled)
+{
+    randomLoopEnabledAtomic.store(enabled, std::memory_order_relaxed);
+    if (!enabled)
+    {
+        activeRandomLoopStartAtomic.store(-1.0, std::memory_order_relaxed);
+        activeRandomLoopEndAtomic.store(-1.0, std::memory_order_relaxed);
+    }
+    listeners.call([enabled](AudioEngineListener& l) {
+        l.randomLoopStateChanged(enabled);
+    });
+}
+
+bool AudioEngine::getActiveRandomLoopWindow(double& outStartRatio, double& outEndRatio) const
+{
+    if (!randomLoopEnabledAtomic.load(std::memory_order_relaxed) || !isPlayingAtomic.load(std::memory_order_relaxed))
+        return false;
+    const double s = activeRandomLoopStartAtomic.load(std::memory_order_relaxed);
+    const double e = activeRandomLoopEndAtomic.load(std::memory_order_relaxed);
+    if (s < 0.0 || e <= s)
+        return false;
+    outStartRatio = s;
+    outEndRatio = e;
+    return true;
 }
 
 void AudioEngine::updateVoiceRatios()

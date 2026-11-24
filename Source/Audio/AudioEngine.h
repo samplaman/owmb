@@ -31,6 +31,7 @@ public:
     virtual void pitchTrackingStateChanged(bool /*enabled*/) {}
     virtual void oneShotStateChanged(bool /*enabled*/) {}
     virtual void loopingStateChanged(bool /*enabled*/) {}
+    virtual void randomLoopStateChanged(bool /*enabled*/) {}
     virtual void transportSyncChanged(bool /*isSynced*/) {}
     virtual void bpmChanged(double /*newBpm*/) {}
     virtual void activeSliceTriggered(int /*sliceIndex*/) {}
@@ -100,6 +101,9 @@ struct RealtimeVoiceSlot
     double fadeOutMs { 0.0 };
     int fadeInCurveType { 0 };
     int fadeOutCurveType { 0 };
+    int activeLoopStartSample { -1 };
+    int nextLoopStartSample { -1 };
+    uint32_t rngState { 0x9E3779B9u };
     uint64_t startOrder { 0 };
 };
 
@@ -205,6 +209,9 @@ public:
     void setPositionRatio(double ratio); // 0.0 - 1.0
     void setLooping(bool shouldLoop);
     bool isLooping() const { return isLoopingAtomic.load(std::memory_order_relaxed); }
+    void setRandomLoopPositionEnabled(bool enabled);
+    bool isRandomLoopPositionEnabled() const { return randomLoopEnabledAtomic.load(std::memory_order_relaxed); }
+    bool getActiveRandomLoopWindow(double& outStartRatio, double& outEndRatio) const;
     bool isPlaying() const { return isPlayingAtomic.load(std::memory_order_relaxed); }
     double getCurrentPositionSeconds() const;
     double getTotalLengthSeconds() const { return totalDurationAtomic.load(std::memory_order_relaxed); }
@@ -233,13 +240,13 @@ public:
     int getFadeOutCurve() const { return fadeOutCurveAtomic.load(std::memory_order_relaxed); }
     void setSampleEditSettings(const juce::String& filePath, const SampleEditSettings& settings);
     bool getSampleEditSettings(const juce::String& filePath, SampleEditSettings& outSettings) const;
-    bool extractMetadataLoopAndRoot(const juce::File& file,
-                                    const juce::AudioFormatReader* existingReader,
-                                    double& outLoopInRatio,
-                                    double& outLoopOutRatio,
-                                    double& outLoopCrossfadeMs,
-                                    bool& outHasLoopPoints,
-                                    int& outRootNote);
+    static bool extractMetadataLoopAndRoot(const juce::File& file,
+                                           const juce::AudioFormatReader* existingReader,
+                                           double& outLoopInRatio,
+                                           double& outLoopOutRatio,
+                                           double& outLoopCrossfadeMs,
+                                           bool& outHasLoopPoints,
+                                           int& outRootNote);
     std::map<juce::String, SampleEditSettings> getAllSampleEditSettings() const;
     void setAllSampleEditSettings(const std::map<juce::String, SampleEditSettings>& settingsMap);
     bool getAudioBufferCopy(juce::AudioBuffer<float>& destBuffer, double& sampleRate) const;
@@ -393,6 +400,9 @@ private:
     std::atomic<int> numChannelsAtomic { 0 };
     std::atomic<float> gainLevelAtomic { 0.8f };
     std::atomic<bool> isLoopingAtomic { false };
+    std::atomic<bool> randomLoopEnabledAtomic { false };
+    std::atomic<double> activeRandomLoopStartAtomic { -1.0 };
+    std::atomic<double> activeRandomLoopEndAtomic { -1.0 };
     std::atomic<double> sampleStartRatioAtomic { 0.0 };
     std::atomic<double> sampleEndRatioAtomic { 1.0 };
     std::atomic<double> loopInRatioAtomic { 0.0 };

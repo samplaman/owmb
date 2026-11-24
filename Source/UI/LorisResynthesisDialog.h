@@ -20,7 +20,15 @@ public:
     explicit LorisResynthesisDialog(std::function<void(const std::vector<ResynthesizedZone>&)> onFinishedCallback);
     ~LorisResynthesisDialog() override;
 
-    void setSourceSample(const juce::File& file, const juce::AudioBuffer<float>& buffer, double sampleRate, int initialRootNote = 60);
+    void setSourceSample(const juce::File& file,
+                         const juce::AudioBuffer<float>& buffer,
+                         double sampleRate,
+                         int initialRootNote = 60,
+                         bool initialLoopEnabled = false,
+                         bool hasExplicitLoopRegion = false,
+                         double initialLoopInRatio = 0.0,
+                         double initialLoopOutRatio = 1.0,
+                         double initialCrossfadeMs = -1.0);
     void setSourceMediaItem(const MediaItem& item, const juce::AudioBuffer<float>& buffer, double sampleRate);
 
     void paint(juce::Graphics& g) override;
@@ -34,7 +42,12 @@ public:
                            const juce::AudioBuffer<float>& buffer,
                            double sampleRate,
                            int rootNote,
-                           std::function<void(const std::vector<ResynthesizedZone>&)> onFinished);
+                           std::function<void(const std::vector<ResynthesizedZone>&)> onFinished,
+                           bool initialLoopEnabled = false,
+                           bool hasExplicitLoopRegion = false,
+                           double initialLoopInRatio = 0.0,
+                           double initialLoopOutRatio = 1.0,
+                           double initialCrossfadeMs = -1.0);
 
 private:
     void populateNoteComboBox(juce::ComboBox& box, int defaultNote);
@@ -65,6 +78,9 @@ private:
 
     // Settings
     juce::ToggleButton formantLockToggle { "Preserve Acoustic Formants (Natural Sound)" };
+    juce::ToggleButton loopZonesToggle { "Loop Resynthesized Notes (With Crossfade)" };
+    juce::Label xfadeLabel;
+    juce::Slider xfadeSlider;
     juce::Label qualityLabel;
     juce::ComboBox qualityBox;
 

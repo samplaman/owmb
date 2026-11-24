@@ -462,6 +462,35 @@ SampleMapComponent::SampleMapComponent(AudioEngine& engine)
     };
     addAndMakeVisible(loopButton);
 
+    randomLoopButton.setComponentID("iconOnlyBtn");
+    randomLoopButton.setClickingTogglesState(true);
+    bool randLoopEnabled = audioEngine.isRandomLoopPositionEnabled();
+    randomLoopButton.setToggleState(randLoopEnabled, juce::dontSendNotification);
+    randomLoopButton.setButtonText(randLoopEnabled ? "Rand Loop: ON" : "Rand Loop: OFF");
+    randomLoopButton.setTooltip("Randomize Loop Region Position Every Pass (Keeps Loop Length & Crossfades)");
+    randomLoopButton.onClick = [this] {
+        bool enabled = randomLoopButton.getToggleState();
+        audioEngine.setRandomLoopPositionEnabled(enabled);
+        randomLoopButton.setButtonText(enabled ? "Rand Loop: ON" : "Rand Loop: OFF");
+        if (enabled)
+        {
+            if (oneShotButton.getToggleState())
+            {
+                oneShotButton.setToggleState(false, juce::dontSendNotification);
+                oneShotButton.setButtonText("One Shot: OFF");
+                audioEngine.setOneShotEnabled(false);
+            }
+            if (!loopButton.getToggleState())
+            {
+                loopButton.setToggleState(true, juce::dontSendNotification);
+                loopButton.setButtonText("Loop: ON");
+                audioEngine.setLooping(true);
+            }
+        }
+        if (onStateChanged) onStateChanged();
+    };
+    addAndMakeVisible(randomLoopButton);
+
     openFxRackButton.setComponentID("iconOnlyBtn");
     openFxRackButton.setColour(juce::TextButton::buttonColourId, OpenWavLookAndFeel::accentCyan.withAlpha(0.25f));
     openFxRackButton.setColour(juce::TextButton::textColourOffId, OpenWavLookAndFeel::accentCyan);
@@ -517,7 +546,7 @@ SampleMapComponent::SampleMapComponent(AudioEngine& engine)
     OpenWavLookAndFeel::groupButtons({ &addSampleButton, &lorisResynthButton, &deleteSelectedButton });
     OpenWavLookAndFeel::groupButtons({ &autoMapPitchButton, &autoMapChromaticButton, &autoMapVelButton, &autoMapRRButton });
     OpenWavLookAndFeel::groupButtons({ &clearMapButton, &saveMapButton, &loadMapButton, &urlImportButton, &exportZipButton });
-    OpenWavLookAndFeel::groupButtons({ &roundRobinButton, &pitchTrackButton, &oneShotButton, &loopButton });
+    OpenWavLookAndFeel::groupButtons({ &roundRobinButton, &pitchTrackButton, &oneShotButton, &loopButton, &randomLoopButton });
     OpenWavLookAndFeel::groupButtons({ &openFxRackButton, &instrumentModeButton, &autoSampleButton, &aiKitButton });
     OpenWavLookAndFeel::groupButtons({ &velCurveButton, &midiChannelButton });
     OpenWavLookAndFeel::groupButtons({ &inspectorTabZonesBtn, &inspectorTabVelBtn });
@@ -966,6 +995,7 @@ SampleMapComponent::~SampleMapComponent()
     pitchTrackButton.removeListener(this);
     oneShotButton.removeListener(this);
     loopButton.removeListener(this);
+    randomLoopButton.removeListener(this);
     openFxRackButton.removeListener(this);
     velCurveButton.removeListener(this);
     midiChannelButton.removeListener(this);
@@ -1013,6 +1043,16 @@ void SampleMapComponent::loopingStateChanged(bool enabled)
         if (safeThis == nullptr) return;
         safeThis->loopButton.setToggleState(enabled, juce::dontSendNotification);
         safeThis->loopButton.setButtonText(enabled ? "Loop: ON" : "Loop: OFF");
+    });
+}
+
+void SampleMapComponent::randomLoopStateChanged(bool enabled)
+{
+    juce::Component::SafePointer<SampleMapComponent> safeThis(this);
+    juce::MessageManager::callAsync([safeThis, enabled] {
+        if (safeThis == nullptr) return;
+        safeThis->randomLoopButton.setToggleState(enabled, juce::dontSendNotification);
+        safeThis->randomLoopButton.setButtonText(enabled ? "Rand Loop: ON" : "Rand Loop: OFF");
     });
 }
 
@@ -2781,7 +2821,7 @@ void SampleMapComponent::paint(juce::Graphics& g)
     OpenWavLookAndFeel::drawButtonGroup(g, { &addSampleButton, &lorisResynthButton, &deleteSelectedButton });
     OpenWavLookAndFeel::drawButtonGroup(g, { &autoMapPitchButton, &autoMapChromaticButton, &autoMapVelButton, &autoMapRRButton });
     OpenWavLookAndFeel::drawButtonGroup(g, { &clearMapButton, &saveMapButton, &loadMapButton, &urlImportButton, &exportZipButton });
-    OpenWavLookAndFeel::drawButtonGroup(g, { &roundRobinButton, &pitchTrackButton, &oneShotButton, &loopButton });
+    OpenWavLookAndFeel::drawButtonGroup(g, { &roundRobinButton, &pitchTrackButton, &oneShotButton, &loopButton, &randomLoopButton });
     OpenWavLookAndFeel::drawButtonGroup(g, { &openFxRackButton, &instrumentModeButton, &autoSampleButton, &aiKitButton });
     OpenWavLookAndFeel::drawButtonGroup(g, { &velCurveButton, &midiChannelButton });
 
@@ -3731,6 +3771,8 @@ void SampleMapComponent::resized()
     oneShotButton.setBounds(topRow.removeFromLeft(iconBtnW));
     topRow.removeFromLeft(gap);
     loopButton.setBounds(topRow.removeFromLeft(iconBtnW));
+    topRow.removeFromLeft(gap);
+    randomLoopButton.setBounds(topRow.removeFromLeft(iconBtnW));
     topRow.removeFromLeft(gap + 4);
     openFxRackButton.setBounds(topRow.removeFromLeft(iconBtnW));
     topRow.removeFromLeft(gap);
@@ -4193,6 +4235,7 @@ SampleMapState SampleMapComponent::getState() const
     s.globalReleaseMs = globalReleaseMs;
     s.samplerReverbAmount = audioEngine.getSamplerReverbAmount();
     s.pitchTrackingEnabled = audioEngine.isPitchTrackingEnabled();
+    s.randomLoopPosition = audioEngine.isRandomLoopPositionEnabled();
     s.roundRobinMode = roundRobinMode;
     s.midiChannel = midiChannelSetting;
     s.velocitySensitivity = globalVelocitySensitivity;
@@ -4273,6 +4316,9 @@ void SampleMapComponent::setState(const SampleMapState& state)
 
     audioEngine.setPitchTrackingEnabled(state.pitchTrackingEnabled);
     pitchTrackButton.setToggleState(state.pitchTrackingEnabled, juce::dontSendNotification);
+    audioEngine.setRandomLoopPositionEnabled(state.randomLoopPosition);
+    randomLoopButton.setToggleState(state.randomLoopPosition, juce::dontSendNotification);
+    randomLoopButton.setButtonText(state.randomLoopPosition ? "Rand Loop: ON" : "Rand Loop: OFF");
     pitchTrackButton.setButtonText(state.pitchTrackingEnabled ? "Pitch Track: ON" : "Pitch Track: OFF");
 
     roundRobinMode = state.roundRobinMode;
@@ -4379,9 +4425,55 @@ void SampleMapComponent::openLorisResynthesisForSample(const juce::File& file)
     double sr = reader->sampleRate;
     int detectedRoot = LorisResynthesizer::detectRootMidiNote(buf, sr);
 
+    bool initLoop = false;
+    bool hasLoopRegion = false;
+    double loopIn = 0.0, loopOut = 1.0, xfadeMs = -1.0;
+
+    // Check active zone or saved SampleEditSettings first, then embedded WAV/AIFF metadata
+    if (selectedZoneIndex >= 0 && selectedZoneIndex < static_cast<int>(zones.size()) &&
+        juce::File(zones[selectedZoneIndex].filePath) == file &&
+        (zones[selectedZoneIndex].isLooping || zones[selectedZoneIndex].loopMarkersSet))
+    {
+        const auto& sz = zones[selectedZoneIndex];
+        initLoop = true;
+        hasLoopRegion = true;
+        loopIn = sz.loopInRatio;
+        loopOut = sz.loopOutRatio;
+        xfadeMs = (sz.loopCrossfadeMs > 0.0) ? sz.loopCrossfadeMs : 25.0;
+    }
+    else
+    {
+        SampleEditSettings saved;
+        if (audioEngine.getSampleEditSettings(file.getFullPathName(), saved) && (saved.isLooping || saved.loopMarkersSet))
+        {
+            initLoop = true;
+            hasLoopRegion = true;
+            loopIn = saved.loopInRatio;
+            loopOut = saved.loopOutRatio;
+            xfadeMs = (saved.loopCrossfadeMs > 0.0) ? saved.loopCrossfadeMs : 25.0;
+        }
+        else
+        {
+            double metaIn = 0.0, metaOut = 1.0, metaXf = 0.0;
+            bool metaHasLoop = false;
+            int metaRoot = -1;
+            if (audioEngine.extractMetadataLoopAndRoot(file, reader.get(), metaIn, metaOut, metaXf, metaHasLoop, metaRoot))
+            {
+                if (metaHasLoop)
+                {
+                    initLoop = true;
+                    hasLoopRegion = true;
+                    loopIn = metaIn;
+                    loopOut = metaOut;
+                    xfadeMs = (metaXf > 0.0) ? metaXf : 25.0;
+                }
+            }
+        }
+    }
+
     LorisResynthesisDialog::showDialog(this, file, buf, sr, detectedRoot, [this](const std::vector<ResynthesizedZone>& generatedZones) {
         applyResynthesizedZones(generatedZones);
-    });
+    }, initLoop, hasLoopRegion, loopIn, loopOut, xfadeMs);
 }
 
 void SampleMapComponent::applyResynthesizedZones(const std::vector<ResynthesizedZone>& generatedZones)
@@ -4389,15 +4481,29 @@ void SampleMapComponent::applyResynthesizedZones(const std::vector<Resynthesized
     if (generatedZones.empty()) return;
 
     clearAllZones();
+    bool anyLooped = false;
 
     for (const auto& gz : generatedZones)
     {
         if (gz.audioFile.existsAsFile())
         {
+            const juce::String gzPath = gz.audioFile.getFullPathName();
+            if (gz.isLooping || gz.loopMarkersSet)
+            {
+                SampleEditSettings es;
+                es.loopInRatio = gz.loopInRatio;
+                es.loopOutRatio = gz.loopOutRatio;
+                es.loopCrossfadeMs = gz.loopCrossfadeMs;
+                es.loopMarkersSet = gz.loopMarkersSet;
+                es.isLooping = gz.isLooping;
+                audioEngine.setSampleEditSettings(gzPath, es);
+                anyLooped = true;
+            }
+
             audioEngine.loadFile(gz.audioFile, false, true);
 
             SampleMapZone z;
-            z.filePath = gz.audioFile.getFullPathName();
+            z.filePath = gzPath;
             z.sampleName = gz.sampleName;
             z.rootNote = gz.rootNote;
             z.keyLow = gz.keyLow;
@@ -4411,10 +4517,24 @@ void SampleMapComponent::applyResynthesizedZones(const std::vector<Resynthesized
             z.decayMs = 100.0f;
             z.sustainLevel = 1.0f;
             z.releaseMs = 200.0f;
+            z.loopInRatio = gz.loopInRatio;
+            z.loopOutRatio = gz.loopOutRatio;
+            z.loopCrossfadeMs = gz.loopCrossfadeMs;
+            z.loopMarkersSet = gz.loopMarkersSet;
+            z.isLooping = gz.isLooping;
             z.isSelected = false;
 
             zones.push_back(z);
         }
+    }
+
+    if (anyLooped)
+    {
+        oneShotButton.setToggleState(false, juce::dontSendNotification);
+        audioEngine.setOneShotEnabled(false);
+        loopButton.setToggleState(true, juce::dontSendNotification);
+        loopButton.setButtonText("Loop: ON");
+        audioEngine.setLooping(true);
     }
 
     if (!zones.empty())

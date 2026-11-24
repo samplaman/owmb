@@ -139,6 +139,7 @@ private:
     juce::TextButton stopButton { "Stop" };
     juce::TextButton playSelButton { "Play Sel" };
     juce::TextButton loopToggleButton { "Loop" };
+    juce::TextButton randomLoopToggleButton { "Rand" };
     juce::TextButton selectAllButton { "Select All" };
     juce::TextButton deselectAllButton { "Deselect All" };
     juce::TextButton cropButton { "Crop" };
