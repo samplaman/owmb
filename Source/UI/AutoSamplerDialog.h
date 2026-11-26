@@ -26,6 +26,7 @@ public:
 
     static void showAsync(juce::Component* parent,
                           std::function<void(const SampleMapState& resultState)> onComplete);
+    static void closeActiveWindow();
 
 private:
     class PluginEditorWindow : public juce::DocumentWindow
@@ -39,6 +40,7 @@ private:
             setResizable(editor->isResizable(), false);
             centreWithSize(getWidth(), getHeight());
             setVisible(true);
+            toFront(true);
         }
 
         void closeButtonPressed() override
@@ -47,6 +49,7 @@ private:
         }
     };
 
+    void requestClose();
     void refreshPluginCombo();
     void loadSelectedPlugin();
     void openPluginEditor();

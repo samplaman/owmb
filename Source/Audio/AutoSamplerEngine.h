@@ -69,6 +69,7 @@ public:
                          std::function<void(const SampleMapState& resultState, bool success, const juce::String& error)> completionCb);
 
     void cancelSampling();
+    void stopSamplingAndWait();
     bool isSampling() const { return sampling.load(std::memory_order_acquire); }
 
     static juce::File getDefaultOutputBaseDirectory();

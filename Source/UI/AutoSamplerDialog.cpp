@@ -227,9 +227,9 @@ AutoSamplerDialog::AutoSamplerDialog(std::function<void(const SampleMapState& re
             startBtn.setEnabled(loadedPlugin != nullptr);
             statusLabel.setText("Scan cancelled.", juce::dontSendNotification);
         }
-        else if (auto* dw = findParentComponentOfClass<juce::DialogWindow>())
+        else
         {
-            dw->exitModalState(0);
+            requestClose();
         }
     };
     addAndMakeVisible(cancelBtn);
@@ -241,7 +241,7 @@ AutoSamplerDialog::AutoSamplerDialog(std::function<void(const SampleMapState& re
 AutoSamplerDialog::~AutoSamplerDialog()
 {
     engine.cancelScan();
-    engine.cancelSampling();
+    engine.stopSamplingAndWait();
     pluginEditorWindow.reset();
     loadedPlugin.reset();
 }
@@ -394,8 +394,7 @@ void AutoSamplerDialog::startSampling()
                     juce::dontSendNotification);
                 if (safeThis->onCompleteCallback)
                     safeThis->onCompleteCallback(resultState);
-                if (auto* dw = safeThis->findParentComponentOfClass<juce::DialogWindow>())
-                    dw->exitModalState(1);
+                safeThis->requestClose();
             }
             else
             {
@@ -511,19 +510,92 @@ void AutoSamplerDialog::resized()
     startBtn.setBounds(bottom.removeFromRight(150));
 }
 
+namespace
+{
+// Non-modal top-level window for AutoSamplerDialog.
+// Using DialogWindow::LaunchOptions::launchAsync() makes the dialog modal, which
+// causes JUCE's Windows HWNDComponentPeer to reject clicks (MA_NOACTIVATEANDEAT)
+// on any separate top-level VST3 plugin editor window (e.g. Plogue sforzando).
+class AutoSamplerWindow : public juce::DocumentWindow
+{
+public:
+    AutoSamplerWindow(AutoSamplerDialog* content, juce::Component* centreAround)
+        : DocumentWindow("OWMB Auto-Sampler (VST3 / AU)",
+                         OpenWavLookAndFeel::bgDark,
+                         DocumentWindow::closeButton)
+    {
+        setUsingNativeTitleBar(true);
+        setResizable(false, false);
+        setContentOwned(content, true);
+
+        if (centreAround != nullptr)
+            centreAroundComponent(centreAround, getWidth(), getHeight());
+        else
+            centreWithSize(getWidth(), getHeight());
+
+        setVisible(true);
+        toFront(true);
+    }
+
+    bool keyPressed(const juce::KeyPress& key) override
+    {
+        if (key == juce::KeyPress::escapeKey)
+        {
+            closeButtonPressed();
+            return true;
+        }
+        return DocumentWindow::keyPressed(key);
+    }
+
+    void closeButtonPressed() override
+    {
+        if (closing)
+            return;
+        closing = true;
+        setVisible(false);
+
+        juce::Component::SafePointer<AutoSamplerWindow> safeThis(this);
+        juce::MessageManager::callAsync([safeThis]() {
+            if (safeThis != nullptr)
+                delete safeThis.getComponent();
+        });
+    }
+
+private:
+    bool closing { false };
+};
+
+juce::Component::SafePointer<AutoSamplerWindow> activeAutoSamplerWindow;
+} // namespace
+
+void AutoSamplerDialog::requestClose()
+{
+    if (auto* dw = findParentComponentOfClass<juce::DocumentWindow>())
+        dw->closeButtonPressed();
+}
+
+void AutoSamplerDialog::closeActiveWindow()
+{
+    if (activeAutoSamplerWindow != nullptr)
+    {
+        auto* win = activeAutoSamplerWindow.getComponent();
+        activeAutoSamplerWindow = nullptr;
+        delete win;
+    }
+}
+
 void AutoSamplerDialog::showAsync(juce::Component* parent,
                                   std::function<void(const SampleMapState& resultState)> onComplete)
 {
+    if (activeAutoSamplerWindow != nullptr && activeAutoSamplerWindow->isVisible())
+    {
+        activeAutoSamplerWindow->toFront(true);
+        return;
+    }
+
+    closeActiveWindow();
     auto* content = new AutoSamplerDialog(std::move(onComplete));
-    juce::DialogWindow::LaunchOptions opts;
-    opts.content.setOwned(content);
-    opts.dialogTitle = "OWMB Auto-Sampler (VST3 / AU)";
-    opts.dialogBackgroundColour = OpenWavLookAndFeel::bgDark;
-    opts.escapeKeyTriggersCloseButton = true;
-    opts.useNativeTitleBar = true;
-    opts.resizable = false;
-    opts.componentToCentreAround = parent;
-    opts.launchAsync();
+    activeAutoSamplerWindow = new AutoSamplerWindow(content, parent);
 }
 
 } // namespace openwav

@@ -1,4 +1,16 @@
 cmake_minimum_required(VERSION 3.22)
+
+if (POLICY CMP0091)
+    cmake_policy(SET CMP0091 NEW)
+endif()
+
+if (WIN32)
+    # Statically link the MSVC runtime (/MT in Release, /MTd in Debug) so Windows
+    # Standalone, VST3, Installer, and MSIX builds are self-contained and do not
+    # crash against older system MSVCP140.dll versions (VS 2022 17.10+ mutex ABI).
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
+
 project(OpenWav VERSION 1.0.0 LANGUAGES C CXX)
 
 if (APPLE)

@@ -963,6 +963,7 @@ void SampleMapComponent::lookAndFeelChanged()
 
 SampleMapComponent::~SampleMapComponent()
 {
+    AutoSamplerDialog::closeActiveWindow();
     stopTimer();
     audioEngine.getKeyboardState().removeListener(this);
     audioEngine.removeListener(this);

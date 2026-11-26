@@ -218,6 +218,13 @@ void AutoSamplerEngine::cancelSampling()
     cancelSampleRequested.store(true, std::memory_order_release);
 }
 
+void AutoSamplerEngine::stopSamplingAndWait()
+{
+    cancelSampleRequested.store(true, std::memory_order_release);
+    if (sampleThread && sampleThread->joinable())
+        sampleThread->join();
+}
+
 void AutoSamplerEngine::startAutoSample(
     juce::AudioPluginInstance* pluginInstance,
     const AutoSamplerConfig& config,
