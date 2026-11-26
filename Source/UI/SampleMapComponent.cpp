@@ -1232,7 +1232,9 @@ bool SampleMapComponent::isInterestedInFileDrag(const juce::StringArray& files)
         if (file.hasFileExtension("wav") || file.hasFileExtension("mp3") ||
             file.hasFileExtension("flac") || file.hasFileExtension("aiff") ||
             file.hasFileExtension("aif") || file.hasFileExtension("aifc") ||
-            file.hasFileExtension("ogg") || file.hasFileExtension("xml") ||
+            file.hasFileExtension("ogg") || file.hasFileExtension("m4a") ||
+            file.hasFileExtension("caf") || file.hasFileExtension("aac") ||
+            file.hasFileExtension("xml") ||
             file.hasFileExtension("samplemap") || file.hasFileExtension("owmap") ||
             file.hasFileExtension("sfz") || file.hasFileExtension("zip"))
             return true;

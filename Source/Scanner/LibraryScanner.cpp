@@ -1,4 +1,5 @@
 #include "LibraryScanner.h"
+#include "../Audio/AudioEngine.h"
 #include <future>
 #include <thread>
 #include <vector>
@@ -92,7 +93,7 @@ void LibraryScanner::run()
         if (!rootDir.exists() || !rootDir.isDirectory())
             continue;
 
-        juce::DirectoryIterator iter(rootDir, true, "*.wav;*.mp3;*.flac;*.ogg;*.aif;*.aiff;*.aifc;*.mid;*.midi;*.WAV;*.MP3;*.FLAC;*.OGG;*.AIF;*.AIFF;*.AIFC;*.MID;*.MIDI", juce::File::findFiles);
+        juce::DirectoryIterator iter(rootDir, true, "*.wav;*.mp3;*.flac;*.ogg;*.aif;*.aiff;*.aifc;*.m4a;*.caf;*.aac;*.wma;*.mid;*.midi;*.WAV;*.MP3;*.FLAC;*.OGG;*.AIF;*.AIFF;*.AIFC;*.M4A;*.CAF;*.AAC;*.WMA;*.MID;*.MIDI", juce::File::findFiles);
 
         while (iter.next())
         {
@@ -1088,6 +1089,10 @@ MediaItem LibraryScanner::processAudioFile(const juce::File& file, juce::AudioFo
     }
 
     std::unique_ptr<juce::AudioFormatReader> reader(isMidiFile ? nullptr : localFormatManager.createReaderFor(file));
+    if (!isMidiFile && (reader == nullptr || reader->lengthInSamples <= 0))
+    {
+        reader = AudioEngine::createAudioReaderForFile(file);
+    }
     if (reader != nullptr && !headerParsed)
     {
         item.sampleRate = reader->sampleRate;

@@ -448,6 +448,12 @@ WaveformTransportComponent::WaveformTransportComponent(AudioEngine& engine)
     playPauseButton.setComponentID("iconOnlyBtn");
     playPauseButton.setTooltip("Play / Pause (Space)");
     playPauseButton.onClick = [this] {
+        if (midiPreviewActive && onMidiTogglePlay)
+        {
+            onMidiTogglePlay();
+            syncMidiPreviewNow();
+            return;
+        }
         if (audioEngine.isPlaying())
             audioEngine.pause();
         else
@@ -458,7 +464,15 @@ WaveformTransportComponent::WaveformTransportComponent(AudioEngine& engine)
     // Stop Button
     stopButton.setComponentID("iconOnlyBtn");
     stopButton.setTooltip("Stop Playback");
-    stopButton.onClick = [this] { audioEngine.stop(); };
+    stopButton.onClick = [this] {
+        if (midiPreviewActive && onMidiStop)
+        {
+            onMidiStop();
+            syncMidiPreviewNow();
+            return;
+        }
+        audioEngine.stop();
+    };
     addAndMakeVisible(stopButton);
 
     // Loop Button
@@ -556,9 +570,9 @@ void WaveformTransportComponent::paint(juce::Graphics& g)
     if (getMidiPreviewData)
     {
         auto midiData = getMidiPreviewData();
-        if (midiData.active)
+        if (midiData.selected || midiData.active)
         {
-            if (!midiPreviewActive || midiPreviewFileName != midiData.fileName)
+            if (!midiPreviewActive || midiPreviewFileName != midiData.fileName || midiPreviewNotes.empty())
             {
                 midiPreviewActive = true;
                 midiPreviewFileName = midiData.fileName;
@@ -861,7 +875,7 @@ void WaveformTransportComponent::mouseDown(const juce::MouseEvent& e)
     auto area = getLocalBounds().reduced(12, 8);
     area.removeFromTop(32);
     area.removeFromTop(8);
-    if (!sliceRatios.empty())
+    if (!midiPreviewActive && !sliceRatios.empty())
     {
         area.removeFromBottom(92);
         area.removeFromBottom(8);
@@ -874,7 +888,10 @@ void WaveformTransportComponent::mouseDown(const juce::MouseEvent& e)
     float mouseXRatio = (e.position.x - waveformBounds.getX()) / waveformBounds.getWidth();
     double currentRatio = juce::jlimit(0.0, 1.0, static_cast<double>(mouseXRatio));
 
-    audioEngine.setPositionRatio(currentRatio);
+    if (midiPreviewActive && onMidiSeekRatio)
+        onMidiSeekRatio(currentRatio);
+    else
+        audioEngine.setPositionRatio(currentRatio);
     repaint();
 }
 
@@ -886,7 +903,7 @@ void WaveformTransportComponent::mouseDrag(const juce::MouseEvent& e)
     auto area = getLocalBounds().reduced(12, 8);
     area.removeFromTop(32);
     area.removeFromTop(8);
-    if (!sliceRatios.empty())
+    if (!midiPreviewActive && !sliceRatios.empty())
     {
         area.removeFromBottom(92);
         area.removeFromBottom(8);
@@ -896,7 +913,10 @@ void WaveformTransportComponent::mouseDrag(const juce::MouseEvent& e)
     float mouseXRatio = (e.position.x - waveformBounds.getX()) / waveformBounds.getWidth();
     double currentRatio = juce::jlimit(0.0, 1.0, static_cast<double>(mouseXRatio));
 
-    audioEngine.setPositionRatio(currentRatio);
+    if (midiPreviewActive && onMidiSeekRatio)
+        onMidiSeekRatio(currentRatio);
+    else
+        audioEngine.setPositionRatio(currentRatio);
     repaint();
 }
 
@@ -960,14 +980,6 @@ void WaveformTransportComponent::timerCallback()
         }
     }
 
-    bool isPlaying = audioEngine.isPlaying();
-    juce::String expectedPlayBtnText = isPlaying ? "Pause" : "Play";
-    if (playPauseButton.getButtonText() != expectedPlayBtnText)
-    {
-        playPauseButton.setButtonText(expectedPlayBtnText);
-        repaint();
-    }
-
     bool isLooping = audioEngine.isLooping();
     if (loopButton.getToggleState() != isLooping)
     {
@@ -975,13 +987,13 @@ void WaveformTransportComponent::timerCallback()
         repaint();
     }
 
-    // Check MIDI file preview state first (only active while MIDI is playing)
+    // Check MIDI file preview state first
     if (getMidiPreviewData)
     {
         auto midiData = getMidiPreviewData();
-        if (midiData.active)
+        if (midiData.selected || midiData.active)
         {
-            bool fileChanged = (!midiPreviewActive || midiPreviewFileName != midiData.fileName);
+            bool fileChanged = (!midiPreviewActive || midiPreviewFileName != midiData.fileName || midiPreviewNotes.empty());
             midiPreviewActive = true;
             if (fileChanged)
             {
@@ -990,6 +1002,10 @@ void WaveformTransportComponent::timerCallback()
                 sampleNameLabel.setText(midiPreviewFileName, juce::dontSendNotification);
                 slicesViewport.setVisible(false);
             }
+
+            juce::String expectedMidiBtn = midiData.active ? "Pause" : "Play";
+            if (playPauseButton.getButtonText() != expectedMidiBtn)
+                playPauseButton.setButtonText(expectedMidiBtn);
 
             currentPositionSecs = midiData.positionSec;
             totalDurationSecs = midiData.durationSec;
@@ -1013,6 +1029,14 @@ void WaveformTransportComponent::timerCallback()
             sampleNameLabel.setText(curFile.existsAsFile() ? curFile.getFileName() : "", juce::dontSendNotification);
             repaint();
         }
+    }
+
+    bool isPlaying = audioEngine.isPlaying();
+    juce::String expectedPlayBtnText = isPlaying ? "Pause" : "Play";
+    if (playPauseButton.getButtonText() != expectedPlayBtnText)
+    {
+        playPauseButton.setButtonText(expectedPlayBtnText);
+        repaint();
     }
 
     // Always sync position from audioEngine so both transports stay in sync

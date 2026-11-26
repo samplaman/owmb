@@ -647,8 +647,12 @@ SampleCloudComponent::calculateClusterLayoutInternal(
     float uAxis = 0.0f;
     float hashVal = ((static_cast<float>(h1 % 2001) - 1000.0f) / 1000.0f);
 
-    if (node.item.highFreqRatio > 0.0001 || node.item.zcr > 0.0001) {
-      float bright = static_cast<float>(node.item.highFreqRatio * 0.45 + node.item.zcr * 2.2);
+    const double hfrSafe = std::isfinite(node.item.highFreqRatio) ? node.item.highFreqRatio : 0.0;
+    const double zcrSafe = std::isfinite(node.item.zcr) ? node.item.zcr : 0.0;
+    const double decSafe = std::isfinite(node.item.decayRatio) ? node.item.decayRatio : 0.0;
+
+    if (hfrSafe > 0.0001 || zcrSafe > 0.0001) {
+      float bright = static_cast<float>(hfrSafe * 0.45 + zcrSafe * 2.2);
       // Smooth logarithmic brightness curve with tanh: asymptotic falloff, ZERO hard clamps, ZERO flat walls
       float logB = std::log(std::max(0.002f, bright * 4.0f));
       float audioAxis = std::tanh((logB - 0.10f) * 0.70f);
@@ -666,10 +670,12 @@ SampleCloudComponent::calculateClusterLayoutInternal(
     float gaussNorm = std::sqrt(-2.0f * std::log(u1)) * std::cos(2.0f * juce::MathConstants<float>::pi * u2);
 
     float decayFeat = 0.0f;
-    if (node.item.decayRatio > 0.001) {
-      decayFeat = std::tanh((static_cast<float>(node.item.decayRatio) - 0.25f) * 2.0f) * 0.35f;
+    if (decSafe > 0.001) {
+      decayFeat = std::tanh((static_cast<float>(decSafe) - 0.25f) * 2.0f) * 0.35f;
     }
     float uCross = decayFeat + gaussNorm * 0.34f;
+    if (!std::isfinite(uAxis)) uAxis = 0.0f;
+    if (!std::isfinite(uCross)) uCross = 0.0f;
 
     // Dynamic cluster scale proportional to item count
     float baseRadius = std::max(60.0f, 35.0f + std::sqrt(static_cast<float>(totalInTag)) * 16.0f);
@@ -1134,16 +1140,24 @@ void SampleCloudComponent::drawMiniWaveform(juce::Graphics &g, const juce::Recta
           }
           merged.updateMatchedPairs();
           merged.sort();
-          double maxEnd = std::max(0.25, merged.getEndTime());
+          double firstStart = std::numeric_limits<double>::max();
+          for (int i = 0; i < merged.getNumEvents(); ++i) {
+            const auto *ev = merged.getEventPointer(i);
+            if (ev != nullptr && ev->message.isNoteOn())
+              firstStart = std::min(firstStart, ev->message.getTimeStamp());
+          }
+          const double trimOff = (firstStart < std::numeric_limits<double>::max() && firstStart > 0.01) ? firstStart : 0.0;
+          double maxEnd = 0.25;
           int minN = 127, maxN = 0;
           struct RawNote { double s; double e; int n; };
           std::vector<RawNote> raw;
           for (int i = 0; i < merged.getNumEvents() && raw.size() < 96; ++i) {
             const auto *ev = merged.getEventPointer(i);
             if (ev != nullptr && ev->message.isNoteOn()) {
-              double s = ev->message.getTimeStamp();
-              double e = merged.getTimeOfMatchingKeyUp(i);
-              if (e <= s) e = s + 0.12;
+              double s = std::max(0.0, ev->message.getTimeStamp() - trimOff);
+              double rawEnd = merged.getTimeOfMatchingKeyUp(i);
+              double e = (rawEnd > ev->message.getTimeStamp()) ? std::max(0.0, rawEnd - trimOff) : (s + 0.15);
+              if (e <= s) e = s + 0.15;
               if (e > maxEnd) maxEnd = e;
               int nn = ev->message.getNoteNumber();
               minN = std::min(minN, nn);
@@ -1151,6 +1165,7 @@ void SampleCloudComponent::drawMiniWaveform(juce::Graphics &g, const juce::Recta
               raw.push_back({ s, e, nn });
             }
           }
+          maxEnd += 0.05;
           if (maxN - minN < 8) {
             int c = (minN + maxN) / 2;
             minN = juce::jlimit(0, 118, c - 4);
@@ -1576,10 +1591,12 @@ void SampleCloudComponent::paintOverlay(juce::Graphics &g) {
           g.setColour(n.colour.withAlpha(0.60f));
           g.drawRoundedRectangle(cardBounds, 7.0f, 1.2f);
 
-          // Card Header: Audio tag + File Name
+          // Card Header: Audio/MIDI tag + File Name
+          const bool isMidiNode = n.item.fileExtension.equalsIgnoreCase(".mid") ||
+                                  n.item.fileExtension.equalsIgnoreCase(".midi");
           g.setFont(juce::Font(13.5f, juce::Font::bold));
           g.setColour(n.colour);
-          g.drawText("AUDIO", cardX + 12.0f, cardY + 7.0f, 44.0f, 18.0f, juce::Justification::centredLeft);
+          g.drawText(isMidiNode ? "MIDI" : "AUDIO", cardX + 12.0f, cardY + 7.0f, 44.0f, 18.0f, juce::Justification::centredLeft);
           g.setColour(OpenWavLookAndFeel::textPrimary);
           g.drawText(n.item.fileName, cardX + 60.0f, cardY + 7.0f, cardW - 72.0f, 18.0f,
                      juce::Justification::centredLeft, true);
@@ -1601,7 +1618,9 @@ void SampleCloudComponent::paintOverlay(juce::Graphics &g) {
           g.drawText(tagText, tagBounds, juce::Justification::centred);
 
           // Format / Duration Details
-          juce::String metaStr = n.item.cachedFormattedDuration + "  •  " + n.item.cachedFormattedSampleRate;
+          juce::String detailRight = isMidiNode ? "MIDI Pattern"
+                                                : (n.item.sampleRate > 0.0 ? n.item.cachedFormattedSampleRate : n.item.cachedUppercaseExtension);
+          juce::String metaStr = n.item.cachedFormattedDuration + "  •  " + detailRight;
           g.setColour(OpenWavLookAndFeel::textSecondary);
           g.drawText(metaStr, cardX + 16.0f + tagW, badgeY, cardW - tagW - 28.0f, 18.0f,
                      juce::Justification::centredLeft);

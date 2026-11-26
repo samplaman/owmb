@@ -126,6 +126,7 @@ enum class EngineCommandType : int
     LoadPreviewSample,
     PlayZoneVoice,
     StopZoneVoice,
+    StopAllZoneVoices,
     PlayMetronome,
     UpdateVoiceRatios
 };
@@ -169,7 +170,9 @@ class AudioEngine : public juce::ChangeListener, public juce::Timer
 {
 public:
     static constexpr int MaxActiveVoices = 32;
-    static constexpr int CommandQueueCapacity = 256;
+    static constexpr int CommandQueueCapacity = 1024;
+
+    static std::unique_ptr<juce::AudioFormatReader> createAudioReaderForFile(const juce::File& file);
 
     AudioEngine();
     ~AudioEngine() override;
@@ -189,7 +192,8 @@ public:
     void putSampleInCache(const juce::String& filePath, double sampleRate, const juce::AudioBuffer<float>& buf);
     bool getCachedSampleCopy(const juce::String& filePath, juce::AudioBuffer<float>& destBuffer, double& sampleRate) const;
     void playZoneVoice(const juce::File& file, int triggerMidiNote, int rootNote, float fineTuneCents, float gainDb, float velocity = 1.0f,
-                       float attackSec = 0.005f, float decaySec = 0.1f, float sustainLevel = 1.0f, float releaseSec = 0.2f, bool isOneShot = false, bool isLooping = false);
+                       float attackSec = 0.005f, float decaySec = 0.1f, float sustainLevel = 1.0f, float releaseSec = 0.2f,
+                       bool isOneShot = false, bool isLooping = false, bool updateEditorUi = true);
     void setSamplerReverbAmount(float amount) { samplerReverbAmount.store(juce::jlimit(0.0f, 1.0f, amount), std::memory_order_relaxed); }
     float getSamplerReverbAmount() const { return samplerReverbAmount.load(std::memory_order_relaxed); }
     void setPitchTrackingEnabled(bool enabled);
@@ -198,7 +202,9 @@ public:
     void setOneShotEnabled(bool enabled);
     bool isOneShotEnabled() const { return oneShotEnabled.load(std::memory_order_relaxed); }
     void stopZoneVoice(int triggerMidiNote);
+    void stopAllZoneVoices(bool immediateCut = false);
     void stopAllVoices();
+    void drainPendingCommandsNow() { drainCommandsOnAudioThread(); }
     void play();
     void pause();
     void stop();
@@ -354,6 +360,7 @@ public:
     void setInputParametricEq(const std::array<float, 9>& freqs, const std::array<float, 9>& gains, bool lowCut);
 
     void triggerNoteOn(int midiNoteNumber, float velocity = 1.0f);
+    void triggerMidiAuditionNoteOn(int midiNoteNumber, float velocity = 1.0f);
     void triggerNoteOff(int midiNoteNumber);
 
     void addListener(AudioEngineListener* listener);
@@ -375,6 +382,8 @@ private:
     // Master sample and UI data lock (NEVER ACQUIRED BY AUDIO THREAD)
     mutable juce::CriticalSection uiDataLock;
     std::shared_ptr<CachedSample> currentMasterSample;
+    std::shared_ptr<CachedSample> defaultMidiSynthSample;
+    void initDefaultMidiSynthSample();
     std::shared_ptr<AudioVoice> loadedVoice;
     WaveformPeaks cachedWaveformPeaks;
 

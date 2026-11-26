@@ -107,6 +107,13 @@ std::vector<MediaItem> TagDatabaseManager::getFilteredItems(const juce::String& 
                     !item.fileExtension.equalsIgnoreCase(".midi"))
                     continue;
             }
+            else if (extensionFilter.equalsIgnoreCase(".m4a") || extensionFilter.equalsIgnoreCase(".caf") || extensionFilter.equalsIgnoreCase(".aac"))
+            {
+                if (!item.fileExtension.equalsIgnoreCase(".m4a") &&
+                    !item.fileExtension.equalsIgnoreCase(".caf") &&
+                    !item.fileExtension.equalsIgnoreCase(".aac"))
+                    continue;
+            }
             else if (!item.fileExtension.endsWithIgnoreCase(extensionFilter))
             {
                 continue;

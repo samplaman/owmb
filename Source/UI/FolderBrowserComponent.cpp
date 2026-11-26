@@ -1046,7 +1046,9 @@ void FolderBrowserComponent::paintListBoxItem(int rowNumber,
     // 1. Play / Pause Icon
     {
         bool isCurrentFile = (cachedCurrentFilePath == item.filePath);
-        bool isPlaying = isCurrentFile && cachedIsPlaying;
+        bool isPlayingMidi = audioEngine.isMidiFileCurrentlyPlaying &&
+                             audioEngine.isMidiFileCurrentlyPlaying(juce::File(item.filePath));
+        bool isPlaying = (isCurrentFile && cachedIsPlaying) || isPlayingMidi;
         const auto& img = isPlaying ? pauseIconImage : playIconImage;
         if (img.isValid())
         {
@@ -1268,16 +1270,18 @@ void FolderBrowserComponent::listBoxItemClicked(int rowNumber, const juce::Mouse
     currentSelectedFolderKey.clear();
     currentSelectedItemId = item.id;
 
-    bool isCurrentFile = (audioEngine.getCurrentFile().getFullPathName() == item.filePath);
-    if (e.x >= playBtnStartX && e.x <= playBtnEndX && isCurrentFile && audioEngine.isPlaying())
+    juce::File fileToLoad(item.filePath);
+    bool isCurrentFile = (audioEngine.getCurrentFile() == fileToLoad);
+    bool isPlayingMidi = audioEngine.isMidiFileCurrentlyPlaying &&
+                         audioEngine.isMidiFileCurrentlyPlaying(fileToLoad);
+    if (e.x >= playBtnStartX && e.x <= playBtnEndX && ((isCurrentFile && audioEngine.isPlaying()) || isPlayingMidi))
     {
         audioEngine.stop();
         listBox.repaintRow(rowNumber);
         return;
     }
 
-    juce::File fileToLoad(item.filePath);
-    if (fileToLoad.existsAsFile())
+    if (fileToLoad.existsAsFile() && !fileToLoad.hasFileExtension("mid;midi"))
     {
         audioEngine.stop();
         audioEngine.setSampleBpm(item.bpm);
@@ -1341,7 +1345,7 @@ void FolderBrowserComponent::selectedRowsChanged(int lastRowSelected)
         currentSelectedItemId = item.id;
 
         juce::File fileToLoad(item.filePath);
-        if (fileToLoad.existsAsFile())
+        if (fileToLoad.existsAsFile() && !fileToLoad.hasFileExtension("mid;midi"))
         {
             audioEngine.stop();
             audioEngine.setSampleBpm(item.bpm);
@@ -1371,9 +1375,8 @@ void FolderBrowserComponent::returnKeyPressed(int lastRowSelected)
         juce::File f(item.filePath);
         if (f.existsAsFile())
         {
-            audioEngine.stop();
             audioEngine.setSampleBpm(item.bpm);
-            audioEngine.loadFile(f, true);
+            audioEngine.auditionFile(f);
         }
     }
 }

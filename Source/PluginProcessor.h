@@ -74,7 +74,12 @@ public:
     };
     bool loadAndPlayMidiFile(const juce::File& midiFile);
     void stopMidiFilePlayback(bool stopAudioVoices = true);
+    void pauseMidiFilePlayback();
+    void toggleMidiFilePlayback();
+    void seekMidiFilePlayback(double normalizedRatio);
+    void clearLoadedMidiFile();
     bool isMidiFilePlaying() const { return midiPlaybackActive.load(std::memory_order_relaxed); }
+    bool hasLoadedMidiFile() const { return midiSelectedForTransport.load(std::memory_order_relaxed); }
     double getMidiPlaybackTimeSeconds() const { return midiPlayTimeAtomic.load(std::memory_order_relaxed); }
     double getMidiFileDurationSeconds() const { return midiFileDurationAtomic.load(std::memory_order_relaxed); }
     juce::String getLoadedMidiFileName() const;
@@ -112,7 +117,9 @@ private:
     std::map<int, int> noteRoundRobinCounters;
     std::map<int, int> lastRandomZoneIndex;
 
-    void processIncomingMidiMessage(const juce::MidiMessage& message);
+    void processIncomingMidiMessage(const juce::MidiMessage& message, bool isInternalMidiFile = false);
+    void triggerNoteOnInternal(int midiChannel, int midiNoteNumber, float velocity, bool isInternalMidiFile);
+    void triggerNoteOffInternal(int midiChannel, int midiNoteNumber, float velocity, bool isInternalMidiFile);
     std::array<bool, 128> physicalNotesHeld {};
     std::array<bool, 128> sustainedNotes {};
     std::array<int, 128> noteChannels {};
@@ -130,6 +137,7 @@ private:
     juce::String loadedMidiFilePath;
     std::vector<MidiDisplayNote> midiDisplayNotes;
     std::atomic<bool> midiPlaybackActive { false };
+    std::atomic<bool> midiSelectedForTransport { false };
 
     // MIDI Learn State
     mutable juce::CriticalSection midiCcLock;

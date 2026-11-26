@@ -1180,7 +1180,9 @@ bool EditComponent::isInterestedInFileDrag(const juce::StringArray& files)
         juce::File file(f);
         if (file.hasFileExtension("wav") || file.hasFileExtension("mp3") ||
             file.hasFileExtension("flac") || file.hasFileExtension("aiff") ||
-            file.hasFileExtension("aif") || file.hasFileExtension("ogg"))
+            file.hasFileExtension("aif") || file.hasFileExtension("aifc") ||
+            file.hasFileExtension("ogg") || file.hasFileExtension("m4a") ||
+            file.hasFileExtension("caf") || file.hasFileExtension("aac"))
             return true;
     }
     return false;

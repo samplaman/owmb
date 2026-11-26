@@ -77,10 +77,127 @@ static int getRootNoteFromWavSmplHeader(const juce::File& file)
     return -1;
 }
 
+std::unique_ptr<juce::AudioFormatReader> AudioEngine::createAudioReaderForFile(const juce::File& file)
+{
+    if (!file.existsAsFile() || file.hasFileExtension("mid;midi"))
+        return nullptr;
+
+    juce::AudioFormatManager localFm;
+    localFm.registerBasicFormats();
+
+    if (auto* r = localFm.createReaderFor(file))
+    {
+        if (r->lengthInSamples > 0 && r->numChannels > 0)
+            return std::unique_ptr<juce::AudioFormatReader>(r);
+        delete r;
+    }
+
+   #if JUCE_MAC || JUCE_IOS
+    {
+        const juce::String ext = file.getFileExtension().toLowerCase();
+        juce::CoreAudioFormat::StreamKind hint = juce::CoreAudioFormat::StreamKind::kNone;
+        if (ext == ".mp3")      hint = juce::CoreAudioFormat::StreamKind::kMp3;
+        else if (ext == ".m4a") hint = juce::CoreAudioFormat::StreamKind::kM4a;
+        else if (ext == ".mp4") hint = juce::CoreAudioFormat::StreamKind::kMpeg4;
+        else if (ext == ".aac") hint = juce::CoreAudioFormat::StreamKind::kAacAdts;
+        else if (ext == ".caf") hint = juce::CoreAudioFormat::StreamKind::kCaf;
+        else if (ext == ".aifc" || ext == ".aiff" || ext == ".aif")
+                                hint = juce::CoreAudioFormat::StreamKind::kAifc;
+        else if (ext == ".wav") hint = juce::CoreAudioFormat::StreamKind::kWave;
+
+        if (hint != juce::CoreAudioFormat::StreamKind::kNone)
+        {
+            juce::CoreAudioFormat caFmt(hint);
+            if (auto in = file.createInputStream())
+            {
+                if (auto* r = caFmt.createReaderFor(in.release(), true))
+                {
+                    if (r->lengthInSamples > 0 && r->numChannels > 0)
+                        return std::unique_ptr<juce::AudioFormatReader>(r);
+                    delete r;
+                }
+            }
+        }
+    }
+   #endif
+
+   #if JUCE_USE_MP3AUDIOFORMAT
+    if (file.hasFileExtension("mp3;wav"))
+    {
+        juce::MP3AudioFormat mp3Fmt;
+        if (auto in = file.createInputStream())
+        {
+            if (auto* r = mp3Fmt.createReaderFor(in.release(), true))
+            {
+                if (r->lengthInSamples > 0 && r->numChannels > 0)
+                    return std::unique_ptr<juce::AudioFormatReader>(r);
+                delete r;
+            }
+        }
+    }
+   #endif
+
+    // Magic-byte stream fallback across all codecs (handles mislabeled extensions in sample packs)
+    if (auto in = file.createInputStream())
+    {
+        if (auto* r = localFm.createReaderFor(std::move(in)))
+        {
+            if (r->lengthInSamples > 0 && r->numChannels > 0)
+                return std::unique_ptr<juce::AudioFormatReader>(r);
+            delete r;
+        }
+    }
+
+    return nullptr;
+}
+
+void AudioEngine::initDefaultMidiSynthSample()
+{
+    constexpr double sr = 44100.0;
+    constexpr int numSamples = static_cast<int>(sr * 3.2);
+    constexpr double f0 = 261.6255653006; // C4 (MIDI 60)
+
+    auto synth = std::make_shared<CachedSample>();
+    synth->sampleRate = sr;
+    synth->rootNote = 60;
+    synth->buffer.setSize(2, numSamples);
+
+    float* chL = synth->buffer.getWritePointer(0);
+    float* chR = synth->buffer.getWritePointer(1);
+    const double detuneL = std::pow(2.0, -1.5 / 1200.0);
+    const double detuneR = std::pow(2.0,  1.5 / 1200.0);
+    const double twoPi = juce::MathConstants<double>::twoPi;
+
+    for (int i = 0; i < numSamples; ++i)
+    {
+        const double t = static_cast<double>(i) / sr;
+        const double atk = std::min(1.0, t / 0.004);
+        const double bodyEnv = atk * (0.34 * std::exp(-t * 0.55) + 0.66 * std::exp(-t * 2.1));
+        const double tineEnv = atk * std::exp(-t * 14.0);
+        const double endFade = (t > 2.8) ? std::max(0.0, (3.2 - t) / 0.4) : 1.0;
+
+        auto renderChannel = [&](double det) -> float {
+            const double w = twoPi * f0 * det * t;
+            const double sig = 0.62 * std::sin(w)
+                             + 0.24 * std::sin(2.0 * w + 0.25 * std::sin(w) * std::exp(-t * 3.5))
+                             + 0.10 * std::sin(3.0 * w)
+                             + 0.04 * std::sin(4.0 * w)
+                             + 0.09 * std::sin(7.0 * w) * tineEnv;
+            return static_cast<float>(sig * bodyEnv * endFade * 0.52);
+        };
+
+        chL[i] = renderChannel(detuneL);
+        chR[i] = renderChannel(detuneR);
+    }
+
+    defaultMidiSynthSample = std::move(synth);
+}
+
 AudioEngine::AudioEngine()
 {
     formatManager.registerBasicFormats();
     hoverFormatManager.registerBasicFormats();
+    initDefaultMidiSynthSample();
 
     float baseFreqs[9] = { 60.0f, 120.0f, 250.0f, 500.0f, 1000.0f, 2000.0f, 4000.0f, 8000.0f, 16000.0f };
     for (int i = 0; i < 9; ++i)
@@ -402,6 +519,27 @@ void AudioEngine::drainCommandsOnAudioThread()
                     if (slot.active && slot.isZoneVoice && slot.triggerMidiNote == triggerNote)
                     {
                         if (!slot.isOneShot)
+                        {
+                            slot.adsr.noteOff();
+                            slot.isLooping = false;
+                        }
+                    }
+                }
+                break;
+            }
+            case EngineCommandType::StopAllZoneVoices:
+            {
+                const bool immediateCut = cmd.boolVal1;
+                for (auto& slot : voicePool)
+                {
+                    if (slot.active && slot.isZoneVoice)
+                    {
+                        if (immediateCut)
+                        {
+                            slot.active = false;
+                            slot.adsr.reset();
+                        }
+                        else
                         {
                             slot.adsr.noteOff();
                             slot.isLooping = false;
@@ -1092,7 +1230,7 @@ void AudioEngine::preloadSampleFiles(const std::vector<juce::File>& files)
             if (!token->load(std::memory_order_acquire) || isShuttingDown.load(std::memory_order_relaxed))
                 break;
 
-            std::unique_ptr<juce::AudioFormatReader> reader(formatManager.createReaderFor(file));
+            std::unique_ptr<juce::AudioFormatReader> reader = createAudioReaderForFile(file);
             if (reader != nullptr && reader->lengthInSamples > 0 && reader->numChannels > 0)
             {
                 int metaRoot = -1;
@@ -1109,7 +1247,8 @@ void AudioEngine::preloadSampleFiles(const std::vector<juce::File>& files)
                     break;
 
                 const juce::ScopedLock sl(cacheLock);
-                if (sampleCache.size() > 200) sampleCache.clear();
+                while (sampleCache.size() >= 320)
+                    sampleCache.erase(sampleCache.begin());
                 sampleCache[filePath] = cached;
             }
         }
@@ -1119,7 +1258,8 @@ void AudioEngine::preloadSampleFiles(const std::vector<juce::File>& files)
 void AudioEngine::putSampleInCache(const juce::String& filePath, double sampleRate, const juce::AudioBuffer<float>& buf)
 {
     const juce::ScopedLock sl(cacheLock);
-    if (sampleCache.size() > 200) sampleCache.clear();
+    while (sampleCache.size() >= 320)
+        sampleCache.erase(sampleCache.begin());
     auto cached = std::make_shared<CachedSample>();
     cached->sampleRate = sampleRate;
     cached->buffer.makeCopyOf(buf);
@@ -1141,7 +1281,7 @@ bool AudioEngine::getCachedSampleCopy(const juce::String& filePath, juce::AudioB
 }
 
 void AudioEngine::playZoneVoice(const juce::File& file, int triggerMidiNote, int rootNote, float fineTuneCents, float gainDb, float velocity,
-                               float attackSec, float decaySec, float sustainLevel, float releaseSec, bool isOneShot, bool isLooping)
+                               float attackSec, float decaySec, float sustainLevel, float releaseSec, bool isOneShot, bool isLooping, bool updateEditorUi)
 {
     juce::String filePath = file.getFullPathName();
     if (filePath.isEmpty()) return;
@@ -1167,7 +1307,7 @@ void AudioEngine::playZoneVoice(const juce::File& file, int triggerMidiNote, int
     {
         if (!file.existsAsFile()) return;
 
-        std::unique_ptr<juce::AudioFormatReader> reader(formatManager.createReaderFor(file));
+        std::unique_ptr<juce::AudioFormatReader> reader = createAudioReaderForFile(file);
         if (reader == nullptr || reader->lengthInSamples <= 0 || reader->numChannels <= 0) return;
 
         seedLoopSettingsFromMetadataIfUnset(filePath, reader.get(), nullptr);
@@ -1179,7 +1319,8 @@ void AudioEngine::playZoneVoice(const juce::File& file, int triggerMidiNote, int
         reader->read(&cached->buffer, 0, static_cast<int>(reader->lengthInSamples), 0, true, true);
 
         const juce::ScopedLock sl(cacheLock);
-        if (sampleCache.size() > 200) sampleCache.clear();
+        while (sampleCache.size() >= 320)
+            sampleCache.erase(sampleCache.begin());
         sampleCache[filePath] = cached;
     }
 
@@ -1236,15 +1377,18 @@ void AudioEngine::playZoneVoice(const juce::File& file, int triggerMidiNote, int
     }
     pushCommand(cmd);
 
-    juce::MessageManager::callAsync([this, token = engineAliveToken, triggerMidiNote, file, cached]() {
-        if (!token->load(std::memory_order_acquire) || isShuttingDown.load(std::memory_order_relaxed))
-            return;
-        syncUiToPlayedSample(file, cached);
-        int sliceIdx = (triggerMidiNote >= 36 && triggerMidiNote < 100) ? (triggerMidiNote - 36) : -1;
-        listeners.call([sliceIdx](AudioEngineListener& l) {
-            l.activeSliceTriggered(sliceIdx);
+    if (updateEditorUi)
+    {
+        juce::MessageManager::callAsync([this, token = engineAliveToken, triggerMidiNote, file, cached]() {
+            if (!token->load(std::memory_order_acquire) || isShuttingDown.load(std::memory_order_relaxed))
+                return;
+            syncUiToPlayedSample(file, cached);
+            int sliceIdx = (triggerMidiNote >= 36 && triggerMidiNote < 100) ? (triggerMidiNote - 36) : -1;
+            listeners.call([sliceIdx](AudioEngineListener& l) {
+                l.activeSliceTriggered(sliceIdx);
+            });
         });
-    });
+    }
 }
 
 void AudioEngine::stopZoneVoice(int triggerMidiNote)
@@ -1255,13 +1399,18 @@ void AudioEngine::stopZoneVoice(int triggerMidiNote)
     pushCommand(cmd);
 }
 
+void AudioEngine::stopAllZoneVoices(bool immediateCut)
+{
+    EngineCommand cmd;
+    cmd.type = EngineCommandType::StopAllZoneVoices;
+    cmd.boolVal1 = immediateCut;
+    pushCommand(cmd);
+}
+
 void AudioEngine::stopAllVoices()
 {
     stop();
-    for (int n = 0; n < 128; ++n)
-    {
-        stopZoneVoice(n);
-    }
+    stopAllZoneVoices(true);
 }
 
 void AudioEngine::triggerNoteOn(int midiNoteNumber, float velocity)
@@ -1270,9 +1419,16 @@ void AudioEngine::triggerNoteOn(int midiNoteNumber, float velocity)
         return;
 
     std::shared_ptr<CachedSample> master;
+    bool usingFallbackSynth = false;
     {
         const juce::ScopedLock sl(uiDataLock);
         master = currentMasterSample;
+    }
+
+    if (master == nullptr || master->buffer.getNumSamples() == 0)
+    {
+        master = defaultMidiSynthSample;
+        usingFallbackSynth = true;
     }
 
     if (master == nullptr || master->buffer.getNumSamples() == 0)
@@ -1290,21 +1446,24 @@ void AudioEngine::triggerNoteOn(int midiNoteNumber, float velocity)
     cmd.floatVal3 = 0.005f;
     cmd.floatVal4 = 0.1f;
     cmd.floatVal5 = 1.0f;
-    cmd.floatVal6 = 0.05f;
-    cmd.boolVal1 = isLoopingAtomic.load(std::memory_order_relaxed);
-    cmd.boolVal2 = oneShotEnabled.load(std::memory_order_relaxed);
-    cmd.boolVal3 = true;
-    cmd.editSettings.sampleStartRatio = sampleStartRatioAtomic.load(std::memory_order_relaxed);
-    cmd.editSettings.sampleEndRatio = sampleEndRatioAtomic.load(std::memory_order_relaxed);
-    cmd.editSettings.loopInRatio = loopInRatioAtomic.load(std::memory_order_relaxed);
-    cmd.editSettings.loopOutRatio = loopOutRatioAtomic.load(std::memory_order_relaxed);
-    cmd.editSettings.loopCrossfadeMs = loopCrossfadeMsAtomic.load(std::memory_order_relaxed);
-    cmd.editSettings.fadeInMs = fadeInMsAtomic.load(std::memory_order_relaxed);
-    cmd.editSettings.fadeOutMs = fadeOutMsAtomic.load(std::memory_order_relaxed);
-    cmd.editSettings.fadeInCurveType = fadeInCurveAtomic.load(std::memory_order_relaxed);
-    cmd.editSettings.fadeOutCurveType = fadeOutCurveAtomic.load(std::memory_order_relaxed);
-    cmd.editSettings.loopMarkersSet = loopMarkersSetAtomic.load(std::memory_order_relaxed);
-    cmd.editSettings.isLooping = isLoopingAtomic.load(std::memory_order_relaxed);
+    cmd.floatVal6 = usingFallbackSynth ? 0.18f : 0.08f;
+    cmd.boolVal1 = usingFallbackSynth ? false : isLoopingAtomic.load(std::memory_order_relaxed);
+    cmd.boolVal2 = usingFallbackSynth ? false : oneShotEnabled.load(std::memory_order_relaxed);
+    cmd.boolVal3 = !usingFallbackSynth;
+    if (!usingFallbackSynth)
+    {
+        cmd.editSettings.sampleStartRatio = sampleStartRatioAtomic.load(std::memory_order_relaxed);
+        cmd.editSettings.sampleEndRatio = sampleEndRatioAtomic.load(std::memory_order_relaxed);
+        cmd.editSettings.loopInRatio = loopInRatioAtomic.load(std::memory_order_relaxed);
+        cmd.editSettings.loopOutRatio = loopOutRatioAtomic.load(std::memory_order_relaxed);
+        cmd.editSettings.loopCrossfadeMs = loopCrossfadeMsAtomic.load(std::memory_order_relaxed);
+        cmd.editSettings.fadeInMs = fadeInMsAtomic.load(std::memory_order_relaxed);
+        cmd.editSettings.fadeOutMs = fadeOutMsAtomic.load(std::memory_order_relaxed);
+        cmd.editSettings.fadeInCurveType = fadeInCurveAtomic.load(std::memory_order_relaxed);
+        cmd.editSettings.fadeOutCurveType = fadeOutCurveAtomic.load(std::memory_order_relaxed);
+        cmd.editSettings.loopMarkersSet = loopMarkersSetAtomic.load(std::memory_order_relaxed);
+        cmd.editSettings.isLooping = isLoopingAtomic.load(std::memory_order_relaxed);
+    }
     pushCommand(cmd);
 
     juce::MessageManager::callAsync([this, token = engineAliveToken] {
@@ -1312,6 +1471,66 @@ void AudioEngine::triggerNoteOn(int midiNoteNumber, float velocity)
             return;
         listeners.call([](AudioEngineListener& l) { l.playbackStateChanged(true); });
     });
+}
+
+void AudioEngine::triggerMidiAuditionNoteOn(int midiNoteNumber, float velocity)
+{
+    std::shared_ptr<CachedSample> sampleToUse;
+    bool usingFallbackSynth = false;
+    {
+        const juce::ScopedLock sl(uiDataLock);
+        if (currentMasterSample != nullptr && currentMasterSample->buffer.getNumSamples() > 0)
+        {
+            const double sr = currentMasterSample->sampleRate > 0.0 ? currentMasterSample->sampleRate : 44100.0;
+            const double durSec = static_cast<double>(currentMasterSample->buffer.getNumSamples()) / sr;
+            const bool inSampler = isLoadedInSampler.load(std::memory_order_relaxed);
+            const bool hasCustomSustainLoop = loopMarkersSetAtomic.load(std::memory_order_relaxed);
+            // Avoid pitching long unmapped stems/drum loops across polyphonic MIDI files unless explicitly loaded in Sampler
+            if (inSampler || hasCustomSustainLoop || durSec <= 4.0)
+                sampleToUse = currentMasterSample;
+        }
+    }
+
+    if (sampleToUse == nullptr || sampleToUse->buffer.getNumSamples() == 0)
+    {
+        sampleToUse = defaultMidiSynthSample;
+        usingFallbackSynth = true;
+    }
+
+    if (sampleToUse == nullptr || sampleToUse->buffer.getNumSamples() == 0)
+        return;
+
+    const float effectiveGain = juce::jlimit(0.0f, 1.0f, velocity);
+
+    EngineCommand cmd;
+    cmd.type = EngineCommandType::PlayZoneVoice;
+    cmd.sampleData = sampleToUse;
+    cmd.intVal1 = midiNoteNumber;
+    cmd.intVal2 = sampleToUse->rootNote;
+    cmd.floatVal1 = 0.0f;
+    cmd.floatVal2 = effectiveGain;
+    cmd.floatVal3 = 0.005f;
+    cmd.floatVal4 = 0.12f;
+    cmd.floatVal5 = 0.92f;
+    cmd.floatVal6 = 0.18f;
+    cmd.boolVal1 = usingFallbackSynth ? false : (loopMarkersSetAtomic.load(std::memory_order_relaxed) && isLoopingAtomic.load(std::memory_order_relaxed));
+    cmd.boolVal2 = false; // Always honor MIDI Note-Off during .mid file audition
+    cmd.boolVal3 = !usingFallbackSynth;
+    if (!usingFallbackSynth)
+    {
+        cmd.editSettings.sampleStartRatio = sampleStartRatioAtomic.load(std::memory_order_relaxed);
+        cmd.editSettings.sampleEndRatio = sampleEndRatioAtomic.load(std::memory_order_relaxed);
+        cmd.editSettings.loopInRatio = loopInRatioAtomic.load(std::memory_order_relaxed);
+        cmd.editSettings.loopOutRatio = loopOutRatioAtomic.load(std::memory_order_relaxed);
+        cmd.editSettings.loopCrossfadeMs = loopCrossfadeMsAtomic.load(std::memory_order_relaxed);
+        cmd.editSettings.fadeInMs = fadeInMsAtomic.load(std::memory_order_relaxed);
+        cmd.editSettings.fadeOutMs = fadeOutMsAtomic.load(std::memory_order_relaxed);
+        cmd.editSettings.fadeInCurveType = fadeInCurveAtomic.load(std::memory_order_relaxed);
+        cmd.editSettings.fadeOutCurveType = fadeOutCurveAtomic.load(std::memory_order_relaxed);
+        cmd.editSettings.loopMarkersSet = loopMarkersSetAtomic.load(std::memory_order_relaxed);
+        cmd.editSettings.isLooping = cmd.boolVal1;
+    }
+    pushCommand(cmd);
 }
 
 void AudioEngine::triggerNoteOff(int midiNoteNumber)
@@ -1325,6 +1544,21 @@ void AudioEngine::triggerNoteOff(int midiNoteNumber)
 bool AudioEngine::loadFile(const juce::File& audioFile, bool autoPlay, bool isSamplerSample)
 {
     cancelPendingHoverAudition();
+
+    if (audioFile.hasFileExtension("mid;midi"))
+    {
+        ++currentLoadId;
+        loadInProgress.store(false, std::memory_order_release);
+        EngineCommand stopCmd;
+        stopCmd.type = EngineCommandType::Stop;
+        pushCommand(stopCmd);
+        lastNotifiedPlayingState = false;
+        listeners.call([](AudioEngineListener& l) { l.playbackStateChanged(false); });
+        if (autoPlay && onMidiFileAudition)
+            onMidiFileAudition(audioFile);
+        return true;
+    }
+
     isLoadedInSampler.store(isSamplerSample, std::memory_order_relaxed);
 
     // Fast Path A: Requested file is ALREADY the active master sample in memory -> zero-latency cut-off & restart!
@@ -1529,7 +1763,7 @@ bool AudioEngine::loadFile(const juce::File& audioFile, bool autoPlay, bool isSa
             return;
 
         juce::String fp = audioFile.getFullPathName();
-        std::unique_ptr<juce::AudioFormatReader> reader(formatManager.createReaderFor(audioFile));
+        std::unique_ptr<juce::AudioFormatReader> reader = createAudioReaderForFile(audioFile);
         if (reader == nullptr || loadId != currentLoadId.load(std::memory_order_relaxed))
         {
             clearInProgressIfCurrent();
@@ -2064,7 +2298,7 @@ void AudioEngine::runHoverAuditionLoop()
 
         if (sampleData == nullptr)
         {
-            std::unique_ptr<juce::AudioFormatReader> reader(hoverFormatManager.createReaderFor(fileToLoad));
+            std::unique_ptr<juce::AudioFormatReader> reader = createAudioReaderForFile(fileToLoad);
             if (reader == nullptr)
                 continue;
 
@@ -2074,7 +2308,7 @@ void AudioEngine::runHoverAuditionLoop()
             if (totalLength64 <= 0 || numChannels <= 0)
                 continue;
 
-            // Cap uncached hover preview decode at 15 seconds so even huge multi-minute stems decode in ~1ms
+            // Cap uncached hover preview decode at 15 seconds so even huge multi-minute stems decode quickly
             const int64_t maxPreviewFrames = static_cast<int64_t>(fileSampleRate * 15.0);
             const int numSamples = static_cast<int>(std::min<int64_t>(totalLength64, std::min<int64_t>(maxPreviewFrames, 0x3FFFFFFF)));
             isFullFileRead = (numSamples == totalLength64);
@@ -2085,31 +2319,40 @@ void AudioEngine::runHoverAuditionLoop()
             auto loaded = std::make_shared<CachedSample>();
             loaded->sampleRate = fileSampleRate;
             loaded->rootNote = rootNoteVal;
-            loaded->buffer.setSize(numChannels, numSamples, false, false, true);
+            loaded->buffer.setSize(numChannels, numSamples, false, true, true);
 
-            constexpr int chunkSize = 65536;
-            int offset = 0;
             bool abortedMidRead = false;
-            while (offset < numSamples)
+            const bool isUncompressedPcm = fileToLoad.hasFileExtension("wav");
+            if (isUncompressedPcm && numSamples > 131072)
             {
-                if (hoverWorker.threadShouldExit() || isShuttingDown.load(std::memory_order_acquire) ||
-                    hoverCancelGeneration.load(std::memory_order_acquire) != cancelGen)
+                constexpr int chunkSize = 65536;
+                int offset = 0;
+                while (offset < numSamples)
                 {
-                    abortedMidRead = true;
-                    break;
-                }
-                if (offset > 0)
-                {
-                    const juce::ScopedLock sl(hoverLock);
-                    if (hoverRequestSeq != seq)
+                    if (hoverWorker.threadShouldExit() || isShuttingDown.load(std::memory_order_acquire) ||
+                        hoverCancelGeneration.load(std::memory_order_acquire) != cancelGen)
                     {
                         abortedMidRead = true;
                         break;
                     }
+                    if (offset > 0)
+                    {
+                        const juce::ScopedLock sl(hoverLock);
+                        if (hoverRequestSeq != seq)
+                        {
+                            abortedMidRead = true;
+                            break;
+                        }
+                    }
+                    const int toRead = std::min(chunkSize, numSamples - offset);
+                    reader->read(&loaded->buffer, offset, toRead, offset, true, true);
+                    offset += toRead;
                 }
-                const int toRead = std::min(chunkSize, numSamples - offset);
-                reader->read(&loaded->buffer, offset, toRead, offset, true, true);
-                offset += toRead;
+            }
+            else
+            {
+                // Read compressed formats (MP3, FLAC, OGG, AIFF/AIFC, M4A, CAF, AAC) sequentially without mid-stream seeks
+                reader->read(&loaded->buffer, 0, numSamples, 0, true, true);
             }
 
             if (abortedMidRead)
@@ -2585,15 +2828,13 @@ bool AudioEngine::extractMetadataLoopAndRoot(const juce::File& file,
     outHasLoopPoints = false;
     outRootNote = -1;
 
-    juce::AudioFormatManager localFormatMgr;
     std::unique_ptr<juce::AudioFormatReader> ownedReader;
     const juce::AudioFormatReader* r = existingReader;
     if (r == nullptr)
     {
         if (!file.existsAsFile())
             return false;
-        localFormatMgr.registerBasicFormats();
-        ownedReader.reset(localFormatMgr.createReaderFor(file));
+        ownedReader = createAudioReaderForFile(file);
         r = ownedReader.get();
     }
     if (r == nullptr || r->lengthInSamples <= 8)

@@ -145,8 +145,9 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
 
   waveformTransport.getMidiPreviewData = [this]() {
     WaveformTransportComponent::MidiPreviewState state;
+    state.selected = audioProcessor.hasLoadedMidiFile();
     state.active = audioProcessor.isMidiFilePlaying();
-    if (state.active) {
+    if (state.selected || state.active) {
       state.fileName = audioProcessor.getLoadedMidiFileName();
       state.positionSec = audioProcessor.getMidiPlaybackTimeSeconds();
       state.durationSec = audioProcessor.getMidiFileDurationSeconds();
@@ -157,6 +158,15 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
       }
     }
     return state;
+  };
+  waveformTransport.onMidiTogglePlay = [this]() {
+    audioProcessor.toggleMidiFilePlayback();
+  };
+  waveformTransport.onMidiStop = [this]() {
+    audioProcessor.stopMidiFilePlayback();
+  };
+  waveformTransport.onMidiSeekRatio = [this](double ratio) {
+    audioProcessor.seekMidiFilePlayback(ratio);
   };
   addChildComponent(commandPalette);
   addChildComponent(toastOverlay);
@@ -953,11 +963,13 @@ void OpenWavAudioProcessorEditor::sampleSelected(const MediaItem &item) {
 
   juce::File f(item.filePath);
   if (f.existsAsFile() && f.hasFileExtension("mid;midi")) {
-    audioProcessor.loadAndPlayMidiFile(f);
+    if (!audioProcessor.isMidiFilePlaying() || audioProcessor.getLoadedMidiFilePath() != f.getFullPathName()) {
+      audioProcessor.loadAndPlayMidiFile(f);
+    }
     waveformTransport.syncMidiPreviewNow();
     ToastOverlay::show("Playing MIDI: " + f.getFileName());
-  } else if (audioProcessor.isMidiFilePlaying()) {
-    audioProcessor.stopMidiFilePlayback();
+  } else {
+    audioProcessor.clearLoadedMidiFile();
     waveformTransport.syncMidiPreviewNow();
   }
 }
@@ -1049,6 +1061,10 @@ bool OpenWavAudioProcessorEditor::isInterestedInFileDrag(
         file.getFileExtension().containsIgnoreCase("aif") ||
         file.getFileExtension().containsIgnoreCase("aiff") ||
         file.getFileExtension().containsIgnoreCase("aifc") ||
+        file.getFileExtension().containsIgnoreCase("m4a") ||
+        file.getFileExtension().containsIgnoreCase("caf") ||
+        file.getFileExtension().containsIgnoreCase("aac") ||
+        file.getFileExtension().containsIgnoreCase("wma") ||
         file.getFileExtension().containsIgnoreCase("mid") ||
         file.getFileExtension().containsIgnoreCase("midi"))
       return true;
@@ -1182,6 +1198,10 @@ void OpenWavAudioProcessorEditor::cloudSampleSelected(const MediaItem &item) {
   sampleTable.selectItemById(item.id, false);
   folderBrowser.selectItemById(item.id, false);
   analysisComponent.setItem(item);
+  juce::File f(item.filePath);
+  if (!f.hasFileExtension("mid;midi")) {
+    audioProcessor.clearLoadedMidiFile();
+  }
   waveformTransport.syncMidiPreviewNow();
 }
 

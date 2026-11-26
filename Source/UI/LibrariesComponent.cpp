@@ -403,12 +403,17 @@ static bool isSupportedAudioFile(const juce::String& name, const juce::String& m
         return false;
 
     juce::String ext = juce::File(name).getFileExtension().toLowerCase();
-    if (ext == ".wav" || ext == ".mp3" || ext == ".flac" || ext == ".ogg" || ext == ".aiff" || ext == ".aif" || ext == ".aifc")
+    if (ext == ".wav" || ext == ".mp3" || ext == ".flac" || ext == ".ogg" ||
+        ext == ".aiff" || ext == ".aif" || ext == ".aifc" ||
+        ext == ".m4a" || ext == ".caf" || ext == ".aac" || ext == ".wma" ||
+        ext == ".mid" || ext == ".midi")
         return true;
 
     juce::String mimeLower = mime.toLowerCase();
     if (mimeLower.contains("wav") || mimeLower.contains("mpeg") || mimeLower.contains("mp3") ||
-        mimeLower.contains("flac") || mimeLower.contains("ogg") || mimeLower.contains("aiff") || mimeLower.contains("aif"))
+        mimeLower.contains("flac") || mimeLower.contains("ogg") || mimeLower.contains("aiff") ||
+        mimeLower.contains("aif") || mimeLower.contains("mp4") || mimeLower.contains("aac") ||
+        mimeLower.contains("midi") || mimeLower.contains("audio/"))
         return true;
 
     return false;
@@ -2650,7 +2655,7 @@ void LibrariesComponent::previewFile(int displayedIndex)
 
     if (targetItem.isDownloaded && juce::File(targetItem.localPath).existsAsFile())
     {
-        audioEngine.loadFile(juce::File(targetItem.localPath), true);
+        audioEngine.auditionFile(juce::File(targetItem.localPath));
         return;
     }
 
@@ -2662,13 +2667,21 @@ void LibrariesComponent::previewFile(int displayedIndex)
     juce::File previewFile = juce::File::getSpecialLocation(juce::File::tempDirectory)
                                 .getChildFile("owmb_preview_" + safeId + ext);
 
-    if (previewFile.existsAsFile() && previewFile.getSize() > 128)
+    if (previewFile.existsAsFile() && previewFile.getSize() >= 18)
     {
-        std::unique_ptr<juce::AudioFormatReader> reader(audioEngine.getFormatManager().createReaderFor(previewFile));
+        if (previewFile.hasFileExtension("mid;midi"))
+        {
+            targetItem.previewPath = previewFile.getFullPathName();
+            audioEngine.auditionFile(previewFile);
+            statusLabel.setText("Playing MIDI preview: " + targetItem.name, juce::dontSendNotification);
+            return;
+        }
+
+        std::unique_ptr<juce::AudioFormatReader> reader = AudioEngine::createAudioReaderForFile(previewFile);
         if (reader != nullptr && reader->lengthInSamples > 0)
         {
             targetItem.previewPath = previewFile.getFullPathName();
-            audioEngine.loadFile(previewFile, true);
+            audioEngine.auditionFile(previewFile);
             statusLabel.setText("Playing preview: " + targetItem.name, juce::dontSendNotification);
             return;
         }
@@ -2724,19 +2737,28 @@ void LibrariesComponent::handlePreviewFinished(const juce::String& fileId, const
         if (f.id == fileId)
         {
             f.isPreviewing = false;
-            if (success && previewFile.existsAsFile() && previewFile.getSize() > 128)
+            if (success && previewFile.existsAsFile() && previewFile.getSize() >= 18)
             {
-                std::unique_ptr<juce::AudioFormatReader> reader(audioEngine.getFormatManager().createReaderFor(previewFile));
-                if (reader != nullptr && reader->lengthInSamples > 0)
+                if (previewFile.hasFileExtension("mid;midi"))
                 {
                     f.previewPath = previewFile.getFullPathName();
-                    audioEngine.loadFile(previewFile, true);
-                    statusLabel.setText("Playing preview: " + f.name, juce::dontSendNotification);
+                    audioEngine.auditionFile(previewFile);
+                    statusLabel.setText("Playing MIDI preview: " + f.name, juce::dontSendNotification);
                 }
                 else
                 {
-                    previewFile.deleteFile();
-                    statusLabel.setText("Preview file format error: " + f.name, juce::dontSendNotification);
+                    std::unique_ptr<juce::AudioFormatReader> reader = AudioEngine::createAudioReaderForFile(previewFile);
+                    if (reader != nullptr && reader->lengthInSamples > 0)
+                    {
+                        f.previewPath = previewFile.getFullPathName();
+                        audioEngine.auditionFile(previewFile);
+                        statusLabel.setText("Playing preview: " + f.name, juce::dontSendNotification);
+                    }
+                    else
+                    {
+                        previewFile.deleteFile();
+                        statusLabel.setText("Preview file format error: " + f.name, juce::dontSendNotification);
+                    }
                 }
             }
             else

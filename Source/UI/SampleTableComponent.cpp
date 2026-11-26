@@ -97,10 +97,13 @@ void SampleTableComponent::sampleLoaded(const juce::String& filePath)
                 renderedItemCount = std::min(static_cast<int>(allFilteredItems.size()), row + RenderChunkIncrement);
                 table.updateContent();
             }
+            bool prevSync = isSynchronizingSelection;
             bool prevAutoPlay = shouldAutoPlayOnSelection;
+            isSynchronizingSelection = true;
             shouldAutoPlayOnSelection = false;
             table.selectRow(row);
             shouldAutoPlayOnSelection = prevAutoPlay;
+            isSynchronizingSelection = prevSync;
             table.smoothScrollToRow(row);
             break;
         }
@@ -468,15 +471,18 @@ void SampleTableComponent::updateFilter(const juce::String& searchKeyword,
                     table.updateContent();
                 }
                 int prevSelectedRow = table.getSelectedRow();
+                bool prevSync = isSynchronizingSelection;
                 bool prevAutoPlay = shouldAutoPlayOnSelection;
+                isSynchronizingSelection = true;
                 shouldAutoPlayOnSelection = false;
                 table.selectRow(row);
                 shouldAutoPlayOnSelection = prevAutoPlay;
+                isSynchronizingSelection = prevSync;
 
                 if (prevSelectedRow == row)
                 {
                     juce::File fileToLoad(allFilteredItems[i].filePath);
-                    if (fileToLoad.existsAsFile())
+                    if (fileToLoad.existsAsFile() && !fileToLoad.hasFileExtension("mid;midi"))
                     {
                         audioEngine.setSampleBpm(allFilteredItems[i].bpm);
                         audioEngine.loadFile(fileToLoad, false);
@@ -551,7 +557,9 @@ void SampleTableComponent::paintCell(juce::Graphics& g, int rowNumber, int colum
         case 1: // Play status / Icon button
         {
             bool isCurrentFile = (cachedCurrentFilePath == item.filePath);
-            bool isPlaying = isCurrentFile && audioEngine.isPlaying();
+            bool isPlayingMidi = audioEngine.isMidiFileCurrentlyPlaying &&
+                                 audioEngine.isMidiFileCurrentlyPlaying(juce::File(item.filePath));
+            bool isPlaying = (isCurrentFile && audioEngine.isPlaying()) || isPlayingMidi;
             const auto& img = isPlaying ? pauseIconImage : playIconImage;
             if (img.isValid())
             {
@@ -659,7 +667,11 @@ void SampleTableComponent::paintCell(juce::Graphics& g, int rowNumber, int colum
         case 6: // Sample Rate / Bit Depth
         {
             g.setColour(OpenWavLookAndFeel::textSecondary);
-            if (item.cachedFormattedSampleRate.isNotEmpty())
+            if (item.fileExtension.equalsIgnoreCase(".mid") || item.fileExtension.equalsIgnoreCase(".midi"))
+            {
+                g.drawText("MIDI", bounds, juce::Justification::centredLeft, true);
+            }
+            else if (item.cachedFormattedSampleRate.isNotEmpty())
             {
                 g.drawText(item.cachedFormattedSampleRate, bounds, juce::Justification::centredLeft, true);
             }
@@ -848,14 +860,31 @@ void SampleTableComponent::cellClicked(int rowNumber, int columnId, const juce::
         return;
     }
 
+    juce::File clickedFile(item.filePath);
+    const bool isMidiPlayingThisRow = audioEngine.isMidiFileCurrentlyPlaying &&
+                                      audioEngine.isMidiFileCurrentlyPlaying(clickedFile);
+    const bool isAudioPlayingThisRow = (audioEngine.getCurrentFile() == clickedFile && audioEngine.isPlaying());
+    if (columnId == 1 && (isMidiPlayingThisRow || isAudioPlayingThisRow))
+    {
+        audioEngine.stop();
+        table.repaintRow(rowNumber);
+        return;
+    }
+
     if (table.getSelectedRow() == rowNumber)
     {
-        juce::File fileToLoad(item.filePath);
-        if (fileToLoad.existsAsFile())
+        if (clickedFile.existsAsFile())
         {
-            audioEngine.stop();
-            audioEngine.setSampleBpm(item.bpm);
-            audioEngine.loadFile(fileToLoad, true);
+            if (clickedFile.hasFileExtension("mid;midi"))
+            {
+                audioEngine.auditionFile(clickedFile);
+            }
+            else
+            {
+                audioEngine.stop();
+                audioEngine.setSampleBpm(item.bpm);
+                audioEngine.loadFile(clickedFile, true);
+            }
         }
 
         listeners.call([item](SampleTableListener& l) {
@@ -879,7 +908,7 @@ void SampleTableComponent::selectedRowsChanged(int lastRowSelected)
         currentSelectedItemId = item.id;
         juce::File fileToLoad(item.filePath);
         
-        if (fileToLoad.existsAsFile())
+        if (fileToLoad.existsAsFile() && !fileToLoad.hasFileExtension("mid;midi"))
         {
             audioEngine.stop();
             audioEngine.setSampleBpm(item.bpm);
@@ -973,13 +1002,21 @@ void SampleTableComponent::cellDoubleClicked(int rowNumber, int /*columnId*/, co
         return;
 
     const auto& item = allFilteredItems[static_cast<size_t>(rowNumber)];
-    if (audioEngine.getCurrentFile().getFullPathName() == item.filePath && audioEngine.isPlaying())
+    juce::File itemFile(item.filePath);
+    if (itemFile.hasFileExtension("mid;midi"))
+    {
+        if (audioEngine.isMidiFileCurrentlyPlaying && audioEngine.isMidiFileCurrentlyPlaying(itemFile))
+            audioEngine.stop();
+        else
+            audioEngine.auditionFile(itemFile);
+    }
+    else if (audioEngine.getCurrentFile().getFullPathName() == item.filePath && audioEngine.isPlaying())
     {
         audioEngine.pause();
     }
     else
     {
-        audioEngine.loadFile(juce::File(item.filePath), true);
+        audioEngine.loadFile(itemFile, true);
     }
 
     listeners.call([item](SampleTableListener& l) {

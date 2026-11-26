@@ -137,6 +137,7 @@ public:
     };
     struct MidiPreviewState
     {
+        bool selected { false };
         bool active { false };
         juce::String fileName;
         double positionSec { 0.0 };
@@ -144,6 +145,9 @@ public:
         std::vector<MidiPreviewNote> notes;
     };
     std::function<MidiPreviewState()> getMidiPreviewData;
+    std::function<void()> onMidiTogglePlay;
+    std::function<void()> onMidiStop;
+    std::function<void(double)> onMidiSeekRatio;
     void syncMidiPreviewNow();
 
     void openLorisResynthesis();
