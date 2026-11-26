@@ -1102,15 +1102,18 @@ void OpenWavAudioProcessorEditor::filesDropped(const juce::StringArray &files,
 }
 
 void OpenWavAudioProcessorEditor::viewModeChanged(ViewMode mode) {
-  audioProcessor.getAudioEngine().stop();
   resized();
   if (mode == ViewMode::Cloud || mode == ViewMode::List || mode == ViewMode::Folders) {
     triggerFilterUpdate();
   }
   if (mode == ViewMode::Edit) {
     auto currentFile = audioProcessor.getAudioEngine().getCurrentFile();
-    if (currentFile.existsAsFile()) {
+    if (currentFile.existsAsFile() && !currentFile.hasFileExtension("mid;midi")) {
       editComponent.sampleLoaded(currentFile.getFullPathName());
+    } else {
+      auto lastId = audioProcessor.getAudioEngine().getLastPlayedSampleId();
+      if (lastId.isNotEmpty())
+        editComponent.sampleLoaded(lastId);
     }
     // Snapshot the original buffer when entering edit view so edits are non-destructive
     if (!audioProcessor.getAudioEngine().hasOriginalSnapshot())

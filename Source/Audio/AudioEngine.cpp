@@ -887,6 +887,9 @@ void AudioEngine::processNextAudioBlock(juce::AudioBuffer<float>& outputBuffer, 
     bool hasActiveVoices = false;
     bool hasActiveZoneVoices = false;
     double latestPreviewPosSec = -1.0;
+    uint64_t bestVoiceOrder = 0;
+    bool bestMatchesEditor = false;
+    const CachedSample* editorSamplePtr = activeEditorSamplePtr.load(std::memory_order_relaxed);
 
     if (zoneBuffer.getNumChannels() < outChannels || zoneBuffer.getNumSamples() < numSamples)
         zoneBuffer.setSize(outChannels, numSamples, false, false, true);
@@ -1149,10 +1152,24 @@ void AudioEngine::processNextAudioBlock(juce::AudioBuffer<float>& outputBuffer, 
 
         if (!slot.isMetronome && slot.active)
         {
-            double sr = engineSampleRateAtomic.load(std::memory_order_relaxed);
-            if (sr > 0.0 && ratio > 0.0)
+            const bool matchesDisplayed = (!slot.isZoneVoice)
+                || (editorSamplePtr != nullptr && slot.sample.get() == editorSamplePtr)
+                || slot.matchesEditorSample;
+
+            if ((matchesDisplayed && !bestMatchesEditor)
+                || (matchesDisplayed == bestMatchesEditor && slot.startOrder >= bestVoiceOrder))
             {
-                latestPreviewPosSec = (slot.readPosition / ratio) / sr;
+                const double voiceSr = (slot.bufferSampleRate > 0.0)
+                    ? slot.bufferSampleRate
+                    : ((slot.sample != nullptr && slot.sample->sampleRate > 0.0)
+                        ? slot.sample->sampleRate
+                        : engineSampleRateAtomic.load(std::memory_order_relaxed));
+                if (voiceSr > 0.0)
+                {
+                    latestPreviewPosSec = slot.readPosition / voiceSr;
+                    bestVoiceOrder = slot.startOrder;
+                    bestMatchesEditor = matchesDisplayed;
+                }
             }
         }
     }
@@ -1419,10 +1436,12 @@ void AudioEngine::triggerNoteOn(int midiNoteNumber, float velocity)
         return;
 
     std::shared_ptr<CachedSample> master;
+    juce::File playedFile;
     bool usingFallbackSynth = false;
     {
         const juce::ScopedLock sl(uiDataLock);
         master = currentMasterSample;
+        playedFile = currentFile;
     }
 
     if (master == nullptr || master->buffer.getNumSamples() == 0)
@@ -1466,9 +1485,13 @@ void AudioEngine::triggerNoteOn(int midiNoteNumber, float velocity)
     }
     pushCommand(cmd);
 
-    juce::MessageManager::callAsync([this, token = engineAliveToken] {
+    juce::MessageManager::callAsync([this, token = engineAliveToken, usingFallbackSynth, playedFile, master] {
         if (!token->load(std::memory_order_acquire) || isShuttingDown.load(std::memory_order_relaxed))
             return;
+        if (usingFallbackSynth)
+            syncUiToSynthSample("__builtin_midi_synth__", master);
+        else if (playedFile.existsAsFile())
+            syncUiToPlayedSample(playedFile, master);
         listeners.call([](AudioEngineListener& l) { l.playbackStateChanged(true); });
     });
 }
@@ -1476,6 +1499,7 @@ void AudioEngine::triggerNoteOn(int midiNoteNumber, float velocity)
 void AudioEngine::triggerMidiAuditionNoteOn(int midiNoteNumber, float velocity)
 {
     std::shared_ptr<CachedSample> sampleToUse;
+    juce::File playedFile;
     bool usingFallbackSynth = false;
     {
         const juce::ScopedLock sl(uiDataLock);
@@ -1487,7 +1511,10 @@ void AudioEngine::triggerMidiAuditionNoteOn(int midiNoteNumber, float velocity)
             const bool hasCustomSustainLoop = loopMarkersSetAtomic.load(std::memory_order_relaxed);
             // Avoid pitching long unmapped stems/drum loops across polyphonic MIDI files unless explicitly loaded in Sampler
             if (inSampler || hasCustomSustainLoop || durSec <= 4.0)
+            {
                 sampleToUse = currentMasterSample;
+                playedFile = currentFile;
+            }
         }
     }
 
@@ -1531,6 +1558,15 @@ void AudioEngine::triggerMidiAuditionNoteOn(int midiNoteNumber, float velocity)
         cmd.editSettings.isLooping = cmd.boolVal1;
     }
     pushCommand(cmd);
+
+    juce::MessageManager::callAsync([this, token = engineAliveToken, usingFallbackSynth, playedFile, sampleToUse] {
+        if (!token->load(std::memory_order_acquire) || isShuttingDown.load(std::memory_order_relaxed))
+            return;
+        if (usingFallbackSynth)
+            syncUiToSynthSample("__builtin_midi_synth__", sampleToUse);
+        else if (playedFile.existsAsFile())
+            syncUiToPlayedSample(playedFile, sampleToUse);
+    });
 }
 
 void AudioEngine::triggerNoteOff(int midiNoteNumber)
@@ -1563,11 +1599,24 @@ bool AudioEngine::loadFile(const juce::File& audioFile, bool autoPlay, bool isSa
 
     // Fast Path A: Requested file is ALREADY the active master sample in memory -> zero-latency cut-off & restart!
     {
-        const juce::ScopedLock sl(uiDataLock);
-        if (loadedMasterFile == audioFile && currentMasterSample != nullptr && currentMasterSample->buffer.getNumSamples() > 0)
+        std::shared_ptr<CachedSample> existingMaster;
+        bool needsUiSync = false;
         {
-            currentFile = audioFile;
-            loadInProgress.store(false, std::memory_order_relaxed);
+            const juce::ScopedLock sl(uiDataLock);
+            if (loadedMasterFile == audioFile && currentMasterSample != nullptr && currentMasterSample->buffer.getNumSamples() > 0)
+            {
+                existingMaster = currentMasterSample;
+                currentFile = audioFile;
+                activeEditorSamplePtr.store(currentMasterSample.get(), std::memory_order_relaxed);
+                loadInProgress.store(false, std::memory_order_relaxed);
+                needsUiSync = (loadedVoice == nullptr || loadedVoice->buffer.getNumSamples() == 0
+                               || cachedWaveformPeaks.numPoints == 0
+                               || lastNotifiedSampleId != audioFile.getFullPathName());
+                lastNotifiedSampleId = audioFile.getFullPathName();
+            }
+        }
+        if (existingMaster != nullptr)
+        {
             applyEditSettingsAtomicsForFile(audioFile.getFullPathName());
             stoppedPositionSecs.store(0.0, std::memory_order_relaxed);
 
@@ -1578,6 +1627,17 @@ bool AudioEngine::loadFile(const juce::File& audioFile, bool autoPlay, bool isSa
             else
             {
                 stop();
+            }
+
+            if (needsUiSync)
+            {
+                syncUiToPlayedSample(audioFile, existingMaster);
+            }
+            else
+            {
+                listeners.call([fp = audioFile.getFullPathName()](AudioEngineListener& l) {
+                    l.sampleLoaded(fp);
+                });
             }
             return true;
         }
@@ -1699,7 +1759,16 @@ bool AudioEngine::loadFile(const juce::File& audioFile, bool autoPlay, bool isSa
 
                 {
                     const juce::ScopedLock sl(uiDataLock);
+                    const juce::String fpKey = audioFile.getFullPathName();
+                    if (fpKey.isNotEmpty())
+                    {
+                        if (waveformPeaksCache.size() >= 128 && waveformPeaksCache.find(fpKey) == waveformPeaksCache.end())
+                            waveformPeaksCache.erase(waveformPeaksCache.begin());
+                        waveformPeaksCache[fpKey] = peaks;
+                    }
                     cachedWaveformPeaks = std::move(peaks);
+                    lastNotifiedSampleId = fpKey;
+                    activeEditorSamplePtr.store(cachedSample.get(), std::memory_order_relaxed);
 
                     double engineSr = engineSampleRateAtomic.load(std::memory_order_relaxed);
                     if (engineSr <= 0.0) engineSr = 44100.0;
@@ -1894,8 +1963,17 @@ bool AudioEngine::loadFile(const juce::File& audioFile, bool autoPlay, bool isSa
 
             {
                 const juce::ScopedLock sl(uiDataLock);
+                const juce::String fpKey = audioFile.getFullPathName();
+                if (fpKey.isNotEmpty())
+                {
+                    if (waveformPeaksCache.size() >= 128 && waveformPeaksCache.find(fpKey) == waveformPeaksCache.end())
+                        waveformPeaksCache.erase(waveformPeaksCache.begin());
+                    waveformPeaksCache[fpKey] = peaks;
+                }
                 currentMasterSample = sampleData;
                 loadedMasterFile = audioFile;
+                lastNotifiedSampleId = fpKey;
+                activeEditorSamplePtr.store(sampleData.get(), std::memory_order_relaxed);
                 loadInProgress.store(false, std::memory_order_release);
                 cachedWaveformPeaks = std::move(peaks);
                 currentFileSampleRateAtomic.store(fileSampleRate, std::memory_order_relaxed);
@@ -2037,6 +2115,8 @@ bool AudioEngine::loadAudioBuffer(const juce::String& displayName, const juce::A
         originalEditBuffer.makeCopyOf(sampleData->buffer);
         originalEditSampleRate = sampleRate;
         originalSnapshotValid = true;
+        lastNotifiedSampleId = displayName;
+        activeEditorSamplePtr.store(sampleData.get(), std::memory_order_relaxed);
         isLoadedInSampler.store(isSamplerSample, std::memory_order_relaxed);
     }
 
@@ -2239,6 +2319,13 @@ void AudioEngine::auditionHover(const juce::File& audioFile)
         cmd.type = EngineCommandType::RestartPreview;
         cmd.sampleData = cachedSample;
         pushCommand(cmd);
+
+        activeEditorSamplePtr.store(cachedSample.get(), std::memory_order_relaxed);
+        juce::MessageManager::callAsync([this, token = engineAliveToken, audioFile, cachedSample]() {
+            if (!token->load(std::memory_order_acquire) || isShuttingDown.load(std::memory_order_relaxed))
+                return;
+            syncUiToPlayedSample(audioFile, cachedSample);
+        });
         return;
     }
 
@@ -2438,15 +2525,23 @@ void AudioEngine::syncUiToPlayedSample(const juce::File& audioFile, const std::s
     if (cached == nullptr || cached->buffer.getNumSamples() == 0 || !audioFile.existsAsFile())
         return;
 
+    activeEditorSamplePtr.store(cached.get(), std::memory_order_relaxed);
     const juce::String fp = audioFile.getFullPathName();
     {
         const juce::ScopedLock sl(uiDataLock);
-        if (currentFile == audioFile && loadedVoice != nullptr && loadedVoice->buffer.getNumSamples() > 0)
+        if (currentFile == audioFile
+            && loadedVoice != nullptr && loadedVoice->buffer.getNumSamples() > 0
+            && cachedWaveformPeaks.numPoints > 0
+            && lastNotifiedSampleId == fp)
+        {
+            isLoadedInSampler.store(true, std::memory_order_relaxed);
             return;
+        }
 
         currentFile = audioFile;
         currentMasterSample = cached;
         loadedMasterFile = audioFile;
+        lastNotifiedSampleId = fp;
         isLoadedInSampler.store(true, std::memory_order_relaxed);
 
         const double fileSr = cached->sampleRate > 0.0 ? cached->sampleRate : 44100.0;
@@ -2471,14 +2566,91 @@ void AudioEngine::syncUiToPlayedSample(const juce::File& audioFile, const std::s
         originalEditSampleRate = fileSr;
         originalSnapshotValid = true;
 
-        rebuildWaveformPeaks();
+        auto itPeaks = waveformPeaksCache.find(fp);
+        if (itPeaks != waveformPeaksCache.end() && itPeaks->second.numPoints > 0)
+        {
+            cachedWaveformPeaks = itPeaks->second;
+        }
+        else
+        {
+            rebuildWaveformPeaks();
+        }
     }
 
     applyEditSettingsAtomicsForFile(fp);
-    thumbnail.setSource(new juce::FileInputSource(audioFile));
+    const bool midiAuditionActive = (isMidiFileCurrentlyPlaying && isMidiFileCurrentlyPlaying(juce::File()));
+    if (!midiAuditionActive)
+        thumbnail.setSource(new juce::FileInputSource(audioFile));
+
     listeners.call([fp](AudioEngineListener& l) {
         l.sampleLoaded(fp);
     });
+}
+
+void AudioEngine::syncUiToSynthSample(const juce::String& displayLabel, const std::shared_ptr<CachedSample>& sample)
+{
+    if (sample == nullptr || sample->buffer.getNumSamples() == 0 || displayLabel.isEmpty())
+        return;
+
+    activeEditorSamplePtr.store(sample.get(), std::memory_order_relaxed);
+    {
+        const juce::ScopedLock sl(uiDataLock);
+        if (lastNotifiedSampleId == displayLabel
+            && loadedVoice != nullptr && loadedVoice->buffer.getNumSamples() > 0
+            && cachedWaveformPeaks.numPoints > 0)
+        {
+            isLoadedInSampler.store(true, std::memory_order_relaxed);
+            return;
+        }
+
+        currentFile = juce::File();
+        loadedMasterFile = juce::File();
+        lastNotifiedSampleId = displayLabel;
+        isLoadedInSampler.store(true, std::memory_order_relaxed);
+
+        const double fileSr = sample->sampleRate > 0.0 ? sample->sampleRate : 44100.0;
+        const int nFrames = sample->buffer.getNumSamples();
+        const int nCh = sample->buffer.getNumChannels();
+        currentFileSampleRateAtomic.store(fileSr, std::memory_order_relaxed);
+        numChannelsAtomic.store(nCh, std::memory_order_relaxed);
+
+        double engineSr = engineSampleRateAtomic.load(std::memory_order_relaxed);
+        if (engineSr <= 0.0) engineSr = 44100.0;
+        double ratio = (engineSr > 0.0) ? (fileSr / engineSr) : 1.0;
+        double totalLen = (nFrames / ratio) / engineSr;
+        totalDurationAtomic.store(totalLen, std::memory_order_relaxed);
+
+        loadedVoice = std::make_shared<AudioVoice>();
+        loadedVoice->buffer.makeCopyOf(sample->buffer);
+        loadedVoice->ratio = ratio;
+        loadedVoice->rootNote = sample->rootNote;
+        loadedVoice->bufferSampleRate = fileSr;
+
+        originalEditBuffer.makeCopyOf(sample->buffer);
+        originalEditSampleRate = fileSr;
+        originalSnapshotValid = true;
+
+        auto itPeaks = waveformPeaksCache.find(displayLabel);
+        if (itPeaks != waveformPeaksCache.end() && itPeaks->second.numPoints > 0)
+        {
+            cachedWaveformPeaks = itPeaks->second;
+        }
+        else
+        {
+            rebuildWaveformPeaks();
+            waveformPeaksCache[displayLabel] = cachedWaveformPeaks;
+        }
+    }
+
+    listeners.call([displayLabel](AudioEngineListener& l) {
+        l.sampleLoaded(displayLabel);
+    });
+}
+
+juce::String AudioEngine::getLastPlayedSampleId() const
+{
+    const juce::ScopedLock sl(uiDataLock);
+    return lastNotifiedSampleId;
 }
 
 void AudioEngine::clearMasterSample()
@@ -2487,6 +2659,8 @@ void AudioEngine::clearMasterSample()
         const juce::ScopedLock sl(uiDataLock);
         currentMasterSample = nullptr;
         loadedMasterFile = juce::File();
+        lastNotifiedSampleId.clear();
+        activeEditorSamplePtr.store(nullptr, std::memory_order_relaxed);
         loadInProgress.store(false, std::memory_order_relaxed);
         loadedVoice = nullptr;
         currentFile = juce::File();
@@ -3345,6 +3519,13 @@ void AudioEngine::rebuildWaveformPeaks()
         }
     }
 
+    const juce::String fpKey = currentFile.getFullPathName();
+    if (fpKey.isNotEmpty())
+    {
+        if (waveformPeaksCache.size() >= 128 && waveformPeaksCache.find(fpKey) == waveformPeaksCache.end())
+            waveformPeaksCache.erase(waveformPeaksCache.begin());
+        waveformPeaksCache[fpKey] = peaks;
+    }
     cachedWaveformPeaks = std::move(peaks);
 }
 

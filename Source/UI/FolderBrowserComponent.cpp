@@ -1813,8 +1813,18 @@ void FolderBrowserComponent::tagsUpdated()
 
 void FolderBrowserComponent::sampleLoaded(const juce::String& filePath)
 {
+    if (!filePath.isEmpty() && !juce::File::isAbsolutePath(filePath))
+        return;
+
     cachedCurrentFilePath = filePath;
     cachedIsPlaying = audioEngine.isPlaying();
+
+    // Keep the selected .mid row fixed in Folder View while a MIDI file triggers zone/sampler audio
+    if (audioEngine.isMidiFileCurrentlyPlaying && audioEngine.isMidiFileCurrentlyPlaying(juce::File()))
+    {
+        listBox.repaint();
+        return;
+    }
 
     for (size_t i = 0; i < visibleRows.size(); ++i)
     {

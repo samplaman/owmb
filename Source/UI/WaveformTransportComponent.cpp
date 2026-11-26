@@ -1061,6 +1061,27 @@ void WaveformTransportComponent::timerCallback()
 
 void WaveformTransportComponent::sampleLoaded(const juce::String& filePath)
 {
+    if (getMidiPreviewData)
+    {
+        const auto midiData = getMidiPreviewData();
+        if (midiData.selected || midiData.active)
+            return;
+    }
+
+    if (filePath.isEmpty() || !juce::File::isAbsolutePath(filePath))
+    {
+        const juce::String labelText = (filePath == "__builtin_midi_synth__")
+            ? juce::String("MIDI Poly Synth (C4)")
+            : filePath;
+        sampleNameLabel.setText(labelText, juce::dontSendNotification);
+        sliceRatios.clear();
+        slicesGrid.setSelectedSliceIndex(-1);
+        totalDurationSecs = audioEngine.getTotalLengthSeconds();
+        resized();
+        repaint();
+        return;
+    }
+
     juce::File f(filePath);
 
     if (f.existsAsFile())

@@ -321,6 +321,7 @@ public:
     juce::AudioThumbnail& getThumbnail() { return thumbnail; }
     juce::AudioFormatManager& getFormatManager() { return formatManager; }
     const juce::File& getCurrentFile() const { return currentFile; }
+    juce::String getLastPlayedSampleId() const;
     juce::MidiKeyboardState& getKeyboardState() { return keyboardState; }
     void setMainTransportMidiEnabled(bool enabled) { mainTransportMidiEnabled.store(enabled, std::memory_order_relaxed); }
     bool isMainTransportMidiEnabled() const { return mainTransportMidiEnabled.load(std::memory_order_relaxed); }
@@ -386,6 +387,9 @@ private:
     void initDefaultMidiSynthSample();
     std::shared_ptr<AudioVoice> loadedVoice;
     WaveformPeaks cachedWaveformPeaks;
+    std::map<juce::String, WaveformPeaks> waveformPeaksCache;
+    juce::String lastNotifiedSampleId;
+    std::atomic<const CachedSample*> activeEditorSamplePtr { nullptr };
 
     // Non-destructive editing: backup of original buffer before edits
     juce::AudioBuffer<float> originalEditBuffer;
@@ -485,6 +489,7 @@ private:
                                              const juce::AudioFormatReader* reader,
                                              int* outRootNote = nullptr);
     void syncUiToPlayedSample(const juce::File& audioFile, const std::shared_ptr<CachedSample>& cached);
+    void syncUiToSynthSample(const juce::String& displayLabel, const std::shared_ptr<CachedSample>& sample);
 
     PerformanceRackDSP performanceRack;
     juce::AudioBuffer<float> zoneBuffer;

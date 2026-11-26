@@ -83,8 +83,18 @@ SampleTableComponent::~SampleTableComponent()
 
 void SampleTableComponent::sampleLoaded(const juce::String& filePath)
 {
+    if (!filePath.isEmpty() && !juce::File::isAbsolutePath(filePath))
+        return;
+
     cachedCurrentFilePath = filePath;
     cachedIsPlaying = audioEngine.isPlaying();
+
+    // Keep the selected .mid row fixed in List View while a MIDI file triggers zone/sampler audio
+    if (audioEngine.isMidiFileCurrentlyPlaying && audioEngine.isMidiFileCurrentlyPlaying(juce::File()))
+    {
+        table.repaint();
+        return;
+    }
 
     for (size_t i = 0; i < allFilteredItems.size(); ++i)
     {
@@ -481,8 +491,12 @@ void SampleTableComponent::updateFilter(const juce::String& searchKeyword,
 
                 if (prevSelectedRow == row)
                 {
+                    const bool anyMidiPlaying = audioEngine.isMidiFileCurrentlyPlaying &&
+                                                audioEngine.isMidiFileCurrentlyPlaying(juce::File());
                     juce::File fileToLoad(allFilteredItems[i].filePath);
-                    if (fileToLoad.existsAsFile() && !fileToLoad.hasFileExtension("mid;midi"))
+                    if (!audioEngine.isPlaying() && !anyMidiPlaying &&
+                        fileToLoad.existsAsFile() && !fileToLoad.hasFileExtension("mid;midi") &&
+                        audioEngine.getCurrentFile() != fileToLoad)
                     {
                         audioEngine.setSampleBpm(allFilteredItems[i].bpm);
                         audioEngine.loadFile(fileToLoad, false);

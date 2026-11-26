@@ -3757,6 +3757,71 @@ void EditComponent::playbackStateChanged(bool isPlaying)
 
 void EditComponent::sampleLoaded(const juce::String& filePath)
 {
+    if (filePath.isEmpty())
+    {
+        lastLoadedFilePath.clear();
+        sampleNameLabel.setText("", juce::dontSendNotification);
+        totalDurationSecs = 0.0;
+        currentPositionSecs = 0.0;
+        loopInRatio = 0.0;
+        loopOutRatio = 1.0;
+        loopMarkersSet = false;
+        zoomLevel = 1.0;
+        scrollOffset = 0.0;
+        zoomSlider.setValue(1.0, juce::dontSendNotification);
+        updateControlVisibility();
+        repaint();
+        return;
+    }
+
+    if (!juce::File::isAbsolutePath(filePath))
+    {
+        const bool isSameVirtual = (filePath == lastLoadedFilePath);
+        lastLoadedFilePath = filePath;
+        isSliceEditingActive = false;
+        activeEditingSliceIndex = -1;
+
+        const juce::String labelText = (filePath == "__builtin_midi_synth__")
+            ? juce::String("MIDI Poly Synth (C4)")
+            : filePath;
+        sampleNameLabel.setText(labelText, juce::dontSendNotification);
+        totalDurationSecs = audioEngine.getTotalLengthSeconds();
+        currentPositionSecs = audioEngine.isPlaying() ? audioEngine.getCurrentPositionSeconds() : 0.0;
+
+        if (!isSameVirtual)
+        {
+            loopInRatio = 0.0;
+            loopOutRatio = 1.0;
+            loopMarkersSet = false;
+            fadeInMs = 0.0;
+            fadeOutMs = 0.0;
+            crossfadeMs = 0.0;
+            fadeInSlider.setValue(0.0, juce::dontSendNotification);
+            fadeOutSlider.setValue(0.0, juce::dontSendNotification);
+            crossfadeSlider.setValue(0.0, juce::dontSendNotification);
+            fadeInMsLabel.setText("0 ms", juce::dontSendNotification);
+            fadeOutMsLabel.setText("0 ms", juce::dontSendNotification);
+            crossfadeMsLabel.setText("0 ms", juce::dontSendNotification);
+            loopToggleButton.setToggleState(audioEngine.isLooping(), juce::dontSendNotification);
+            zoomLevel = 1.0;
+            scrollOffset = 0.0;
+            zoomSlider.setValue(1.0, juce::dontSendNotification);
+            undoStack.clear();
+            redoStack.clear();
+        }
+
+        hasSpectralBoxSelection = false;
+        lassoScreenPoints.clear();
+        spectrogramGenerated = false;
+        if (isSpectralView)
+            generateSpectrogram();
+        updateUndoRedoButtons();
+        updateSelectionStats();
+        updateControlVisibility();
+        repaint();
+        return;
+    }
+
     juce::File f(filePath);
 
     if (f.getFullPathName().isEmpty() || !f.existsAsFile())
@@ -3788,10 +3853,11 @@ void EditComponent::sampleLoaded(const juce::String& filePath)
 
     if (!isSameFile || !audioEngine.hasOriginalSnapshot())
     {
-        currentPositionSecs = 0.0;
+        currentPositionSecs = audioEngine.isPlaying() ? audioEngine.getCurrentPositionSeconds() : 0.0;
         SampleEditSettings saved;
         if (audioEngine.getSampleEditSettings(f.getFullPathName(), saved))
         {
+            const bool effectiveLoop = audioEngine.isPlaying() ? (audioEngine.isLooping() || saved.isLooping) : saved.isLooping;
             loopInRatio = saved.loopInRatio;
             loopOutRatio = saved.loopOutRatio;
             loopMarkersSet = saved.loopMarkersSet;
@@ -3809,14 +3875,17 @@ void EditComponent::sampleLoaded(const juce::String& filePath)
             fadeInMsLabel.setText(juce::String(static_cast<int>(fadeInMs)) + " ms", juce::dontSendNotification);
             fadeOutMsLabel.setText(juce::String(static_cast<int>(fadeOutMs)) + " ms", juce::dontSendNotification);
             crossfadeMsLabel.setText(juce::String(static_cast<int>(crossfadeMs)) + " ms", juce::dontSendNotification);
-            loopToggleButton.setToggleState(saved.isLooping, juce::dontSendNotification);
+            loopToggleButton.setToggleState(effectiveLoop, juce::dontSendNotification);
 
-            audioEngine.setSampleRange(saved.sampleStartRatio, saved.sampleEndRatio);
-            audioEngine.setLoopPoints(loopInRatio, loopOutRatio);
-            audioEngine.setLoopMarkersSet(loopMarkersSet);
-            audioEngine.setLoopCrossfadeMs(crossfadeMs);
-            audioEngine.setFades(fadeInMs, fadeInCurveType, fadeOutMs, fadeOutCurveType);
-            audioEngine.setLooping(saved.isLooping);
+            if (!audioEngine.isPlaying())
+            {
+                audioEngine.setSampleRange(saved.sampleStartRatio, saved.sampleEndRatio);
+                audioEngine.setLoopPoints(loopInRatio, loopOutRatio);
+                audioEngine.setLoopMarkersSet(loopMarkersSet);
+                audioEngine.setLoopCrossfadeMs(crossfadeMs);
+                audioEngine.setFades(fadeInMs, fadeInCurveType, fadeOutMs, fadeOutCurveType);
+                audioEngine.setLooping(effectiveLoop);
+            }
         }
         else
         {

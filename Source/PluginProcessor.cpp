@@ -13,6 +13,8 @@ OpenWavAudioProcessor::OpenWavAudioProcessor()
     audioEngine.onStopped = [this] { stopMidiFilePlayback(false); };
     audioEngine.onMidiFileAudition = [this](const juce::File& f) { loadAndPlayMidiFile(f); };
     audioEngine.isMidiFileCurrentlyPlaying = [this](const juce::File& f) {
+        if (f == juce::File())
+            return isMidiFilePlaying();
         return isMidiFilePlaying() && getLoadedMidiFilePath() == f.getFullPathName();
     };
     audioEngine.getMidiAuditionProgressRatio = [this]() {
@@ -182,7 +184,7 @@ void OpenWavAudioProcessor::triggerNoteOnInternal(int midiChannel, int midiNoteN
                                               chosenZone->attackMs / 1000.0f, chosenZone->decayMs / 1000.0f, chosenZone->sustainLevel, chosenZone->releaseMs / 1000.0f,
                                               isInternalMidiFile ? false : audioEngine.isOneShotEnabled(),
                                               chosenZone->isLooping || (!isInternalMidiFile && audioEngine.isLooping()),
-                                              !isInternalMidiFile);
+                                              true);
                     zoneTriggered = true;
                 }
             }
@@ -242,7 +244,7 @@ void OpenWavAudioProcessor::triggerNoteOffInternal(int midiChannel, int midiNote
                 float effectiveVelocity = currentSampleMap.computeVelocityResponse(relVel, z.velocitySensitivity);
                 audioEngine.playZoneVoice(fileToLoad, midiNoteNumber, z.rootNote, z.fineTuneCents, z.gainDb, effectiveVelocity,
                                           z.attackMs / 1000.0f, z.decayMs / 1000.0f, z.sustainLevel, z.releaseMs / 1000.0f,
-                                          true, false, !isInternalMidiFile);
+                                          true, false, true);
             }
         }
 
