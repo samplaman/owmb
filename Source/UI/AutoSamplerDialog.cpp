@@ -4,13 +4,16 @@
 namespace openwav
 {
 
-AutoSamplerDialog::AutoSamplerDialog(std::function<void(const SampleMapState& resultState)> onComplete)
+AutoSamplerDialog::AutoSamplerDialog(std::function<void(const SampleMapState& resultState)> onComplete,
+                                     const juce::String& targetLabel)
     : onCompleteCallback(std::move(onComplete))
 {
     setSize(560, 495);
 
     titleLabel.setFont(juce::Font(17.0f, juce::Font::bold));
     titleLabel.setColour(juce::Label::textColourId, OpenWavLookAndFeel::accentCyan);
+    if (targetLabel.isNotEmpty())
+        titleLabel.setText("VST3 / AU Auto-Sampler - " + targetLabel, juce::dontSendNotification);
     addAndMakeVisible(titleLabel);
 
     auto styleLabel = [this](juce::Label& l) {
@@ -584,18 +587,42 @@ void AutoSamplerDialog::closeActiveWindow()
     }
 }
 
+void AutoSamplerDialog::setTargetContext(std::function<void(const SampleMapState& resultState)> onComplete,
+                                         const juce::String& targetLabel)
+{
+    if (engine.isSampling())
+        return;
+
+    onCompleteCallback = std::move(onComplete);
+    titleLabel.setText(targetLabel.isNotEmpty()
+                           ? ("VST3 / AU Auto-Sampler - " + targetLabel)
+                           : "VST3 / AU Auto-Sampler",
+                       juce::dontSendNotification);
+    if (auto* dw = findParentComponentOfClass<juce::DocumentWindow>())
+    {
+        dw->setName(targetLabel.isNotEmpty()
+                        ? ("OWMB Auto-Sampler - " + targetLabel)
+                        : "OWMB Auto-Sampler (VST3 / AU)");
+    }
+}
+
 void AutoSamplerDialog::showAsync(juce::Component* parent,
-                                  std::function<void(const SampleMapState& resultState)> onComplete)
+                                  std::function<void(const SampleMapState& resultState)> onComplete,
+                                  const juce::String& targetLabel)
 {
     if (activeAutoSamplerWindow != nullptr && activeAutoSamplerWindow->isVisible())
     {
+        if (auto* dlg = dynamic_cast<AutoSamplerDialog*>(activeAutoSamplerWindow->getContentComponent()))
+            dlg->setTargetContext(std::move(onComplete), targetLabel);
         activeAutoSamplerWindow->toFront(true);
         return;
     }
 
     closeActiveWindow();
-    auto* content = new AutoSamplerDialog(std::move(onComplete));
+    auto* content = new AutoSamplerDialog(std::move(onComplete), targetLabel);
     activeAutoSamplerWindow = new AutoSamplerWindow(content, parent);
+    if (targetLabel.isNotEmpty() && activeAutoSamplerWindow != nullptr)
+        activeAutoSamplerWindow->setName("OWMB Auto-Sampler - " + targetLabel);
 }
 
 } // namespace openwav

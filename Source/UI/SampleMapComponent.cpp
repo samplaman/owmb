@@ -647,14 +647,42 @@ SampleMapComponent::SampleMapComponent(AudioEngine& engine)
     autoSampleButton.setColour(juce::TextButton::textColourOffId, OpenWavLookAndFeel::accentCyan);
     autoSampleButton.setTooltip("Auto-Sample a VST3 / AU Instrument into the Sampler (Standalone)");
     autoSampleButton.onClick = [this] {
+        if (editingLockedNoInstance)
+            return;
+
         juce::Component::SafePointer<SampleMapComponent> safeThis(this);
-        AutoSamplerDialog::showAsync(this, [safeThis](const SampleMapState& capturedState) {
-            if (safeThis == nullptr)
-                return;
-            safeThis->setState(capturedState);
-            if (safeThis->onStateChanged)
-                safeThis->onStateChanged();
-        });
+        const juce::String targetSlotId = activeRackSlotId;
+        const int targetSlotIndex = activeRackSlotIndex;
+        const int preservedMidiCh = midiChannelSetting;
+        const int preservedOutputBus = instrumentOutputBus;
+        const juce::String targetLabel = (targetSlotIndex >= 0)
+            ? ("Sampler #" + juce::String(targetSlotIndex + 1)
+               + (activeRackSlotName.isNotEmpty() ? (": " + activeRackSlotName) : ""))
+            : juce::String();
+
+        AutoSamplerDialog::showAsync(this,
+            [safeThis, targetSlotId, preservedMidiCh, preservedOutputBus](const SampleMapState& capturedState) {
+                if (safeThis == nullptr)
+                    return;
+
+                SampleMapState scopedState = capturedState;
+                scopedState.midiChannel = juce::jlimit(0, 16, preservedMidiCh);
+                scopedState.outputBus = juce::jlimit(0, AudioEngine::MaxOutputBuses - 1, preservedOutputBus);
+                for (auto& z : scopedState.zones)
+                    z.outputBus = scopedState.outputBus;
+
+                if (targetSlotId.isNotEmpty() && safeThis->onAutoSampleCompletedForSlot)
+                {
+                    safeThis->onAutoSampleCompletedForSlot(targetSlotId, scopedState);
+                }
+                else
+                {
+                    safeThis->setState(scopedState);
+                    if (safeThis->onStateChanged)
+                        safeThis->onStateChanged();
+                }
+            },
+            targetLabel);
     };
     if (juce::JUCEApplicationBase::isStandaloneApp())
         addAndMakeVisible(autoSampleButton);

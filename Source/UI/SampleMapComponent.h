@@ -203,6 +203,7 @@ public:
     std::function<void()> onOpenSamplerRackRequested;
     std::function<bool(int midiChannel, int midiNote, float velocity, int excludeSlotIndex)> onLayeredMidiNoteOn;
     std::function<void(int midiChannel, int midiNote, int excludeSlotIndex)> onLayeredMidiNoteOff;
+    std::function<void(const juce::String& targetSlotId, const SampleMapState& capturedState)> onAutoSampleCompletedForSlot;
     bool isDragOver { false };
     std::function<void()> onOpenAiKitBuilderRequested;
 

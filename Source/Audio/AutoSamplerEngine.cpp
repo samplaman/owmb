@@ -268,9 +268,20 @@ void AutoSamplerEngine::startAutoSample(
 
             juce::String cleanInstName = juce::File::createLegalFileName(
                 config.instrumentName.trim().isEmpty() ? "AutoSampled" : config.instrumentName.trim());
-            juce::File outDir = config.outputDirectory.getFullPathName().isNotEmpty()
-                                    ? config.outputDirectory
-                                    : getDefaultOutputBaseDirectory().getChildFile(cleanInstName);
+            juce::File outDir;
+            if (config.outputDirectory.getFullPathName().isNotEmpty())
+            {
+                outDir = config.outputDirectory;
+            }
+            else
+            {
+                // Always allocate a unique capture subfolder so auto-sampling the same VST3
+                // (e.g. sforzando) on multiple Sampler Rack instances never overwrites another
+                // instance's WAV files on disk or collides in AudioEngine::sampleCache.
+                const juce::String uniqueTag = juce::Time::getCurrentTime().formatted("%Y%m%d_%H%M%S")
+                                             + "_" + juce::Uuid().toString().substring(0, 4);
+                outDir = getDefaultOutputBaseDirectory().getChildFile(cleanInstName + "_" + uniqueTag);
+            }
             outDir.createDirectory();
 
             const int numOutCh = std::max(2, pluginInstance->getTotalNumOutputChannels());

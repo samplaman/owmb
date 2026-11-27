@@ -18,14 +18,20 @@ namespace openwav
 class AutoSamplerDialog : public juce::Component
 {
 public:
-    AutoSamplerDialog(std::function<void(const SampleMapState& resultState)> onComplete);
+    AutoSamplerDialog(std::function<void(const SampleMapState& resultState)> onComplete,
+                      const juce::String& targetLabel = {});
     ~AutoSamplerDialog() override;
+
+    void setTargetContext(std::function<void(const SampleMapState& resultState)> onComplete,
+                          const juce::String& targetLabel);
+    bool isSamplingActive() const { return engine.isSampling(); }
 
     void paint(juce::Graphics& g) override;
     void resized() override;
 
     static void showAsync(juce::Component* parent,
-                          std::function<void(const SampleMapState& resultState)> onComplete);
+                          std::function<void(const SampleMapState& resultState)> onComplete,
+                          const juce::String& targetLabel = {});
     static void closeActiveWindow();
 
 private:

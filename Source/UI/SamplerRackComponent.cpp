@@ -840,6 +840,37 @@ void SamplerRackComponent::updateActiveSlotSampleMap(const SampleMapState& mapSt
         refreshUnits();
 }
 
+bool SamplerRackComponent::updateSlotSampleMapById(const juce::String& slotId, const SampleMapState& mapState)
+{
+    if (slotId.isEmpty())
+        return false;
+
+    for (size_t i = 0; i < rackState.slots.size(); ++i)
+    {
+        auto& sl = rackState.slots[i];
+        if (sl.id == slotId)
+        {
+            sl.sampleMap = mapState;
+            sl.sampleMap.midiChannel = juce::jlimit(0, 16, sl.midiChannel);
+            sl.sampleMap.outputBus = juce::jlimit(0, AudioEngine::MaxOutputBuses - 1, sl.outputBus);
+            for (auto& z : sl.sampleMap.zones)
+                z.outputBus = sl.sampleMap.outputBus;
+
+            if (sl.name.startsWith("Sampler ") && !mapState.zones.empty())
+                sl.name = inferMapDisplayName(mapState, sl.name);
+
+            audioProcessor.setSamplerRackState(rackState, true);
+            refreshUnits();
+            if (onActiveSlotContextChanged)
+                onActiveSlotContextChanged(rackState.activeEditSlotIndex, getActiveEditSlot());
+            if (onStateChanged)
+                onStateChanged();
+            return true;
+        }
+    }
+    return false;
+}
+
 void SamplerRackComponent::addEmptySlot(const SampleMapState& initialMap, const juce::String& customName)
 {
     if (static_cast<int>(rackState.slots.size()) >= AudioEngine::MaxSamplerRackSlots)

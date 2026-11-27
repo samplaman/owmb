@@ -122,6 +122,7 @@ public:
     int foldSampleMapIntoRack(const SampleMapState& mapState, const juce::String& preferredName = {});
     int createNewSlotAndOpenForEditing(const SampleMapState& initialMap = {}, const juce::String& customName = {});
     void updateActiveSlotSampleMap(const SampleMapState& mapState, const juce::String& expectedSlotId = {});
+    bool updateSlotSampleMapById(const juce::String& slotId, const SampleMapState& mapState);
     int getActiveEditSlotIndex() const { return rackState.activeEditSlotIndex; }
     const SamplerRackSlotState* getActiveEditSlot() const;
 
