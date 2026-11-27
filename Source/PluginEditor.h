@@ -96,6 +96,8 @@ public:
     void restoreStateFromProcessor();
 
 private:
+    void syncSampleMapRackContext();
+    void ensureEditableSamplerInstance(const juce::String& preferredNewName = {});
     void triggerFilterUpdate();
     void updateNativeTitleBarTheme();
     void timerCallback() override;

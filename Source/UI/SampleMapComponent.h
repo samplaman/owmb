@@ -166,7 +166,23 @@ public:
     void downloadAndImportInstrument(const juce::String& urlOrRepo);
     bool loadSampleMapFile(const juce::File& file);
     static bool parseSampleMapFromFile(const juce::File& file, SampleMapState& outState, juce::String& outError);
-    void setRackEditingContext(int slotIndex, const juce::String& slotName);
+
+    struct RackSlotSummary
+    {
+        int index { 0 };
+        juce::String id;
+        juce::String name;
+        juce::String accentHex;
+    };
+    void setRackEditingContext(int slotIndex,
+                               const juce::String& slotName,
+                               const juce::String& slotId = {},
+                               const juce::String& accentHex = {},
+                               const std::vector<RackSlotSummary>& allSlots = {});
+    int getActiveRackSlotIndex() const { return activeRackSlotIndex; }
+    juce::String getActiveRackSlotId() const { return activeRackSlotId; }
+    bool isEditingLocked() const { return editingLockedNoInstance; }
+
     void exportSampleMapToZip();
     void exportZonesAsMidiPattern();
     void openLorisResynthesisDialog();
@@ -182,6 +198,9 @@ public:
     std::function<void()> onStateChanged;
     std::function<void()> onOpenFxRackRequested;
     std::function<void()> onFoldToRackRequested;
+    std::function<void(int slotIndex)> onSwitchRackSlotRequested;
+    std::function<void()> onCreateNewRackSlotRequested;
+    std::function<void()> onOpenSamplerRackRequested;
     bool isDragOver { false };
     std::function<void()> onOpenAiKitBuilderRequested;
 
@@ -253,6 +272,39 @@ private:
     juce::ComboBox zoneFilterBox;
     juce::TextButton instrumentPresetButton { "Presets" };
     juce::TextButton foldToRackButton { "Fold to Rack" };
+
+    // Per-Instance Sampler Context Bar & Lock Overlay
+    int activeRackSlotIndex { -1 };
+    juce::String activeRackSlotId;
+    juce::String activeRackSlotName;
+    juce::Colour activeRackSlotAccent { 0xFF00D4FF };
+    std::vector<RackSlotSummary> rackSlotsSummary;
+    bool editingLockedNoInstance { false };
+    bool isUpdatingInstanceSelector { false };
+
+    juce::ComboBox instanceSwitcherBox;
+    juce::Rectangle<int> instanceBannerBounds;
+
+    class InstanceLockOverlay : public juce::Component
+    {
+    public:
+        explicit InstanceLockOverlay(SampleMapComponent& ownerComp);
+        void refreshSlots(const std::vector<RackSlotSummary>& slots);
+        void paint(juce::Graphics& g) override;
+        void resized() override;
+    private:
+        SampleMapComponent& owner;
+        juce::ComboBox slotCombo;
+        juce::TextButton editSlotBtn { "Edit Selected Sampler" };
+        juce::TextButton newSlotBtn { "+ New Sampler" };
+        juce::TextButton openRackBtn { "Open Sampler Rack" };
+    };
+    InstanceLockOverlay instanceLockOverlay;
+
+    bool pitchTrackingSetting { true };
+    bool oneShotSetting { false };
+    bool loopingSetting { false };
+    bool randomLoopSetting { false };
 
     int midiChannelSetting { 0 };
     int instrumentOutputBus { 0 };

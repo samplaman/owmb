@@ -510,6 +510,8 @@ void AudioEngine::drainCommandsOnAudioThread()
                     slot.rackSlotIndex = cmd.rackSlotIndex;
                     slot.voicePan = juce::jlimit(-1.0f, 1.0f, cmd.voicePan);
                     slot.isOneShot = cmd.boolVal2;
+                    slot.pitchTrackingEnabled = cmd.pitchTrackingEnabled;
+                    slot.randomLoopEnabled = cmd.randomLoopEnabled;
                     slot.hasCustomLoopPoints = hasCustomLoopPoints;
                     slot.isMetronome = false;
                     slot.isLooping = cmd.boolVal1 || cmd.editSettings.isLooping
@@ -529,8 +531,7 @@ void AudioEngine::drainCommandsOnAudioThread()
                     double engineSr = engineSampleRateAtomic.load(std::memory_order_relaxed);
                     if (engineSr <= 0.0) engineSr = 44100.0;
 
-                    bool ptEnabled = pitchTrackingEnabled.load(std::memory_order_relaxed);
-                    double semitoneDiff = (ptEnabled ? (slot.triggerMidiNote - slot.rootNote) : 0.0) + (slot.fineTuneCents / 100.0);
+                    double semitoneDiff = (slot.pitchTrackingEnabled ? (slot.triggerMidiNote - slot.rootNote) : 0.0) + (slot.fineTuneCents / 100.0);
                     double srRatio = (slot.bufferSampleRate > 0.0 && engineSr > 0.0) ? (slot.bufferSampleRate / engineSr) : 1.0;
                     slot.ratio = srRatio * std::pow(2.0, semitoneDiff / 12.0);
 
@@ -646,7 +647,7 @@ void AudioEngine::drainCommandsOnAudioThread()
             {
                 double engineSr = engineSampleRateAtomic.load(std::memory_order_relaxed);
                 if (engineSr <= 0.0) engineSr = 44100.0;
-                bool pitchTrack = pitchTrackingEnabled.load(std::memory_order_relaxed);
+                bool globalPitchTrack = pitchTrackingEnabled.load(std::memory_order_relaxed);
 
                 for (auto& slot : voicePool)
                 {
@@ -654,7 +655,8 @@ void AudioEngine::drainCommandsOnAudioThread()
                     {
                         double sr = (slot.bufferSampleRate > 0.0) ? slot.bufferSampleRate : slot.sample->sampleRate;
                         double baseRatio = (engineSr > 0.0 && sr > 0.0) ? (sr / engineSr) : 1.0;
-                        double pitchOffsetSemis = (slot.triggerMidiNote - slot.rootNote) + (slot.fineTuneCents / 100.0);
+                        const bool usePt = slot.isZoneVoice ? slot.pitchTrackingEnabled : globalPitchTrack;
+                        double pitchOffsetSemis = (usePt ? (slot.triggerMidiNote - slot.rootNote) : 0.0) + (slot.fineTuneCents / 100.0);
                         slot.ratio = baseRatio * std::pow(2.0, pitchOffsetSemis / 12.0);
                     }
                 }
@@ -994,7 +996,7 @@ void AudioEngine::processNextAudioBlock(juce::AudioBuffer<float>& outputBuffer,
         float slotBlockPeak = 0.0f;
         double pos = slot.readPosition;
         double ratio = (slot.ratio > 0.0) ? slot.ratio : 1.0;
-        if (slot.isZoneVoice && pitchTrackingEnabled.load(std::memory_order_relaxed))
+        if (slot.isZoneVoice && slot.pitchTrackingEnabled)
             ratio *= pitchBendMultiplierAtomic.load(std::memory_order_relaxed);
 
         int startSample = static_cast<int>(slot.startRatio * voiceLength);
@@ -1012,7 +1014,8 @@ void AudioEngine::processNextAudioBlock(juce::AudioBuffer<float>& outputBuffer,
         baseLoopEnd   = juce::jlimit(baseLoopStart + 1, std::max(baseLoopStart + 1, endSample), baseLoopEnd);
         int loopLen = baseLoopEnd - baseLoopStart;
 
-        const bool randLoop = randomLoopEnabledAtomic.load(std::memory_order_relaxed)
+        const bool voiceRandLoop = slot.isZoneVoice ? slot.randomLoopEnabled : randomLoopEnabledAtomic.load(std::memory_order_relaxed);
+        const bool randLoop = voiceRandLoop
                               && slot.isLooping && !slot.isMetronome
                               && (endSample - startSample) > 128;
 
@@ -1476,7 +1479,11 @@ bool AudioEngine::getCachedSampleCopy(const juce::String& filePath, juce::AudioB
 
 void AudioEngine::playZoneVoice(const juce::File& file, int triggerMidiNote, int rootNote, float fineTuneCents, float gainDb, float velocity,
                                float attackSec, float decaySec, float sustainLevel, float releaseSec, bool isOneShot, bool isLooping,
-                               bool updateEditorUi, int outputBus, int rackSlotIndex, float voicePan)
+                               bool updateEditorUi, int outputBus, int rackSlotIndex, float voicePan,
+                               const SampleEditSettings* explicitEditSettings,
+                               int pitchTrackingOverride,
+                               int randomLoopOverride,
+                               bool useExplicitOneShot)
 {
     juce::String filePath = file.getFullPathName();
     if (filePath.isEmpty()) return;
@@ -1547,12 +1554,18 @@ void AudioEngine::playZoneVoice(const juce::File& file, int triggerMidiNote, int
     cmd.floatVal5 = effectiveSustain;
     cmd.floatVal6 = effectiveRelease;
     cmd.boolVal1 = isLooping;
-    cmd.boolVal2 = isOneShot || oneShotEnabled.load(std::memory_order_relaxed);
-    cmd.boolVal3 = matchesEditor;
+    cmd.boolVal2 = useExplicitOneShot ? isOneShot : (isOneShot || oneShotEnabled.load(std::memory_order_relaxed));
+    cmd.boolVal3 = (explicitEditSettings == nullptr) && matchesEditor;
+    cmd.pitchTrackingEnabled = (pitchTrackingOverride >= 0) ? (pitchTrackingOverride != 0) : pitchTrackingEnabled.load(std::memory_order_relaxed);
+    cmd.randomLoopEnabled = (randomLoopOverride >= 0) ? (randomLoopOverride != 0) : randomLoopEnabledAtomic.load(std::memory_order_relaxed);
     cmd.outputBus = juce::jlimit(0, MaxOutputBuses - 1, outputBus);
     cmd.rackSlotIndex = rackSlotIndex;
     cmd.voicePan = juce::jlimit(-1.0f, 1.0f, voicePan);
-    if (matchesEditor)
+    if (explicitEditSettings != nullptr)
+    {
+        cmd.editSettings = *explicitEditSettings;
+    }
+    else if (matchesEditor)
     {
         cmd.editSettings.sampleStartRatio = sampleStartRatioAtomic.load(std::memory_order_relaxed);
         cmd.editSettings.sampleEndRatio = sampleEndRatioAtomic.load(std::memory_order_relaxed);

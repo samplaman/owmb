@@ -338,12 +338,125 @@ void VelocityCurveComponent::mouseExit(const juce::MouseEvent&)
     repaint();
 }
 
+namespace
+{
+SampleEditSettings makeZoneEditSettings(const SampleMapZone& z)
+{
+    SampleEditSettings es;
+    es.sampleStartRatio = z.sampleStartRatio;
+    es.sampleEndRatio = z.sampleEndRatio;
+    es.loopInRatio = z.loopInRatio;
+    es.loopOutRatio = z.loopOutRatio;
+    es.loopCrossfadeMs = z.loopCrossfadeMs;
+    es.fadeInMs = z.fadeInMs;
+    es.fadeOutMs = z.fadeOutMs;
+    es.fadeInCurveType = z.fadeInCurveType;
+    es.fadeOutCurveType = z.fadeOutCurveType;
+    es.loopMarkersSet = z.loopMarkersSet;
+    es.isLooping = z.isLooping;
+    return es;
+}
+} // namespace
+
+// ─────────────────────────────────────────────────────────
+//  InstanceLockOverlay Implementation
+// ─────────────────────────────────────────────────────────
+SampleMapComponent::InstanceLockOverlay::InstanceLockOverlay(SampleMapComponent& ownerComp)
+    : owner(ownerComp)
+{
+    setInterceptsMouseClicks(true, true);
+
+    slotCombo.setTooltip("Choose which independent Sampler Rack instance to open in Sample Map View");
+    addAndMakeVisible(slotCombo);
+
+    editSlotBtn.setColour(juce::TextButton::buttonColourId, OpenWavLookAndFeel::accentCyan.withAlpha(0.28f));
+    editSlotBtn.setColour(juce::TextButton::textColourOffId, OpenWavLookAndFeel::accentCyan);
+    editSlotBtn.onClick = [this] {
+        const int idx = slotCombo.getSelectedId() - 1;
+        if (idx >= 0 && owner.onSwitchRackSlotRequested)
+            owner.onSwitchRackSlotRequested(idx);
+    };
+    addAndMakeVisible(editSlotBtn);
+
+    newSlotBtn.onClick = [this] {
+        if (owner.onCreateNewRackSlotRequested)
+            owner.onCreateNewRackSlotRequested();
+    };
+    addAndMakeVisible(newSlotBtn);
+
+    openRackBtn.onClick = [this] {
+        if (owner.onOpenSamplerRackRequested)
+            owner.onOpenSamplerRackRequested();
+    };
+    addAndMakeVisible(openRackBtn);
+}
+
+void SampleMapComponent::InstanceLockOverlay::refreshSlots(const std::vector<RackSlotSummary>& slots)
+{
+    slotCombo.clear(juce::dontSendNotification);
+    for (size_t i = 0; i < slots.size(); ++i)
+    {
+        const auto& s = slots[i];
+        slotCombo.addItem("#" + juce::String(s.index + 1) + "  " + s.name, static_cast<int>(i) + 1);
+    }
+    if (!slots.empty())
+        slotCombo.setSelectedId(1, juce::dontSendNotification);
+    editSlotBtn.setEnabled(!slots.empty());
+}
+
+void SampleMapComponent::InstanceLockOverlay::paint(juce::Graphics& g)
+{
+    g.fillAll(OpenWavLookAndFeel::bgDark.withAlpha(0.88f));
+
+    const float cardW = juce::jmin(480.0f, static_cast<float>(getWidth()) - 40.0f);
+    const float cardH = 210.0f;
+    auto card = juce::Rectangle<float>((getWidth() - cardW) * 0.5f, (getHeight() - cardH) * 0.5f, cardW, cardH);
+
+    g.setColour(OpenWavLookAndFeel::bgCard);
+    g.fillRoundedRectangle(card, 10.0f);
+    g.setColour(OpenWavLookAndFeel::accentCyan.withAlpha(0.45f));
+    g.drawRoundedRectangle(card, 10.0f, 1.4f);
+
+    auto inner = card.reduced(22.0f, 18.0f);
+    g.setColour(juce::Colours::white);
+    g.setFont(OpenWavLookAndFeel::getTitleFont(16.0f));
+    g.drawText("Select a Sampler Instance to Edit", inner.removeFromTop(26.0f), juce::Justification::centred);
+
+    g.setColour(OpenWavLookAndFeel::textSecondary);
+    g.setFont(OpenWavLookAndFeel::getBodyFont(12.0f, false));
+    g.drawFittedText("Each Sampler Rack instance is independent. Sample Map editing is locked until you select a specific sampler instance so edits never affect other samplers.",
+                     inner.removeFromTop(44.0f).toNearestInt(),
+                     juce::Justification::centred, 3);
+}
+
+void SampleMapComponent::InstanceLockOverlay::resized()
+{
+    const int cardW = juce::jmin(480, getWidth() - 40);
+    const int cardH = 210;
+    auto card = juce::Rectangle<int>((getWidth() - cardW) / 2, (getHeight() - cardH) / 2, cardW, cardH);
+    auto inner = card.reduced(22, 18);
+    inner.removeFromTop(80);
+
+    auto pickerRow = inner.removeFromTop(30);
+    editSlotBtn.setBounds(pickerRow.removeFromRight(155));
+    pickerRow.removeFromRight(8);
+    slotCombo.setBounds(pickerRow);
+
+    inner.removeFromTop(14);
+    auto btnRow = inner.removeFromTop(30);
+    const int halfW = (btnRow.getWidth() - 10) / 2;
+    newSlotBtn.setBounds(btnRow.removeFromLeft(halfW));
+    btnRow.removeFromLeft(10);
+    openRackBtn.setBounds(btnRow);
+}
+
 // ─────────────────────────────────────────────────────────
 //  SampleMapComponent Implementation
 // ─────────────────────────────────────────────────────────
 SampleMapComponent::SampleMapComponent(AudioEngine& engine)
     : audioEngine(engine),
-      instrumentView(engine)
+      instrumentView(engine),
+      instanceLockOverlay(*this)
 {
     setOpaque(true);
     setWantsKeyboardFocus(true);
@@ -422,69 +535,84 @@ SampleMapComponent::SampleMapComponent(AudioEngine& engine)
 
     pitchTrackButton.setComponentID("iconOnlyBtn");
     pitchTrackButton.setClickingTogglesState(true);
-    bool ptEnabled = audioEngine.isPitchTrackingEnabled();
-    pitchTrackButton.setToggleState(ptEnabled, juce::dontSendNotification);
-    pitchTrackButton.setButtonText(ptEnabled ? "Pitch Track: ON" : "Pitch Track: OFF");
+    pitchTrackingSetting = audioEngine.isPitchTrackingEnabled();
+    pitchTrackButton.setToggleState(pitchTrackingSetting, juce::dontSendNotification);
+    pitchTrackButton.setButtonText(pitchTrackingSetting ? "Pitch Track: ON" : "Pitch Track: OFF");
     pitchTrackButton.setTooltip(pitchTrackButton.getButtonText());
     pitchTrackButton.onClick = [this] {
         bool enabled = pitchTrackButton.getToggleState();
-        audioEngine.setPitchTrackingEnabled(enabled);
+        pitchTrackingSetting = enabled;
+        if (activeRackSlotIndex < 0)
+            audioEngine.setPitchTrackingEnabled(enabled);
         pitchTrackButton.setButtonText(enabled ? "Pitch Track: ON" : "Pitch Track: OFF");
         pitchTrackButton.setTooltip(pitchTrackButton.getButtonText());
+        if (onStateChanged) onStateChanged();
     };
     addAndMakeVisible(pitchTrackButton);
 
     oneShotButton.setComponentID("iconOnlyBtn");
     oneShotButton.setClickingTogglesState(true);
-    bool osEnabled = audioEngine.isOneShotEnabled();
-    oneShotButton.setToggleState(osEnabled, juce::dontSendNotification);
-    oneShotButton.setButtonText(osEnabled ? "One Shot: ON" : "One Shot: OFF");
+    oneShotSetting = audioEngine.isOneShotEnabled();
+    oneShotButton.setToggleState(oneShotSetting, juce::dontSendNotification);
+    oneShotButton.setButtonText(oneShotSetting ? "One Shot: ON" : "One Shot: OFF");
     oneShotButton.setTooltip(oneShotButton.getButtonText());
     oneShotButton.onClick = [this] {
         bool enabled = oneShotButton.getToggleState();
-        audioEngine.setOneShotEnabled(enabled);
+        oneShotSetting = enabled;
+        if (activeRackSlotIndex < 0)
+            audioEngine.setOneShotEnabled(enabled);
         oneShotButton.setButtonText(enabled ? "One Shot: ON" : "One Shot: OFF");
         oneShotButton.setTooltip(oneShotButton.getButtonText());
+        if (onStateChanged) onStateChanged();
     };
     addAndMakeVisible(oneShotButton);
 
     loopButton.setComponentID("iconOnlyBtn");
     loopButton.setClickingTogglesState(true);
-    bool loopEnabled = audioEngine.isLooping();
-    loopButton.setToggleState(loopEnabled, juce::dontSendNotification);
-    loopButton.setButtonText(loopEnabled ? "Loop: ON" : "Loop: OFF");
+    loopingSetting = audioEngine.isLooping();
+    loopButton.setToggleState(loopingSetting, juce::dontSendNotification);
+    loopButton.setButtonText(loopingSetting ? "Loop: ON" : "Loop: OFF");
     loopButton.setTooltip(loopButton.getButtonText());
     loopButton.onClick = [this] {
         bool enabled = loopButton.getToggleState();
-        audioEngine.setLooping(enabled);
+        loopingSetting = enabled;
+        if (activeRackSlotIndex < 0)
+            audioEngine.setLooping(enabled);
         loopButton.setButtonText(enabled ? "Loop: ON" : "Loop: OFF");
         loopButton.setTooltip(loopButton.getButtonText());
+        if (onStateChanged) onStateChanged();
     };
     addAndMakeVisible(loopButton);
 
     randomLoopButton.setComponentID("iconOnlyBtn");
     randomLoopButton.setClickingTogglesState(true);
-    bool randLoopEnabled = audioEngine.isRandomLoopPositionEnabled();
-    randomLoopButton.setToggleState(randLoopEnabled, juce::dontSendNotification);
-    randomLoopButton.setButtonText(randLoopEnabled ? "Rand Loop: ON" : "Rand Loop: OFF");
+    randomLoopSetting = audioEngine.isRandomLoopPositionEnabled();
+    randomLoopButton.setToggleState(randomLoopSetting, juce::dontSendNotification);
+    randomLoopButton.setButtonText(randomLoopSetting ? "Rand Loop: ON" : "Rand Loop: OFF");
     randomLoopButton.setTooltip("Randomize Loop Region Position Every Pass (Keeps Loop Length & Crossfades)");
     randomLoopButton.onClick = [this] {
         bool enabled = randomLoopButton.getToggleState();
-        audioEngine.setRandomLoopPositionEnabled(enabled);
+        randomLoopSetting = enabled;
+        if (activeRackSlotIndex < 0)
+            audioEngine.setRandomLoopPositionEnabled(enabled);
         randomLoopButton.setButtonText(enabled ? "Rand Loop: ON" : "Rand Loop: OFF");
         if (enabled)
         {
-            if (oneShotButton.getToggleState())
+            if (oneShotSetting)
             {
+                oneShotSetting = false;
                 oneShotButton.setToggleState(false, juce::dontSendNotification);
                 oneShotButton.setButtonText("One Shot: OFF");
-                audioEngine.setOneShotEnabled(false);
+                if (activeRackSlotIndex < 0)
+                    audioEngine.setOneShotEnabled(false);
             }
-            if (!loopButton.getToggleState())
+            if (!loopingSetting)
             {
+                loopingSetting = true;
                 loopButton.setToggleState(true, juce::dontSendNotification);
                 loopButton.setButtonText("Loop: ON");
-                audioEngine.setLooping(true);
+                if (activeRackSlotIndex < 0)
+                    audioEngine.setLooping(true);
             }
         }
         if (onStateChanged) onStateChanged();
@@ -879,6 +1007,18 @@ SampleMapComponent::SampleMapComponent(AudioEngine& engine)
     };
     addAndMakeVisible(velTestAuditionBtn);
 
+    instanceSwitcherBox.setTooltip("Switch which independent Sampler Rack instance is open in Sample Map View");
+    instanceSwitcherBox.onChange = [this] {
+        if (isUpdatingInstanceSelector)
+            return;
+        const int idx = instanceSwitcherBox.getSelectedId() - 1;
+        if (idx >= 0 && idx != activeRackSlotIndex && onSwitchRackSlotRequested)
+            onSwitchRackSlotRequested(idx);
+    };
+    addChildComponent(instanceSwitcherBox);
+
+    addChildComponent(instanceLockOverlay);
+
     activeNoteVelocities.fill(-1);
 
     lookAndFeelChanged();
@@ -1056,7 +1196,8 @@ void SampleMapComponent::pitchTrackingStateChanged(bool enabled)
 {
     juce::Component::SafePointer<SampleMapComponent> safeThis(this);
     juce::MessageManager::callAsync([safeThis, enabled] {
-        if (safeThis == nullptr) return;
+        if (safeThis == nullptr || safeThis->activeRackSlotIndex >= 0) return;
+        safeThis->pitchTrackingSetting = enabled;
         safeThis->pitchTrackButton.setToggleState(enabled, juce::dontSendNotification);
         safeThis->pitchTrackButton.setButtonText(enabled ? "Pitch Track: ON" : "Pitch Track: OFF");
     });
@@ -1066,7 +1207,8 @@ void SampleMapComponent::oneShotStateChanged(bool enabled)
 {
     juce::Component::SafePointer<SampleMapComponent> safeThis(this);
     juce::MessageManager::callAsync([safeThis, enabled] {
-        if (safeThis == nullptr) return;
+        if (safeThis == nullptr || safeThis->activeRackSlotIndex >= 0) return;
+        safeThis->oneShotSetting = enabled;
         safeThis->oneShotButton.setToggleState(enabled, juce::dontSendNotification);
         safeThis->oneShotButton.setButtonText(enabled ? "One Shot: ON" : "One Shot: OFF");
     });
@@ -1076,7 +1218,8 @@ void SampleMapComponent::loopingStateChanged(bool enabled)
 {
     juce::Component::SafePointer<SampleMapComponent> safeThis(this);
     juce::MessageManager::callAsync([safeThis, enabled] {
-        if (safeThis == nullptr) return;
+        if (safeThis == nullptr || safeThis->activeRackSlotIndex >= 0) return;
+        safeThis->loopingSetting = enabled;
         safeThis->loopButton.setToggleState(enabled, juce::dontSendNotification);
         safeThis->loopButton.setButtonText(enabled ? "Loop: ON" : "Loop: OFF");
     });
@@ -1086,7 +1229,8 @@ void SampleMapComponent::randomLoopStateChanged(bool enabled)
 {
     juce::Component::SafePointer<SampleMapComponent> safeThis(this);
     juce::MessageManager::callAsync([safeThis, enabled] {
-        if (safeThis == nullptr) return;
+        if (safeThis == nullptr || safeThis->activeRackSlotIndex >= 0) return;
+        safeThis->randomLoopSetting = enabled;
         safeThis->randomLoopButton.setToggleState(enabled, juce::dontSendNotification);
         safeThis->randomLoopButton.setButtonText(enabled ? "Rand Loop: ON" : "Rand Loop: OFF");
     });
@@ -1112,7 +1256,8 @@ void SampleMapComponent::updateOutputBusButtonText()
 int SampleMapComponent::getTopToolbarOffset() const
 {
     const int contentW = getLocalBounds().reduced(20, 16).getWidth();
-    return (contentW < 1180) ? 78 : 44;
+    const int bannerH = rackSlotsSummary.empty() ? 0 : 34;
+    return bannerH + ((contentW < 1180) ? 78 : 44);
 }
 
 void SampleMapComponent::handleNoteOn(juce::MidiKeyboardState*, int midiChannel, int midiNoteNumber, float velocity)
@@ -1277,6 +1422,8 @@ void SampleMapComponent::timerCallback()
 
 bool SampleMapComponent::isInterestedInFileDrag(const juce::StringArray& files)
 {
+    if (editingLockedNoInstance)
+        return false;
     for (const auto& f : files)
     {
         juce::File file(f);
@@ -1308,6 +1455,8 @@ void SampleMapComponent::fileDragExit(const juce::StringArray&)
 void SampleMapComponent::filesDropped(const juce::StringArray& files, int /*x*/, int /*y*/)
 {
     isDragOver = false;
+    if (editingLockedNoInstance)
+        return;
     for (const auto& f : files)
     {
         juce::File file(f);
@@ -1329,11 +1478,12 @@ void SampleMapComponent::filesDropped(const juce::StringArray& files, int /*x*/,
 
 bool SampleMapComponent::isInterestedInDragSource(const juce::DragAndDropTarget::SourceDetails& /*dragSourceDetails*/)
 {
-    return true;
+    return !editingLockedNoInstance;
 }
 
 void SampleMapComponent::itemDragEnter(const juce::DragAndDropTarget::SourceDetails&)
 {
+    if (editingLockedNoInstance) return;
     isDragOver = true;
     repaint();
 }
@@ -1347,6 +1497,8 @@ void SampleMapComponent::itemDragExit(const juce::DragAndDropTarget::SourceDetai
 void SampleMapComponent::itemDropped(const juce::DragAndDropTarget::SourceDetails& dragSourceDetails)
 {
     isDragOver = false;
+    if (editingLockedNoInstance)
+        return;
     juce::String description = dragSourceDetails.description.toString();
     if (description.isNotEmpty())
     {
@@ -2656,18 +2808,58 @@ bool SampleMapComponent::parseSampleMapFromFile(const juce::File& file, SampleMa
     return true;
 }
 
-void SampleMapComponent::setRackEditingContext(int slotIndex, const juce::String& slotName)
+void SampleMapComponent::setRackEditingContext(int slotIndex,
+                                               const juce::String& slotName,
+                                               const juce::String& slotId,
+                                               const juce::String& accentHex,
+                                               const std::vector<RackSlotSummary>& allSlots)
 {
-    if (slotIndex >= 0)
+    rackSlotsSummary = allSlots;
+    activeRackSlotIndex = (slotIndex >= 0 && (allSlots.empty() || slotIndex < static_cast<int>(allSlots.size())))
+                              ? slotIndex
+                              : -1;
+    activeRackSlotId = (activeRackSlotIndex >= 0) ? slotId : juce::String();
+    activeRackSlotName = (activeRackSlotIndex >= 0) ? slotName : juce::String();
+
+    activeRackSlotAccent = OpenWavLookAndFeel::accentCyan;
+    if (accentHex.isNotEmpty())
     {
-        foldToRackButton.setButtonText("Fold #" + juce::String(slotIndex + 1));
-        foldToRackButton.setTooltip("Fold '" + slotName + "' back into Sampler Rack Slot #" + juce::String(slotIndex + 1));
+        auto c = juce::Colour::fromString(accentHex);
+        if (c.getAlpha() > 0)
+            activeRackSlotAccent = c;
+    }
+
+    editingLockedNoInstance = (!rackSlotsSummary.empty() && activeRackSlotIndex < 0);
+
+    isUpdatingInstanceSelector = true;
+    instanceSwitcherBox.clear(juce::dontSendNotification);
+    for (size_t i = 0; i < rackSlotsSummary.size(); ++i)
+    {
+        const auto& s = rackSlotsSummary[i];
+        instanceSwitcherBox.addItem("#" + juce::String(s.index + 1) + "  " + s.name, static_cast<int>(i) + 1);
+    }
+    if (activeRackSlotIndex >= 0 && activeRackSlotIndex < static_cast<int>(rackSlotsSummary.size()))
+        instanceSwitcherBox.setSelectedId(activeRackSlotIndex + 1, juce::dontSendNotification);
+    isUpdatingInstanceSelector = false;
+
+    instanceSwitcherBox.setVisible(!rackSlotsSummary.empty() && !editingLockedNoInstance);
+    instanceLockOverlay.refreshSlots(rackSlotsSummary);
+    instanceLockOverlay.setVisible(editingLockedNoInstance);
+    if (editingLockedNoInstance)
+        instanceLockOverlay.toFront(false);
+
+    if (activeRackSlotIndex >= 0)
+    {
+        foldToRackButton.setButtonText("Fold #" + juce::String(activeRackSlotIndex + 1));
+        foldToRackButton.setTooltip("Fold '" + activeRackSlotName + "' back into Sampler Rack Slot #" + juce::String(activeRackSlotIndex + 1));
     }
     else
     {
         foldToRackButton.setButtonText("Fold to Rack");
         foldToRackButton.setTooltip("Fold this Sample Map into the Multi-SampleMap Sampler Rack");
     }
+
+    resized();
     repaint();
 }
 
@@ -2898,6 +3090,32 @@ void SampleMapComponent::exportSampleMapToZip()
 void SampleMapComponent::paint(juce::Graphics& g)
 {
     g.fillAll(OpenWavLookAndFeel::bgDark);
+
+    if (!rackSlotsSummary.empty() && !instanceBannerBounds.isEmpty() && activeRackSlotIndex >= 0)
+    {
+        auto b = instanceBannerBounds.toFloat();
+        g.setColour(OpenWavLookAndFeel::bgCard);
+        g.fillRoundedRectangle(b, 6.0f);
+        g.setColour(activeRackSlotAccent.withAlpha(0.55f));
+        g.drawRoundedRectangle(b, 6.0f, 1.0f);
+
+        // Left colored accent bar & dot
+        g.setColour(activeRackSlotAccent);
+        g.fillRoundedRectangle(b.getX(), b.getY(), 4.0f, b.getHeight(), 2.0f);
+        g.fillEllipse(b.getX() + 12.0f, b.getCentreY() - 4.0f, 8.0f, 8.0f);
+
+        auto textArea = instanceBannerBounds;
+        textArea.removeFromLeft(28);
+        if (instanceSwitcherBox.isVisible())
+            textArea.setRight(instanceSwitcherBox.getX() - 10);
+
+        g.setColour(juce::Colours::white);
+        g.setFont(OpenWavLookAndFeel::getBodyFont(12.0f, true));
+        const juce::String headerText = "SAMPLER #" + juce::String(activeRackSlotIndex + 1) + ": "
+                                      + (activeRackSlotName.isNotEmpty() ? activeRackSlotName : ("Sampler " + juce::String(activeRackSlotIndex + 1)))
+                                      + "   |   Isolated Instance (edits apply only to this sampler)";
+        g.drawText(headerText, textArea, juce::Justification::centredLeft, true);
+    }
 
     OpenWavLookAndFeel::drawButtonGroup(g, { &addSampleButton, &lorisResynthButton, &deleteSelectedButton });
     OpenWavLookAndFeel::drawButtonGroup(g, { &autoMapPitchButton, &autoMapChromaticButton, &autoMapVelButton, &autoMapRRButton });
@@ -3199,11 +3417,16 @@ void SampleMapComponent::triggerKeybedNote(int note, float velocity, int velInt)
                     loadedPrimary = true;
                 }
 
+                const SampleEditSettings zoneEdit = makeZoneEditSettings(z);
                 audioEngine.playZoneVoice(fileToLoad, note, z.rootNote, z.fineTuneCents, z.gainDb, effectiveVelocity,
                                           z.attackMs / 1000.0f, z.decayMs / 1000.0f, z.sustainLevel, z.releaseMs / 1000.0f,
-                                          oneShotButton.getToggleState() || audioEngine.isOneShotEnabled(),
-                                          z.isLooping || loopButton.getToggleState() || audioEngine.isLooping(),
-                                          true, instrumentOutputBus);
+                                          oneShotSetting,
+                                          z.isLooping || loopingSetting,
+                                          true, instrumentOutputBus, activeRackSlotIndex, 0.0f,
+                                          &zoneEdit,
+                                          pitchTrackingSetting ? 1 : 0,
+                                          randomLoopSetting ? 1 : 0,
+                                          true);
             }
         }
 
@@ -3317,6 +3540,9 @@ void SampleMapComponent::paintKeybed(juce::Graphics& g, juce::Rectangle<float> a
 // ─────────────────────────────────────────────────────────
 void SampleMapComponent::mouseDown(const juce::MouseEvent& e)
 {
+    if (editingLockedNoInstance)
+        return;
+
     auto gridArea = getGridBounds();
     auto keybedArea = getKeybedBounds();
 
@@ -3460,11 +3686,16 @@ void SampleMapComponent::mouseDown(const juce::MouseEvent& e)
                 if (fileToLoad.existsAsFile())
                 {
                     audioEngine.loadFile(fileToLoad, false, true);
+                    const SampleEditSettings zoneEdit = makeZoneEditSettings(activeZone);
                     audioEngine.playZoneVoice(fileToLoad, activeZone.rootNote, activeZone.rootNote, activeZone.fineTuneCents, activeZone.gainDb, 0.8f,
                                               activeZone.attackMs / 1000.0f, activeZone.decayMs / 1000.0f, activeZone.sustainLevel, activeZone.releaseMs / 1000.0f,
-                                              oneShotButton.getToggleState() || audioEngine.isOneShotEnabled(),
-                                              activeZone.isLooping || loopButton.getToggleState() || audioEngine.isLooping(),
-                                              true, instrumentOutputBus);
+                                              oneShotSetting,
+                                              activeZone.isLooping || loopingSetting,
+                                              true, instrumentOutputBus, activeRackSlotIndex, 0.0f,
+                                              &zoneEdit,
+                                              pitchTrackingSetting ? 1 : 0,
+                                              randomLoopSetting ? 1 : 0,
+                                              true);
                 }
                 auditionNote = activeZone.rootNote;
                 auditionVelocity = 100;
@@ -3605,7 +3836,7 @@ void SampleMapComponent::mouseDrag(const juce::MouseEvent& e)
         {
             if (auditionNote >= 0)
             {
-                audioEngine.stopZoneVoice(auditionNote);
+                audioEngine.stopZoneVoice(auditionNote, activeRackSlotIndex);
                 const float relVel = juce::jlimit(0.05f, 1.0f, static_cast<float>(auditionVelocity) / 127.0f);
                 for (const auto& z : zones)
                 {
@@ -3616,9 +3847,14 @@ void SampleMapComponent::mouseDrag(const juce::MouseEvent& e)
                         if (fileToLoad.existsAsFile())
                         {
                             float effectiveVelocity = computeEffectiveVelocity(relVel, &z);
+                            const SampleEditSettings relEdit = makeZoneEditSettings(z);
                             audioEngine.playZoneVoice(fileToLoad, auditionNote, z.rootNote, z.fineTuneCents, z.gainDb, effectiveVelocity,
                                                       z.attackMs / 1000.0f, z.decayMs / 1000.0f, z.sustainLevel, z.releaseMs / 1000.0f,
-                                                      true, false, true, instrumentOutputBus);
+                                                      true, false, true, instrumentOutputBus, activeRackSlotIndex, 0.0f,
+                                                      &relEdit,
+                                                      pitchTrackingSetting ? 1 : 0,
+                                                      0,
+                                                      true);
                         }
                     }
                 }
@@ -3763,7 +3999,7 @@ void SampleMapComponent::mouseUp(const juce::MouseEvent& /*e*/)
     if (auditionNote >= 0)
     {
         int ch = midiChannelSetting > 0 ? midiChannelSetting : 1;
-        audioEngine.stopZoneVoice(auditionNote);
+        audioEngine.stopZoneVoice(auditionNote, activeRackSlotIndex);
         const float relVel = juce::jlimit(0.05f, 1.0f, static_cast<float>(auditionVelocity) / 127.0f);
         for (const auto& z : zones)
         {
@@ -3774,9 +4010,14 @@ void SampleMapComponent::mouseUp(const juce::MouseEvent& /*e*/)
                 if (fileToLoad.existsAsFile())
                 {
                     float effectiveVelocity = computeEffectiveVelocity(relVel, &z);
+                    const SampleEditSettings relEdit = makeZoneEditSettings(z);
                     audioEngine.playZoneVoice(fileToLoad, auditionNote, z.rootNote, z.fineTuneCents, z.gainDb, effectiveVelocity,
                                               z.attackMs / 1000.0f, z.decayMs / 1000.0f, z.sustainLevel, z.releaseMs / 1000.0f,
-                                              true, false, true, instrumentOutputBus);
+                                              true, false, true, instrumentOutputBus, activeRackSlotIndex, 0.0f,
+                                              &relEdit,
+                                              pitchTrackingSetting ? 1 : 0,
+                                              0,
+                                              true);
                 }
             }
         }
@@ -3812,6 +4053,20 @@ void SampleMapComponent::resized()
 {
     auto area = getLocalBounds().reduced(20, 16);
     const bool wrapToolbar = (area.getWidth() < 1180);
+
+    if (!rackSlotsSummary.empty())
+    {
+        instanceBannerBounds = area.removeFromTop(28);
+        area.removeFromTop(6);
+        auto bannerInner = instanceBannerBounds.reduced(8, 3);
+        instanceSwitcherBox.setBounds(bannerInner.removeFromRight(210));
+        instanceSwitcherBox.setVisible(!editingLockedNoInstance);
+    }
+    else
+    {
+        instanceBannerBounds = {};
+        instanceSwitcherBox.setVisible(false);
+    }
 
     // ── Top Toolbar (Wraps to 2 Rows on Narrow Windows so Nothing Overlaps) ──
     auto topRow = area.removeFromTop(28);
@@ -3914,6 +4169,9 @@ void SampleMapComponent::resized()
         instArea.setBottom(static_cast<int>(keybed.getY()) - 10);
         instrumentView.setVisible(true);
         instrumentView.setBounds(instArea);
+        instanceLockOverlay.setBounds(getLocalBounds());
+        if (editingLockedNoInstance)
+            instanceLockOverlay.toFront(false);
         return;
     }
 
@@ -4095,6 +4353,10 @@ void SampleMapComponent::resized()
             }
         }
     }
+
+    instanceLockOverlay.setBounds(getLocalBounds());
+    if (editingLockedNoInstance)
+        instanceLockOverlay.toFront(false);
 }
 
 // ─────────────────────────────────────────────────────────
@@ -4291,7 +4553,7 @@ SampleMapState SampleMapComponent::getState() const
         zs.releaseMs = z.releaseMs;
         zs.velocitySensitivity = z.velocitySensitivity;
         SampleEditSettings es;
-        if (audioEngine.getSampleEditSettings(z.filePath, es))
+        if (activeRackSlotIndex < 0 && audioEngine.getSampleEditSettings(z.filePath, es))
         {
             zs.sampleStartRatio = es.sampleStartRatio;
             zs.sampleEndRatio = es.sampleEndRatio;
@@ -4328,8 +4590,10 @@ SampleMapState SampleMapComponent::getState() const
     s.globalSustainLevel = globalSustainLevel;
     s.globalReleaseMs = globalReleaseMs;
     s.samplerReverbAmount = audioEngine.getSamplerReverbAmount();
-    s.pitchTrackingEnabled = audioEngine.isPitchTrackingEnabled();
-    s.randomLoopPosition = audioEngine.isRandomLoopPositionEnabled();
+    s.pitchTrackingEnabled = pitchTrackingSetting;
+    s.oneShotEnabled = oneShotSetting;
+    s.loopingEnabled = loopingSetting;
+    s.randomLoopPosition = randomLoopSetting;
     s.roundRobinMode = roundRobinMode;
     s.midiChannel = midiChannelSetting;
     s.outputBus = instrumentOutputBus;
@@ -4387,7 +4651,7 @@ void SampleMapComponent::setState(const SampleMapState& state)
             || zs.sampleStartRatio > 0.0001 || zs.sampleEndRatio < 0.9999
             || zs.loopInRatio > 0.0001 || zs.loopOutRatio < 0.9999
             || zs.loopCrossfadeMs > 0.0 || zs.fadeInMs > 0.0 || zs.fadeOutMs > 0.0;
-        if (z.filePath.isNotEmpty() && hasSavedEditSettings)
+        if (activeRackSlotIndex < 0 && z.filePath.isNotEmpty() && hasSavedEditSettings)
         {
             SampleEditSettings es;
             es.sampleStartRatio = zs.sampleStartRatio;
@@ -4412,12 +4676,27 @@ void SampleMapComponent::setState(const SampleMapState& state)
 
     audioEngine.setSamplerReverbAmount(state.samplerReverbAmount);
 
-    audioEngine.setPitchTrackingEnabled(state.pitchTrackingEnabled);
-    pitchTrackButton.setToggleState(state.pitchTrackingEnabled, juce::dontSendNotification);
-    audioEngine.setRandomLoopPositionEnabled(state.randomLoopPosition);
-    randomLoopButton.setToggleState(state.randomLoopPosition, juce::dontSendNotification);
-    randomLoopButton.setButtonText(state.randomLoopPosition ? "Rand Loop: ON" : "Rand Loop: OFF");
-    pitchTrackButton.setButtonText(state.pitchTrackingEnabled ? "Pitch Track: ON" : "Pitch Track: OFF");
+    pitchTrackingSetting = state.pitchTrackingEnabled;
+    oneShotSetting = state.oneShotEnabled;
+    loopingSetting = state.loopingEnabled;
+    randomLoopSetting = state.randomLoopPosition;
+
+    if (activeRackSlotIndex < 0)
+    {
+        audioEngine.setPitchTrackingEnabled(pitchTrackingSetting);
+        audioEngine.setOneShotEnabled(oneShotSetting);
+        audioEngine.setLooping(loopingSetting);
+        audioEngine.setRandomLoopPositionEnabled(randomLoopSetting);
+    }
+
+    pitchTrackButton.setToggleState(pitchTrackingSetting, juce::dontSendNotification);
+    pitchTrackButton.setButtonText(pitchTrackingSetting ? "Pitch Track: ON" : "Pitch Track: OFF");
+    oneShotButton.setToggleState(oneShotSetting, juce::dontSendNotification);
+    oneShotButton.setButtonText(oneShotSetting ? "One Shot: ON" : "One Shot: OFF");
+    loopButton.setToggleState(loopingSetting, juce::dontSendNotification);
+    loopButton.setButtonText(loopingSetting ? "Loop: ON" : "Loop: OFF");
+    randomLoopButton.setToggleState(randomLoopSetting, juce::dontSendNotification);
+    randomLoopButton.setButtonText(randomLoopSetting ? "Rand Loop: ON" : "Rand Loop: OFF");
 
     roundRobinMode = state.roundRobinMode;
     rrCounters.fill(0);
@@ -4628,11 +4907,17 @@ void SampleMapComponent::applyResynthesizedZones(const std::vector<Resynthesized
 
     if (anyLooped)
     {
+        oneShotSetting = false;
+        loopingSetting = true;
         oneShotButton.setToggleState(false, juce::dontSendNotification);
-        audioEngine.setOneShotEnabled(false);
+        oneShotButton.setButtonText("One Shot: OFF");
         loopButton.setToggleState(true, juce::dontSendNotification);
         loopButton.setButtonText("Loop: ON");
-        audioEngine.setLooping(true);
+        if (activeRackSlotIndex < 0)
+        {
+            audioEngine.setOneShotEnabled(false);
+            audioEngine.setLooping(true);
+        }
     }
 
     if (!zones.empty())
@@ -4671,11 +4956,16 @@ void SampleMapComponent::showInstrumentPresetMenu()
             else if (id == 3) { pitchTrack = true;  oneShot = false; atk = 3.0f;   dec = 200.0f; sus = 1.00f; rel = 160.0f; rev = 0.10f; velPreset = 0; }
             else if (id == 4) { pitchTrack = true;  oneShot = false; atk = 180.0f; dec = 450.0f; sus = 0.90f; rel = 900.0f; rev = 0.30f; velPreset = 1; }
 
-            audioEngine.setPitchTrackingEnabled(pitchTrack);
+            pitchTrackingSetting = pitchTrack;
+            oneShotSetting = oneShot;
+            if (activeRackSlotIndex < 0)
+            {
+                audioEngine.setPitchTrackingEnabled(pitchTrack);
+                audioEngine.setOneShotEnabled(oneShot);
+            }
             pitchTrackButton.setToggleState(pitchTrack, juce::dontSendNotification);
             pitchTrackButton.setButtonText(pitchTrack ? "Pitch Track: ON" : "Pitch Track: OFF");
 
-            audioEngine.setOneShotEnabled(oneShot);
             oneShotButton.setToggleState(oneShot, juce::dontSendNotification);
             oneShotButton.setButtonText(oneShot ? "One Shot: ON" : "One Shot: OFF");
 

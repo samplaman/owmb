@@ -91,6 +91,8 @@ struct RealtimeVoiceSlot
     double bufferSampleRate { 44100.0 };
     bool isZoneVoice { false };
     bool isOneShot { false };
+    bool pitchTrackingEnabled { true };
+    bool randomLoopEnabled { false };
     bool hasCustomLoopPoints { false };
     bool isMetronome { false };
     bool matchesEditorSample { false };
@@ -165,6 +167,8 @@ struct EngineCommand
     bool boolVal1 { false };
     bool boolVal2 { false };
     bool boolVal3 { false };
+    bool pitchTrackingEnabled { true };
+    bool randomLoopEnabled { false };
     int outputBus { 0 };
     int rackSlotIndex { -1 };
     float voicePan { 0.0f };
@@ -207,7 +211,11 @@ public:
     void playZoneVoice(const juce::File& file, int triggerMidiNote, int rootNote, float fineTuneCents, float gainDb, float velocity = 1.0f,
                        float attackSec = 0.005f, float decaySec = 0.1f, float sustainLevel = 1.0f, float releaseSec = 0.2f,
                        bool isOneShot = false, bool isLooping = false, bool updateEditorUi = true, int outputBus = 0,
-                       int rackSlotIndex = -1, float voicePan = 0.0f);
+                       int rackSlotIndex = -1, float voicePan = 0.0f,
+                       const SampleEditSettings* explicitEditSettings = nullptr,
+                       int pitchTrackingOverride = -1,
+                       int randomLoopOverride = -1,
+                       bool useExplicitOneShot = false);
 
     // Multi-Output Routing & 8-Bus Mixer Controls (Lock-Free)
     void setDefaultSamplerOutputBus(int busIdx) { defaultSamplerBusAtomic.store(juce::jlimit(0, MaxOutputBuses - 1, busIdx), std::memory_order_relaxed); }

@@ -5,6 +5,26 @@
 namespace openwav
 {
 
+namespace
+{
+SampleEditSettings makeZoneEditSettings(const SampleMapZoneState& z)
+{
+    SampleEditSettings es;
+    es.sampleStartRatio = z.sampleStartRatio;
+    es.sampleEndRatio = z.sampleEndRatio;
+    es.loopInRatio = z.loopInRatio;
+    es.loopOutRatio = z.loopOutRatio;
+    es.loopCrossfadeMs = z.loopCrossfadeMs;
+    es.fadeInMs = z.fadeInMs;
+    es.fadeOutMs = z.fadeOutMs;
+    es.fadeInCurveType = z.fadeInCurveType;
+    es.fadeOutCurveType = z.fadeOutCurveType;
+    es.loopMarkersSet = z.loopMarkersSet;
+    es.isLooping = z.isLooping;
+    return es;
+}
+} // namespace
+
 OpenWavAudioProcessor::OpenWavAudioProcessor()
     : AudioProcessor(BusesProperties()
                      .withInput("Input", juce::AudioChannelSet::stereo(), true)
@@ -66,7 +86,10 @@ void OpenWavAudioProcessor::setSampleMapState(const SampleMapState& s)
         {
             auto& activeSlot = fullPluginState.samplerRack.slots[static_cast<size_t>(activeIdx)];
             activeSlot.sampleMap = s;
+            activeSlot.midiChannel = juce::jlimit(0, 16, s.midiChannel);
             activeSlot.outputBus = juce::jlimit(0, AudioEngine::MaxOutputBuses - 1, s.outputBus);
+            activeSlot.sampleMap.midiChannel = activeSlot.midiChannel;
+            activeSlot.sampleMap.outputBus = activeSlot.outputBus;
         }
         noteRoundRobinCounters.clear();
         lastRandomZoneIndex.clear();
@@ -98,6 +121,7 @@ void OpenWavAudioProcessor::setSamplerRackState(const SamplerRackState& r, bool 
         if (activeIdx >= 0 && activeIdx < static_cast<int>(r.slots.size()))
         {
             sampleMapState = r.slots[static_cast<size_t>(activeIdx)].sampleMap;
+            sampleMapState.midiChannel = juce::jlimit(0, 16, r.slots[static_cast<size_t>(activeIdx)].midiChannel);
             sampleMapState.outputBus = juce::jlimit(0, AudioEngine::MaxOutputBuses - 1, r.slots[static_cast<size_t>(activeIdx)].outputBus);
             fullPluginState.sampleMap = sampleMapState;
         }
@@ -325,13 +349,18 @@ bool OpenWavAudioProcessor::triggerSingleRackSlotNoteOn(int slotIndex, const Sam
             const float combinedGainDb = chosenZone->gainDb + slot.gainDb;
             const int adjustedRoot = chosenZone->rootNote - (mappedNote - midiNoteNumber);
 
+            const SampleEditSettings zoneEdit = makeZoneEditSettings(*chosenZone);
             audioEngine.playZoneVoice(fileToLoad, midiNoteNumber, adjustedRoot, chosenZone->fineTuneCents,
                                       combinedGainDb, effectiveVelocity,
                                       chosenZone->attackMs / 1000.0f, chosenZone->decayMs / 1000.0f,
                                       chosenZone->sustainLevel, chosenZone->releaseMs / 1000.0f,
-                                      isInternalMidiFile ? false : audioEngine.isOneShotEnabled(),
-                                      chosenZone->isLooping || (!isInternalMidiFile && audioEngine.isLooping()),
-                                      true, targetBus, slotIndex, slot.pan);
+                                      isInternalMidiFile ? false : map.oneShotEnabled,
+                                      chosenZone->isLooping || (!isInternalMidiFile && map.loopingEnabled),
+                                      false, targetBus, slotIndex, slot.pan,
+                                      &zoneEdit,
+                                      map.pitchTrackingEnabled ? 1 : 0,
+                                      map.randomLoopPosition ? 1 : 0,
+                                      true);
             triggered = true;
         }
     }
@@ -360,11 +389,16 @@ void OpenWavAudioProcessor::triggerSingleRackSlotNoteOff(int slotIndex, const Sa
             const float combinedGainDb = z.gainDb + slot.gainDb;
             const int adjustedRoot = z.rootNote - (mappedNote - midiNoteNumber);
 
+            const SampleEditSettings relEdit = makeZoneEditSettings(z);
             audioEngine.playZoneVoice(fileToLoad, midiNoteNumber, adjustedRoot, z.fineTuneCents,
                                       combinedGainDb, effectiveVelocity,
                                       z.attackMs / 1000.0f, z.decayMs / 1000.0f,
                                       z.sustainLevel, z.releaseMs / 1000.0f,
-                                      true, false, true, targetBus, slotIndex, slot.pan);
+                                      true, false, false, targetBus, slotIndex, slot.pan,
+                                      &relEdit,
+                                      map.pitchTrackingEnabled ? 1 : 0,
+                                      0,
+                                      true);
         }
     }
 }
@@ -546,11 +580,16 @@ void OpenWavAudioProcessor::triggerNoteOnInternal(int midiChannel, int midiNoteN
                     juce::File fileToLoad(chosenZone->filePath);
                     float effectiveVelocity = currentSampleMap.computeVelocityResponse(velocity, chosenZone->velocitySensitivity);
                     const int instrumentBus = juce::jlimit(0, AudioEngine::MaxOutputBuses - 1, currentSampleMap.outputBus);
+                    const SampleEditSettings zoneEdit = makeZoneEditSettings(*chosenZone);
                     audioEngine.playZoneVoice(fileToLoad, midiNoteNumber, chosenZone->rootNote, chosenZone->fineTuneCents, chosenZone->gainDb, effectiveVelocity,
                                               chosenZone->attackMs / 1000.0f, chosenZone->decayMs / 1000.0f, chosenZone->sustainLevel, chosenZone->releaseMs / 1000.0f,
-                                              isInternalMidiFile ? false : audioEngine.isOneShotEnabled(),
-                                              chosenZone->isLooping || (!isInternalMidiFile && audioEngine.isLooping()),
-                                              true, instrumentBus);
+                                              isInternalMidiFile ? false : currentSampleMap.oneShotEnabled,
+                                              chosenZone->isLooping || (!isInternalMidiFile && currentSampleMap.loopingEnabled),
+                                              true, instrumentBus, -1, 0.0f,
+                                              &zoneEdit,
+                                              currentSampleMap.pitchTrackingEnabled ? 1 : 0,
+                                              currentSampleMap.randomLoopPosition ? 1 : 0,
+                                              true);
                     zoneTriggered = true;
                 }
             }
@@ -658,9 +697,14 @@ void OpenWavAudioProcessor::triggerNoteOffInternal(int midiChannel, int midiNote
                 juce::File fileToLoad(z.filePath);
                 float effectiveVelocity = currentSampleMap.computeVelocityResponse(relVel, z.velocitySensitivity);
                 const int instrumentBus = juce::jlimit(0, AudioEngine::MaxOutputBuses - 1, currentSampleMap.outputBus);
+                const SampleEditSettings relEdit = makeZoneEditSettings(z);
                 audioEngine.playZoneVoice(fileToLoad, midiNoteNumber, z.rootNote, z.fineTuneCents, z.gainDb, effectiveVelocity,
                                           z.attackMs / 1000.0f, z.decayMs / 1000.0f, z.sustainLevel, z.releaseMs / 1000.0f,
-                                          true, false, true, instrumentBus);
+                                          true, false, true, instrumentBus, -1, 0.0f,
+                                          &relEdit,
+                                          currentSampleMap.pitchTrackingEnabled ? 1 : 0,
+                                          0,
+                                          true);
             }
         }
 

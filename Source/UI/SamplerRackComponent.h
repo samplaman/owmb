@@ -119,7 +119,10 @@ public:
 
     // Fold / Sync current SampleMapComponent into active (or new) rack slot
     int foldSampleMapIntoRack(const SampleMapState& mapState, const juce::String& preferredName = {});
-    void updateActiveSlotSampleMap(const SampleMapState& mapState);
+    int createNewSlotAndOpenForEditing(const SampleMapState& initialMap = {}, const juce::String& customName = {});
+    void updateActiveSlotSampleMap(const SampleMapState& mapState, const juce::String& expectedSlotId = {});
+    int getActiveEditSlotIndex() const { return rackState.activeEditSlotIndex; }
+    const SamplerRackSlotState* getActiveEditSlot() const;
 
     // Slot callbacks used by SamplerRackUnitComponent
     void updateSlotState(int index, const SamplerRackSlotState& updated, bool rebuildLayout = false);
@@ -131,6 +134,8 @@ public:
 
     std::function<SampleMapState()> getCurrentEditorSampleMapCallback;
     std::function<void(int slotIndex, const SamplerRackSlotState& slot)> onEditSlotInSampleMapRequested;
+    std::function<void(int slotIndex, const SamplerRackSlotState& slot)> onActiveSlotSyncedFromRack;
+    std::function<void(int activeSlotIndex, const SamplerRackSlotState* activeSlot)> onActiveSlotContextChanged;
     std::function<void()> onOpenMixerRequested;
     std::function<void()> onStateChanged;
 

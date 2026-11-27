@@ -664,9 +664,10 @@ SamplerRackComponent::SamplerRackComponent(OpenWavAudioProcessor& processor, Aud
     clearAllBtn.setTooltip("Clear all Sampler Rack instruments");
     clearAllBtn.onClick = [this] {
         rackState.slots.clear();
-        rackState.activeEditSlotIndex = 0;
+        rackState.activeEditSlotIndex = -1;
         audioProcessor.setSamplerRackState(rackState, false);
         refreshUnits();
+        if (onActiveSlotContextChanged) onActiveSlotContextChanged(-1, nullptr);
         if (onStateChanged) onStateChanged();
     };
     addAndMakeVisible(clearAllBtn);
@@ -703,13 +704,33 @@ SamplerRackState SamplerRackComponent::getState() const
     return rackState;
 }
 
+const SamplerRackSlotState* SamplerRackComponent::getActiveEditSlot() const
+{
+    if (rackState.activeEditSlotIndex >= 0
+        && rackState.activeEditSlotIndex < static_cast<int>(rackState.slots.size()))
+    {
+        return &rackState.slots[static_cast<size_t>(rackState.activeEditSlotIndex)];
+    }
+    return nullptr;
+}
+
 void SamplerRackComponent::setState(const SamplerRackState& state)
 {
     rackState = state;
     for (auto& sl : rackState.slots)
     {
+        if (sl.id.isEmpty())
+            sl.id = makeUniqueSlotId();
+        sl.midiChannel = juce::jlimit(0, 16, sl.midiChannel);
         sl.outputBus = juce::jlimit(0, AudioEngine::MaxOutputBuses - 1, sl.outputBus);
+        sl.sampleMap.midiChannel = sl.midiChannel;
         sl.sampleMap.outputBus = sl.outputBus;
+    }
+    if (rackState.slots.empty()
+        || rackState.activeEditSlotIndex < 0
+        || rackState.activeEditSlotIndex >= static_cast<int>(rackState.slots.size()))
+    {
+        rackState.activeEditSlotIndex = -1;
     }
     audioProcessor.setSamplerRackState(rackState, true);
     refreshUnits();
@@ -717,49 +738,80 @@ void SamplerRackComponent::setState(const SamplerRackState& state)
 
 int SamplerRackComponent::foldSampleMapIntoRack(const SampleMapState& mapState, const juce::String& preferredName)
 {
-    if (rackState.slots.empty())
+    int foldedIdx = -1;
+    if (rackState.activeEditSlotIndex >= 0
+        && rackState.activeEditSlotIndex < static_cast<int>(rackState.slots.size()))
     {
-        SamplerRackSlotState sl;
-        sl.id = makeUniqueSlotId();
-        sl.name = preferredName.isNotEmpty() ? preferredName : inferMapDisplayName(mapState, "Sampler 1");
-        sl.midiChannel = mapState.midiChannel;
-        sl.outputBus = juce::jlimit(0, AudioEngine::MaxOutputBuses - 1, mapState.outputBus);
-        sl.collapsed = true;
-        sl.accentHex = kSlotAccentPalette[0];
+        foldedIdx = rackState.activeEditSlotIndex;
+        auto& sl = rackState.slots[static_cast<size_t>(foldedIdx)];
         sl.sampleMap = mapState;
+        sl.midiChannel = juce::jlimit(0, 16, mapState.midiChannel);
+        sl.outputBus = juce::jlimit(0, AudioEngine::MaxOutputBuses - 1, mapState.outputBus);
+        sl.sampleMap.midiChannel = sl.midiChannel;
         sl.sampleMap.outputBus = sl.outputBus;
-        rackState.slots.push_back(std::move(sl));
-        rackState.activeEditSlotIndex = 0;
-    }
-    else
-    {
-        const int idx = juce::jlimit(0, static_cast<int>(rackState.slots.size()) - 1, rackState.activeEditSlotIndex);
-        auto& sl = rackState.slots[static_cast<size_t>(idx)];
-        sl.sampleMap = mapState;
-        sl.outputBus = juce::jlimit(0, AudioEngine::MaxOutputBuses - 1, mapState.outputBus);
         if (preferredName.isNotEmpty())
             sl.name = preferredName;
         else if (sl.name.startsWith("Sampler ") && !mapState.zones.empty())
             sl.name = inferMapDisplayName(mapState, sl.name);
         sl.collapsed = true;
-        rackState.activeEditSlotIndex = idx;
+    }
+    else if (static_cast<int>(rackState.slots.size()) < AudioEngine::MaxSamplerRackSlots)
+    {
+        foldedIdx = static_cast<int>(rackState.slots.size());
+        SamplerRackSlotState sl;
+        sl.id = makeUniqueSlotId();
+        sl.name = preferredName.isNotEmpty()
+            ? preferredName
+            : inferMapDisplayName(mapState, "Sampler " + juce::String(foldedIdx + 1));
+        sl.midiChannel = juce::jlimit(0, 16, mapState.midiChannel);
+        sl.outputBus = juce::jlimit(0, AudioEngine::MaxOutputBuses - 1, mapState.outputBus);
+        sl.collapsed = true;
+        sl.accentHex = kSlotAccentPalette[foldedIdx % 8];
+        sl.sampleMap = mapState;
+        sl.sampleMap.midiChannel = sl.midiChannel;
+        sl.sampleMap.outputBus = sl.outputBus;
+        rackState.slots.push_back(std::move(sl));
     }
 
+    // Folding closes the editing session in Sample Map View so no slot is accidentally modified
+    // until the user explicitly opens a sampler instance again.
+    rackState.activeEditSlotIndex = -1;
     audioProcessor.setSamplerRackState(rackState, true);
     refreshUnits();
+    if (onActiveSlotContextChanged) onActiveSlotContextChanged(-1, nullptr);
     if (onStateChanged) onStateChanged();
-    return rackState.activeEditSlotIndex;
+    return foldedIdx;
 }
 
-void SamplerRackComponent::updateActiveSlotSampleMap(const SampleMapState& mapState)
+int SamplerRackComponent::createNewSlotAndOpenForEditing(const SampleMapState& initialMap, const juce::String& customName)
 {
-    if (rackState.slots.empty())
+    if (static_cast<int>(rackState.slots.size()) >= AudioEngine::MaxSamplerRackSlots)
+        return -1;
+
+    addEmptySlot(initialMap, customName);
+    const int newIdx = static_cast<int>(rackState.slots.size()) - 1;
+    if (newIdx >= 0)
+        openSlotInSampleMapEditor(newIdx);
+    return newIdx;
+}
+
+void SamplerRackComponent::updateActiveSlotSampleMap(const SampleMapState& mapState, const juce::String& expectedSlotId)
+{
+    if (rackState.activeEditSlotIndex < 0
+        || rackState.activeEditSlotIndex >= static_cast<int>(rackState.slots.size()))
+    {
+        return;
+    }
+
+    auto& sl = rackState.slots[static_cast<size_t>(rackState.activeEditSlotIndex)];
+    if (expectedSlotId.isNotEmpty() && sl.id != expectedSlotId)
         return;
 
-    const int idx = juce::jlimit(0, static_cast<int>(rackState.slots.size()) - 1, rackState.activeEditSlotIndex);
-    auto& sl = rackState.slots[static_cast<size_t>(idx)];
     sl.sampleMap = mapState;
+    sl.midiChannel = juce::jlimit(0, 16, mapState.midiChannel);
     sl.outputBus = juce::jlimit(0, AudioEngine::MaxOutputBuses - 1, mapState.outputBus);
+    sl.sampleMap.midiChannel = sl.midiChannel;
+    sl.sampleMap.outputBus = sl.outputBus;
     audioProcessor.setSamplerRackState(rackState, false);
     if (isShowing())
         refreshUnits();
@@ -778,12 +830,15 @@ void SamplerRackComponent::addEmptySlot(const SampleMapState& initialMap, const 
     sl.outputBus = (newIdx < AudioEngine::MaxOutputBuses) ? newIdx : 0;
     sl.accentHex = kSlotAccentPalette[newIdx % 8];
     sl.sampleMap = initialMap;
+    sl.sampleMap.midiChannel = sl.midiChannel;
     sl.sampleMap.outputBus = sl.outputBus;
 
     rackState.slots.push_back(std::move(sl));
-    rackState.activeEditSlotIndex = newIdx;
+    // Keep activeEditSlotIndex untouched so adding a new independent sampler
+    // never silently hijacks Sample Map View or overwrites the newly added slot.
     audioProcessor.setSamplerRackState(rackState, true);
     refreshUnits();
+    if (onActiveSlotContextChanged) onActiveSlotContextChanged(rackState.activeEditSlotIndex, getActiveEditSlot());
     if (onStateChanged) onStateChanged();
 }
 
@@ -898,17 +953,23 @@ void SamplerRackComponent::loadMapFileIntoSlot(int index)
             juce::String err;
             if (SampleMapComponent::parseSampleMapFromFile(file, parsed, err))
             {
+                parsed.midiChannel = sl.midiChannel;
                 parsed.outputBus = sl.outputBus;
                 sl.sampleMap = parsed;
                 sl.name = file.getFileNameWithoutExtension();
                 safeThis->audioProcessor.setSamplerRackState(safeThis->rackState, true);
                 safeThis->refreshUnits();
+                if (index == safeThis->rackState.activeEditSlotIndex && safeThis->onActiveSlotSyncedFromRack)
+                    safeThis->onActiveSlotSyncedFromRack(index, sl);
+                if (safeThis->onActiveSlotContextChanged)
+                    safeThis->onActiveSlotContextChanged(safeThis->rackState.activeEditSlotIndex, safeThis->getActiveEditSlot());
                 if (safeThis->onStateChanged) safeThis->onStateChanged();
             }
         }
         else
         {
             SampleMapState singleMap;
+            singleMap.midiChannel = sl.midiChannel;
             singleMap.outputBus = sl.outputBus;
             SampleMapZoneState z;
             z.filePath = file.getFullPathName();
@@ -921,6 +982,10 @@ void SamplerRackComponent::loadMapFileIntoSlot(int index)
             sl.name = file.getFileNameWithoutExtension();
             safeThis->audioProcessor.setSamplerRackState(safeThis->rackState, true);
             safeThis->refreshUnits();
+            if (index == safeThis->rackState.activeEditSlotIndex && safeThis->onActiveSlotSyncedFromRack)
+                safeThis->onActiveSlotSyncedFromRack(index, sl);
+            if (safeThis->onActiveSlotContextChanged)
+                safeThis->onActiveSlotContextChanged(safeThis->rackState.activeEditSlotIndex, safeThis->getActiveEditSlot());
             if (safeThis->onStateChanged) safeThis->onStateChanged();
         }
     });
@@ -931,11 +996,14 @@ void SamplerRackComponent::openSlotInSampleMapEditor(int index)
     if (index < 0 || index >= static_cast<int>(rackState.slots.size()))
         return;
 
+    auto& sl = rackState.slots[static_cast<size_t>(index)];
+    sl.sampleMap.midiChannel = juce::jlimit(0, 16, sl.midiChannel);
+    sl.sampleMap.outputBus = juce::jlimit(0, AudioEngine::MaxOutputBuses - 1, sl.outputBus);
     rackState.activeEditSlotIndex = index;
     audioProcessor.setSamplerRackState(rackState, false);
     refreshUnits();
     if (onEditSlotInSampleMapRequested)
-        onEditSlotInSampleMapRequested(index, rackState.slots[static_cast<size_t>(index)]);
+        onEditSlotInSampleMapRequested(index, sl);
 }
 
 void SamplerRackComponent::updateSlotState(int index, const SamplerRackSlotState& updated, bool rebuildLayout)
@@ -944,16 +1012,26 @@ void SamplerRackComponent::updateSlotState(int index, const SamplerRackSlotState
         return;
 
     rackState.slots[static_cast<size_t>(index)] = updated;
+    auto& sl = rackState.slots[static_cast<size_t>(index)];
+    sl.midiChannel = juce::jlimit(0, 16, sl.midiChannel);
+    sl.outputBus = juce::jlimit(0, AudioEngine::MaxOutputBuses - 1, sl.outputBus);
+    sl.sampleMap.midiChannel = sl.midiChannel;
+    sl.sampleMap.outputBus = sl.outputBus;
     audioProcessor.setSamplerRackState(rackState, false);
 
     if (rebuildLayout)
     {
         if (index < unitComponents.size())
-            unitComponents[index]->syncFromSlot(updated, index, static_cast<int>(rackState.slots.size()),
+            unitComponents[index]->syncFromSlot(sl, index, static_cast<int>(rackState.slots.size()),
                                                 index == rackState.activeEditSlotIndex);
         rackBay.resized();
         rackBay.repaint();
     }
+
+    if (index == rackState.activeEditSlotIndex && onActiveSlotSyncedFromRack)
+        onActiveSlotSyncedFromRack(index, sl);
+    if (onActiveSlotContextChanged)
+        onActiveSlotContextChanged(rackState.activeEditSlotIndex, getActiveEditSlot());
 
     if (onStateChanged)
         onStateChanged();
@@ -973,6 +1051,8 @@ void SamplerRackComponent::moveSlot(int fromIdx, int toIdx)
 
     audioProcessor.setSamplerRackState(rackState, false);
     refreshUnits();
+    if (onActiveSlotContextChanged)
+        onActiveSlotContextChanged(rackState.activeEditSlotIndex, getActiveEditSlot());
     if (onStateChanged) onStateChanged();
 }
 
@@ -984,11 +1064,15 @@ void SamplerRackComponent::removeSlot(int index)
 
     audioEngine.stopAllZoneVoices(true);
     rackState.slots.erase(rackState.slots.begin() + index);
-    if (rackState.activeEditSlotIndex >= static_cast<int>(rackState.slots.size()))
-        rackState.activeEditSlotIndex = std::max(0, static_cast<int>(rackState.slots.size()) - 1);
+    if (rackState.activeEditSlotIndex == index)
+        rackState.activeEditSlotIndex = -1;
+    else if (rackState.activeEditSlotIndex > index)
+        --rackState.activeEditSlotIndex;
 
     audioProcessor.setSamplerRackState(rackState, false);
     refreshUnits();
+    if (onActiveSlotContextChanged)
+        onActiveSlotContextChanged(rackState.activeEditSlotIndex, getActiveEditSlot());
     if (onStateChanged) onStateChanged();
 }
 

@@ -224,29 +224,51 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
   };
 
   sampleMapComponent.onStateChanged = [this] {
-    samplerRackComponent.updateActiveSlotSampleMap(sampleMapComponent.getState());
+    if (sampleMapComponent.isEditingLocked())
+      return;
+    samplerRackComponent.updateActiveSlotSampleMap(
+        sampleMapComponent.getState(), sampleMapComponent.getActiveRackSlotId());
     saveStateToProcessor();
     if (headerBar.getCurrentViewMode() == ViewMode::Mixer)
       multiOutMixerComponent.refreshFromSampleMap();
   };
 
   sampleMapComponent.onFoldToRackRequested = [this] {
-    const int slotIdx = samplerRackComponent.foldSampleMapIntoRack(sampleMapComponent.getState());
-    const auto rack = samplerRackComponent.getState();
-    if (slotIdx >= 0 && slotIdx < static_cast<int>(rack.slots.size()))
-      sampleMapComponent.setRackEditingContext(slotIdx, rack.slots[static_cast<size_t>(slotIdx)].name);
+    if (sampleMapComponent.isEditingLocked()) {
+      headerBar.setViewMode(ViewMode::SamplerRack);
+      return;
+    }
+    samplerRackComponent.foldSampleMapIntoRack(sampleMapComponent.getState());
+    syncSampleMapRackContext();
     saveStateToProcessor();
+    headerBar.setViewMode(ViewMode::SamplerRack);
+  };
+
+  sampleMapComponent.onSwitchRackSlotRequested = [this](int slotIndex) {
+    samplerRackComponent.openSlotInSampleMapEditor(slotIndex);
+  };
+  sampleMapComponent.onCreateNewRackSlotRequested = [this] {
+    samplerRackComponent.createNewSlotAndOpenForEditing();
+  };
+  sampleMapComponent.onOpenSamplerRackRequested = [this] {
     headerBar.setViewMode(ViewMode::SamplerRack);
   };
 
   samplerRackComponent.getCurrentEditorSampleMapCallback = [this] {
     return sampleMapComponent.getState();
   };
-  samplerRackComponent.onEditSlotInSampleMapRequested = [this](int slotIndex, const SamplerRackSlotState& slot) {
+  samplerRackComponent.onEditSlotInSampleMapRequested = [this](int /*slotIndex*/, const SamplerRackSlotState& slot) {
+    syncSampleMapRackContext();
     sampleMapComponent.setState(slot.sampleMap);
-    sampleMapComponent.setRackEditingContext(slotIndex, slot.name);
     saveStateToProcessor();
     headerBar.setViewMode(ViewMode::SampleMap);
+  };
+  samplerRackComponent.onActiveSlotSyncedFromRack = [this](int /*slotIndex*/, const SamplerRackSlotState& slot) {
+    syncSampleMapRackContext();
+    sampleMapComponent.setState(slot.sampleMap);
+  };
+  samplerRackComponent.onActiveSlotContextChanged = [this](int /*activeIdx*/, const SamplerRackSlotState* /*activeSlot*/) {
+    syncSampleMapRackContext();
   };
   samplerRackComponent.onOpenMixerRequested = [this] {
     headerBar.setViewMode(ViewMode::Mixer);
@@ -261,8 +283,10 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
     return sampleMapComponent.getState();
   };
   multiOutMixerComponent.onSampleMapModified = [this](const SampleMapState& updatedMap) {
-    sampleMapComponent.setState(updatedMap);
-    samplerRackComponent.updateActiveSlotSampleMap(updatedMap);
+    if (!sampleMapComponent.isEditingLocked()) {
+      sampleMapComponent.setState(updatedMap);
+      samplerRackComponent.updateActiveSlotSampleMap(updatedMap, sampleMapComponent.getActiveRackSlotId());
+    }
     saveStateToProcessor();
   };
   multiOutMixerComponent.getSamplerRackStateCallback = [this] {
@@ -270,9 +294,11 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
   };
   multiOutMixerComponent.onSamplerRackModified = [this](const SamplerRackState& updatedRack) {
     samplerRackComponent.setState(updatedRack);
-    if (!updatedRack.slots.empty()) {
-      const int aIdx = juce::jlimit(0, static_cast<int>(updatedRack.slots.size()) - 1, updatedRack.activeEditSlotIndex);
-      sampleMapComponent.setState(updatedRack.slots[static_cast<size_t>(aIdx)].sampleMap);
+    syncSampleMapRackContext();
+    if (updatedRack.activeEditSlotIndex >= 0
+        && updatedRack.activeEditSlotIndex < static_cast<int>(updatedRack.slots.size())) {
+      sampleMapComponent.setState(
+          updatedRack.slots[static_cast<size_t>(updatedRack.activeEditSlotIndex)].sampleMap);
     }
     saveStateToProcessor();
   };
@@ -297,7 +323,10 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
     auto dlg = std::make_unique<AiKitBuilderDialog>(
         audioProcessor.getDatabaseManager(),
         [this](const AiKitBuildResult& res) {
+          ensureEditableSamplerInstance(res.sampleMap.instrument.instrumentName);
           sampleMapComponent.setState(res.sampleMap);
+          samplerRackComponent.updateActiveSlotSampleMap(
+              sampleMapComponent.getState(), sampleMapComponent.getActiveRackSlotId());
 
           auto& rack = audioProcessor.getAudioEngine().getPerformanceRack();
           rack.clearEffects();
@@ -362,6 +391,7 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
   };
 
   waveformTransport.onLorisResynthCompleted = [this](const std::vector<ResynthesizedZone>& zones) {
+    ensureEditableSamplerInstance("Loris Resynth");
     sampleMapComponent.applyResynthesizedZones(zones);
     headerBar.setViewMode(ViewMode::SampleMap);
   };
@@ -1066,6 +1096,7 @@ void OpenWavAudioProcessorEditor::displayedItemsChanged(
 void OpenWavAudioProcessorEditor::addToSampleMapRequested(
     const MediaItem &item) {
   audioProcessor.getAudioEngine().stop();
+  ensureEditableSamplerInstance(juce::File(item.fileName).getFileNameWithoutExtension());
   sampleMapComponent.addSample(item);
   cueSheetComponent.logUsage(item.filePath, 0.0, item.durationSeconds,
                              item.durationSeconds, false, "Sample Map");
@@ -1086,6 +1117,7 @@ void OpenWavAudioProcessorEditor::autoSliceToSamplerRequested(
       audioProcessor.getAudioEngine(),
       [this, item](const std::vector<double>& ratios) {
         if (!ratios.empty()) {
+          ensureEditableSamplerInstance(juce::File(item.fileName).getFileNameWithoutExtension());
           waveformTransport.setSliceRatios(ratios);
           sampleMapComponent.autoSliceToSampler(item, ratios);
           for (size_t i = 0; i < ratios.size(); ++i)
@@ -1194,6 +1226,9 @@ void OpenWavAudioProcessorEditor::viewModeChanged(ViewMode mode) {
     // Snapshot the original buffer when entering edit view so edits are non-destructive
     if (!audioProcessor.getAudioEngine().hasOriginalSnapshot())
       audioProcessor.getAudioEngine().snapshotOriginalForEditing();
+  }
+  if (mode == ViewMode::SampleMap) {
+    syncSampleMapRackContext();
   }
   if (mode == ViewMode::SamplerRack) {
     samplerRackComponent.refreshUnits();
@@ -1516,6 +1551,40 @@ void OpenWavAudioProcessorEditor::saveStateToProcessor() {
   audioProcessor.setFullPluginState(s);
 }
 
+void OpenWavAudioProcessorEditor::syncSampleMapRackContext() {
+  const auto rack = samplerRackComponent.getState();
+  std::vector<SampleMapComponent::RackSlotSummary> summaries;
+  summaries.reserve(rack.slots.size());
+  for (size_t i = 0; i < rack.slots.size(); ++i)
+  {
+    SampleMapComponent::RackSlotSummary item;
+    item.index = static_cast<int>(i);
+    item.id = rack.slots[i].id;
+    item.name = rack.slots[i].name;
+    item.accentHex = rack.slots[i].accentHex;
+    summaries.push_back(std::move(item));
+  }
+
+  if (rack.activeEditSlotIndex >= 0
+      && rack.activeEditSlotIndex < static_cast<int>(rack.slots.size()))
+  {
+    const auto& sl = rack.slots[static_cast<size_t>(rack.activeEditSlotIndex)];
+    sampleMapComponent.setRackEditingContext(rack.activeEditSlotIndex, sl.name, sl.id, sl.accentHex, summaries);
+  }
+  else
+  {
+    sampleMapComponent.setRackEditingContext(-1, {}, {}, {}, summaries);
+  }
+}
+
+void OpenWavAudioProcessorEditor::ensureEditableSamplerInstance(const juce::String& preferredNewName) {
+  const auto rack = samplerRackComponent.getState();
+  if (!rack.slots.empty() && rack.activeEditSlotIndex < 0)
+  {
+    samplerRackComponent.createNewSlotAndOpenForEditing({}, preferredNewName);
+  }
+}
+
 void OpenWavAudioProcessorEditor::restoreStateFromProcessor() {
   auto s = audioProcessor.getFullPluginState();
 
@@ -1570,13 +1639,14 @@ void OpenWavAudioProcessorEditor::restoreStateFromProcessor() {
 
   // 5. Restore Sub-components state
   editComponent.setState(s.edit);
-  sampleMapComponent.setState(s.sampleMap);
   samplerRackComponent.setState(s.samplerRack);
-  if (!s.samplerRack.slots.empty()) {
-    const int aIdx = juce::jlimit(0, static_cast<int>(s.samplerRack.slots.size()) - 1, s.samplerRack.activeEditSlotIndex);
-    sampleMapComponent.setRackEditingContext(aIdx, s.samplerRack.slots[static_cast<size_t>(aIdx)].name);
+  syncSampleMapRackContext();
+  if (const auto* activeSlot = samplerRackComponent.getActiveEditSlot()) {
+    sampleMapComponent.setState(activeSlot->sampleMap);
+  } else if (s.samplerRack.slots.empty()) {
+    sampleMapComponent.setState(s.sampleMap);
   } else {
-    sampleMapComponent.setRackEditingContext(-1, {});
+    sampleMapComponent.setState({});
   }
   performanceComponent.setState(s.performance);
   multiOutMixerComponent.setState(s.mixer);
