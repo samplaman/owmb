@@ -552,6 +552,7 @@ struct SampleMapState
     bool oneShotEnabled { false };
     bool loopingEnabled { false };
     bool randomLoopPosition { false };
+    bool triggerOnNoteOff { false };
     int roundRobinMode { 0 }; // 0 = Cycle, 1 = Random, 2 = Off
     int midiChannel { 0 };    // 0 = Omni (All Channels)
     int outputBus { 0 };      // Per-instrument output track: 0 = Out 1-2 (Main) .. 7 = Out 15-16
@@ -637,6 +638,7 @@ struct SampleMapState
         obj->setProperty("oneShotEnabled", oneShotEnabled);
         obj->setProperty("loopingEnabled", loopingEnabled);
         obj->setProperty("randomLoopPosition", randomLoopPosition);
+        obj->setProperty("triggerOnNoteOff", triggerOnNoteOff);
         obj->setProperty("roundRobinMode", roundRobinMode);
         obj->setProperty("midiChannel", midiChannel);
         obj->setProperty("outputBus", outputBus);
@@ -669,6 +671,7 @@ struct SampleMapState
         if (obj->hasProperty("oneShotEnabled")) s.oneShotEnabled = static_cast<bool>(obj->getProperty("oneShotEnabled"));
         if (obj->hasProperty("loopingEnabled")) s.loopingEnabled = static_cast<bool>(obj->getProperty("loopingEnabled"));
         if (obj->hasProperty("randomLoopPosition")) s.randomLoopPosition = static_cast<bool>(obj->getProperty("randomLoopPosition"));
+        if (obj->hasProperty("triggerOnNoteOff")) s.triggerOnNoteOff = static_cast<bool>(obj->getProperty("triggerOnNoteOff"));
         if (obj->hasProperty("roundRobinMode")) s.roundRobinMode = static_cast<int>(obj->getProperty("roundRobinMode"));
         if (obj->hasProperty("midiChannel")) s.midiChannel = static_cast<int>(obj->getProperty("midiChannel"));
         else s.midiChannel = 0;
@@ -695,6 +698,7 @@ struct SampleMapState
         xml->setAttribute("oneShotEnabled", oneShotEnabled ? 1 : 0);
         xml->setAttribute("loopingEnabled", loopingEnabled ? 1 : 0);
         xml->setAttribute("randomLoopPosition", randomLoopPosition ? 1 : 0);
+        xml->setAttribute("triggerOnNoteOff", triggerOnNoteOff ? 1 : 0);
         xml->setAttribute("roundRobinMode", roundRobinMode);
         xml->setAttribute("midiChannel", midiChannel);
         xml->setAttribute("outputBus", outputBus);
@@ -733,6 +737,7 @@ struct SampleMapState
         s.oneShotEnabled = xml.getBoolAttribute("oneShotEnabled", false);
         s.loopingEnabled = xml.getBoolAttribute("loopingEnabled", false);
         s.randomLoopPosition = xml.getBoolAttribute("randomLoopPosition", false);
+        s.triggerOnNoteOff = xml.getBoolAttribute("triggerOnNoteOff", false);
         s.roundRobinMode = xml.getIntAttribute("roundRobinMode", 0);
         s.midiChannel = xml.getIntAttribute("midiChannel", 0);
         s.outputBus = juce::jlimit(0, 7, xml.getIntAttribute("outputBus", 0));
@@ -1077,6 +1082,7 @@ struct SamplerRackSlotState
     bool enabled { true };
     bool muted { false };
     bool soloed { false };
+    bool triggerOnNoteOff { false };
     bool collapsed { false };
     int midiChannel { 0 };        // 0 = Omni, 1..16 = Ch 1..16
     int outputBus { 0 };          // Per-instrument output track: 0 = Out 1-2 (Main) .. 7 = Out 15-16
@@ -1094,6 +1100,7 @@ struct SamplerRackSlotState
         obj->setProperty("enabled", enabled);
         obj->setProperty("muted", muted);
         obj->setProperty("soloed", soloed);
+        obj->setProperty("triggerOnNoteOff", triggerOnNoteOff);
         obj->setProperty("collapsed", collapsed);
         obj->setProperty("midiChannel", midiChannel);
         obj->setProperty("outputBus", outputBus);
@@ -1117,6 +1124,7 @@ struct SamplerRackSlotState
         if (obj->hasProperty("enabled")) s.enabled = static_cast<bool>(obj->getProperty("enabled"));
         if (obj->hasProperty("muted")) s.muted = static_cast<bool>(obj->getProperty("muted"));
         if (obj->hasProperty("soloed")) s.soloed = static_cast<bool>(obj->getProperty("soloed"));
+        if (obj->hasProperty("triggerOnNoteOff")) s.triggerOnNoteOff = static_cast<bool>(obj->getProperty("triggerOnNoteOff"));
         if (obj->hasProperty("collapsed")) s.collapsed = static_cast<bool>(obj->getProperty("collapsed"));
         if (obj->hasProperty("midiChannel")) s.midiChannel = juce::jlimit(0, 16, static_cast<int>(obj->getProperty("midiChannel")));
         if (obj->hasProperty("outputBus")) s.outputBus = juce::jlimit(0, 7, static_cast<int>(obj->getProperty("outputBus")));

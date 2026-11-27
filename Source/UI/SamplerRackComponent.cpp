@@ -139,6 +139,19 @@ SamplerRackUnitComponent::SamplerRackUnitComponent(SamplerRackComponent& ownerRa
     };
     addAndMakeVisible(soloBtn);
 
+    noteOffBtn.setClickingTogglesState(true);
+    noteOffBtn.setTooltip("Trigger on Note-Off: also trigger this sampler when keys are released (default: OFF)");
+    noteOffBtn.setColour(juce::TextButton::buttonOnColourId, OpenWavLookAndFeel::accentCyan.withAlpha(0.75f));
+    noteOffBtn.setColour(juce::TextButton::textColourOnId, juce::Colours::black);
+    noteOffBtn.onClick = [this] {
+        if (isSyncing) return;
+        currentSlot.triggerOnNoteOff = noteOffBtn.getToggleState();
+        currentSlot.sampleMap.triggerOnNoteOff = currentSlot.triggerOnNoteOff;
+        owner.updateSlotState(slotIdx, currentSlot, false);
+        repaint();
+    };
+    addAndMakeVisible(noteOffBtn);
+
     loadMapBtn.setTooltip("Load a .owmap, .samplemap, .xml, .sfz, or .zip instrument into this slot");
     loadMapBtn.onClick = [this] { owner.loadMapFileIntoSlot(slotIdx); };
     addAndMakeVisible(loadMapBtn);
@@ -294,6 +307,7 @@ void SamplerRackUnitComponent::syncFromSlot(const SamplerRackSlotState& slotStat
 
     muteBtn.setToggleState(currentSlot.muted, juce::dontSendNotification);
     soloBtn.setToggleState(currentSlot.soloed, juce::dontSendNotification);
+    noteOffBtn.setToggleState(currentSlot.triggerOnNoteOff, juce::dontSendNotification);
     editMapBtn.setToggleState(activeInEditor, juce::dontSendNotification);
 
     moveUpBtn.setEnabled(slotIdx > 0);
@@ -581,6 +595,8 @@ void SamplerRackUnitComponent::resized()
     soloBtn.setBounds(header.removeFromRight(26).reduced(0, 3));
     header.removeFromRight(3);
     muteBtn.setBounds(header.removeFromRight(26).reduced(0, 3));
+    header.removeFromRight(4);
+    noteOffBtn.setBounds(header.removeFromRight(42).reduced(0, 3));
     header.removeFromRight(6);
 
     const int outW = juce::jlimit(100, 146, header.getWidth() / 3);
@@ -748,6 +764,7 @@ void SamplerRackComponent::setState(const SamplerRackState& state)
         sl.outputBus = juce::jlimit(0, AudioEngine::MaxOutputBuses - 1, sl.outputBus);
         sl.sampleMap.midiChannel = sl.midiChannel;
         sl.sampleMap.outputBus = sl.outputBus;
+        sl.sampleMap.triggerOnNoteOff = sl.triggerOnNoteOff;
     }
     if (rackState.slots.empty()
         || rackState.activeEditSlotIndex < 0
@@ -770,8 +787,10 @@ int SamplerRackComponent::foldSampleMapIntoRack(const SampleMapState& mapState, 
         sl.sampleMap = mapState;
         sl.midiChannel = juce::jlimit(0, 16, mapState.midiChannel);
         sl.outputBus = juce::jlimit(0, AudioEngine::MaxOutputBuses - 1, mapState.outputBus);
+        sl.triggerOnNoteOff = mapState.triggerOnNoteOff;
         sl.sampleMap.midiChannel = sl.midiChannel;
         sl.sampleMap.outputBus = sl.outputBus;
+        sl.sampleMap.triggerOnNoteOff = sl.triggerOnNoteOff;
         if (preferredName.isNotEmpty())
             sl.name = preferredName;
         else if (sl.name.startsWith("Sampler ") && !mapState.zones.empty())
@@ -788,11 +807,13 @@ int SamplerRackComponent::foldSampleMapIntoRack(const SampleMapState& mapState, 
             : inferMapDisplayName(mapState, "Sampler " + juce::String(foldedIdx + 1));
         sl.midiChannel = juce::jlimit(0, 16, mapState.midiChannel);
         sl.outputBus = juce::jlimit(0, AudioEngine::MaxOutputBuses - 1, mapState.outputBus);
+        sl.triggerOnNoteOff = mapState.triggerOnNoteOff;
         sl.collapsed = true;
         sl.accentHex = kSlotAccentPalette[foldedIdx % 8];
         sl.sampleMap = mapState;
         sl.sampleMap.midiChannel = sl.midiChannel;
         sl.sampleMap.outputBus = sl.outputBus;
+        sl.sampleMap.triggerOnNoteOff = sl.triggerOnNoteOff;
         rackState.slots.push_back(std::move(sl));
     }
 
@@ -833,8 +854,10 @@ void SamplerRackComponent::updateActiveSlotSampleMap(const SampleMapState& mapSt
     sl.sampleMap = mapState;
     sl.midiChannel = juce::jlimit(0, 16, mapState.midiChannel);
     sl.outputBus = juce::jlimit(0, AudioEngine::MaxOutputBuses - 1, mapState.outputBus);
+    sl.triggerOnNoteOff = mapState.triggerOnNoteOff;
     sl.sampleMap.midiChannel = sl.midiChannel;
     sl.sampleMap.outputBus = sl.outputBus;
+    sl.sampleMap.triggerOnNoteOff = sl.triggerOnNoteOff;
     audioProcessor.setSamplerRackState(rackState, false);
     if (isShowing())
         refreshUnits();
@@ -853,6 +876,7 @@ bool SamplerRackComponent::updateSlotSampleMapById(const juce::String& slotId, c
             sl.sampleMap = mapState;
             sl.sampleMap.midiChannel = juce::jlimit(0, 16, sl.midiChannel);
             sl.sampleMap.outputBus = juce::jlimit(0, AudioEngine::MaxOutputBuses - 1, sl.outputBus);
+            sl.sampleMap.triggerOnNoteOff = sl.triggerOnNoteOff;
             for (auto& z : sl.sampleMap.zones)
                 z.outputBus = sl.sampleMap.outputBus;
 
@@ -883,9 +907,11 @@ void SamplerRackComponent::addEmptySlot(const SampleMapState& initialMap, const 
     sl.midiChannel = (newIdx == 0 && initialMap.midiChannel == 0) ? 0 : ((newIdx < 16) ? (newIdx + 1) : 0);
     sl.outputBus = (newIdx < AudioEngine::MaxOutputBuses) ? newIdx : 0;
     sl.accentHex = kSlotAccentPalette[newIdx % 8];
+    sl.triggerOnNoteOff = initialMap.triggerOnNoteOff;
     sl.sampleMap = initialMap;
     sl.sampleMap.midiChannel = sl.midiChannel;
     sl.sampleMap.outputBus = sl.outputBus;
+    sl.sampleMap.triggerOnNoteOff = sl.triggerOnNoteOff;
 
     rackState.slots.push_back(std::move(sl));
     // Keep activeEditSlotIndex untouched so adding a new independent sampler
@@ -1009,6 +1035,7 @@ void SamplerRackComponent::loadMapFileIntoSlot(int index)
             {
                 parsed.midiChannel = sl.midiChannel;
                 parsed.outputBus = sl.outputBus;
+                parsed.triggerOnNoteOff = sl.triggerOnNoteOff;
                 sl.sampleMap = parsed;
                 sl.name = file.getFileNameWithoutExtension();
                 safeThis->audioProcessor.setSamplerRackState(safeThis->rackState, true);
@@ -1025,6 +1052,7 @@ void SamplerRackComponent::loadMapFileIntoSlot(int index)
             SampleMapState singleMap;
             singleMap.midiChannel = sl.midiChannel;
             singleMap.outputBus = sl.outputBus;
+            singleMap.triggerOnNoteOff = sl.triggerOnNoteOff;
             SampleMapZoneState z;
             z.filePath = file.getFullPathName();
             z.sampleName = file.getFileName();
@@ -1053,6 +1081,7 @@ void SamplerRackComponent::openSlotInSampleMapEditor(int index)
     auto& sl = rackState.slots[static_cast<size_t>(index)];
     sl.sampleMap.midiChannel = juce::jlimit(0, 16, sl.midiChannel);
     sl.sampleMap.outputBus = juce::jlimit(0, AudioEngine::MaxOutputBuses - 1, sl.outputBus);
+    sl.sampleMap.triggerOnNoteOff = sl.triggerOnNoteOff;
     rackState.activeEditSlotIndex = index;
     audioProcessor.setSamplerRackState(rackState, false);
     refreshUnits();
@@ -1100,6 +1129,7 @@ void SamplerRackComponent::updateSlotState(int index, const SamplerRackSlotState
     sl.outputBus = juce::jlimit(0, AudioEngine::MaxOutputBuses - 1, sl.outputBus);
     sl.sampleMap.midiChannel = sl.midiChannel;
     sl.sampleMap.outputBus = sl.outputBus;
+    sl.sampleMap.triggerOnNoteOff = sl.triggerOnNoteOff;
     audioProcessor.setSamplerRackState(rackState, false);
 
     if (rebuildLayout)

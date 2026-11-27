@@ -655,19 +655,21 @@ SampleMapComponent::SampleMapComponent(AudioEngine& engine)
         const int targetSlotIndex = activeRackSlotIndex;
         const int preservedMidiCh = midiChannelSetting;
         const int preservedOutputBus = instrumentOutputBus;
+        const bool preservedTriggerOnNoteOff = triggerOnNoteOffSetting;
         const juce::String targetLabel = (targetSlotIndex >= 0)
             ? ("Sampler #" + juce::String(targetSlotIndex + 1)
                + (activeRackSlotName.isNotEmpty() ? (": " + activeRackSlotName) : ""))
             : juce::String();
 
         AutoSamplerDialog::showAsync(this,
-            [safeThis, targetSlotId, preservedMidiCh, preservedOutputBus](const SampleMapState& capturedState) {
+            [safeThis, targetSlotId, preservedMidiCh, preservedOutputBus, preservedTriggerOnNoteOff](const SampleMapState& capturedState) {
                 if (safeThis == nullptr)
                     return;
 
                 SampleMapState scopedState = capturedState;
                 scopedState.midiChannel = juce::jlimit(0, 16, preservedMidiCh);
                 scopedState.outputBus = juce::jlimit(0, AudioEngine::MaxOutputBuses - 1, preservedOutputBus);
+                scopedState.triggerOnNoteOff = preservedTriggerOnNoteOff;
                 for (auto& z : scopedState.zones)
                     z.outputBus = scopedState.outputBus;
 
@@ -886,6 +888,17 @@ SampleMapComponent::SampleMapComponent(AudioEngine& engine)
             onFoldToRackRequested();
     };
     addAndMakeVisible(foldToRackButton);
+
+    noteOffTriggerButton.setClickingTogglesState(true);
+    noteOffTriggerButton.setToggleState(false, juce::dontSendNotification);
+    noteOffTriggerButton.setColour(juce::TextButton::buttonOnColourId, OpenWavLookAndFeel::accentCyan.withAlpha(0.75f));
+    noteOffTriggerButton.setColour(juce::TextButton::textColourOnId, juce::Colours::black);
+    noteOffTriggerButton.setTooltip("Trigger on Note-Off: also trigger this sampler's zones when keys are released (default: OFF)");
+    noteOffTriggerButton.onClick = [this] {
+        triggerOnNoteOffSetting = noteOffTriggerButton.getToggleState();
+        if (onStateChanged) onStateChanged();
+    };
+    addAndMakeVisible(noteOffTriggerButton);
 
     inspectorDeleteButton.setColour(juce::TextButton::buttonColourId, OpenWavLookAndFeel::favoriteRed.darker(0.3f));
     inspectorDeleteButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
@@ -1285,7 +1298,7 @@ int SampleMapComponent::getTopToolbarOffset() const
 {
     const int contentW = getLocalBounds().reduced(20, 16).getWidth();
     const int bannerH = rackSlotsSummary.empty() ? 0 : 34;
-    return bannerH + ((contentW < 1180) ? 78 : 44);
+    return bannerH + ((contentW < 1260) ? 78 : 44);
 }
 
 void SampleMapComponent::handleNoteOn(juce::MidiKeyboardState*, int midiChannel, int midiNoteNumber, float velocity)
@@ -3869,7 +3882,8 @@ void SampleMapComponent::mouseDrag(const juce::MouseEvent& e)
                 const float relVel = juce::jlimit(0.05f, 1.0f, static_cast<float>(auditionVelocity) / 127.0f);
                 for (const auto& z : zones)
                 {
-                    if (z.isReleaseTrigger && auditionNote >= z.keyLow && auditionNote <= z.keyHigh
+                    const bool shouldPlayOnRelease = z.isReleaseTrigger || triggerOnNoteOffSetting;
+                    if (shouldPlayOnRelease && auditionNote >= z.keyLow && auditionNote <= z.keyHigh
                         && auditionVelocity >= z.velLow && auditionVelocity <= z.velHigh && z.filePath.isNotEmpty())
                     {
                         juce::File fileToLoad(z.filePath);
@@ -4032,7 +4046,8 @@ void SampleMapComponent::mouseUp(const juce::MouseEvent& /*e*/)
         const float relVel = juce::jlimit(0.05f, 1.0f, static_cast<float>(auditionVelocity) / 127.0f);
         for (const auto& z : zones)
         {
-            if (z.isReleaseTrigger && auditionNote >= z.keyLow && auditionNote <= z.keyHigh
+            const bool shouldPlayOnRelease = z.isReleaseTrigger || triggerOnNoteOffSetting;
+            if (shouldPlayOnRelease && auditionNote >= z.keyLow && auditionNote <= z.keyHigh
                 && auditionVelocity >= z.velLow && auditionVelocity <= z.velHigh && z.filePath.isNotEmpty())
             {
                 juce::File fileToLoad(z.filePath);
@@ -4081,7 +4096,7 @@ void SampleMapComponent::mouseUp(const juce::MouseEvent& /*e*/)
 void SampleMapComponent::resized()
 {
     auto area = getLocalBounds().reduced(20, 16);
-    const bool wrapToolbar = (area.getWidth() < 1180);
+    const bool wrapToolbar = (area.getWidth() < 1260);
 
     if (!rackSlotsSummary.empty())
     {
@@ -4163,6 +4178,8 @@ void SampleMapComponent::resized()
     zoneFilterBox.setBounds(rightToolbarRow.removeFromRight(124));
     rightToolbarRow.removeFromRight(gap);
     instrumentPresetButton.setBounds(rightToolbarRow.removeFromRight(56));
+    rightToolbarRow.removeFromRight(gap);
+    noteOffTriggerButton.setBounds(rightToolbarRow.removeFromRight(62));
     rightToolbarRow.removeFromRight(gap);
     foldToRackButton.setBounds(rightToolbarRow.removeFromRight(94));
 
@@ -4623,6 +4640,7 @@ SampleMapState SampleMapComponent::getState() const
     s.oneShotEnabled = oneShotSetting;
     s.loopingEnabled = loopingSetting;
     s.randomLoopPosition = randomLoopSetting;
+    s.triggerOnNoteOff = triggerOnNoteOffSetting;
     s.roundRobinMode = roundRobinMode;
     s.midiChannel = midiChannelSetting;
     s.outputBus = instrumentOutputBus;
@@ -4709,6 +4727,7 @@ void SampleMapComponent::setState(const SampleMapState& state)
     oneShotSetting = state.oneShotEnabled;
     loopingSetting = state.loopingEnabled;
     randomLoopSetting = state.randomLoopPosition;
+    triggerOnNoteOffSetting = state.triggerOnNoteOff;
 
     if (activeRackSlotIndex < 0)
     {
@@ -4726,6 +4745,7 @@ void SampleMapComponent::setState(const SampleMapState& state)
     loopButton.setButtonText(loopingSetting ? "Loop: ON" : "Loop: OFF");
     randomLoopButton.setToggleState(randomLoopSetting, juce::dontSendNotification);
     randomLoopButton.setButtonText(randomLoopSetting ? "Rand Loop: ON" : "Rand Loop: OFF");
+    noteOffTriggerButton.setToggleState(triggerOnNoteOffSetting, juce::dontSendNotification);
 
     roundRobinMode = state.roundRobinMode;
     rrCounters.fill(0);

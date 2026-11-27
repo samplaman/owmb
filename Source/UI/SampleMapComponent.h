@@ -272,6 +272,7 @@ private:
 
     juce::ComboBox zoneFilterBox;
     juce::TextButton instrumentPresetButton { "Presets" };
+    juce::TextButton noteOffTriggerButton { "Note-Off" };
     juce::TextButton foldToRackButton { "Fold to Rack" };
 
     // Per-Instance Sampler Context Bar & Lock Overlay
@@ -306,6 +307,7 @@ private:
     bool oneShotSetting { false };
     bool loopingSetting { false };
     bool randomLoopSetting { false };
+    bool triggerOnNoteOffSetting { false };
 
     int midiChannelSetting { 0 };
     int instrumentOutputBus { 0 };

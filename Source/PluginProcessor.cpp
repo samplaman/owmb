@@ -88,8 +88,10 @@ void OpenWavAudioProcessor::setSampleMapState(const SampleMapState& s)
             activeSlot.sampleMap = s;
             activeSlot.midiChannel = juce::jlimit(0, 16, s.midiChannel);
             activeSlot.outputBus = juce::jlimit(0, AudioEngine::MaxOutputBuses - 1, s.outputBus);
+            activeSlot.triggerOnNoteOff = s.triggerOnNoteOff;
             activeSlot.sampleMap.midiChannel = activeSlot.midiChannel;
             activeSlot.sampleMap.outputBus = activeSlot.outputBus;
+            activeSlot.sampleMap.triggerOnNoteOff = activeSlot.triggerOnNoteOff;
         }
         noteRoundRobinCounters.clear();
         lastRandomZoneIndex.clear();
@@ -123,6 +125,7 @@ void OpenWavAudioProcessor::setSamplerRackState(const SamplerRackState& r, bool 
             sampleMapState = r.slots[static_cast<size_t>(activeIdx)].sampleMap;
             sampleMapState.midiChannel = juce::jlimit(0, 16, r.slots[static_cast<size_t>(activeIdx)].midiChannel);
             sampleMapState.outputBus = juce::jlimit(0, AudioEngine::MaxOutputBuses - 1, r.slots[static_cast<size_t>(activeIdx)].outputBus);
+            sampleMapState.triggerOnNoteOff = r.slots[static_cast<size_t>(activeIdx)].triggerOnNoteOff;
             fullPluginState.sampleMap = sampleMapState;
         }
         rackNoteRoundRobinCounters.clear();
@@ -399,6 +402,86 @@ void OpenWavAudioProcessor::triggerSingleRackSlotNoteOff(int slotIndex, const Sa
                                       map.pitchTrackingEnabled ? 1 : 0,
                                       0,
                                       true);
+        }
+    }
+
+    // Optional per-sampler "Trigger on Note-Off" mode (disabled by default):
+    // also trigger this sampler's regular zones as one-shot hits on key release.
+    if (slot.triggerOnNoteOff || map.triggerOnNoteOff)
+    {
+        std::vector<const SampleMapZoneState*> noteOffZones;
+        for (const auto& z : map.zones)
+        {
+            if (!z.isReleaseTrigger && mappedNote >= z.keyLow && mappedNote <= z.keyHigh
+                && velInt >= z.velLow && velInt <= z.velHigh && z.filePath.isNotEmpty())
+            {
+                noteOffZones.push_back(&z);
+            }
+        }
+
+        if (!noteOffZones.empty())
+        {
+            std::vector<int> distinctRrGroups;
+            for (const auto* z : noteOffZones)
+            {
+                if (std::find(distinctRrGroups.begin(), distinctRrGroups.end(), z->roundRobinIndex) == distinctRrGroups.end())
+                    distinctRrGroups.push_back(z->roundRobinIndex);
+            }
+            std::sort(distinctRrGroups.begin(), distinctRrGroups.end());
+
+            int chosenRrGroup = distinctRrGroups[0];
+            if (distinctRrGroups.size() > 1 && map.roundRobinMode != 2)
+            {
+                const auto rrKey = std::make_pair(slotIndex, mappedNote);
+                if (map.roundRobinMode == 1)
+                {
+                    int lastGroup = 0;
+                    {
+                        const juce::ScopedLock sl(stateLock);
+                        lastGroup = rackLastRandomZoneIndex[rrKey];
+                    }
+                    int pick = juce::Random::getSystemRandom().nextInt(static_cast<int>(distinctRrGroups.size()));
+                    if (distinctRrGroups[static_cast<size_t>(pick)] == lastGroup)
+                        pick = (pick + 1) % static_cast<int>(distinctRrGroups.size());
+                    chosenRrGroup = distinctRrGroups[static_cast<size_t>(pick)];
+                    {
+                        const juce::ScopedLock sl(stateLock);
+                        rackLastRandomZoneIndex[rrKey] = chosenRrGroup;
+                    }
+                }
+                else
+                {
+                    int count = 0;
+                    {
+                        const juce::ScopedLock sl(stateLock);
+                        count = rackNoteRoundRobinCounters[rrKey]++;
+                    }
+                    chosenRrGroup = distinctRrGroups[static_cast<size_t>(count) % distinctRrGroups.size()];
+                }
+            }
+
+            for (const auto* chosenZone : noteOffZones)
+            {
+                if (chosenZone != nullptr && chosenZone->roundRobinIndex == chosenRrGroup)
+                {
+                    juce::File fileToLoad(chosenZone->filePath);
+                    const float effectiveVelocity = map.computeVelocityResponse(relVel, chosenZone->velocitySensitivity);
+                    const int targetBus = juce::jlimit(0, AudioEngine::MaxOutputBuses - 1, slot.outputBus);
+                    const float combinedGainDb = chosenZone->gainDb + slot.gainDb;
+                    const int adjustedRoot = chosenZone->rootNote - (mappedNote - midiNoteNumber);
+                    const SampleEditSettings zoneEdit = makeZoneEditSettings(*chosenZone);
+
+                    audioEngine.playZoneVoice(fileToLoad, midiNoteNumber, adjustedRoot, chosenZone->fineTuneCents,
+                                              combinedGainDb, effectiveVelocity,
+                                              chosenZone->attackMs / 1000.0f, chosenZone->decayMs / 1000.0f,
+                                              chosenZone->sustainLevel, chosenZone->releaseMs / 1000.0f,
+                                              true, false, false, targetBus, slotIndex, slot.pan,
+                                              &zoneEdit,
+                                              map.pitchTrackingEnabled ? 1 : 0,
+                                              0,
+                                              true);
+                }
+            }
         }
     }
 }
@@ -861,6 +944,28 @@ void OpenWavAudioProcessor::triggerNoteOffInternal(int midiChannel, int midiNote
                                           currentSampleMap.pitchTrackingEnabled ? 1 : 0,
                                           0,
                                           true);
+            }
+        }
+
+        if (currentSampleMap.triggerOnNoteOff)
+        {
+            for (const auto& z : currentSampleMap.zones)
+            {
+                if (!z.isReleaseTrigger && midiNoteNumber >= z.keyLow && midiNoteNumber <= z.keyHigh
+                    && velInt >= z.velLow && velInt <= z.velHigh && z.filePath.isNotEmpty())
+                {
+                    juce::File fileToLoad(z.filePath);
+                    float effectiveVelocity = currentSampleMap.computeVelocityResponse(relVel, z.velocitySensitivity);
+                    const int instrumentBus = juce::jlimit(0, AudioEngine::MaxOutputBuses - 1, currentSampleMap.outputBus);
+                    const SampleEditSettings zoneEdit = makeZoneEditSettings(z);
+                    audioEngine.playZoneVoice(fileToLoad, midiNoteNumber, z.rootNote, z.fineTuneCents, z.gainDb, effectiveVelocity,
+                                              z.attackMs / 1000.0f, z.decayMs / 1000.0f, z.sustainLevel, z.releaseMs / 1000.0f,
+                                              true, false, true, instrumentBus, -1, 0.0f,
+                                              &zoneEdit,
+                                              currentSampleMap.pitchTrackingEnabled ? 1 : 0,
+                                              0,
+                                              true);
+                }
             }
         }
 

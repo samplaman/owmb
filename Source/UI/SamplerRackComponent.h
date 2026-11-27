@@ -73,6 +73,7 @@ private:
     juce::ComboBox outputBusCombo;
     juce::TextButton muteBtn { "M" };
     juce::TextButton soloBtn { "S" };
+    juce::TextButton noteOffBtn { "N-Off" };
     juce::TextButton loadMapBtn { "Load" };
     juce::TextButton editMapBtn { "Edit Map" };
     juce::TextButton moveUpBtn { "Move Up" };
