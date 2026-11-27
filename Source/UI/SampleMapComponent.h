@@ -44,6 +44,7 @@ struct SampleMapZone
     bool loopMarkersSet { false };
     bool isLooping { false };
     bool isReleaseTrigger { false };
+    int outputBus { 0 };
     bool isSelected { false };
 };
 
@@ -164,6 +165,8 @@ public:
     void loadSampleMapFromUrlDialog();
     void downloadAndImportInstrument(const juce::String& urlOrRepo);
     bool loadSampleMapFile(const juce::File& file);
+    static bool parseSampleMapFromFile(const juce::File& file, SampleMapState& outState, juce::String& outError);
+    void setRackEditingContext(int slotIndex, const juce::String& slotName);
     void exportSampleMapToZip();
     void exportZonesAsMidiPattern();
     void openLorisResynthesisDialog();
@@ -178,6 +181,7 @@ public:
     std::function<void()> onSliceToSamplerStarted;
     std::function<void()> onStateChanged;
     std::function<void()> onOpenFxRackRequested;
+    std::function<void()> onFoldToRackRequested;
     bool isDragOver { false };
     std::function<void()> onOpenAiKitBuilderRequested;
 
@@ -230,11 +234,14 @@ private:
     juce::TextButton aiKitButton { "AI Kit" };
     juce::TextButton velCurveButton { "Vel: 100%" };
     juce::TextButton midiChannelButton { "MIDI: Omni" };
+    juce::TextButton outputBusButton { "Out: 1-2" };
 
     bool instrumentModeActive { false };
     InstrumentViewComponent instrumentView;
 
     void updateMidiChannelButtonText();
+    void updateOutputBusButtonText();
+    int getTopToolbarOffset() const;
     void updateVelocityCurveButtonText();
     void applyVelocityPreset(int mode);
     void updateVelocityCurveUI();
@@ -245,8 +252,10 @@ private:
 
     juce::ComboBox zoneFilterBox;
     juce::TextButton instrumentPresetButton { "Presets" };
+    juce::TextButton foldToRackButton { "Fold to Rack" };
 
     int midiChannelSetting { 0 };
+    int instrumentOutputBus { 0 };
     float globalVelocitySensitivity { 1.0f };
     float globalVelocityCurve { 0.0f };
     int globalVelocityCurveMode { 0 };

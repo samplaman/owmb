@@ -8,7 +8,14 @@ namespace openwav
 OpenWavAudioProcessor::OpenWavAudioProcessor()
     : AudioProcessor(BusesProperties()
                      .withInput("Input", juce::AudioChannelSet::stereo(), true)
-                     .withOutput("Output", juce::AudioChannelSet::stereo(), true))
+                     .withOutput("Out 1-2 (Main)", juce::AudioChannelSet::stereo(), true)
+                     .withOutput("Out 3-4", juce::AudioChannelSet::stereo(), false)
+                     .withOutput("Out 5-6", juce::AudioChannelSet::stereo(), false)
+                     .withOutput("Out 7-8", juce::AudioChannelSet::stereo(), false)
+                     .withOutput("Out 9-10", juce::AudioChannelSet::stereo(), false)
+                     .withOutput("Out 11-12", juce::AudioChannelSet::stereo(), false)
+                     .withOutput("Out 13-14", juce::AudioChannelSet::stereo(), false)
+                     .withOutput("Out 15-16", juce::AudioChannelSet::stereo(), false))
 {
     audioEngine.onStopped = [this] { stopMidiFilePlayback(false); };
     audioEngine.onMidiFileAudition = [this](const juce::File& f) { loadAndPlayMidiFile(f); };
@@ -54,6 +61,13 @@ void OpenWavAudioProcessor::setSampleMapState(const SampleMapState& s)
         const juce::ScopedLock sl(stateLock);
         sampleMapState = s;
         fullPluginState.sampleMap = s;
+        const int activeIdx = fullPluginState.samplerRack.activeEditSlotIndex;
+        if (activeIdx >= 0 && activeIdx < static_cast<int>(fullPluginState.samplerRack.slots.size()))
+        {
+            auto& activeSlot = fullPluginState.samplerRack.slots[static_cast<size_t>(activeIdx)];
+            activeSlot.sampleMap = s;
+            activeSlot.outputBus = juce::jlimit(0, AudioEngine::MaxOutputBuses - 1, s.outputBus);
+        }
         noteRoundRobinCounters.clear();
         lastRandomZoneIndex.clear();
     }
@@ -66,6 +80,123 @@ void OpenWavAudioProcessor::setSampleMapState(const SampleMapState& s)
     }
     if (!filesToPreload.empty())
         audioEngine.preloadSampleFiles(filesToPreload);
+}
+
+SamplerRackState OpenWavAudioProcessor::getSamplerRackState() const
+{
+    const juce::ScopedLock sl(stateLock);
+    return fullPluginState.samplerRack;
+}
+
+void OpenWavAudioProcessor::setSamplerRackState(const SamplerRackState& r, bool preloadSamples)
+{
+    std::vector<juce::File> filesToPreload;
+    {
+        const juce::ScopedLock sl(stateLock);
+        fullPluginState.samplerRack = r;
+        const int activeIdx = r.activeEditSlotIndex;
+        if (activeIdx >= 0 && activeIdx < static_cast<int>(r.slots.size()))
+        {
+            sampleMapState = r.slots[static_cast<size_t>(activeIdx)].sampleMap;
+            sampleMapState.outputBus = juce::jlimit(0, AudioEngine::MaxOutputBuses - 1, r.slots[static_cast<size_t>(activeIdx)].outputBus);
+            fullPluginState.sampleMap = sampleMapState;
+        }
+        rackNoteRoundRobinCounters.clear();
+        rackLastRandomZoneIndex.clear();
+
+        if (preloadSamples)
+        {
+            for (const auto& slItem : r.slots)
+            {
+                for (const auto& z : slItem.sampleMap.zones)
+                {
+                    if (z.filePath.isNotEmpty())
+                        filesToPreload.push_back(juce::File(z.filePath));
+                }
+            }
+        }
+    }
+
+    if (!filesToPreload.empty())
+        audioEngine.preloadSampleFiles(filesToPreload);
+}
+
+void OpenWavAudioProcessor::clearAllHeldMidiState()
+{
+    sustainPedalDown.fill(false);
+    for (size_t c = 0; c < 16; ++c)
+    {
+        physicalNotesHeld[c].fill(false);
+        sustainedNotes[c].fill(false);
+    }
+}
+
+MultiOutMixerState OpenWavAudioProcessor::getMixerState() const
+{
+    const juce::ScopedLock sl(stateLock);
+    return fullPluginState.mixer;
+}
+
+void OpenWavAudioProcessor::setMixerState(const MultiOutMixerState& m)
+{
+    {
+        const juce::ScopedLock sl(stateLock);
+        fullPluginState.mixer = m;
+    }
+    audioEngine.setDefaultSamplerOutputBus(m.defaultSamplerOutputBus);
+    audioEngine.setFoldInactiveBusesToMain(m.foldInactiveBusesToMain);
+    audioEngine.setMasterMixerGainDb(m.masterGainDb);
+    audioEngine.setMasterMixerPan(m.masterPan);
+    audioEngine.setMasterMixerMute(m.masterMute);
+    for (int i = 0; i < AudioEngine::MaxOutputBuses; ++i)
+    {
+        const auto& st = m.strips[static_cast<size_t>(i)];
+        audioEngine.setBusGainDb(i, st.gainDb);
+        audioEngine.setBusPan(i, st.pan);
+        audioEngine.setBusMute(i, st.mute);
+        audioEngine.setBusSolo(i, st.solo);
+        audioEngine.setBusSendToFxRack(i, st.sendToFxRack);
+    }
+}
+
+bool OpenWavAudioProcessor::isPluginWrapper() const
+{
+    return wrapperType == wrapperType_VST3
+        || wrapperType == wrapperType_AudioUnit
+        || wrapperType == wrapperType_AudioUnitv3
+        || wrapperType == wrapperType_VST
+        || wrapperType == wrapperType_AAX
+        || wrapperType == wrapperType_LV2;
+}
+
+juce::String OpenWavAudioProcessor::getWrapperTypeDescription() const
+{
+    switch (wrapperType)
+    {
+        case wrapperType_VST3:        return "VST3 Plugin";
+        case wrapperType_AudioUnit:   return "AU Plugin";
+        case wrapperType_AudioUnitv3: return "AUv3 Plugin";
+        case wrapperType_VST:         return "VST2 Plugin";
+        case wrapperType_AAX:         return "AAX Plugin";
+        case wrapperType_LV2:         return "LV2 Plugin";
+        case wrapperType_Standalone:  return "Standalone App";
+        default:                      return "Plugin";
+    }
+}
+
+int OpenWavAudioProcessor::getActiveOutputBusCount() const
+{
+    int active = 0;
+    const int total = getBusCount(false);
+    for (int i = 0; i < total; ++i)
+    {
+        if (const auto* bus = getBus(false, i))
+        {
+            if (bus->isEnabled() && bus->getNumberOfChannels() > 0)
+                ++active;
+        }
+    }
+    return std::max(1, active);
 }
 
 PluginFullState OpenWavAudioProcessor::getFullPluginState() const
@@ -83,7 +214,11 @@ void OpenWavAudioProcessor::setFullPluginState(const PluginFullState& s, bool pr
         sampleMapState = s.sampleMap;
         noteRoundRobinCounters.clear();
         lastRandomZoneIndex.clear();
+        rackNoteRoundRobinCounters.clear();
+        rackLastRandomZoneIndex.clear();
     }
+
+    setMixerState(s.mixer);
 
     if (preloadSamples)
     {
@@ -92,6 +227,14 @@ void OpenWavAudioProcessor::setFullPluginState(const PluginFullState& s, bool pr
         {
             if (z.filePath.isNotEmpty())
                 filesToPreload.push_back(juce::File(z.filePath));
+        }
+        for (const auto& slItem : s.samplerRack.slots)
+        {
+            for (const auto& z : slItem.sampleMap.zones)
+            {
+                if (z.filePath.isNotEmpty())
+                    filesToPreload.push_back(juce::File(z.filePath));
+            }
         }
         if (!filesToPreload.empty())
             audioEngine.preloadSampleFiles(filesToPreload);
@@ -103,25 +246,247 @@ void OpenWavAudioProcessor::handleNoteOn(juce::MidiKeyboardState*, int midiChann
     triggerNoteOnInternal(midiChannel, midiNoteNumber, velocity, false);
 }
 
+bool OpenWavAudioProcessor::triggerSingleRackSlotNoteOn(int slotIndex, const SamplerRackSlotState& slot, int midiNoteNumber, float velocity, bool isInternalMidiFile)
+{
+    const auto& map = slot.sampleMap;
+    if (map.zones.empty())
+        return false;
+
+    const int mappedNote = juce::jlimit(0, 127, midiNoteNumber + slot.transposeSemitones);
+    const int velInt = juce::jlimit(1, 127, static_cast<int>(std::round(velocity * 127.0f)));
+
+    std::vector<const SampleMapZoneState*> matchingZones;
+    for (const auto& z : map.zones)
+    {
+        if (!z.isReleaseTrigger && mappedNote >= z.keyLow && mappedNote <= z.keyHigh
+            && velInt >= z.velLow && velInt <= z.velHigh && z.filePath.isNotEmpty())
+        {
+            matchingZones.push_back(&z);
+        }
+    }
+
+    if (matchingZones.empty() && isInternalMidiFile && map.zones.size() == 1
+        && map.pitchTrackingEnabled && !map.zones[0].isReleaseTrigger
+        && map.zones[0].filePath.isNotEmpty())
+    {
+        matchingZones.push_back(&map.zones[0]);
+    }
+
+    if (matchingZones.empty())
+        return false;
+
+    std::vector<int> distinctRrGroups;
+    for (const auto* z : matchingZones)
+    {
+        if (std::find(distinctRrGroups.begin(), distinctRrGroups.end(), z->roundRobinIndex) == distinctRrGroups.end())
+            distinctRrGroups.push_back(z->roundRobinIndex);
+    }
+    std::sort(distinctRrGroups.begin(), distinctRrGroups.end());
+
+    int chosenRrGroup = distinctRrGroups[0];
+    if (distinctRrGroups.size() > 1 && map.roundRobinMode != 2)
+    {
+        const auto rrKey = std::make_pair(slotIndex, mappedNote);
+        if (map.roundRobinMode == 1)
+        {
+            int lastGroup = 0;
+            {
+                const juce::ScopedLock sl(stateLock);
+                lastGroup = rackLastRandomZoneIndex[rrKey];
+            }
+            int pick = juce::Random::getSystemRandom().nextInt(static_cast<int>(distinctRrGroups.size()));
+            if (distinctRrGroups[static_cast<size_t>(pick)] == lastGroup)
+                pick = (pick + 1) % static_cast<int>(distinctRrGroups.size());
+            chosenRrGroup = distinctRrGroups[static_cast<size_t>(pick)];
+            {
+                const juce::ScopedLock sl(stateLock);
+                rackLastRandomZoneIndex[rrKey] = chosenRrGroup;
+            }
+        }
+        else
+        {
+            int count = 0;
+            {
+                const juce::ScopedLock sl(stateLock);
+                count = rackNoteRoundRobinCounters[rrKey]++;
+            }
+            chosenRrGroup = distinctRrGroups[static_cast<size_t>(count) % distinctRrGroups.size()];
+        }
+    }
+
+    bool triggered = false;
+    for (const auto* chosenZone : matchingZones)
+    {
+        if (chosenZone != nullptr && chosenZone->roundRobinIndex == chosenRrGroup)
+        {
+            juce::File fileToLoad(chosenZone->filePath);
+            const float effectiveVelocity = map.computeVelocityResponse(velocity, chosenZone->velocitySensitivity);
+            const int targetBus = juce::jlimit(0, AudioEngine::MaxOutputBuses - 1, slot.outputBus);
+            const float combinedGainDb = chosenZone->gainDb + slot.gainDb;
+            const int adjustedRoot = chosenZone->rootNote - (mappedNote - midiNoteNumber);
+
+            audioEngine.playZoneVoice(fileToLoad, midiNoteNumber, adjustedRoot, chosenZone->fineTuneCents,
+                                      combinedGainDb, effectiveVelocity,
+                                      chosenZone->attackMs / 1000.0f, chosenZone->decayMs / 1000.0f,
+                                      chosenZone->sustainLevel, chosenZone->releaseMs / 1000.0f,
+                                      isInternalMidiFile ? false : audioEngine.isOneShotEnabled(),
+                                      chosenZone->isLooping || (!isInternalMidiFile && audioEngine.isLooping()),
+                                      true, targetBus, slotIndex, slot.pan);
+            triggered = true;
+        }
+    }
+    return triggered;
+}
+
+void OpenWavAudioProcessor::triggerSingleRackSlotNoteOff(int slotIndex, const SamplerRackSlotState& slot, int midiNoteNumber, float relVel)
+{
+    audioEngine.stopZoneVoice(midiNoteNumber, slotIndex);
+
+    const auto& map = slot.sampleMap;
+    if (map.zones.empty())
+        return;
+
+    const int mappedNote = juce::jlimit(0, 127, midiNoteNumber + slot.transposeSemitones);
+    const int velInt = juce::jlimit(1, 127, static_cast<int>(std::round(relVel * 127.0f)));
+
+    for (const auto& z : map.zones)
+    {
+        if (z.isReleaseTrigger && mappedNote >= z.keyLow && mappedNote <= z.keyHigh
+            && velInt >= z.velLow && velInt <= z.velHigh && z.filePath.isNotEmpty())
+        {
+            juce::File fileToLoad(z.filePath);
+            const float effectiveVelocity = map.computeVelocityResponse(relVel, z.velocitySensitivity);
+            const int targetBus = juce::jlimit(0, AudioEngine::MaxOutputBuses - 1, slot.outputBus);
+            const float combinedGainDb = z.gainDb + slot.gainDb;
+            const int adjustedRoot = z.rootNote - (mappedNote - midiNoteNumber);
+
+            audioEngine.playZoneVoice(fileToLoad, midiNoteNumber, adjustedRoot, z.fineTuneCents,
+                                      combinedGainDb, effectiveVelocity,
+                                      z.attackMs / 1000.0f, z.decayMs / 1000.0f,
+                                      z.sustainLevel, z.releaseMs / 1000.0f,
+                                      true, false, true, targetBus, slotIndex, slot.pan);
+        }
+    }
+}
+
+void OpenWavAudioProcessor::triggerRackSlotNoteOn(int slotIndex, int midiNoteNumber, float velocity)
+{
+    if (midiNoteNumber < 0 || midiNoteNumber > 127)
+        return;
+
+    SamplerRackSlotState slotCopy;
+    bool valid = false;
+    {
+        const juce::ScopedLock sl(stateLock);
+        if (slotIndex >= 0 && slotIndex < static_cast<int>(fullPluginState.samplerRack.slots.size()))
+        {
+            slotCopy = fullPluginState.samplerRack.slots[static_cast<size_t>(slotIndex)];
+            valid = true;
+        }
+    }
+    if (valid)
+        triggerSingleRackSlotNoteOn(slotIndex, slotCopy, midiNoteNumber, velocity, false);
+}
+
+void OpenWavAudioProcessor::triggerRackSlotNoteOff(int slotIndex, int midiNoteNumber)
+{
+    if (midiNoteNumber < 0 || midiNoteNumber > 127)
+        return;
+
+    SamplerRackSlotState slotCopy;
+    bool valid = false;
+    {
+        const juce::ScopedLock sl(stateLock);
+        if (slotIndex >= 0 && slotIndex < static_cast<int>(fullPluginState.samplerRack.slots.size()))
+        {
+            slotCopy = fullPluginState.samplerRack.slots[static_cast<size_t>(slotIndex)];
+            valid = true;
+        }
+    }
+    if (valid)
+        triggerSingleRackSlotNoteOff(slotIndex, slotCopy, midiNoteNumber, 0.8f);
+}
+
 void OpenWavAudioProcessor::triggerNoteOnInternal(int midiChannel, int midiNoteNumber, float velocity, bool isInternalMidiFile)
 {
     if (midiNoteNumber < 0 || midiNoteNumber > 127)
         return;
 
-    int velInt = juce::jlimit(1, 127, static_cast<int>(std::round(velocity * 127.0f)));
+    const int effCh = (midiChannel >= 1 && midiChannel <= 16) ? midiChannel : 1;
+    const size_t chIdx = static_cast<size_t>(effCh - 1);
+    lastNoteOnVelocities[chIdx][static_cast<size_t>(midiNoteNumber)] = velocity;
 
+    SamplerRackState rackSnapshot;
     SampleMapState currentSampleMap;
     {
         const juce::ScopedLock sl(stateLock);
+        rackSnapshot = fullPluginState.samplerRack;
         currentSampleMap = sampleMapState;
     }
 
-    int mapChannel = (currentSampleMap.midiChannel > 0) ? currentSampleMap.midiChannel : (midiChannel > 0 ? midiChannel : 1);
+    // Multi-SampleMap Sampler Rack Path (Multi-Timbral MIDI Channel + Multi-Output Routing)
+    if (!rackSnapshot.slots.empty())
+    {
+        bool anySolo = false;
+        bool anyHasZones = false;
+        for (const auto& slItem : rackSnapshot.slots)
+        {
+            if (slItem.soloed && slItem.enabled)
+                anySolo = true;
+            if (!slItem.sampleMap.zones.empty())
+                anyHasZones = true;
+        }
+
+        if (anyHasZones)
+        {
+            bool anyTriggered = false;
+            bool channelMatchedSlot = false;
+
+            for (size_t i = 0; i < rackSnapshot.slots.size(); ++i)
+            {
+                const auto& slItem = rackSnapshot.slots[i];
+                if (!slItem.enabled || slItem.muted || (anySolo && !slItem.soloed) || slItem.sampleMap.zones.empty())
+                    continue;
+
+                const bool chMatch = (slItem.midiChannel == 0 || slItem.midiChannel == effCh);
+                if (!chMatch)
+                    continue;
+
+                channelMatchedSlot = true;
+                if (triggerSingleRackSlotNoteOn(static_cast<int>(i), slItem, midiNoteNumber, velocity, isInternalMidiFile))
+                    anyTriggered = true;
+            }
+
+            // During internal .mid file preview, if no slot matched the track's MIDI channel, allow active/first slot or synth fallback
+            if (!channelMatchedSlot && isInternalMidiFile)
+            {
+                for (size_t i = 0; i < rackSnapshot.slots.size(); ++i)
+                {
+                    const auto& slItem = rackSnapshot.slots[i];
+                    if (!slItem.enabled || slItem.muted || (anySolo && !slItem.soloed) || slItem.sampleMap.zones.empty())
+                        continue;
+                    if (triggerSingleRackSlotNoteOn(static_cast<int>(i), slItem, midiNoteNumber, velocity, true))
+                    {
+                        anyTriggered = true;
+                        break;
+                    }
+                }
+            }
+
+            if (!anyTriggered && isInternalMidiFile)
+                audioEngine.triggerMidiAuditionNoteOn(midiNoteNumber, velocity);
+
+            audioEngine.getKeyboardState().noteOn(effCh, midiNoteNumber, velocity);
+            return;
+        }
+    }
+
+    int velInt = juce::jlimit(1, 127, static_cast<int>(std::round(velocity * 127.0f)));
+    int mapChannel = (currentSampleMap.midiChannel > 0) ? currentSampleMap.midiChannel : effCh;
     bool hasMappedZones = !currentSampleMap.zones.empty();
 
     if (hasMappedZones)
     {
-        lastNoteOnVelocities[static_cast<size_t>(midiNoteNumber)] = velocity;
         bool zoneTriggered = false;
 
         // 1. Check Sample Map Zones for matching Key and Velocity (Note-On zones only)
@@ -180,11 +545,12 @@ void OpenWavAudioProcessor::triggerNoteOnInternal(int midiChannel, int midiNoteN
                 {
                     juce::File fileToLoad(chosenZone->filePath);
                     float effectiveVelocity = currentSampleMap.computeVelocityResponse(velocity, chosenZone->velocitySensitivity);
+                    const int instrumentBus = juce::jlimit(0, AudioEngine::MaxOutputBuses - 1, currentSampleMap.outputBus);
                     audioEngine.playZoneVoice(fileToLoad, midiNoteNumber, chosenZone->rootNote, chosenZone->fineTuneCents, chosenZone->gainDb, effectiveVelocity,
                                               chosenZone->attackMs / 1000.0f, chosenZone->decayMs / 1000.0f, chosenZone->sustainLevel, chosenZone->releaseMs / 1000.0f,
                                               isInternalMidiFile ? false : audioEngine.isOneShotEnabled(),
                                               chosenZone->isLooping || (!isInternalMidiFile && audioEngine.isLooping()),
-                                              true);
+                                              true, instrumentBus);
                     zoneTriggered = true;
                 }
             }
@@ -217,13 +583,65 @@ void OpenWavAudioProcessor::triggerNoteOffInternal(int midiChannel, int midiNote
     if (midiNoteNumber < 0 || midiNoteNumber > 127)
         return;
 
+    const int effCh = (midiChannel >= 1 && midiChannel <= 16) ? midiChannel : 1;
+    const size_t chIdx = static_cast<size_t>(effCh - 1);
+    const float relVel = juce::jlimit(0.05f, 1.0f,
+        lastNoteOnVelocities[chIdx][static_cast<size_t>(midiNoteNumber)] > 0.0f
+            ? lastNoteOnVelocities[chIdx][static_cast<size_t>(midiNoteNumber)]
+            : 0.8f);
+
+    SamplerRackState rackSnapshot;
     SampleMapState currentSampleMap;
     {
         const juce::ScopedLock sl(stateLock);
+        rackSnapshot = fullPluginState.samplerRack;
         currentSampleMap = sampleMapState;
     }
 
-    int mapChannel = (currentSampleMap.midiChannel > 0) ? currentSampleMap.midiChannel : (midiChannel > 0 ? midiChannel : 1);
+    if (!rackSnapshot.slots.empty())
+    {
+        bool anySolo = false;
+        bool anyHasZones = false;
+        for (const auto& slItem : rackSnapshot.slots)
+        {
+            if (slItem.soloed && slItem.enabled)
+                anySolo = true;
+            if (!slItem.sampleMap.zones.empty())
+                anyHasZones = true;
+        }
+
+        if (anyHasZones)
+        {
+            bool channelMatchedSlot = false;
+            for (size_t i = 0; i < rackSnapshot.slots.size(); ++i)
+            {
+                const auto& slItem = rackSnapshot.slots[i];
+                if (slItem.sampleMap.zones.empty())
+                    continue;
+
+                const bool chMatch = (slItem.midiChannel == 0 || slItem.midiChannel == effCh);
+                if (!chMatch)
+                    continue;
+
+                channelMatchedSlot = true;
+                if (!slItem.enabled || slItem.muted || (anySolo && !slItem.soloed))
+                    audioEngine.stopZoneVoice(midiNoteNumber, static_cast<int>(i));
+                else
+                    triggerSingleRackSlotNoteOff(static_cast<int>(i), slItem, midiNoteNumber, relVel);
+            }
+
+            if (!channelMatchedSlot && isInternalMidiFile)
+            {
+                for (size_t i = 0; i < rackSnapshot.slots.size(); ++i)
+                    audioEngine.stopZoneVoice(midiNoteNumber, static_cast<int>(i));
+            }
+
+            audioEngine.getKeyboardState().noteOff(effCh, midiNoteNumber, 0.0f);
+            return;
+        }
+    }
+
+    int mapChannel = (currentSampleMap.midiChannel > 0) ? currentSampleMap.midiChannel : effCh;
     bool hasMappedZones = !currentSampleMap.zones.empty();
 
     if (hasMappedZones)
@@ -231,9 +649,6 @@ void OpenWavAudioProcessor::triggerNoteOffInternal(int midiChannel, int midiNote
         audioEngine.stopZoneVoice(midiNoteNumber);
 
         // Trigger any Release / Note-Off zones matching this key
-        const float relVel = juce::jlimit(0.05f, 1.0f, lastNoteOnVelocities[static_cast<size_t>(midiNoteNumber)] > 0.0f
-                                                            ? lastNoteOnVelocities[static_cast<size_t>(midiNoteNumber)]
-                                                            : 0.8f);
         const int velInt = juce::jlimit(1, 127, static_cast<int>(std::round(relVel * 127.0f)));
         for (const auto& z : currentSampleMap.zones)
         {
@@ -242,9 +657,10 @@ void OpenWavAudioProcessor::triggerNoteOffInternal(int midiChannel, int midiNote
             {
                 juce::File fileToLoad(z.filePath);
                 float effectiveVelocity = currentSampleMap.computeVelocityResponse(relVel, z.velocitySensitivity);
+                const int instrumentBus = juce::jlimit(0, AudioEngine::MaxOutputBuses - 1, currentSampleMap.outputBus);
                 audioEngine.playZoneVoice(fileToLoad, midiNoteNumber, z.rootNote, z.fineTuneCents, z.gainDb, effectiveVelocity,
                                           z.attackMs / 1000.0f, z.decayMs / 1000.0f, z.sustainLevel, z.releaseMs / 1000.0f,
-                                          true, false, true);
+                                          true, false, true, instrumentBus);
             }
         }
 
@@ -272,6 +688,13 @@ bool OpenWavAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts) c
     if (layouts.getMainOutputChannelSet() != juce::AudioChannelSet::mono()
         && layouts.getMainOutputChannelSet() != juce::AudioChannelSet::stereo())
         return false;
+
+    for (int i = 1; i < layouts.outputBuses.size(); ++i)
+    {
+        const auto& busSet = layouts.outputBuses.getReference(i);
+        if (!busSet.isDisabled() && busSet != juce::AudioChannelSet::stereo())
+            return false;
+    }
 
     if (layouts.getMainInputChannelSet() != juce::AudioChannelSet::disabled()
         && layouts.getMainInputChannelSet() != juce::AudioChannelSet::mono()
@@ -352,9 +775,7 @@ void OpenWavAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
 
         if (midiPlayEventIndex >= midiPlaySequence.getNumEvents() || (maxDur > 0.0 && nextTime >= maxDur))
         {
-            sustainPedalDown = false;
-            physicalNotesHeld.fill(false);
-            sustainedNotes.fill(false);
+            clearAllHeldMidiState();
             audioEngine.stopAllZoneVoices(false);
             audioEngine.getKeyboardState().allNotesOff(0);
 
@@ -374,7 +795,33 @@ void OpenWavAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
         }
     }
 
-    audioEngine.processNextAudioBlock(buffer, midiMessages);
+    auto mainBusBuffer = getBusBuffer(buffer, false, 0);
+    audioEngine.setHostBusActive(0, mainBusBuffer.getNumChannels() > 0);
+
+    std::array<juce::AudioBuffer<float>, AudioEngine::MaxOutputBuses - 1> auxBusBuffers;
+    const int numOutBuses = std::min<int>(AudioEngine::MaxOutputBuses, getBusCount(false));
+    for (int b = 1; b < AudioEngine::MaxOutputBuses; ++b)
+    {
+        bool busEnabled = false;
+        if (b < numOutBuses)
+        {
+            if (const auto* busObj = getBus(false, b))
+            {
+                if (busObj->isEnabled() && busObj->getNumberOfChannels() > 0)
+                {
+                    auxBusBuffers[static_cast<size_t>(b - 1)] = getBusBuffer(buffer, false, b);
+                    auxBusBuffers[static_cast<size_t>(b - 1)].clear();
+                    busEnabled = (auxBusBuffers[static_cast<size_t>(b - 1)].getNumChannels() > 0);
+                }
+            }
+        }
+        audioEngine.setHostBusActive(b, busEnabled);
+    }
+
+    audioEngine.processNextAudioBlock(mainBusBuffer,
+                                      auxBusBuffers.data(),
+                                      AudioEngine::MaxOutputBuses - 1,
+                                      midiMessages);
 }
 
 void OpenWavAudioProcessor::processIncomingMidiMessage(const juce::MidiMessage& message, bool isInternalMidiFile)
@@ -387,18 +834,22 @@ void OpenWavAudioProcessor::processIncomingMidiMessage(const juce::MidiMessage& 
 
     if (!isInternalMidiFile)
     {
+        bool hasRackSlots = false;
         int configuredChannel = 0;
         {
             const juce::ScopedLock sl(stateLock);
+            hasRackSlots = !fullPluginState.samplerRack.slots.empty();
             configuredChannel = sampleMapState.midiChannel;
         }
 
         const int msgCh = message.getChannel();
-        if (configuredChannel > 0 && msgCh > 0 && msgCh != configuredChannel)
+        if (!hasRackSlots && configuredChannel > 0 && msgCh > 0 && msgCh != configuredChannel)
             return;
     }
 
     const int msgCh = message.getChannel();
+    const int effCh = (msgCh >= 1 && msgCh <= 16) ? msgCh : 1;
+    const size_t chIdx = static_cast<size_t>(effCh - 1);
 
     if (message.isNoteOn())
     {
@@ -406,16 +857,15 @@ void OpenWavAudioProcessor::processIncomingMidiMessage(const juce::MidiMessage& 
         if (note >= 0 && note < 128)
         {
             const size_t idx = static_cast<size_t>(note);
-            // If re-triggering a note held by sustain pedal, release the old sustained voice first
-            if (sustainedNotes[idx] && !physicalNotesHeld[idx])
+            // If re-triggering a note held by sustain pedal on this channel, release the old sustained voice first
+            if (sustainedNotes[chIdx][idx] && !physicalNotesHeld[chIdx][idx])
             {
-                sustainedNotes[idx] = false;
-                triggerNoteOffInternal(msgCh, note, 0.0f, isInternalMidiFile);
+                sustainedNotes[chIdx][idx] = false;
+                triggerNoteOffInternal(effCh, note, 0.0f, isInternalMidiFile);
             }
-            physicalNotesHeld[idx] = true;
-            sustainedNotes[idx] = false;
-            noteChannels[idx] = msgCh > 0 ? msgCh : 1;
-            triggerNoteOnInternal(msgCh, note, message.getFloatVelocity(), isInternalMidiFile);
+            physicalNotesHeld[chIdx][idx] = true;
+            sustainedNotes[chIdx][idx] = false;
+            triggerNoteOnInternal(effCh, note, message.getFloatVelocity(), isInternalMidiFile);
         }
     }
     else if (message.isNoteOff())
@@ -424,15 +874,15 @@ void OpenWavAudioProcessor::processIncomingMidiMessage(const juce::MidiMessage& 
         if (note >= 0 && note < 128)
         {
             const size_t idx = static_cast<size_t>(note);
-            physicalNotesHeld[idx] = false;
-            if (sustainPedalDown)
+            physicalNotesHeld[chIdx][idx] = false;
+            if (sustainPedalDown[chIdx])
             {
-                sustainedNotes[idx] = true;
+                sustainedNotes[chIdx][idx] = true;
             }
             else
             {
-                sustainedNotes[idx] = false;
-                triggerNoteOffInternal(msgCh, note, message.getFloatVelocity(), isInternalMidiFile);
+                sustainedNotes[chIdx][idx] = false;
+                triggerNoteOffInternal(effCh, note, message.getFloatVelocity(), isInternalMidiFile);
             }
         }
     }
@@ -480,32 +930,30 @@ void OpenWavAudioProcessor::processIncomingMidiMessage(const juce::MidiMessage& 
             }
         }
 
-        if (cc == 64) // Sustain / Damper Pedal
+        if (cc == 64) // Sustain / Damper Pedal (per MIDI channel)
         {
             const bool nowDown = (val >= 64);
-            if (sustainPedalDown && !nowDown)
+            if (sustainPedalDown[chIdx] && !nowDown)
             {
-                sustainPedalDown = false;
+                sustainPedalDown[chIdx] = false;
                 for (int n = 0; n < 128; ++n)
                 {
                     const size_t idx = static_cast<size_t>(n);
-                    if (sustainedNotes[idx] && !physicalNotesHeld[idx])
+                    if (sustainedNotes[chIdx][idx] && !physicalNotesHeld[chIdx][idx])
                     {
-                        sustainedNotes[idx] = false;
-                        handleNoteOff(nullptr, noteChannels[idx] > 0 ? noteChannels[idx] : 1, n, 0.0f);
+                        sustainedNotes[chIdx][idx] = false;
+                        triggerNoteOffInternal(effCh, n, 0.0f, isInternalMidiFile);
                     }
                 }
             }
             else
             {
-                sustainPedalDown = nowDown;
+                sustainPedalDown[chIdx] = nowDown;
             }
         }
         else if (cc == 120 || cc == 123) // All Sound Off / All Notes Off
         {
-            sustainPedalDown = false;
-            physicalNotesHeld.fill(false);
-            sustainedNotes.fill(false);
+            clearAllHeldMidiState();
             audioEngine.stopAllVoices();
             audioEngine.getKeyboardState().allNotesOff(0);
         }
@@ -517,9 +965,7 @@ void OpenWavAudioProcessor::processIncomingMidiMessage(const juce::MidiMessage& 
     }
     else if (message.isAllNotesOff() || message.isAllSoundOff())
     {
-        sustainPedalDown = false;
-        physicalNotesHeld.fill(false);
-        sustainedNotes.fill(false);
+        clearAllHeldMidiState();
         audioEngine.stopAllVoices();
         audioEngine.getKeyboardState().allNotesOff(0);
     }
@@ -678,9 +1124,7 @@ bool OpenWavAudioProcessor::loadAndPlayMidiFile(const juce::File& midiFile)
     const double effectiveDuration = std::max(0.25, maxNoteEnd + 0.05);
 
     const juce::ScopedLock sl(midiSeqLock);
-    sustainPedalDown = false;
-    physicalNotesHeld.fill(false);
-    sustainedNotes.fill(false);
+    clearAllHeldMidiState();
     midiPlaySequence = std::move(merged);
     midiDisplayNotes = std::move(notes);
     loadedMidiFileName = midiFile.getFileName();
@@ -699,9 +1143,7 @@ void OpenWavAudioProcessor::stopMidiFilePlayback(bool stopAudioVoices)
     const bool wasActive = midiPlaybackActive.exchange(false, std::memory_order_relaxed);
     {
         const juce::ScopedLock sl(midiSeqLock);
-        sustainPedalDown = false;
-        physicalNotesHeld.fill(false);
-        sustainedNotes.fill(false);
+        clearAllHeldMidiState();
         midiPlayEventIndex = 0;
         midiPlayTimeSec = 0.0;
         midiPlayTimeAtomic.store(0.0, std::memory_order_relaxed);
@@ -722,9 +1164,7 @@ void OpenWavAudioProcessor::pauseMidiFilePlayback()
     if (wasActive)
     {
         const juce::ScopedLock sl(midiSeqLock);
-        sustainPedalDown = false;
-        physicalNotesHeld.fill(false);
-        sustainedNotes.fill(false);
+        clearAllHeldMidiState();
         audioEngine.stopAllZoneVoices(false);
         audioEngine.getKeyboardState().allNotesOff(0);
     }
@@ -766,9 +1206,7 @@ void OpenWavAudioProcessor::seekMidiFilePlayback(double normalizedRatio)
         return;
 
     const double targetSec = juce::jlimit(0.0, dur, normalizedRatio * dur);
-    sustainPedalDown = false;
-    physicalNotesHeld.fill(false);
-    sustainedNotes.fill(false);
+    clearAllHeldMidiState();
     audioEngine.stopAllZoneVoices(false);
     audioEngine.getKeyboardState().allNotesOff(0);
 

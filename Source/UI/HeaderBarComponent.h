@@ -22,7 +22,9 @@ enum class ViewMode
     SampleMap,
     Performance,
     Folders,
-    CueSheet
+    CueSheet,
+    Mixer,
+    SamplerRack
 };
 
 class HeaderBarListener
@@ -99,7 +101,9 @@ private:
     juce::TextButton btnAnalysisView { "Analysis" };
     juce::TextButton btnEditView { "Edit" };
     juce::TextButton btnSampleMapView { "Sample Map" };
+    juce::TextButton btnSamplerRackView { "Sampler Rack" };
     juce::TextButton btnPerformanceView { "Rack" };
+    juce::TextButton btnMixerView { "Mixer" };
     juce::TextButton btnCueSheetView { "Cue Sheet" };
 
     juce::Rectangle<int> viewPillBounds;

@@ -164,10 +164,14 @@ target_sources(OpenWav PRIVATE
     Source/UI/EditComponent.cpp
     Source/UI/SampleMapComponent.h
     Source/UI/SampleMapComponent.cpp
+    Source/UI/SamplerRackComponent.h
+    Source/UI/SamplerRackComponent.cpp
     Source/UI/InstrumentViewComponent.h
     Source/UI/InstrumentViewComponent.cpp
     Source/UI/PerformanceComponent.h
     Source/UI/PerformanceComponent.cpp
+    Source/UI/MultiOutMixerComponent.h
+    Source/UI/MultiOutMixerComponent.cpp
     Source/UI/SliceConfigComponent.h
     Source/UI/SliceConfigComponent.cpp
     Source/UI/LorisResynthesisDialog.h

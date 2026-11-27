@@ -23,10 +23,12 @@
 #include "UI/AnalysisComponent.h"
 #include "UI/EditComponent.h"
 #include "UI/SampleMapComponent.h"
+#include "UI/SamplerRackComponent.h"
 #include "UI/CommandPaletteOverlay.h"
 #include "UI/CueSheetComponent.h"
 #include "UI/ToastOverlay.h"
 #include "UI/PerformanceComponent.h"
+#include "UI/MultiOutMixerComponent.h"
 #include "UI/SliceConfigComponent.h"
 #include "UI/AiKitBuilderDialog.h"
 
@@ -158,7 +160,9 @@ private:
     AnalysisComponent analysisComponent;
     EditComponent editComponent;
     SampleMapComponent sampleMapComponent;
+    SamplerRackComponent samplerRackComponent;
     PerformanceComponent performanceComponent;
+    MultiOutMixerComponent multiOutMixerComponent;
     CueSheetComponent cueSheetComponent;
     CommandPaletteOverlay commandPalette;
     ToastOverlay toastOverlay;

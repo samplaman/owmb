@@ -673,6 +673,31 @@ SampleMapComponent::SampleMapComponent(AudioEngine& engine)
     };
     addChildComponent(triggerModeBox);
 
+    outputBusButton.setColour(juce::TextButton::buttonColourId, OpenWavLookAndFeel::accentCyan.withAlpha(0.18f));
+    outputBusButton.setColour(juce::TextButton::textColourOffId, OpenWavLookAndFeel::accentCyan);
+    updateOutputBusButtonText();
+    outputBusButton.onClick = [this] {
+        juce::PopupMenu m;
+        m.addSectionHeader("Instrument Output Track (Whole Instrument)");
+        for (int b = 0; b < AudioEngine::MaxOutputBuses; ++b)
+            m.addItem(b + 1, AudioEngine::getDefaultOutputBusName(b), true, instrumentOutputBus == b);
+
+        m.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&outputBusButton),
+            [this](int res) {
+                if (res >= 1 && res <= AudioEngine::MaxOutputBuses)
+                {
+                    instrumentOutputBus = res - 1;
+                    for (auto& z : zones)
+                        z.outputBus = instrumentOutputBus;
+                    updateOutputBusButtonText();
+                    if (onStateChanged)
+                        onStateChanged();
+                    repaint();
+                }
+            });
+    };
+    addAndMakeVisible(outputBusButton);
+
     zoneFilterBox.setTooltip("Filter visible zones in the Sample Map grid (All, Note-On, Release, or Round Robin group)");
     zoneFilterBox.onChange = [this] {
         // Deselect any zones hidden by the new filter
@@ -696,6 +721,15 @@ SampleMapComponent::SampleMapComponent(AudioEngine& engine)
     instrumentPresetButton.setTooltip("Quick Instrument Presets (Piano, Drum Kit, Synth Lead, Lush Pad)");
     instrumentPresetButton.onClick = [this] { showInstrumentPresetMenu(); };
     addAndMakeVisible(instrumentPresetButton);
+
+    foldToRackButton.setColour(juce::TextButton::buttonColourId, OpenWavLookAndFeel::accentCyan.withAlpha(0.20f));
+    foldToRackButton.setColour(juce::TextButton::textColourOffId, OpenWavLookAndFeel::accentCyan);
+    foldToRackButton.setTooltip("Fold this Sample Map into the Multi-SampleMap Sampler Rack (with per-slot MIDI Channel & DAW Multi-Out)");
+    foldToRackButton.onClick = [this] {
+        if (onFoldToRackRequested)
+            onFoldToRackRequested();
+    };
+    addAndMakeVisible(foldToRackButton);
 
     inspectorDeleteButton.setColour(juce::TextButton::buttonColourId, OpenWavLookAndFeel::favoriteRed.darker(0.3f));
     inspectorDeleteButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
@@ -1000,6 +1034,7 @@ SampleMapComponent::~SampleMapComponent()
     openFxRackButton.removeListener(this);
     velCurveButton.removeListener(this);
     midiChannelButton.removeListener(this);
+    outputBusButton.removeListener(this);
     velScopeButton.removeListener(this);
     velTestAuditionBtn.removeListener(this);
     inspectorDeleteButton.removeListener(this);
@@ -1063,6 +1098,21 @@ void SampleMapComponent::updateMidiChannelButtonText()
         midiChannelButton.setButtonText("MIDI: Omni");
     else
         midiChannelButton.setButtonText("MIDI Ch: " + juce::String(midiChannelSetting));
+}
+
+void SampleMapComponent::updateOutputBusButtonText()
+{
+    const int ch1 = instrumentOutputBus * 2 + 1;
+    const int ch2 = ch1 + 1;
+    outputBusButton.setButtonText("Out: " + juce::String(ch1) + "-" + juce::String(ch2));
+    outputBusButton.setTooltip("Instrument Output Track: " + AudioEngine::getDefaultOutputBusName(instrumentOutputBus)
+                               + " (routes this entire Sample Map instrument to the selected stereo output)");
+}
+
+int SampleMapComponent::getTopToolbarOffset() const
+{
+    const int contentW = getLocalBounds().reduced(20, 16).getWidth();
+    return (contentW < 1180) ? 78 : 44;
 }
 
 void SampleMapComponent::handleNoteOn(juce::MidiKeyboardState*, int midiChannel, int midiNoteNumber, float velocity)
@@ -1320,10 +1370,10 @@ void SampleMapComponent::itemDropped(const juce::DragAndDropTarget::SourceDetail
 juce::Rectangle<float> SampleMapComponent::getGridBounds() const
 {
     auto area = getLocalBounds().reduced(20, 16);
-    area.removeFromTop(44);     // Top toolbar gap
-    area.removeFromBottom(50);  // Keybed height
+    area.removeFromTop(getTopToolbarOffset()); // Top toolbar gap (1 or 2 rows)
+    area.removeFromBottom(50);                 // Keybed height
     int inspectorW = 240;
-    area.removeFromRight(inspectorW + 16); // Inspector sidebar
+    area.removeFromRight(inspectorW + 16);     // Inspector sidebar
     return area.toFloat();
 }
 
@@ -1336,7 +1386,7 @@ juce::Rectangle<float> SampleMapComponent::getKeybedBounds() const
 juce::Rectangle<float> SampleMapComponent::getInspectorBounds() const
 {
     auto area = getLocalBounds().reduced(20, 16);
-    area.removeFromTop(44);
+    area.removeFromTop(getTopToolbarOffset());
     int inspectorW = 240;
     return area.removeFromRight(inspectorW).toFloat();
 }
@@ -2545,28 +2595,17 @@ void SampleMapComponent::downloadAndImportInstrument(const juce::String& rawInpu
     }).detach();
 }
 
-bool SampleMapComponent::loadSampleMapFile(const juce::File& file)
+bool SampleMapComponent::parseSampleMapFromFile(const juce::File& file, SampleMapState& outState, juce::String& outError)
 {
     if (!file.existsAsFile())
+    {
+        outError = "File does not exist.";
         return false;
+    }
 
     if (file.hasFileExtension("sfz"))
     {
-        SampleMapState sfzState;
-        juce::String sfzError;
-        if (!SfzParser::parseFile(file, sfzState, sfzError))
-        {
-            juce::AlertWindow::showMessageBoxAsync(
-                juce::AlertWindow::WarningIcon,
-                "SFZ Import Failed",
-                sfzError.isNotEmpty() ? sfzError : "Could not parse SFZ file.");
-            return false;
-        }
-
-        setState(sfzState);
-        if (onStateChanged)
-            onStateChanged();
-        return true;
+        return SfzParser::parseFile(file, outState, outError);
     }
 
     if (file.hasFileExtension("zip"))
@@ -2579,17 +2618,21 @@ bool SampleMapComponent::loadSampleMapFile(const juce::File& file)
 
         juce::ZipFile zip(file);
         if (zip.getNumEntries() == 0)
+        {
+            outError = "ZIP archive is empty.";
             return false;
+        }
 
         for (int i = 0; i < zip.getNumEntries(); ++i)
-        {
             zip.uncompressEntry(i, importBaseDir, true);
-        }
 
         juce::Array<juce::File> xmlFiles;
         importBaseDir.findChildFiles(xmlFiles, juce::File::findFiles, true, "*.xml;*.samplemap;*.owmap;*.sfz");
         if (xmlFiles.isEmpty())
+        {
+            outError = "No SampleMap or SFZ found in ZIP archive.";
             return false;
+        }
 
         juce::File chosenXml = xmlFiles.getFirst();
         for (const auto& xf : xmlFiles)
@@ -2601,15 +2644,50 @@ bool SampleMapComponent::loadSampleMapFile(const juce::File& file)
                 break;
             }
         }
-
-        return loadSampleMapFile(chosenXml);
+        return parseSampleMapFromFile(chosenXml, outState, outError);
     }
 
-    auto newState = SampleMapState::loadFromFile(file);
-    if (newState.zones.empty() && !file.loadFileAsString().containsIgnoreCase("<SampleMap"))
+    outState = SampleMapState::loadFromFile(file);
+    if (outState.zones.empty() && !file.loadFileAsString().containsIgnoreCase("<SampleMap"))
+    {
+        outError = "Invalid SampleMap file.";
         return false;
+    }
+    return true;
+}
 
-    setState(newState);
+void SampleMapComponent::setRackEditingContext(int slotIndex, const juce::String& slotName)
+{
+    if (slotIndex >= 0)
+    {
+        foldToRackButton.setButtonText("Fold #" + juce::String(slotIndex + 1));
+        foldToRackButton.setTooltip("Fold '" + slotName + "' back into Sampler Rack Slot #" + juce::String(slotIndex + 1));
+    }
+    else
+    {
+        foldToRackButton.setButtonText("Fold to Rack");
+        foldToRackButton.setTooltip("Fold this Sample Map into the Multi-SampleMap Sampler Rack");
+    }
+    repaint();
+}
+
+bool SampleMapComponent::loadSampleMapFile(const juce::File& file)
+{
+    SampleMapState parsedState;
+    juce::String parseErr;
+    if (!parseSampleMapFromFile(file, parsedState, parseErr))
+    {
+        if (file.hasFileExtension("sfz"))
+        {
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::AlertWindow::WarningIcon,
+                "SFZ Import Failed",
+                parseErr.isNotEmpty() ? parseErr : "Could not parse SFZ file.");
+        }
+        return false;
+    }
+
+    setState(parsedState);
     if (onStateChanged)
         onStateChanged();
     return true;
@@ -3124,7 +3202,8 @@ void SampleMapComponent::triggerKeybedNote(int note, float velocity, int velInt)
                 audioEngine.playZoneVoice(fileToLoad, note, z.rootNote, z.fineTuneCents, z.gainDb, effectiveVelocity,
                                           z.attackMs / 1000.0f, z.decayMs / 1000.0f, z.sustainLevel, z.releaseMs / 1000.0f,
                                           oneShotButton.getToggleState() || audioEngine.isOneShotEnabled(),
-                                          z.isLooping || loopButton.getToggleState() || audioEngine.isLooping());
+                                          z.isLooping || loopButton.getToggleState() || audioEngine.isLooping(),
+                                          true, instrumentOutputBus);
             }
         }
 
@@ -3384,7 +3463,8 @@ void SampleMapComponent::mouseDown(const juce::MouseEvent& e)
                     audioEngine.playZoneVoice(fileToLoad, activeZone.rootNote, activeZone.rootNote, activeZone.fineTuneCents, activeZone.gainDb, 0.8f,
                                               activeZone.attackMs / 1000.0f, activeZone.decayMs / 1000.0f, activeZone.sustainLevel, activeZone.releaseMs / 1000.0f,
                                               oneShotButton.getToggleState() || audioEngine.isOneShotEnabled(),
-                                              activeZone.isLooping || loopButton.getToggleState() || audioEngine.isLooping());
+                                              activeZone.isLooping || loopButton.getToggleState() || audioEngine.isLooping(),
+                                              true, instrumentOutputBus);
                 }
                 auditionNote = activeZone.rootNote;
                 auditionVelocity = 100;
@@ -3538,7 +3618,7 @@ void SampleMapComponent::mouseDrag(const juce::MouseEvent& e)
                             float effectiveVelocity = computeEffectiveVelocity(relVel, &z);
                             audioEngine.playZoneVoice(fileToLoad, auditionNote, z.rootNote, z.fineTuneCents, z.gainDb, effectiveVelocity,
                                                       z.attackMs / 1000.0f, z.decayMs / 1000.0f, z.sustainLevel, z.releaseMs / 1000.0f,
-                                                      true, false);
+                                                      true, false, true, instrumentOutputBus);
                         }
                     }
                 }
@@ -3696,7 +3776,7 @@ void SampleMapComponent::mouseUp(const juce::MouseEvent& /*e*/)
                     float effectiveVelocity = computeEffectiveVelocity(relVel, &z);
                     audioEngine.playZoneVoice(fileToLoad, auditionNote, z.rootNote, z.fineTuneCents, z.gainDb, effectiveVelocity,
                                               z.attackMs / 1000.0f, z.decayMs / 1000.0f, z.sustainLevel, z.releaseMs / 1000.0f,
-                                              true, false);
+                                              true, false, true, instrumentOutputBus);
                 }
             }
         }
@@ -3731,17 +3811,12 @@ void SampleMapComponent::mouseUp(const juce::MouseEvent& /*e*/)
 void SampleMapComponent::resized()
 {
     auto area = getLocalBounds().reduced(20, 16);
+    const bool wrapToolbar = (area.getWidth() < 1180);
 
-    // ── Single Top Toolbar (Compact Icon-Only Buttons) ──
+    // ── Top Toolbar (Wraps to 2 Rows on Narrow Windows so Nothing Overlaps) ──
     auto topRow = area.removeFromTop(28);
     int gap = 4;
     const int iconBtnW = 30;
-
-    midiChannelButton.setBounds(topRow.removeFromRight(iconBtnW));
-    topRow.removeFromRight(gap);
-
-    velCurveButton.setBounds(topRow.removeFromRight(iconBtnW));
-    topRow.removeFromRight(gap);
 
     addSampleButton.setBounds(topRow.removeFromLeft(iconBtnW));
     topRow.removeFromLeft(gap);
@@ -3788,9 +3863,24 @@ void SampleMapComponent::resized()
     topRow.removeFromLeft(gap);
     aiKitButton.setBounds(topRow.removeFromLeft(iconBtnW));
 
-    zoneFilterBox.setBounds(topRow.removeFromRight(136));
-    topRow.removeFromRight(gap);
-    instrumentPresetButton.setBounds(topRow.removeFromRight(58));
+    juce::Rectangle<int> rightToolbarRow = topRow;
+    if (wrapToolbar)
+    {
+        area.removeFromTop(6);
+        rightToolbarRow = area.removeFromTop(28);
+    }
+
+    midiChannelButton.setBounds(rightToolbarRow.removeFromRight(iconBtnW));
+    rightToolbarRow.removeFromRight(gap);
+    velCurveButton.setBounds(rightToolbarRow.removeFromRight(iconBtnW));
+    rightToolbarRow.removeFromRight(6);
+    outputBusButton.setBounds(rightToolbarRow.removeFromRight(88));
+    rightToolbarRow.removeFromRight(6);
+    zoneFilterBox.setBounds(rightToolbarRow.removeFromRight(124));
+    rightToolbarRow.removeFromRight(gap);
+    instrumentPresetButton.setBounds(rightToolbarRow.removeFromRight(56));
+    rightToolbarRow.removeFromRight(gap);
+    foldToRackButton.setBounds(rightToolbarRow.removeFromRight(94));
 
     if (instrumentModeActive)
     {
@@ -3818,8 +3908,8 @@ void SampleMapComponent::resized()
         velScopeButton.setVisible(false); velReadoutLabel.setVisible(false);
         velTestAuditionBtn.setVisible(false);
 
-        auto instArea = area;
-        instArea.removeFromTop(10);
+        auto instArea = getLocalBounds().reduced(20, 16);
+        instArea.setTop(static_cast<int>(getInspectorBounds().getY()));
         auto keybed = getKeybedBounds();
         instArea.setBottom(static_cast<int>(keybed.getY()) - 10);
         instrumentView.setVisible(true);
@@ -4230,6 +4320,7 @@ SampleMapState SampleMapComponent::getState() const
             zs.isLooping = z.isLooping;
         }
         zs.isReleaseTrigger = z.isReleaseTrigger;
+        zs.outputBus = instrumentOutputBus;
         s.zones.push_back(zs);
     }
     s.globalAttackMs = globalAttackMs;
@@ -4241,6 +4332,7 @@ SampleMapState SampleMapComponent::getState() const
     s.randomLoopPosition = audioEngine.isRandomLoopPositionEnabled();
     s.roundRobinMode = roundRobinMode;
     s.midiChannel = midiChannelSetting;
+    s.outputBus = instrumentOutputBus;
     s.velocitySensitivity = globalVelocitySensitivity;
     s.velocityCurve = globalVelocityCurve;
     s.velocityCurveMode = globalVelocityCurveMode;
@@ -4254,6 +4346,8 @@ void SampleMapComponent::setState(const SampleMapState& state)
     zones.clear();
     selectedZoneIndex = -1;
     selectedZoneIndices.clear();
+    instrumentOutputBus = juce::jlimit(0, AudioEngine::MaxOutputBuses - 1, state.outputBus);
+    updateOutputBusButtonText();
 
     for (const auto& zs : state.zones)
     {
@@ -4285,6 +4379,7 @@ void SampleMapComponent::setState(const SampleMapState& state)
         z.loopMarkersSet = zs.loopMarkersSet;
         z.isLooping = zs.isLooping;
         z.isReleaseTrigger = zs.isReleaseTrigger;
+        z.outputBus = instrumentOutputBus;
         z.isSelected = false;
         zones.push_back(z);
 
@@ -4330,7 +4425,7 @@ void SampleMapComponent::setState(const SampleMapState& state)
     roundRobinButton.setButtonText(roundRobinMode == 0 ? "RR: Cycle" : (roundRobinMode == 1 ? "RR: Random" : "RR: OFF"));
     roundRobinButton.setTooltip("Round Robin Mode: " + roundRobinButton.getButtonText() + " (click to cycle)");
 
-    midiChannelSetting = 0;
+    midiChannelSetting = juce::jlimit(0, 16, state.midiChannel);
     updateMidiChannelButtonText();
 
     globalVelocitySensitivity = state.velocitySensitivity;

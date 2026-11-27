@@ -61,6 +61,18 @@ public:
     SampleMapState getSampleMapState() const;
     void setSampleMapState(const SampleMapState& s);
 
+    SamplerRackState getSamplerRackState() const;
+    void setSamplerRackState(const SamplerRackState& r, bool preloadSamples = true);
+    void triggerRackSlotNoteOn(int slotIndex, int midiNoteNumber, float velocity = 0.85f);
+    void triggerRackSlotNoteOff(int slotIndex, int midiNoteNumber);
+
+    MultiOutMixerState getMixerState() const;
+    void setMixerState(const MultiOutMixerState& m);
+
+    bool isPluginWrapper() const;
+    juce::String getWrapperTypeDescription() const;
+    int getActiveOutputBusCount() const;
+
     PluginFullState getFullPluginState() const;
     void setFullPluginState(const PluginFullState& s, bool preloadSamples = false);
 
@@ -116,15 +128,19 @@ private:
 
     std::map<int, int> noteRoundRobinCounters;
     std::map<int, int> lastRandomZoneIndex;
+    std::map<std::pair<int, int>, int> rackNoteRoundRobinCounters;
+    std::map<std::pair<int, int>, int> rackLastRandomZoneIndex;
 
     void processIncomingMidiMessage(const juce::MidiMessage& message, bool isInternalMidiFile = false);
     void triggerNoteOnInternal(int midiChannel, int midiNoteNumber, float velocity, bool isInternalMidiFile);
     void triggerNoteOffInternal(int midiChannel, int midiNoteNumber, float velocity, bool isInternalMidiFile);
-    std::array<bool, 128> physicalNotesHeld {};
-    std::array<bool, 128> sustainedNotes {};
-    std::array<int, 128> noteChannels {};
-    std::array<float, 128> lastNoteOnVelocities {};
-    bool sustainPedalDown { false };
+    bool triggerSingleRackSlotNoteOn(int slotIndex, const SamplerRackSlotState& slot, int midiNoteNumber, float velocity, bool isInternalMidiFile);
+    void triggerSingleRackSlotNoteOff(int slotIndex, const SamplerRackSlotState& slot, int midiNoteNumber, float relVel);
+    void clearAllHeldMidiState();
+    std::array<std::array<bool, 128>, 16> physicalNotesHeld {};
+    std::array<std::array<bool, 128>, 16> sustainedNotes {};
+    std::array<std::array<float, 128>, 16> lastNoteOnVelocities {};
+    std::array<bool, 16> sustainPedalDown {};
 
     // MIDI File Playback State
     mutable juce::CriticalSection midiSeqLock;

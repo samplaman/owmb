@@ -126,6 +126,7 @@ struct SampleMapZoneState
     bool loopMarkersSet { false };
     bool isLooping { false };
     bool isReleaseTrigger { false };
+    int outputBus { 0 }; // 0 = Out 1-2 (Main), 1 = Out 3-4, ..., 7 = Out 15-16
 
     juce::var toVar() const
     {
@@ -157,6 +158,7 @@ struct SampleMapZoneState
         obj->setProperty("loopMarkersSet", loopMarkersSet);
         obj->setProperty("isLooping", isLooping);
         obj->setProperty("isReleaseTrigger", isReleaseTrigger);
+        obj->setProperty("outputBus", outputBus);
         return juce::var(obj);
     }
 
@@ -199,6 +201,7 @@ struct SampleMapZoneState
         if (obj->hasProperty("loopMarkersSet")) z.loopMarkersSet = static_cast<bool>(obj->getProperty("loopMarkersSet"));
         if (obj->hasProperty("isLooping")) z.isLooping = static_cast<bool>(obj->getProperty("isLooping"));
         if (obj->hasProperty("isReleaseTrigger")) z.isReleaseTrigger = static_cast<bool>(obj->getProperty("isReleaseTrigger"));
+        if (obj->hasProperty("outputBus")) z.outputBus = juce::jlimit(0, 7, static_cast<int>(obj->getProperty("outputBus")));
         return z;
     }
 
@@ -232,6 +235,7 @@ struct SampleMapZoneState
         xml->setAttribute("loopMarkersSet", loopMarkersSet ? 1 : 0);
         xml->setAttribute("isLooping", isLooping ? 1 : 0);
         xml->setAttribute("isReleaseTrigger", isReleaseTrigger ? 1 : 0);
+        xml->setAttribute("outputBus", outputBus);
         return xml;
     }
 
@@ -296,6 +300,7 @@ struct SampleMapZoneState
         z.loopMarkersSet = xml.getIntAttribute("loopMarkersSet", 0) != 0;
         z.isLooping = xml.getIntAttribute("isLooping", 0) != 0;
         z.isReleaseTrigger = xml.getIntAttribute("isReleaseTrigger", 0) != 0;
+        z.outputBus = juce::jlimit(0, 7, xml.getIntAttribute("outputBus", 0));
         return z;
     }
 };
@@ -547,6 +552,7 @@ struct SampleMapState
     bool randomLoopPosition { false };
     int roundRobinMode { 0 }; // 0 = Cycle, 1 = Random, 2 = Off
     int midiChannel { 0 };    // 0 = Omni (All Channels)
+    int outputBus { 0 };      // Per-instrument output track: 0 = Out 1-2 (Main) .. 7 = Out 15-16
     float velocitySensitivity { 1.0f }; // 0.0 (flat/fixed) to 1.0 (full dynamic range)
     float velocityCurve { 0.0f };       // -1.0 (Hard/Log) to +1.0 (Soft/Exp), 0 = Linear
     int velocityCurveMode { 0 };        // 0 = Linear, 1 = Soft/Exp, 2 = Hard/Log, 3 = S-Curve, 4 = Fixed
@@ -629,6 +635,7 @@ struct SampleMapState
         obj->setProperty("randomLoopPosition", randomLoopPosition);
         obj->setProperty("roundRobinMode", roundRobinMode);
         obj->setProperty("midiChannel", midiChannel);
+        obj->setProperty("outputBus", outputBus);
         obj->setProperty("velocitySensitivity", velocitySensitivity);
         obj->setProperty("velocityCurve", velocityCurve);
         obj->setProperty("velocityCurveMode", velocityCurveMode);
@@ -659,6 +666,8 @@ struct SampleMapState
         if (obj->hasProperty("roundRobinMode")) s.roundRobinMode = static_cast<int>(obj->getProperty("roundRobinMode"));
         if (obj->hasProperty("midiChannel")) s.midiChannel = static_cast<int>(obj->getProperty("midiChannel"));
         else s.midiChannel = 0;
+        if (obj->hasProperty("outputBus")) s.outputBus = juce::jlimit(0, 7, static_cast<int>(obj->getProperty("outputBus")));
+        else s.outputBus = 0;
         if (obj->hasProperty("velocitySensitivity")) s.velocitySensitivity = static_cast<float>(obj->getProperty("velocitySensitivity"));
         if (obj->hasProperty("velocityCurve")) s.velocityCurve = static_cast<float>(obj->getProperty("velocityCurve"));
         if (obj->hasProperty("velocityCurveMode")) s.velocityCurveMode = static_cast<int>(obj->getProperty("velocityCurveMode"));
@@ -680,6 +689,7 @@ struct SampleMapState
         xml->setAttribute("randomLoopPosition", randomLoopPosition ? 1 : 0);
         xml->setAttribute("roundRobinMode", roundRobinMode);
         xml->setAttribute("midiChannel", midiChannel);
+        xml->setAttribute("outputBus", outputBus);
         xml->setAttribute("velocitySensitivity", static_cast<double>(velocitySensitivity));
         xml->setAttribute("velocityCurve", static_cast<double>(velocityCurve));
         xml->setAttribute("velocityCurveMode", velocityCurveMode);
@@ -715,6 +725,7 @@ struct SampleMapState
         s.randomLoopPosition = xml.getBoolAttribute("randomLoopPosition", false);
         s.roundRobinMode = xml.getIntAttribute("roundRobinMode", 0);
         s.midiChannel = xml.getIntAttribute("midiChannel", 0);
+        s.outputBus = juce::jlimit(0, 7, xml.getIntAttribute("outputBus", 0));
         s.velocitySensitivity = static_cast<float>(xml.getDoubleAttribute("velocitySensitivity", 1.0));
         s.velocityCurve = static_cast<float>(xml.getDoubleAttribute("velocityCurve", 0.0));
         s.velocityCurveMode = xml.getIntAttribute("velocityCurveMode", 0);
@@ -839,6 +850,7 @@ struct SampleEditSettingsState
     bool loopMarkersSet { false };
     bool isLooping { false };
     bool isReleaseTrigger { false };
+    int outputBus { 0 }; // 0 = Out 1-2 (Main), 1 = Out 3-4, ..., 7 = Out 15-16
 
     juce::var toVar() const
     {
@@ -856,6 +868,7 @@ struct SampleEditSettingsState
         obj->setProperty("loopMarkersSet", loopMarkersSet);
         obj->setProperty("isLooping", isLooping);
         obj->setProperty("isReleaseTrigger", isReleaseTrigger);
+        obj->setProperty("outputBus", outputBus);
         return juce::var(obj);
     }
 
@@ -931,6 +944,215 @@ struct CueSheetEntryState
     }
 };
 
+struct MixerStripState
+{
+    juce::String name;
+    float gainDb { 0.0f };
+    float pan { 0.0f };
+    bool mute { false };
+    bool solo { false };
+    bool sendToFxRack { false };
+
+    juce::var toVar() const
+    {
+        auto* obj = new juce::DynamicObject();
+        obj->setProperty("name", name);
+        obj->setProperty("gainDb", gainDb);
+        obj->setProperty("pan", pan);
+        obj->setProperty("mute", mute);
+        obj->setProperty("solo", solo);
+        obj->setProperty("sendToFxRack", sendToFxRack);
+        return juce::var(obj);
+    }
+
+    static MixerStripState fromVar(const juce::var& v, const juce::String& fallbackName, bool defaultFx)
+    {
+        MixerStripState s;
+        s.name = fallbackName;
+        s.sendToFxRack = defaultFx;
+        if (!v.isObject()) return s;
+        auto* obj = v.getDynamicObject();
+        if (!obj) return s;
+
+        if (obj->hasProperty("name"))
+        {
+            juce::String n = obj->getProperty("name").toString();
+            if (n.isNotEmpty()) s.name = n;
+        }
+        if (obj->hasProperty("gainDb")) s.gainDb = juce::jlimit(-60.0f, 6.0f, static_cast<float>(obj->getProperty("gainDb")));
+        if (obj->hasProperty("pan")) s.pan = juce::jlimit(-1.0f, 1.0f, static_cast<float>(obj->getProperty("pan")));
+        if (obj->hasProperty("mute")) s.mute = static_cast<bool>(obj->getProperty("mute"));
+        if (obj->hasProperty("solo")) s.solo = static_cast<bool>(obj->getProperty("solo"));
+        if (obj->hasProperty("sendToFxRack")) s.sendToFxRack = static_cast<bool>(obj->getProperty("sendToFxRack"));
+        return s;
+    }
+};
+
+struct MultiOutMixerState
+{
+    int defaultSamplerOutputBus { 0 };
+    int viewLayoutMode { 0 }; // 0 = Split (Routing + Mixer), 1 = Routing Only, 2 = Mixer Only
+    bool foldInactiveBusesToMain { true };
+    float masterGainDb { 0.0f };
+    float masterPan { 0.0f };
+    bool masterMute { false };
+    std::array<MixerStripState, 8> strips;
+
+    MultiOutMixerState()
+    {
+        static const char* defaultNames[8] = {
+            "Main 1-2", "Out 3-4", "Out 5-6", "Out 7-8",
+            "Out 9-10", "Out 11-12", "Out 13-14", "Out 15-16"
+        };
+        for (size_t i = 0; i < 8; ++i)
+        {
+            strips[i].name = defaultNames[i];
+            strips[i].sendToFxRack = (i == 0);
+        }
+    }
+
+    juce::var toVar() const
+    {
+        auto* obj = new juce::DynamicObject();
+        obj->setProperty("defaultSamplerOutputBus", defaultSamplerOutputBus);
+        obj->setProperty("viewLayoutMode", viewLayoutMode);
+        obj->setProperty("foldInactiveBusesToMain", foldInactiveBusesToMain);
+        obj->setProperty("masterGainDb", masterGainDb);
+        obj->setProperty("masterPan", masterPan);
+        obj->setProperty("masterMute", masterMute);
+        juce::Array<juce::var> stripArr;
+        for (const auto& st : strips)
+            stripArr.add(st.toVar());
+        obj->setProperty("strips", stripArr);
+        return juce::var(obj);
+    }
+
+    static MultiOutMixerState fromVar(const juce::var& v)
+    {
+        MultiOutMixerState m;
+        if (!v.isObject()) return m;
+        auto* obj = v.getDynamicObject();
+        if (!obj) return m;
+
+        if (obj->hasProperty("defaultSamplerOutputBus"))
+            m.defaultSamplerOutputBus = juce::jlimit(0, 7, static_cast<int>(obj->getProperty("defaultSamplerOutputBus")));
+        if (obj->hasProperty("viewLayoutMode"))
+            m.viewLayoutMode = juce::jlimit(0, 2, static_cast<int>(obj->getProperty("viewLayoutMode")));
+        if (obj->hasProperty("foldInactiveBusesToMain"))
+            m.foldInactiveBusesToMain = static_cast<bool>(obj->getProperty("foldInactiveBusesToMain"));
+        if (obj->hasProperty("masterGainDb"))
+            m.masterGainDb = juce::jlimit(-60.0f, 6.0f, static_cast<float>(obj->getProperty("masterGainDb")));
+        if (obj->hasProperty("masterPan"))
+            m.masterPan = juce::jlimit(-1.0f, 1.0f, static_cast<float>(obj->getProperty("masterPan")));
+        if (obj->hasProperty("masterMute"))
+            m.masterMute = static_cast<bool>(obj->getProperty("masterMute"));
+
+        if (obj->hasProperty("strips") && obj->getProperty("strips").isArray())
+        {
+            const auto& arr = *obj->getProperty("strips").getArray();
+            for (int i = 0; i < std::min(8, arr.size()); ++i)
+            {
+                m.strips[static_cast<size_t>(i)] = MixerStripState::fromVar(
+                    arr[i], m.strips[static_cast<size_t>(i)].name, i == 0);
+            }
+        }
+        return m;
+    }
+};
+
+struct SamplerRackSlotState
+{
+    juce::String id;
+    juce::String name { "Sampler 1" };
+    bool enabled { true };
+    bool muted { false };
+    bool soloed { false };
+    bool collapsed { false };
+    int midiChannel { 0 };        // 0 = Omni, 1..16 = Ch 1..16
+    int outputBus { 0 };          // Per-instrument output track: 0 = Out 1-2 (Main) .. 7 = Out 15-16
+    float gainDb { 0.0f };        // -36.0 to +12.0 dB
+    float pan { 0.0f };           // -1.0 to +1.0
+    int transposeSemitones { 0 }; // -24 to +24
+    juce::String accentHex { "FF00D4FF" };
+    SampleMapState sampleMap;
+
+    juce::var toVar() const
+    {
+        auto* obj = new juce::DynamicObject();
+        obj->setProperty("id", id);
+        obj->setProperty("name", name);
+        obj->setProperty("enabled", enabled);
+        obj->setProperty("muted", muted);
+        obj->setProperty("soloed", soloed);
+        obj->setProperty("collapsed", collapsed);
+        obj->setProperty("midiChannel", midiChannel);
+        obj->setProperty("outputBus", outputBus);
+        obj->setProperty("gainDb", gainDb);
+        obj->setProperty("pan", pan);
+        obj->setProperty("transposeSemitones", transposeSemitones);
+        obj->setProperty("accentHex", accentHex);
+        obj->setProperty("sampleMap", sampleMap.toVar());
+        return juce::var(obj);
+    }
+
+    static SamplerRackSlotState fromVar(const juce::var& v)
+    {
+        SamplerRackSlotState s;
+        if (!v.isObject()) return s;
+        auto* obj = v.getDynamicObject();
+        if (!obj) return s;
+
+        s.id = obj->getProperty("id").toString();
+        if (obj->hasProperty("name")) s.name = obj->getProperty("name").toString();
+        if (obj->hasProperty("enabled")) s.enabled = static_cast<bool>(obj->getProperty("enabled"));
+        if (obj->hasProperty("muted")) s.muted = static_cast<bool>(obj->getProperty("muted"));
+        if (obj->hasProperty("soloed")) s.soloed = static_cast<bool>(obj->getProperty("soloed"));
+        if (obj->hasProperty("collapsed")) s.collapsed = static_cast<bool>(obj->getProperty("collapsed"));
+        if (obj->hasProperty("midiChannel")) s.midiChannel = juce::jlimit(0, 16, static_cast<int>(obj->getProperty("midiChannel")));
+        if (obj->hasProperty("outputBus")) s.outputBus = juce::jlimit(0, 7, static_cast<int>(obj->getProperty("outputBus")));
+        if (obj->hasProperty("gainDb")) s.gainDb = juce::jlimit(-36.0f, 12.0f, static_cast<float>(obj->getProperty("gainDb")));
+        if (obj->hasProperty("pan")) s.pan = juce::jlimit(-1.0f, 1.0f, static_cast<float>(obj->getProperty("pan")));
+        if (obj->hasProperty("transposeSemitones")) s.transposeSemitones = juce::jlimit(-24, 24, static_cast<int>(obj->getProperty("transposeSemitones")));
+        if (obj->hasProperty("accentHex")) s.accentHex = obj->getProperty("accentHex").toString();
+        if (obj->hasProperty("sampleMap")) s.sampleMap = SampleMapState::fromVar(obj->getProperty("sampleMap"));
+        return s;
+    }
+};
+
+struct SamplerRackState
+{
+    std::vector<SamplerRackSlotState> slots;
+    int activeEditSlotIndex { 0 };
+
+    juce::var toVar() const
+    {
+        auto* obj = new juce::DynamicObject();
+        obj->setProperty("activeEditSlotIndex", activeEditSlotIndex);
+        juce::Array<juce::var> arr;
+        for (const auto& sl : slots)
+            arr.add(sl.toVar());
+        obj->setProperty("slots", arr);
+        return juce::var(obj);
+    }
+
+    static SamplerRackState fromVar(const juce::var& v)
+    {
+        SamplerRackState r;
+        if (!v.isObject()) return r;
+        auto* obj = v.getDynamicObject();
+        if (!obj) return r;
+
+        if (obj->hasProperty("activeEditSlotIndex"))
+            r.activeEditSlotIndex = std::max(0, static_cast<int>(obj->getProperty("activeEditSlotIndex")));
+        if (obj->hasProperty("slots") && obj->getProperty("slots").isArray())
+        {
+            for (const auto& item : *obj->getProperty("slots").getArray())
+                r.slots.push_back(SamplerRackSlotState::fromVar(item));
+        }
+        return r;
+    }
+};
+
 struct PluginFullState
 {
     int version { 2 };
@@ -943,7 +1165,9 @@ struct PluginFullState
 
     EditComponentState edit;
     SampleMapState sampleMap;
+    SamplerRackState samplerRack;
     PerformanceRackState performance;
+    MultiOutMixerState mixer;
     std::vector<SampleEditSettingsState> perSampleEditSettings;
     std::vector<CueSheetEntryState> cueSheetEntries;
 
@@ -970,7 +1194,9 @@ struct PluginFullState
 
         obj->setProperty("edit", edit.toVar());
         obj->setProperty("sampleMap", sampleMap.toVar());
+        obj->setProperty("samplerRack", samplerRack.toVar());
         obj->setProperty("performance", performance.toVar());
+        obj->setProperty("mixer", mixer.toVar());
 
         juce::Array<juce::var> sampleSettingsArray;
         for (const auto& ss : perSampleEditSettings)
@@ -1022,7 +1248,9 @@ struct PluginFullState
                 s.cueSheetEntries.push_back(CueSheetEntryState::fromVar(c));
         }
         if (obj->hasProperty("sampleMap")) s.sampleMap = SampleMapState::fromVar(obj->getProperty("sampleMap"));
+        if (obj->hasProperty("samplerRack")) s.samplerRack = SamplerRackState::fromVar(obj->getProperty("samplerRack"));
         if (obj->hasProperty("performance")) s.performance = PerformanceRackState::fromVar(obj->getProperty("performance"));
+        if (obj->hasProperty("mixer")) s.mixer = MultiOutMixerState::fromVar(obj->getProperty("mixer"));
         if (obj->hasProperty("perSampleEditSettings") && obj->getProperty("perSampleEditSettings").isArray())
         {
             for (const auto& item : *obj->getProperty("perSampleEditSettings").getArray())

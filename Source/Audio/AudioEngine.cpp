@@ -193,11 +193,37 @@ void AudioEngine::initDefaultMidiSynthSample()
     defaultMidiSynthSample = std::move(synth);
 }
 
+juce::String AudioEngine::getDefaultOutputBusName(int busIdx)
+{
+    static const char* kBusNames[MaxOutputBuses] = {
+        "Out 1-2 (Main)", "Out 3-4", "Out 5-6", "Out 7-8",
+        "Out 9-10", "Out 11-12", "Out 13-14", "Out 15-16"
+    };
+    if (busIdx >= 0 && busIdx < MaxOutputBuses)
+        return kBusNames[busIdx];
+    return "Out 1-2 (Main)";
+}
+
 AudioEngine::AudioEngine()
 {
     formatManager.registerBasicFormats();
     hoverFormatManager.registerBasicFormats();
     initDefaultMidiSynthSample();
+
+    for (int b = 0; b < MaxOutputBuses; ++b)
+    {
+        busGainDbAtomic[static_cast<size_t>(b)].store(0.0f, std::memory_order_relaxed);
+        busPanAtomic[static_cast<size_t>(b)].store(0.0f, std::memory_order_relaxed);
+        busMuteAtomic[static_cast<size_t>(b)].store(false, std::memory_order_relaxed);
+        busSoloAtomic[static_cast<size_t>(b)].store(false, std::memory_order_relaxed);
+        busSendToFxRackAtomic[static_cast<size_t>(b)].store(b == 0, std::memory_order_relaxed);
+        busPeakLeftAtomic[static_cast<size_t>(b)].store(0.0f, std::memory_order_relaxed);
+        busPeakRightAtomic[static_cast<size_t>(b)].store(0.0f, std::memory_order_relaxed);
+        hostBusActiveAtomic[static_cast<size_t>(b)].store(b == 0, std::memory_order_relaxed);
+    }
+
+    for (int s = 0; s < MaxSamplerRackSlots; ++s)
+        rackSlotPeakAtomic[static_cast<size_t>(s)].store(0.0f, std::memory_order_relaxed);
 
     float baseFreqs[9] = { 60.0f, 120.0f, 250.0f, 500.0f, 1000.0f, 2000.0f, 4000.0f, 8000.0f, 16000.0f };
     for (int i = 0; i < 9; ++i)
@@ -265,6 +291,11 @@ void AudioEngine::prepareToPlay(double sampleRate, int samplesPerBlock)
         int blockSize = samplesPerBlock > 0 ? samplesPerBlock : 512;
         zoneBuffer.setSize(2, blockSize, false, true, false);
         zoneBuffer.clear();
+        for (auto& busBuf : busBuffers)
+        {
+            busBuf.setSize(2, blockSize, false, true, false);
+            busBuf.clear();
+        }
         performanceRack.prepare(sampleRate, blockSize);
     }
 }
@@ -273,6 +304,8 @@ void AudioEngine::releaseResources()
 {
     performanceRack.reset();
     zoneBuffer.setSize(0, 0);
+    for (auto& busBuf : busBuffers)
+        busBuf.setSize(0, 0);
 }
 
 bool AudioEngine::pushCommand(const EngineCommand& cmd)
@@ -473,6 +506,9 @@ void AudioEngine::drainCommandsOnAudioThread()
                         || ((slot.loopOutRatio - slot.loopInRatio) > 0.0005
                             && (slot.loopInRatio > 0.0001 || slot.loopOutRatio < 0.9999));
                     slot.isZoneVoice = true;
+                    slot.outputBus = juce::jlimit(0, MaxOutputBuses - 1, cmd.outputBus);
+                    slot.rackSlotIndex = cmd.rackSlotIndex;
+                    slot.voicePan = juce::jlimit(-1.0f, 1.0f, cmd.voicePan);
                     slot.isOneShot = cmd.boolVal2;
                     slot.hasCustomLoopPoints = hasCustomLoopPoints;
                     slot.isMetronome = false;
@@ -514,9 +550,11 @@ void AudioEngine::drainCommandsOnAudioThread()
             case EngineCommandType::StopZoneVoice:
             {
                 int triggerNote = cmd.intVal1;
+                int targetRackSlot = cmd.rackSlotIndex;
                 for (auto& slot : voicePool)
                 {
-                    if (slot.active && slot.isZoneVoice && slot.triggerMidiNote == triggerNote)
+                    if (slot.active && slot.isZoneVoice && slot.triggerMidiNote == triggerNote
+                        && (targetRackSlot < 0 || slot.rackSlotIndex == targetRackSlot))
                     {
                         if (!slot.isOneShot)
                         {
@@ -701,6 +739,14 @@ void AudioEngine::stopPlaybackInternal()
 
 void AudioEngine::processNextAudioBlock(juce::AudioBuffer<float>& outputBuffer, juce::MidiBuffer& midiMessages)
 {
+    processNextAudioBlock(outputBuffer, nullptr, 0, midiMessages);
+}
+
+void AudioEngine::processNextAudioBlock(juce::AudioBuffer<float>& outputBuffer,
+                                        juce::AudioBuffer<float>* auxBusBuffers,
+                                        int numAuxBuses,
+                                        juce::MidiBuffer& /*midiMessages*/)
+{
     // 1. Drain Lock-Free Commands
     drainCommandsOnAudioThread();
 
@@ -883,17 +929,27 @@ void AudioEngine::processNextAudioBlock(juce::AudioBuffer<float>& outputBuffer, 
 
     // 4. Render Active Voices (Lock-Free!)
     int outChannels = outputBuffer.getNumChannels();
+    if (outChannels <= 0 || numSamples <= 0)
+        return;
+
     float globalGain = gainLevelAtomic.load(std::memory_order_relaxed);
     bool hasActiveVoices = false;
-    bool hasActiveZoneVoices = false;
+    std::array<bool, MaxOutputBuses> busHasVoices {};
     double latestPreviewPosSec = -1.0;
     uint64_t bestVoiceOrder = 0;
     bool bestMatchesEditor = false;
     const CachedSample* editorSamplePtr = activeEditorSamplePtr.load(std::memory_order_relaxed);
 
-    if (zoneBuffer.getNumChannels() < outChannels || zoneBuffer.getNumSamples() < numSamples)
-        zoneBuffer.setSize(outChannels, numSamples, false, false, true);
+    if (zoneBuffer.getNumChannels() < 2 || zoneBuffer.getNumSamples() < numSamples)
+        zoneBuffer.setSize(2, numSamples, false, false, true);
     zoneBuffer.clear();
+
+    for (auto& busBuf : busBuffers)
+    {
+        if (busBuf.getNumChannels() < 2 || busBuf.getNumSamples() < numSamples)
+            busBuf.setSize(2, numSamples, false, false, true);
+        busBuf.clear();
+    }
 
     float rackAtk = 0.005f, rackDec = 0.2f, rackSus = 1.0f, rackRel = 0.3f;
     bool hasRackAdsr = performanceRack.getActiveADSREnvelope(rackAtk, rackDec, rackSus, rackRel);
@@ -926,10 +982,16 @@ void AudioEngine::processNextAudioBlock(juce::AudioBuffer<float>& outputBuffer, 
         }
 
         hasActiveVoices = true;
+        const int voiceBusIdx = slot.isZoneVoice ? juce::jlimit(0, MaxOutputBuses - 1, slot.outputBus) : 0;
         if (slot.isZoneVoice)
-            hasActiveZoneVoices = true;
+            busHasVoices[static_cast<size_t>(voiceBusIdx)] = true;
 
-        auto& destBuffer = slot.isZoneVoice ? zoneBuffer : outputBuffer;
+        auto& destBuffer = slot.isZoneVoice ? busBuffers[static_cast<size_t>(voiceBusIdx)] : outputBuffer;
+        const int destChannels = destBuffer.getNumChannels();
+        const float vPan = slot.isZoneVoice ? juce::jlimit(-1.0f, 1.0f, slot.voicePan) : 0.0f;
+        const float vPanL = (vPan > 0.0f) ? (1.0f - vPan) : 1.0f;
+        const float vPanR = (vPan < 0.0f) ? (1.0f + vPan) : 1.0f;
+        float slotBlockPeak = 0.0f;
         double pos = slot.readPosition;
         double ratio = (slot.ratio > 0.0) ? slot.ratio : 1.0;
         if (slot.isZoneVoice && pitchTrackingEnabled.load(std::memory_order_relaxed))
@@ -1126,22 +1188,26 @@ void AudioEngine::processNextAudioBlock(juce::AudioBuffer<float>& outputBuffer, 
                 double inPos = (randLoop ? nextPassLoopStart : loopStartSample) + delta;
                 if (inPos >= voiceLength) inPos = voiceLength - 1;
 
-                for (int ch = 0; ch < outChannels; ++ch)
+                for (int ch = 0; ch < destChannels; ++ch)
                 {
                     int srcCh = std::min(ch, voiceChannels - 1);
                     float sOut = getInterpolatedSample(srcCh, curPos);
                     float sIn = getInterpolatedSample(srcCh, inPos);
-                    float sampleVal = (sOut * wOut + sIn * wIn) * voiceVol;
+                    float sampleVal = (sOut * wOut + sIn * wIn) * voiceVol * (ch == 0 ? vPanL : vPanR);
                     destBuffer.addSample(ch, i, sampleVal);
+                    float absVal = std::abs(sampleVal);
+                    if (absVal > slotBlockPeak) slotBlockPeak = absVal;
                 }
             }
             else
             {
-                for (int ch = 0; ch < outChannels; ++ch)
+                for (int ch = 0; ch < destChannels; ++ch)
                 {
                     int srcCh = std::min(ch, voiceChannels - 1);
-                    float sampleVal = getInterpolatedSample(srcCh, curPos) * voiceVol;
+                    float sampleVal = getInterpolatedSample(srcCh, curPos) * voiceVol * (ch == 0 ? vPanL : vPanR);
                     destBuffer.addSample(ch, i, sampleVal);
+                    float absVal = std::abs(sampleVal);
+                    if (absVal > slotBlockPeak) slotBlockPeak = absVal;
                 }
             }
 
@@ -1149,6 +1215,13 @@ void AudioEngine::processNextAudioBlock(juce::AudioBuffer<float>& outputBuffer, 
         }
 
         slot.readPosition = pos;
+
+        if (slot.isZoneVoice && slot.rackSlotIndex >= 0 && slot.rackSlotIndex < MaxSamplerRackSlots && slotBlockPeak > 0.0f)
+        {
+            const size_t rIdx = static_cast<size_t>(slot.rackSlotIndex);
+            if (slotBlockPeak > rackSlotPeakAtomic[rIdx].load(std::memory_order_relaxed))
+                rackSlotPeakAtomic[rIdx].store(slotBlockPeak, std::memory_order_relaxed);
+        }
 
         if (!slot.isMetronome && slot.active)
         {
@@ -1190,28 +1263,132 @@ void AudioEngine::processNextAudioBlock(juce::AudioBuffer<float>& outputBuffer, 
         currentPositionAtomic.store(stoppedPositionSecs.load(std::memory_order_relaxed), std::memory_order_relaxed);
     }
 
-    // 6. Process Reverb DSP on Sampler/Zone output if global samplerReverbAmount > 0.0f
-    float revAmount = samplerReverbAmount.load(std::memory_order_relaxed);
-    if (revAmount > 0.001f && zoneBuffer.getNumChannels() >= 2 && hasActiveZoneVoices)
+    // 6. Process Reverb & Performance Effects Rack on Main Bus (Bus 0) if enabled
+    if (busSendToFxRackAtomic[0].load(std::memory_order_relaxed))
     {
-        reverbParams.roomSize = 0.4f + revAmount * 0.5f;
-        reverbParams.damping = 0.5f;
-        reverbParams.wetLevel = revAmount * 0.5f;
-        reverbParams.dryLevel = 1.0f - (revAmount * 0.2f);
-        reverbParams.width = 1.0f;
-        reverbDSP.setParameters(reverbParams);
-        reverbDSP.processStereo(zoneBuffer.getWritePointer(0), zoneBuffer.getWritePointer(1), numSamples);
+        float revAmount = samplerReverbAmount.load(std::memory_order_relaxed);
+        if (revAmount > 0.001f && busBuffers[0].getNumChannels() >= 2 && busHasVoices[0])
+        {
+            reverbParams.roomSize = 0.4f + revAmount * 0.5f;
+            reverbParams.damping = 0.5f;
+            reverbParams.wetLevel = revAmount * 0.5f;
+            reverbParams.dryLevel = 1.0f - (revAmount * 0.2f);
+            reverbParams.width = 1.0f;
+            reverbDSP.setParameters(reverbParams);
+            reverbDSP.processStereo(busBuffers[0].getWritePointer(0), busBuffers[0].getWritePointer(1), numSamples);
+        }
+
+        performanceRack.process(busBuffers[0]);
     }
 
-    // 7. Process Performance Effects Rack ONLY on sample mapped items (zone voices)
-    performanceRack.process(zoneBuffer);
-
-    // 8. Mix processed zone buffer into main output
-    for (int ch = 0; ch < outChannels; ++ch)
+    // 7. Apply 8-Bus Mixer Strips (Mute / Solo / Gain / Pan) & Route to Multi-Outputs
+    bool anySolo = false;
+    for (int b = 0; b < MaxOutputBuses; ++b)
     {
-        int srcCh = std::min(ch, zoneBuffer.getNumChannels() - 1);
-        outputBuffer.addFrom(ch, 0, zoneBuffer, srcCh, 0, numSamples);
+        if (busSoloAtomic[static_cast<size_t>(b)].load(std::memory_order_relaxed))
+        {
+            anySolo = true;
+            break;
+        }
     }
+
+    const bool foldInactive = foldInactiveBusesToMainAtomic.load(std::memory_order_relaxed);
+    const bool masterMuted = masterMixerMuteAtomic.load(std::memory_order_relaxed);
+    const float masterDb = masterMixerGainDbAtomic.load(std::memory_order_relaxed);
+    const float masterLin = masterMuted ? 0.0f : ((masterDb <= -59.5f) ? 0.0f : juce::Decibels::decibelsToGain(masterDb));
+    const float masterPan = juce::jlimit(-1.0f, 1.0f, masterMixerPanAtomic.load(std::memory_order_relaxed));
+    const float masterGainL = masterLin * (masterPan > 0.0f ? (1.0f - masterPan) : 1.0f);
+    const float masterGainR = masterLin * (masterPan < 0.0f ? (1.0f + masterPan) : 1.0f);
+
+    for (int b = 0; b < MaxOutputBuses; ++b)
+    {
+        const size_t idx = static_cast<size_t>(b);
+        auto& bBuf = busBuffers[idx];
+        const bool audible = !masterMuted
+            && !busMuteAtomic[idx].load(std::memory_order_relaxed)
+            && (!anySolo || busSoloAtomic[idx].load(std::memory_order_relaxed));
+
+        if (!audible)
+        {
+            bBuf.clear(0, numSamples);
+        }
+        else
+        {
+            const float db = busGainDbAtomic[idx].load(std::memory_order_relaxed);
+            const float lin = (db <= -59.5f) ? 0.0f : juce::Decibels::decibelsToGain(db);
+            const float pan = juce::jlimit(-1.0f, 1.0f, busPanAtomic[idx].load(std::memory_order_relaxed));
+            const float gL = lin * (pan > 0.0f ? (1.0f - pan) : 1.0f);
+            const float gR = lin * (pan < 0.0f ? (1.0f + pan) : 1.0f);
+            if (std::abs(gL - 1.0f) > 0.0001f)
+                bBuf.applyGain(0, 0, numSamples, gL);
+            if (bBuf.getNumChannels() >= 2 && std::abs(gR - 1.0f) > 0.0001f)
+                bBuf.applyGain(1, 0, numSamples, gR);
+        }
+
+        const float pkL = bBuf.getMagnitude(0, 0, numSamples);
+        const float pkR = (bBuf.getNumChannels() >= 2) ? bBuf.getMagnitude(1, 0, numSamples) : pkL;
+        float prevL = busPeakLeftAtomic[idx].load(std::memory_order_relaxed);
+        if (pkL > prevL)
+            busPeakLeftAtomic[idx].store(pkL, std::memory_order_relaxed);
+        float prevR = busPeakRightAtomic[idx].load(std::memory_order_relaxed);
+        if (pkR > prevR)
+            busPeakRightAtomic[idx].store(pkR, std::memory_order_relaxed);
+
+        if (b == 0)
+        {
+            for (int ch = 0; ch < outChannels; ++ch)
+            {
+                int srcCh = std::min(ch, bBuf.getNumChannels() - 1);
+                outputBuffer.addFrom(ch, 0, bBuf, srcCh, 0, numSamples);
+            }
+        }
+        else
+        {
+            const int auxIdx = b - 1;
+            const bool hasHostBus = (auxBusBuffers != nullptr
+                                     && auxIdx >= 0 && auxIdx < numAuxBuses
+                                     && auxBusBuffers[auxIdx].getNumChannels() > 0
+                                     && auxBusBuffers[auxIdx].getNumSamples() >= numSamples);
+            if (hasHostBus)
+            {
+                auto& destAux = auxBusBuffers[auxIdx];
+                const int auxChs = destAux.getNumChannels();
+                for (int ch = 0; ch < auxChs; ++ch)
+                {
+                    int srcCh = std::min(ch, bBuf.getNumChannels() - 1);
+                    destAux.addFrom(ch, 0, bBuf, srcCh, 0, numSamples, ch == 0 ? masterGainL : masterGainR);
+                }
+            }
+            else if (foldInactive)
+            {
+                for (int ch = 0; ch < outChannels; ++ch)
+                {
+                    int srcCh = std::min(ch, bBuf.getNumChannels() - 1);
+                    outputBuffer.addFrom(ch, 0, bBuf, srcCh, 0, numSamples);
+                }
+            }
+        }
+    }
+
+    // 8. Apply Master Fader / Pan / Mute to Main Output & Update Master Peak Meters
+    if (masterMuted)
+    {
+        outputBuffer.clear(0, numSamples);
+    }
+    else
+    {
+        if (std::abs(masterGainL - 1.0f) > 0.0001f)
+            outputBuffer.applyGain(0, 0, numSamples, masterGainL);
+        if (outChannels >= 2 && std::abs(masterGainR - 1.0f) > 0.0001f)
+            outputBuffer.applyGain(1, 0, numSamples, masterGainR);
+    }
+
+    const float mainPkL = outputBuffer.getMagnitude(0, 0, numSamples);
+    const float mainPkR = (outChannels >= 2) ? outputBuffer.getMagnitude(1, 0, numSamples) : mainPkL;
+    if (mainPkL > masterPeakLeftAtomic.load(std::memory_order_relaxed))
+        masterPeakLeftAtomic.store(mainPkL, std::memory_order_relaxed);
+    if (mainPkR > masterPeakRightAtomic.load(std::memory_order_relaxed))
+        masterPeakRightAtomic.store(mainPkR, std::memory_order_relaxed);
 }
 
 void AudioEngine::preloadSampleFiles(const std::vector<juce::File>& files)
@@ -1298,7 +1475,8 @@ bool AudioEngine::getCachedSampleCopy(const juce::String& filePath, juce::AudioB
 }
 
 void AudioEngine::playZoneVoice(const juce::File& file, int triggerMidiNote, int rootNote, float fineTuneCents, float gainDb, float velocity,
-                               float attackSec, float decaySec, float sustainLevel, float releaseSec, bool isOneShot, bool isLooping, bool updateEditorUi)
+                               float attackSec, float decaySec, float sustainLevel, float releaseSec, bool isOneShot, bool isLooping,
+                               bool updateEditorUi, int outputBus, int rackSlotIndex, float voicePan)
 {
     juce::String filePath = file.getFullPathName();
     if (filePath.isEmpty()) return;
@@ -1371,6 +1549,9 @@ void AudioEngine::playZoneVoice(const juce::File& file, int triggerMidiNote, int
     cmd.boolVal1 = isLooping;
     cmd.boolVal2 = isOneShot || oneShotEnabled.load(std::memory_order_relaxed);
     cmd.boolVal3 = matchesEditor;
+    cmd.outputBus = juce::jlimit(0, MaxOutputBuses - 1, outputBus);
+    cmd.rackSlotIndex = rackSlotIndex;
+    cmd.voicePan = juce::jlimit(-1.0f, 1.0f, voicePan);
     if (matchesEditor)
     {
         cmd.editSettings.sampleStartRatio = sampleStartRatioAtomic.load(std::memory_order_relaxed);
@@ -1408,12 +1589,20 @@ void AudioEngine::playZoneVoice(const juce::File& file, int triggerMidiNote, int
     }
 }
 
-void AudioEngine::stopZoneVoice(int triggerMidiNote)
+void AudioEngine::stopZoneVoice(int triggerMidiNote, int rackSlotIndex)
 {
     EngineCommand cmd;
     cmd.type = EngineCommandType::StopZoneVoice;
     cmd.intVal1 = triggerMidiNote;
+    cmd.rackSlotIndex = rackSlotIndex;
     pushCommand(cmd);
+}
+
+float AudioEngine::consumeRackSlotPeak(int slotIdx)
+{
+    if (slotIdx >= 0 && slotIdx < MaxSamplerRackSlots)
+        return rackSlotPeakAtomic[static_cast<size_t>(slotIdx)].exchange(0.0f, std::memory_order_relaxed);
+    return 0.0f;
 }
 
 void AudioEngine::stopAllZoneVoices(bool immediateCut)
@@ -1469,6 +1658,7 @@ void AudioEngine::triggerNoteOn(int midiNoteNumber, float velocity)
     cmd.boolVal1 = usingFallbackSynth ? false : isLoopingAtomic.load(std::memory_order_relaxed);
     cmd.boolVal2 = usingFallbackSynth ? false : oneShotEnabled.load(std::memory_order_relaxed);
     cmd.boolVal3 = !usingFallbackSynth;
+    cmd.outputBus = defaultSamplerBusAtomic.load(std::memory_order_relaxed);
     if (!usingFallbackSynth)
     {
         cmd.editSettings.sampleStartRatio = sampleStartRatioAtomic.load(std::memory_order_relaxed);
@@ -1543,6 +1733,7 @@ void AudioEngine::triggerMidiAuditionNoteOn(int midiNoteNumber, float velocity)
     cmd.boolVal1 = usingFallbackSynth ? false : (loopMarkersSetAtomic.load(std::memory_order_relaxed) && isLoopingAtomic.load(std::memory_order_relaxed));
     cmd.boolVal2 = false; // Always honor MIDI Note-Off during .mid file audition
     cmd.boolVal3 = !usingFallbackSynth;
+    cmd.outputBus = defaultSamplerBusAtomic.load(std::memory_order_relaxed);
     if (!usingFallbackSynth)
     {
         cmd.editSettings.sampleStartRatio = sampleStartRatioAtomic.load(std::memory_order_relaxed);
@@ -4708,6 +4899,104 @@ void AudioEngine::setInputParametricEq(const std::array<float, 9>& freqs, const 
         eqGains[i].store(gains[i], std::memory_order_relaxed);
     }
     eqLowCutEnabled.store(lowCut, std::memory_order_relaxed);
+}
+
+void AudioEngine::setBusGainDb(int busIdx, float db)
+{
+    if (busIdx >= 0 && busIdx < MaxOutputBuses)
+        busGainDbAtomic[static_cast<size_t>(busIdx)].store(juce::jlimit(-60.0f, 6.0f, db), std::memory_order_relaxed);
+}
+
+float AudioEngine::getBusGainDb(int busIdx) const
+{
+    if (busIdx >= 0 && busIdx < MaxOutputBuses)
+        return busGainDbAtomic[static_cast<size_t>(busIdx)].load(std::memory_order_relaxed);
+    return 0.0f;
+}
+
+void AudioEngine::setBusPan(int busIdx, float pan)
+{
+    if (busIdx >= 0 && busIdx < MaxOutputBuses)
+        busPanAtomic[static_cast<size_t>(busIdx)].store(juce::jlimit(-1.0f, 1.0f, pan), std::memory_order_relaxed);
+}
+
+float AudioEngine::getBusPan(int busIdx) const
+{
+    if (busIdx >= 0 && busIdx < MaxOutputBuses)
+        return busPanAtomic[static_cast<size_t>(busIdx)].load(std::memory_order_relaxed);
+    return 0.0f;
+}
+
+void AudioEngine::setBusMute(int busIdx, bool muted)
+{
+    if (busIdx >= 0 && busIdx < MaxOutputBuses)
+        busMuteAtomic[static_cast<size_t>(busIdx)].store(muted, std::memory_order_relaxed);
+}
+
+bool AudioEngine::getBusMute(int busIdx) const
+{
+    if (busIdx >= 0 && busIdx < MaxOutputBuses)
+        return busMuteAtomic[static_cast<size_t>(busIdx)].load(std::memory_order_relaxed);
+    return false;
+}
+
+void AudioEngine::setBusSolo(int busIdx, bool soloed)
+{
+    if (busIdx >= 0 && busIdx < MaxOutputBuses)
+        busSoloAtomic[static_cast<size_t>(busIdx)].store(soloed, std::memory_order_relaxed);
+}
+
+bool AudioEngine::getBusSolo(int busIdx) const
+{
+    if (busIdx >= 0 && busIdx < MaxOutputBuses)
+        return busSoloAtomic[static_cast<size_t>(busIdx)].load(std::memory_order_relaxed);
+    return false;
+}
+
+void AudioEngine::setBusSendToFxRack(int busIdx, bool enabled)
+{
+    if (busIdx >= 0 && busIdx < MaxOutputBuses)
+        busSendToFxRackAtomic[static_cast<size_t>(busIdx)].store(enabled, std::memory_order_relaxed);
+}
+
+bool AudioEngine::getBusSendToFxRack(int busIdx) const
+{
+    if (busIdx >= 0 && busIdx < MaxOutputBuses)
+        return busSendToFxRackAtomic[static_cast<size_t>(busIdx)].load(std::memory_order_relaxed);
+    return false;
+}
+
+void AudioEngine::setHostBusActive(int busIdx, bool active)
+{
+    if (busIdx >= 0 && busIdx < MaxOutputBuses)
+        hostBusActiveAtomic[static_cast<size_t>(busIdx)].store(active, std::memory_order_relaxed);
+}
+
+bool AudioEngine::isHostBusActive(int busIdx) const
+{
+    if (busIdx >= 0 && busIdx < MaxOutputBuses)
+        return hostBusActiveAtomic[static_cast<size_t>(busIdx)].load(std::memory_order_relaxed);
+    return false;
+}
+
+void AudioEngine::consumeBusPeaks(int busIdx, float& outLeft, float& outRight)
+{
+    if (busIdx >= 0 && busIdx < MaxOutputBuses)
+    {
+        outLeft = busPeakLeftAtomic[static_cast<size_t>(busIdx)].exchange(0.0f, std::memory_order_relaxed);
+        outRight = busPeakRightAtomic[static_cast<size_t>(busIdx)].exchange(0.0f, std::memory_order_relaxed);
+    }
+    else
+    {
+        outLeft = 0.0f;
+        outRight = 0.0f;
+    }
+}
+
+void AudioEngine::consumeMasterPeaks(float& outLeft, float& outRight)
+{
+    outLeft = masterPeakLeftAtomic.exchange(0.0f, std::memory_order_relaxed);
+    outRight = masterPeakRightAtomic.exchange(0.0f, std::memory_order_relaxed);
 }
 
 } // namespace openwav

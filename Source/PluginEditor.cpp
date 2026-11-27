@@ -51,7 +51,9 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
       mobileTransferDialog(p.getAudioEngine(), p.getDatabaseManager(),
                            p.getLibraryScanner()),
       editComponent(p.getAudioEngine()), sampleMapComponent(p.getAudioEngine()),
+      samplerRackComponent(p, p.getAudioEngine()),
       performanceComponent(p.getAudioEngine()),
+      multiOutMixerComponent(p, p.getAudioEngine()),
       cueSheetComponent(p.getAudioEngine()),
       commandPalette(p.getDatabaseManager()) {
   juce::String savedColourHex =
@@ -84,7 +86,9 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
   addChildComponent(analysisComponent);
   addChildComponent(editComponent);
   addChildComponent(sampleMapComponent);
+  addChildComponent(samplerRackComponent);
   addChildComponent(performanceComponent);
+  addChildComponent(multiOutMixerComponent);
   addChildComponent(cueSheetComponent);
   addAndMakeVisible(waveformTransport);
 
@@ -98,7 +102,9 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
       { "VIEW",   "Analysis",             "Inspect waveform metrics & metadata", "6", [this] { headerBar.setViewMode(ViewMode::Analysis); } },
       { "VIEW",   "Audio Editor",         "Trim, normalize & spectral edit",     "7", [this] { headerBar.setViewMode(ViewMode::Edit); } },
       { "VIEW",   "Sample Map",           "Build multi-zone instruments & kits", "8", [this] { headerBar.setViewMode(ViewMode::SampleMap); } },
+      { "VIEW",   "Sampler Rack",         "Stack multiple SampleMaps with MIDI Ch & DAW Multi-Out", "", [this] { headerBar.setViewMode(ViewMode::SamplerRack); } },
       { "VIEW",   "Performance Rack",     "Chain real-time audio FX",            "9", [this] { headerBar.setViewMode(ViewMode::Performance); } },
+      { "VIEW",   "Multi-Out & Mixer",    "Assign VST3/AU sampler multi-outputs & mix buses", "0", [this] { headerBar.setViewMode(ViewMode::Mixer); } },
       { "VIEW",   "Cue Sheet",            "Spreadsheet of all used samples & regions", "", [this] { headerBar.setViewMode(ViewMode::CueSheet); } },
       { "ACTION", "Add Sample Folder...", "Scan a new folder into library",      "",  [this] { addFolderRequested(); } },
       { "ACTION", "Rescan Library",       "Refresh all scanned sample folders",  "",  [this] { rescanRequested(); } },
@@ -218,7 +224,69 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
   };
 
   sampleMapComponent.onStateChanged = [this] {
+    samplerRackComponent.updateActiveSlotSampleMap(sampleMapComponent.getState());
     saveStateToProcessor();
+    if (headerBar.getCurrentViewMode() == ViewMode::Mixer)
+      multiOutMixerComponent.refreshFromSampleMap();
+  };
+
+  sampleMapComponent.onFoldToRackRequested = [this] {
+    const int slotIdx = samplerRackComponent.foldSampleMapIntoRack(sampleMapComponent.getState());
+    const auto rack = samplerRackComponent.getState();
+    if (slotIdx >= 0 && slotIdx < static_cast<int>(rack.slots.size()))
+      sampleMapComponent.setRackEditingContext(slotIdx, rack.slots[static_cast<size_t>(slotIdx)].name);
+    saveStateToProcessor();
+    headerBar.setViewMode(ViewMode::SamplerRack);
+  };
+
+  samplerRackComponent.getCurrentEditorSampleMapCallback = [this] {
+    return sampleMapComponent.getState();
+  };
+  samplerRackComponent.onEditSlotInSampleMapRequested = [this](int slotIndex, const SamplerRackSlotState& slot) {
+    sampleMapComponent.setState(slot.sampleMap);
+    sampleMapComponent.setRackEditingContext(slotIndex, slot.name);
+    saveStateToProcessor();
+    headerBar.setViewMode(ViewMode::SampleMap);
+  };
+  samplerRackComponent.onOpenMixerRequested = [this] {
+    headerBar.setViewMode(ViewMode::Mixer);
+  };
+  samplerRackComponent.onStateChanged = [this] {
+    saveStateToProcessor();
+    if (headerBar.getCurrentViewMode() == ViewMode::Mixer)
+      multiOutMixerComponent.refreshFromSampleMap();
+  };
+
+  multiOutMixerComponent.getSampleMapStateCallback = [this] {
+    return sampleMapComponent.getState();
+  };
+  multiOutMixerComponent.onSampleMapModified = [this](const SampleMapState& updatedMap) {
+    sampleMapComponent.setState(updatedMap);
+    samplerRackComponent.updateActiveSlotSampleMap(updatedMap);
+    saveStateToProcessor();
+  };
+  multiOutMixerComponent.getSamplerRackStateCallback = [this] {
+    return samplerRackComponent.getState();
+  };
+  multiOutMixerComponent.onSamplerRackModified = [this](const SamplerRackState& updatedRack) {
+    samplerRackComponent.setState(updatedRack);
+    if (!updatedRack.slots.empty()) {
+      const int aIdx = juce::jlimit(0, static_cast<int>(updatedRack.slots.size()) - 1, updatedRack.activeEditSlotIndex);
+      sampleMapComponent.setState(updatedRack.slots[static_cast<size_t>(aIdx)].sampleMap);
+    }
+    saveStateToProcessor();
+  };
+  multiOutMixerComponent.onStateChanged = [this] {
+    saveStateToProcessor();
+  };
+  multiOutMixerComponent.onOpenSampleMapRequested = [this] {
+    headerBar.setViewMode(ViewMode::SampleMap);
+  };
+  multiOutMixerComponent.onOpenSamplerRackRequested = [this] {
+    headerBar.setViewMode(ViewMode::SamplerRack);
+  };
+  multiOutMixerComponent.onOpenFxRackRequested = [this] {
+    headerBar.setViewMode(ViewMode::Performance);
   };
 
   sampleMapComponent.onOpenFxRackRequested = [this] {
@@ -536,7 +604,9 @@ void OpenWavAudioProcessorEditor::resized() {
   analysisComponent.setVisible(false);
   editComponent.setVisible(false);
   sampleMapComponent.setVisible(false);
+  samplerRackComponent.setVisible(false);
   performanceComponent.setVisible(false);
+  multiOutMixerComponent.setVisible(false);
   cueSheetComponent.setVisible(false);
 
   if (mode == ViewMode::Cloud) {
@@ -561,9 +631,15 @@ void OpenWavAudioProcessorEditor::resized() {
   } else if (mode == ViewMode::SampleMap) {
     sampleMapComponent.setVisible(true);
     sampleMapComponent.setBounds(area);
+  } else if (mode == ViewMode::SamplerRack) {
+    samplerRackComponent.setVisible(true);
+    samplerRackComponent.setBounds(area);
   } else if (mode == ViewMode::Performance) {
     performanceComponent.setVisible(true);
     performanceComponent.setBounds(area);
+  } else if (mode == ViewMode::Mixer) {
+    multiOutMixerComponent.setVisible(true);
+    multiOutMixerComponent.setBounds(area);
   } else if (mode == ViewMode::CueSheet) {
     cueSheetComponent.setVisible(true);
     cueSheetComponent.setBounds(area);
@@ -1119,8 +1195,14 @@ void OpenWavAudioProcessorEditor::viewModeChanged(ViewMode mode) {
     if (!audioProcessor.getAudioEngine().hasOriginalSnapshot())
       audioProcessor.getAudioEngine().snapshotOriginalForEditing();
   }
+  if (mode == ViewMode::SamplerRack) {
+    samplerRackComponent.refreshUnits();
+  }
   if (mode == ViewMode::Performance) {
     performanceComponent.refreshRack();
+  }
+  if (mode == ViewMode::Mixer) {
+    multiOutMixerComponent.refreshFromSampleMap();
   }
 }
 
@@ -1409,7 +1491,9 @@ void OpenWavAudioProcessorEditor::saveStateToProcessor() {
   s.tagPanelWidth = tagPanelWidth;
   s.edit = editComponent.getState();
   s.sampleMap = sampleMapComponent.getState();
+  s.samplerRack = samplerRackComponent.getState();
   s.performance = performanceComponent.getState();
+  s.mixer = multiOutMixerComponent.getState();
   s.cueSheetEntries = cueSheetComponent.getState();
   for (const auto& [fp, es] : audioProcessor.getAudioEngine().getAllSampleEditSettings())
   {
@@ -1487,11 +1571,19 @@ void OpenWavAudioProcessorEditor::restoreStateFromProcessor() {
   // 5. Restore Sub-components state
   editComponent.setState(s.edit);
   sampleMapComponent.setState(s.sampleMap);
+  samplerRackComponent.setState(s.samplerRack);
+  if (!s.samplerRack.slots.empty()) {
+    const int aIdx = juce::jlimit(0, static_cast<int>(s.samplerRack.slots.size()) - 1, s.samplerRack.activeEditSlotIndex);
+    sampleMapComponent.setRackEditingContext(aIdx, s.samplerRack.slots[static_cast<size_t>(aIdx)].name);
+  } else {
+    sampleMapComponent.setRackEditingContext(-1, {});
+  }
   performanceComponent.setState(s.performance);
+  multiOutMixerComponent.setState(s.mixer);
   cueSheetComponent.setState(s.cueSheetEntries);
 
   // 6. Restore View Mode (never open directly in Cloud view)
-  if (s.currentViewMode >= 0 && s.currentViewMode <= 9) {
+  if (s.currentViewMode >= 0 && s.currentViewMode <= 11) {
     auto mode = static_cast<ViewMode>(s.currentViewMode);
     if (mode == ViewMode::Cloud)
       mode = ViewMode::List;

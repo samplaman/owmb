@@ -116,7 +116,9 @@ HeaderBarComponent::HeaderBarComponent(TagDatabaseManager& db, LibraryScanner& s
     setupViewBtn(btnAnalysisView, "Analysis", "Analysis View", ViewMode::Analysis);
     setupViewBtn(btnEditView, "Edit", "Edit View", ViewMode::Edit);
     setupViewBtn(btnSampleMapView, "Sample Map", "Sample Map View", ViewMode::SampleMap);
-    setupViewBtn(btnPerformanceView, "Rack", "Rack View", ViewMode::Performance);
+    setupViewBtn(btnSamplerRackView, "Sampler Rack", "Multi-SampleMap Sampler Rack (MIDI Channels & DAW Multi-Out)", ViewMode::SamplerRack);
+    setupViewBtn(btnPerformanceView, "Rack", "FX Rack View", ViewMode::Performance);
+    setupViewBtn(btnMixerView, "Mixer", "Sampler Multi-Out & Mixer (VST3 / AU / Standalone)", ViewMode::Mixer);
     setupViewBtn(btnCueSheetView, "Cue Sheet", "Cue Sheet / Used Samples", ViewMode::CueSheet);
 
     btnListView.setToggleState(true, juce::dontSendNotification);
@@ -178,9 +180,9 @@ void HeaderBarComponent::resized()
     area.removeFromLeft(16);
 
     // 3. View Switcher Segmented Pill on Right-of-Center (32px outer pill, 28px inner buttons)
-    const int viewBtnWidth = 32;
-    const int divGap = 9;
-    const int totalViewWidth = 10 * viewBtnWidth + 7 * gap + 2 * divGap + 6;
+    const int viewBtnWidth = 30;
+    const int divGap = 8;
+    const int totalViewWidth = 12 * viewBtnWidth + 9 * gap + 2 * divGap + 6;
     auto pillArea = area.removeFromRight(totalViewWidth).withHeight(barHeight);
     viewPillBounds = pillArea;
     auto vInner = pillArea.reduced(3, 2);
@@ -193,7 +195,7 @@ void HeaderBarComponent::resized()
     vInner.removeFromLeft(gap);
     btnLibrariesView.setBounds(vInner.removeFromLeft(viewBtnWidth).withHeight(innerBtnH));
 
-    viewDivider1 = juce::Rectangle<int>(vInner.getX() + 4, vInner.getY() + 4, 1, innerBtnH - 8);
+    viewDivider1 = juce::Rectangle<int>(vInner.getX() + 3, vInner.getY() + 4, 1, innerBtnH - 8);
     vInner.removeFromLeft(divGap);
 
     btnRecordView.setBounds(vInner.removeFromLeft(viewBtnWidth).withHeight(innerBtnH));
@@ -204,22 +206,35 @@ void HeaderBarComponent::resized()
     vInner.removeFromLeft(gap);
     btnSampleMapView.setBounds(vInner.removeFromLeft(viewBtnWidth).withHeight(innerBtnH));
 
-    viewDivider2 = juce::Rectangle<int>(vInner.getX() + 4, vInner.getY() + 4, 1, innerBtnH - 8);
+    viewDivider2 = juce::Rectangle<int>(vInner.getX() + 3, vInner.getY() + 4, 1, innerBtnH - 8);
     vInner.removeFromLeft(divGap);
 
+    btnSamplerRackView.setBounds(vInner.removeFromLeft(viewBtnWidth).withHeight(innerBtnH));
+    vInner.removeFromLeft(gap);
     btnPerformanceView.setBounds(vInner.removeFromLeft(viewBtnWidth).withHeight(innerBtnH));
+    vInner.removeFromLeft(gap);
+    btnMixerView.setBounds(vInner.removeFromLeft(viewBtnWidth).withHeight(innerBtnH));
     vInner.removeFromLeft(gap);
     btnCueSheetView.setBounds(vInner.removeFromLeft(viewBtnWidth).withHeight(innerBtnH));
 
     area.removeFromRight(12);
 
-    // 4. Format & Sample Type Filter Dropdowns + Dynamic Search Editor (32px height)
-    formatFilterBox.setBounds(area.removeFromRight(98).withHeight(barHeight));
-    area.removeFromRight(6);
+    // 4. Format & Sample Type Filter Dropdowns + Dynamic Search Editor (never obstructs search editor on compact windows)
+    if (area.getWidth() >= 220)
+    {
+        formatFilterBox.setVisible(true);
+        formatFilterBox.setBounds(area.removeFromRight(96).withHeight(barHeight));
+        area.removeFromRight(6);
+    }
+    else
+    {
+        formatFilterBox.setVisible(false);
+    }
+
     if (area.getWidth() >= 250)
     {
         typeFilterBox.setVisible(true);
-        typeFilterBox.setBounds(area.removeFromRight(98).withHeight(barHeight));
+        typeFilterBox.setBounds(area.removeFromRight(96).withHeight(barHeight));
         area.removeFromRight(8);
     }
     else
@@ -289,7 +304,9 @@ void HeaderBarComponent::setViewMode(ViewMode mode)
     btnAnalysisView.setToggleState(mode == ViewMode::Analysis, juce::dontSendNotification);
     btnEditView.setToggleState(mode == ViewMode::Edit, juce::dontSendNotification);
     btnSampleMapView.setToggleState(mode == ViewMode::SampleMap, juce::dontSendNotification);
+    btnSamplerRackView.setToggleState(mode == ViewMode::SamplerRack, juce::dontSendNotification);
     btnPerformanceView.setToggleState(mode == ViewMode::Performance, juce::dontSendNotification);
+    btnMixerView.setToggleState(mode == ViewMode::Mixer, juce::dontSendNotification);
     btnCueSheetView.setToggleState(mode == ViewMode::CueSheet, juce::dontSendNotification);
 
     listeners.call([mode](HeaderBarListener& l) {

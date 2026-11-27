@@ -103,6 +103,9 @@ struct RealtimeVoiceSlot
     int fadeOutCurveType { 0 };
     int activeLoopStartSample { -1 };
     int nextLoopStartSample { -1 };
+    int outputBus { 0 };
+    int rackSlotIndex { -1 };
+    float voicePan { 0.0f };
     uint32_t rngState { 0x9E3779B9u };
     uint64_t startOrder { 0 };
 };
@@ -162,6 +165,9 @@ struct EngineCommand
     bool boolVal1 { false };
     bool boolVal2 { false };
     bool boolVal3 { false };
+    int outputBus { 0 };
+    int rackSlotIndex { -1 };
+    float voicePan { 0.0f };
     SampleEditSettings editSettings;
     std::shared_ptr<CachedSample> sampleData;
 };
@@ -171,8 +177,11 @@ class AudioEngine : public juce::ChangeListener, public juce::Timer
 public:
     static constexpr int MaxActiveVoices = 32;
     static constexpr int CommandQueueCapacity = 1024;
+    static constexpr int MaxOutputBuses = 8;
+    static constexpr int MaxSamplerRackSlots = 16;
 
     static std::unique_ptr<juce::AudioFormatReader> createAudioReaderForFile(const juce::File& file);
+    static juce::String getDefaultOutputBusName(int busIdx);
 
     AudioEngine();
     ~AudioEngine() override;
@@ -182,6 +191,10 @@ public:
     void prepareToPlay(double sampleRate, int samplesPerBlock);
     void releaseResources();
     void processNextAudioBlock(juce::AudioBuffer<float>& outputBuffer, juce::MidiBuffer& midiMessages);
+    void processNextAudioBlock(juce::AudioBuffer<float>& outputBuffer,
+                               juce::AudioBuffer<float>* auxBusBuffers,
+                               int numAuxBuses,
+                               juce::MidiBuffer& midiMessages);
 
     // Audio Playback Controls
     bool loadFile(const juce::File& audioFile, bool autoPlay = false, bool isSamplerSample = false);
@@ -193,7 +206,37 @@ public:
     bool getCachedSampleCopy(const juce::String& filePath, juce::AudioBuffer<float>& destBuffer, double& sampleRate) const;
     void playZoneVoice(const juce::File& file, int triggerMidiNote, int rootNote, float fineTuneCents, float gainDb, float velocity = 1.0f,
                        float attackSec = 0.005f, float decaySec = 0.1f, float sustainLevel = 1.0f, float releaseSec = 0.2f,
-                       bool isOneShot = false, bool isLooping = false, bool updateEditorUi = true);
+                       bool isOneShot = false, bool isLooping = false, bool updateEditorUi = true, int outputBus = 0,
+                       int rackSlotIndex = -1, float voicePan = 0.0f);
+
+    // Multi-Output Routing & 8-Bus Mixer Controls (Lock-Free)
+    void setDefaultSamplerOutputBus(int busIdx) { defaultSamplerBusAtomic.store(juce::jlimit(0, MaxOutputBuses - 1, busIdx), std::memory_order_relaxed); }
+    int getDefaultSamplerOutputBus() const { return defaultSamplerBusAtomic.load(std::memory_order_relaxed); }
+    void setFoldInactiveBusesToMain(bool enabled) { foldInactiveBusesToMainAtomic.store(enabled, std::memory_order_relaxed); }
+    bool getFoldInactiveBusesToMain() const { return foldInactiveBusesToMainAtomic.load(std::memory_order_relaxed); }
+
+    void setBusGainDb(int busIdx, float db);
+    float getBusGainDb(int busIdx) const;
+    void setBusPan(int busIdx, float pan);
+    float getBusPan(int busIdx) const;
+    void setBusMute(int busIdx, bool muted);
+    bool getBusMute(int busIdx) const;
+    void setBusSolo(int busIdx, bool soloed);
+    bool getBusSolo(int busIdx) const;
+    void setBusSendToFxRack(int busIdx, bool enabled);
+    bool getBusSendToFxRack(int busIdx) const;
+
+    void setMasterMixerGainDb(float db) { masterMixerGainDbAtomic.store(juce::jlimit(-60.0f, 6.0f, db), std::memory_order_relaxed); }
+    float getMasterMixerGainDb() const { return masterMixerGainDbAtomic.load(std::memory_order_relaxed); }
+    void setMasterMixerPan(float pan) { masterMixerPanAtomic.store(juce::jlimit(-1.0f, 1.0f, pan), std::memory_order_relaxed); }
+    float getMasterMixerPan() const { return masterMixerPanAtomic.load(std::memory_order_relaxed); }
+    void setMasterMixerMute(bool muted) { masterMixerMuteAtomic.store(muted, std::memory_order_relaxed); }
+    bool getMasterMixerMute() const { return masterMixerMuteAtomic.load(std::memory_order_relaxed); }
+
+    void setHostBusActive(int busIdx, bool active);
+    bool isHostBusActive(int busIdx) const;
+    void consumeBusPeaks(int busIdx, float& outLeft, float& outRight);
+    void consumeMasterPeaks(float& outLeft, float& outRight);
     void setSamplerReverbAmount(float amount) { samplerReverbAmount.store(juce::jlimit(0.0f, 1.0f, amount), std::memory_order_relaxed); }
     float getSamplerReverbAmount() const { return samplerReverbAmount.load(std::memory_order_relaxed); }
     void setPitchTrackingEnabled(bool enabled);
@@ -201,7 +244,8 @@ public:
     void setPitchBend(float semitones) { pitchBendMultiplierAtomic.store(std::pow(2.0, static_cast<double>(semitones) / 12.0), std::memory_order_relaxed); }
     void setOneShotEnabled(bool enabled);
     bool isOneShotEnabled() const { return oneShotEnabled.load(std::memory_order_relaxed); }
-    void stopZoneVoice(int triggerMidiNote);
+    void stopZoneVoice(int triggerMidiNote, int rackSlotIndex = -1);
+    float consumeRackSlotPeak(int slotIdx);
     void stopAllZoneVoices(bool immediateCut = false);
     void stopAllVoices();
     void drainPendingCommandsNow() { drainCommandsOnAudioThread(); }
@@ -493,6 +537,24 @@ private:
 
     PerformanceRackDSP performanceRack;
     juce::AudioBuffer<float> zoneBuffer;
+    std::array<juce::AudioBuffer<float>, MaxOutputBuses> busBuffers;
+
+    std::atomic<int> defaultSamplerBusAtomic { 0 };
+    std::atomic<bool> foldInactiveBusesToMainAtomic { true };
+    std::array<std::atomic<float>, MaxOutputBuses> busGainDbAtomic {};
+    std::array<std::atomic<float>, MaxOutputBuses> busPanAtomic {};
+    std::array<std::atomic<bool>, MaxOutputBuses> busMuteAtomic {};
+    std::array<std::atomic<bool>, MaxOutputBuses> busSoloAtomic {};
+    std::array<std::atomic<bool>, MaxOutputBuses> busSendToFxRackAtomic {};
+    std::array<std::atomic<float>, MaxOutputBuses> busPeakLeftAtomic {};
+    std::array<std::atomic<float>, MaxOutputBuses> busPeakRightAtomic {};
+    std::array<std::atomic<bool>, MaxOutputBuses> hostBusActiveAtomic {};
+    std::atomic<float> masterMixerGainDbAtomic { 0.0f };
+    std::atomic<float> masterMixerPanAtomic { 0.0f };
+    std::atomic<bool> masterMixerMuteAtomic { false };
+    std::atomic<float> masterPeakLeftAtomic { 0.0f };
+    std::atomic<float> masterPeakRightAtomic { 0.0f };
+    std::array<std::atomic<float>, MaxSamplerRackSlots> rackSlotPeakAtomic {};
 
     juce::ListenerList<AudioEngineListener> listeners;
     bool lastNotifiedPlayingState { false };
