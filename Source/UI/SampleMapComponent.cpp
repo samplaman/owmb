@@ -3349,10 +3349,28 @@ void SampleMapComponent::triggerKeybedNote(int note, float velocity, int velInt)
         }
     }
 
-    // Only play mapped areas! If no note on selected map at that velocity, DO NOT play outside!
+    const int effCh = (midiChannelSetting > 0) ? midiChannelSetting : 1;
+
+    // Trigger any OTHER Sampler Rack instances sharing the same MIDI channel (layering / splits)
+    const bool layeredTriggered = (onLayeredMidiNoteOn && activeRackSlotIndex >= 0)
+                                      ? onLayeredMidiNoteOn(effCh, note, velocity, activeRackSlotIndex)
+                                      : false;
+
+    // Only play mapped areas! If no note on selected map at that velocity, still track layered audition if another slot triggered.
     if (matchingZoneIndices.empty())
     {
-        auditionNote = -1;
+        if (layeredTriggered)
+        {
+            auditionNote = note;
+            suppressNextKeyboardStateUi = true;
+            audioEngine.getKeyboardState().noteOn(effCh, note, velocity);
+            suppressNextKeyboardStateUi = false;
+            repaint();
+        }
+        else
+        {
+            auditionNote = -1;
+        }
         return;
     }
 
@@ -3430,13 +3448,12 @@ void SampleMapComponent::triggerKeybedNote(int note, float velocity, int velInt)
             }
         }
 
-        if (loadedPrimary)
+        if (loadedPrimary || layeredTriggered)
         {
             velocityCurveView.triggerHit(velInt);
             auditionNote = note;
-            int ch = midiChannelSetting > 0 ? midiChannelSetting : 1;
             suppressNextKeyboardStateUi = true;
-            audioEngine.getKeyboardState().noteOn(ch, note, primaryEffectiveVel);
+            audioEngine.getKeyboardState().noteOn(effCh, note, loadedPrimary ? primaryEffectiveVel : velocity);
             suppressNextKeyboardStateUi = false;
             resized();
             repaint();
@@ -3445,6 +3462,14 @@ void SampleMapComponent::triggerKeybedNote(int note, float velocity, int velInt)
         {
             auditionNote = -1;
         }
+    }
+    else if (layeredTriggered)
+    {
+        auditionNote = note;
+        suppressNextKeyboardStateUi = true;
+        audioEngine.getKeyboardState().noteOn(effCh, note, velocity);
+        suppressNextKeyboardStateUi = false;
+        repaint();
     }
     else
     {
@@ -3859,6 +3884,8 @@ void SampleMapComponent::mouseDrag(const juce::MouseEvent& e)
                     }
                 }
                 int ch = midiChannelSetting > 0 ? midiChannelSetting : 1;
+                if (onLayeredMidiNoteOff && activeRackSlotIndex >= 0)
+                    onLayeredMidiNoteOff(ch, auditionNote, activeRackSlotIndex);
                 audioEngine.getKeyboardState().noteOff(ch, auditionNote, 0.0f);
                 auditionNote = -1;
             }
@@ -4021,6 +4048,8 @@ void SampleMapComponent::mouseUp(const juce::MouseEvent& /*e*/)
                 }
             }
         }
+        if (onLayeredMidiNoteOff && activeRackSlotIndex >= 0)
+            onLayeredMidiNoteOff(ch, auditionNote, activeRackSlotIndex);
         audioEngine.getKeyboardState().noteOff(ch, auditionNote, 0.0f);
         audioEngine.triggerNoteOff(auditionNote);
     }

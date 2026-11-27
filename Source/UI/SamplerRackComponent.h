@@ -34,7 +34,7 @@ public:
                              bool isEditingActiveSlot);
     ~SamplerRackUnitComponent() override;
 
-    void syncFromSlot(const SamplerRackSlotState& slotState, int unitIndex, int totalUnits, bool isEditingActiveSlot);
+    void syncFromSlot(const SamplerRackSlotState& slotState, int unitIndex, int totalUnits, bool isEditingActiveSlot, int layeredCount = 1);
     void updatePeakMeter(float newPeak);
 
     int getDesiredHeight() const { return currentSlot.collapsed ? 48 : 158; }
@@ -58,6 +58,7 @@ private:
     RackKnobLookAndFeel unitKnobLnf;
     int slotIdx { 0 };
     int totalCount { 1 };
+    int layeredPeerCount { 1 };
     bool activeInEditor { false };
     bool isSyncing { false };
     float activityLevel { 0.0f };
@@ -130,6 +131,7 @@ public:
     void removeSlot(int index);
     void loadMapFileIntoSlot(int index);
     void openSlotInSampleMapEditor(int index);
+    int countLayeredPeersForSlot(int index) const;
     juce::String getOutputBusLabel(int busIdx) const;
 
     std::function<SampleMapState()> getCurrentEditorSampleMapCallback;

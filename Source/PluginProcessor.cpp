@@ -403,42 +403,192 @@ void OpenWavAudioProcessor::triggerSingleRackSlotNoteOff(int slotIndex, const Sa
     }
 }
 
-void OpenWavAudioProcessor::triggerRackSlotNoteOn(int slotIndex, int midiNoteNumber, float velocity)
+void OpenWavAudioProcessor::triggerRackSlotNoteOn(int slotIndex, int midiNoteNumber, float velocity, bool includeSameMidiChannelLayers)
 {
     if (midiNoteNumber < 0 || midiNoteNumber > 127)
         return;
 
-    SamplerRackSlotState slotCopy;
-    bool valid = false;
+    SamplerRackState rackSnapshot;
     {
         const juce::ScopedLock sl(stateLock);
-        if (slotIndex >= 0 && slotIndex < static_cast<int>(fullPluginState.samplerRack.slots.size()))
-        {
-            slotCopy = fullPluginState.samplerRack.slots[static_cast<size_t>(slotIndex)];
-            valid = true;
-        }
+        rackSnapshot = fullPluginState.samplerRack;
     }
-    if (valid)
-        triggerSingleRackSlotNoteOn(slotIndex, slotCopy, midiNoteNumber, velocity, false);
+
+    if (slotIndex < 0 || slotIndex >= static_cast<int>(rackSnapshot.slots.size()))
+        return;
+
+    const auto& clickedSlot = rackSnapshot.slots[static_cast<size_t>(slotIndex)];
+    if (!includeSameMidiChannelLayers)
+    {
+        triggerSingleRackSlotNoteOn(slotIndex, clickedSlot, midiNoteNumber, velocity, false);
+        return;
+    }
+
+    const int effCh = (clickedSlot.midiChannel >= 1 && clickedSlot.midiChannel <= 16)
+                          ? clickedSlot.midiChannel
+                          : 1;
+    bool anySolo = false;
+    for (const auto& slItem : rackSnapshot.slots)
+    {
+        if (slItem.soloed && slItem.enabled)
+            anySolo = true;
+    }
+
+    for (size_t i = 0; i < rackSnapshot.slots.size(); ++i)
+    {
+        const int idx = static_cast<int>(i);
+        const auto& slItem = rackSnapshot.slots[i];
+        if (slItem.sampleMap.zones.empty())
+            continue;
+
+        if (idx == slotIndex)
+        {
+            triggerSingleRackSlotNoteOn(idx, slItem, midiNoteNumber, velocity, false);
+            continue;
+        }
+
+        if (!slItem.enabled || slItem.muted || (anySolo && !slItem.soloed))
+            continue;
+
+        const bool chMatch = (slItem.midiChannel == 0 || slItem.midiChannel == effCh);
+        if (chMatch)
+            triggerSingleRackSlotNoteOn(idx, slItem, midiNoteNumber, velocity, false);
+    }
 }
 
-void OpenWavAudioProcessor::triggerRackSlotNoteOff(int slotIndex, int midiNoteNumber)
+void OpenWavAudioProcessor::triggerRackSlotNoteOff(int slotIndex, int midiNoteNumber, bool includeSameMidiChannelLayers)
 {
     if (midiNoteNumber < 0 || midiNoteNumber > 127)
         return;
 
-    SamplerRackSlotState slotCopy;
-    bool valid = false;
+    SamplerRackState rackSnapshot;
     {
         const juce::ScopedLock sl(stateLock);
-        if (slotIndex >= 0 && slotIndex < static_cast<int>(fullPluginState.samplerRack.slots.size()))
-        {
-            slotCopy = fullPluginState.samplerRack.slots[static_cast<size_t>(slotIndex)];
-            valid = true;
-        }
+        rackSnapshot = fullPluginState.samplerRack;
     }
-    if (valid)
-        triggerSingleRackSlotNoteOff(slotIndex, slotCopy, midiNoteNumber, 0.8f);
+
+    if (slotIndex < 0 || slotIndex >= static_cast<int>(rackSnapshot.slots.size()))
+        return;
+
+    const auto& clickedSlot = rackSnapshot.slots[static_cast<size_t>(slotIndex)];
+    if (!includeSameMidiChannelLayers)
+    {
+        triggerSingleRackSlotNoteOff(slotIndex, clickedSlot, midiNoteNumber, 0.8f);
+        return;
+    }
+
+    const int effCh = (clickedSlot.midiChannel >= 1 && clickedSlot.midiChannel <= 16)
+                          ? clickedSlot.midiChannel
+                          : 1;
+    bool anySolo = false;
+    for (const auto& slItem : rackSnapshot.slots)
+    {
+        if (slItem.soloed && slItem.enabled)
+            anySolo = true;
+    }
+
+    for (size_t i = 0; i < rackSnapshot.slots.size(); ++i)
+    {
+        const int idx = static_cast<int>(i);
+        const auto& slItem = rackSnapshot.slots[i];
+        if (slItem.sampleMap.zones.empty())
+            continue;
+
+        const bool chMatch = (idx == slotIndex) || (slItem.midiChannel == 0 || slItem.midiChannel == effCh);
+        if (!chMatch)
+            continue;
+
+        if (idx != slotIndex && (!slItem.enabled || slItem.muted || (anySolo && !slItem.soloed)))
+            audioEngine.stopZoneVoice(midiNoteNumber, idx);
+        else
+            triggerSingleRackSlotNoteOff(idx, slItem, midiNoteNumber, 0.8f);
+    }
+}
+
+bool OpenWavAudioProcessor::triggerLayeredRackNoteOn(int midiChannel, int midiNoteNumber, float velocity, int excludeSlotIndex)
+{
+    if (midiNoteNumber < 0 || midiNoteNumber > 127)
+        return false;
+
+    const int effCh = (midiChannel >= 1 && midiChannel <= 16) ? midiChannel : 1;
+
+    SamplerRackState rackSnapshot;
+    {
+        const juce::ScopedLock sl(stateLock);
+        rackSnapshot = fullPluginState.samplerRack;
+    }
+
+    if (rackSnapshot.slots.empty())
+        return false;
+
+    bool anySolo = false;
+    for (const auto& slItem : rackSnapshot.slots)
+    {
+        if (slItem.soloed && slItem.enabled)
+            anySolo = true;
+    }
+
+    bool anyTriggered = false;
+    for (size_t i = 0; i < rackSnapshot.slots.size(); ++i)
+    {
+        const int idx = static_cast<int>(i);
+        if (idx == excludeSlotIndex)
+            continue;
+
+        const auto& slItem = rackSnapshot.slots[i];
+        if (!slItem.enabled || slItem.muted || (anySolo && !slItem.soloed) || slItem.sampleMap.zones.empty())
+            continue;
+
+        const bool chMatch = (slItem.midiChannel == 0 || slItem.midiChannel == effCh);
+        if (chMatch && triggerSingleRackSlotNoteOn(idx, slItem, midiNoteNumber, velocity, false))
+            anyTriggered = true;
+    }
+
+    return anyTriggered;
+}
+
+void OpenWavAudioProcessor::triggerLayeredRackNoteOff(int midiChannel, int midiNoteNumber, int excludeSlotIndex)
+{
+    if (midiNoteNumber < 0 || midiNoteNumber > 127)
+        return;
+
+    const int effCh = (midiChannel >= 1 && midiChannel <= 16) ? midiChannel : 1;
+
+    SamplerRackState rackSnapshot;
+    {
+        const juce::ScopedLock sl(stateLock);
+        rackSnapshot = fullPluginState.samplerRack;
+    }
+
+    if (rackSnapshot.slots.empty())
+        return;
+
+    bool anySolo = false;
+    for (const auto& slItem : rackSnapshot.slots)
+    {
+        if (slItem.soloed && slItem.enabled)
+            anySolo = true;
+    }
+
+    for (size_t i = 0; i < rackSnapshot.slots.size(); ++i)
+    {
+        const int idx = static_cast<int>(i);
+        if (idx == excludeSlotIndex)
+            continue;
+
+        const auto& slItem = rackSnapshot.slots[i];
+        if (slItem.sampleMap.zones.empty())
+            continue;
+
+        const bool chMatch = (slItem.midiChannel == 0 || slItem.midiChannel == effCh);
+        if (!chMatch)
+            continue;
+
+        if (!slItem.enabled || slItem.muted || (anySolo && !slItem.soloed))
+            audioEngine.stopZoneVoice(midiNoteNumber, idx);
+        else
+            triggerSingleRackSlotNoteOff(idx, slItem, midiNoteNumber, 0.8f);
+    }
 }
 
 void OpenWavAudioProcessor::triggerNoteOnInternal(int midiChannel, int midiNoteNumber, float velocity, bool isInternalMidiFile)
@@ -491,18 +641,24 @@ void OpenWavAudioProcessor::triggerNoteOnInternal(int midiChannel, int midiNoteN
                     anyTriggered = true;
             }
 
-            // During internal .mid file preview, if no slot matched the track's MIDI channel, allow active/first slot or synth fallback
+            // During internal .mid file preview, if no slot matched the track's MIDI channel,
+            // fall back to the first active slot's channel and layer ALL slots sharing that channel.
             if (!channelMatchedSlot && isInternalMidiFile)
             {
+                int fallbackCh = -1;
                 for (size_t i = 0; i < rackSnapshot.slots.size(); ++i)
                 {
                     const auto& slItem = rackSnapshot.slots[i];
                     if (!slItem.enabled || slItem.muted || (anySolo && !slItem.soloed) || slItem.sampleMap.zones.empty())
                         continue;
-                    if (triggerSingleRackSlotNoteOn(static_cast<int>(i), slItem, midiNoteNumber, velocity, true))
+
+                    if (fallbackCh < 0)
+                        fallbackCh = slItem.midiChannel;
+
+                    if (slItem.midiChannel == 0 || slItem.midiChannel == fallbackCh)
                     {
-                        anyTriggered = true;
-                        break;
+                        if (triggerSingleRackSlotNoteOn(static_cast<int>(i), slItem, midiNoteNumber, velocity, true))
+                            anyTriggered = true;
                     }
                 }
             }

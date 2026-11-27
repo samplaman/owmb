@@ -671,9 +671,9 @@ void MultiOutMixerComponent::auditionInstrumentRow(int rowIndex)
         {
             const auto& z0 = sl.sampleMap.zones.front();
             const int note = juce::jlimit(0, 127, (z0.rootNote >= z0.keyLow && z0.rootNote <= z0.keyHigh) ? z0.rootNote : z0.keyLow);
-            audioProcessor.triggerRackSlotNoteOn(r.rackSlotIndex, note - sl.transposeSemitones, 0.85f);
+            audioProcessor.triggerRackSlotNoteOn(r.rackSlotIndex, note - sl.transposeSemitones, 0.85f, false);
             juce::Timer::callAfterDelay(260, [proc = &audioProcessor, idx = r.rackSlotIndex, n = note - sl.transposeSemitones] {
-                proc->triggerRackSlotNoteOff(idx, n);
+                proc->triggerRackSlotNoteOff(idx, n, false);
             });
         }
     }

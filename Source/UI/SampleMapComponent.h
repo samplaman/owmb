@@ -201,6 +201,8 @@ public:
     std::function<void(int slotIndex)> onSwitchRackSlotRequested;
     std::function<void()> onCreateNewRackSlotRequested;
     std::function<void()> onOpenSamplerRackRequested;
+    std::function<bool(int midiChannel, int midiNote, float velocity, int excludeSlotIndex)> onLayeredMidiNoteOn;
+    std::function<void(int midiChannel, int midiNote, int excludeSlotIndex)> onLayeredMidiNoteOff;
     bool isDragOver { false };
     std::function<void()> onOpenAiKitBuilderRequested;
 

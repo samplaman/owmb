@@ -259,13 +259,15 @@ juce::Colour SamplerRackUnitComponent::getSlotAccent() const
 void SamplerRackUnitComponent::syncFromSlot(const SamplerRackSlotState& slotState,
                                             int unitIndex,
                                             int totalUnits,
-                                            bool isEditingActiveSlot)
+                                            bool isEditingActiveSlot,
+                                            int layeredCount)
 {
     isSyncing = true;
     currentSlot = slotState;
     currentSlot.outputBus = juce::jlimit(0, AudioEngine::MaxOutputBuses - 1, currentSlot.outputBus);
     slotIdx = unitIndex;
     totalCount = totalUnits;
+    layeredPeerCount = std::max(1, layeredCount);
     activeInEditor = isEditingActiveSlot;
 
     unitKnobLnf.setAccentColour(getSlotAccent());
@@ -275,6 +277,15 @@ void SamplerRackUnitComponent::syncFromSlot(const SamplerRackSlotState& slotStat
     nameEditor.setText(currentSlot.name, juce::dontSendNotification);
 
     midiChannelCombo.setSelectedId(juce::jlimit(0, 16, currentSlot.midiChannel) + 1, juce::dontSendNotification);
+    if (layeredPeerCount > 1)
+    {
+        midiChannelCombo.setTooltip("Layered with " + juce::String(layeredPeerCount - 1)
+                                    + " other sampler(s) on the same MIDI channel — notes trigger all layered samplers together");
+    }
+    else
+    {
+        midiChannelCombo.setTooltip("Select which incoming MIDI Channel triggers this instrument (set multiple samplers to the same channel to layer them)");
+    }
 
     outputBusCombo.clear(juce::dontSendNotification);
     for (int b = 0; b < AudioEngine::MaxOutputBuses; ++b)
@@ -515,6 +526,18 @@ void SamplerRackUnitComponent::paint(juce::Graphics& g)
                 g.setColour(zCol.withAlpha(0.85f));
                 g.drawRoundedRectangle(zr, 2.0f, 0.9f);
             }
+        }
+
+        if (layeredPeerCount > 1 && !isMuted)
+        {
+            const juce::String layerTag = "LAYER x" + juce::String(layeredPeerCount);
+            auto tagRect = juce::Rectangle<float>(miniMapBounds.getRight() - 64.0f, miniMapBounds.getY() + 4.0f, 60.0f, 15.0f);
+            g.setColour(OpenWavLookAndFeel::bgDark.withAlpha(0.85f));
+            g.fillRoundedRectangle(tagRect, 4.0f);
+            g.setColour(accent.withAlpha(0.85f));
+            g.drawRoundedRectangle(tagRect, 4.0f, 0.9f);
+            g.setFont(OpenWavLookAndFeel::getMonoFont(8.5f));
+            g.drawText(layerTag, tagRect, juce::Justification::centred, false);
         }
     }
 
@@ -1006,10 +1029,39 @@ void SamplerRackComponent::openSlotInSampleMapEditor(int index)
         onEditSlotInSampleMapRequested(index, sl);
 }
 
+int SamplerRackComponent::countLayeredPeersForSlot(int index) const
+{
+    if (index < 0 || index >= static_cast<int>(rackState.slots.size()))
+        return 1;
+
+    const auto& target = rackState.slots[static_cast<size_t>(index)];
+    if (!target.enabled || target.muted)
+        return 1;
+
+    int count = 0;
+    for (size_t i = 0; i < rackState.slots.size(); ++i)
+    {
+        const auto& other = rackState.slots[i];
+        if (!other.enabled || other.muted)
+            continue;
+        if (static_cast<int>(i) == index
+            || target.midiChannel == 0
+            || other.midiChannel == 0
+            || other.midiChannel == target.midiChannel)
+            ++count;
+    }
+    return std::max(1, count);
+}
+
 void SamplerRackComponent::updateSlotState(int index, const SamplerRackSlotState& updated, bool rebuildLayout)
 {
     if (index < 0 || index >= static_cast<int>(rackState.slots.size()))
         return;
+
+    const bool midiOrMuteChanged =
+        (rackState.slots[static_cast<size_t>(index)].midiChannel != updated.midiChannel)
+        || (rackState.slots[static_cast<size_t>(index)].muted != updated.muted)
+        || (rackState.slots[static_cast<size_t>(index)].enabled != updated.enabled);
 
     rackState.slots[static_cast<size_t>(index)] = updated;
     auto& sl = rackState.slots[static_cast<size_t>(index)];
@@ -1023,9 +1075,21 @@ void SamplerRackComponent::updateSlotState(int index, const SamplerRackSlotState
     {
         if (index < unitComponents.size())
             unitComponents[index]->syncFromSlot(sl, index, static_cast<int>(rackState.slots.size()),
-                                                index == rackState.activeEditSlotIndex);
+                                                index == rackState.activeEditSlotIndex,
+                                                countLayeredPeersForSlot(index));
         rackBay.resized();
         rackBay.repaint();
+    }
+    else if (midiOrMuteChanged)
+    {
+        for (int i = 0; i < unitComponents.size() && i < static_cast<int>(rackState.slots.size()); ++i)
+        {
+            unitComponents[i]->syncFromSlot(rackState.slots[static_cast<size_t>(i)],
+                                            i,
+                                            static_cast<int>(rackState.slots.size()),
+                                            i == rackState.activeEditSlotIndex,
+                                            countLayeredPeersForSlot(i));
+        }
     }
 
     if (index == rackState.activeEditSlotIndex && onActiveSlotSyncedFromRack)
@@ -1104,7 +1168,8 @@ void SamplerRackComponent::refreshUnits()
         unitComponents[i]->syncFromSlot(rackState.slots[static_cast<size_t>(i)],
                                         i,
                                         total,
-                                        i == rackState.activeEditSlotIndex);
+                                        i == rackState.activeEditSlotIndex,
+                                        countLayeredPeersForSlot(i));
     }
 
     slotCountLabel.setText(juce::String(total) + (total == 1 ? " Instrument" : " Instruments"),

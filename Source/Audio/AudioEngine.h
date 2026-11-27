@@ -179,7 +179,7 @@ struct EngineCommand
 class AudioEngine : public juce::ChangeListener, public juce::Timer
 {
 public:
-    static constexpr int MaxActiveVoices = 32;
+    static constexpr int MaxActiveVoices = 64;
     static constexpr int CommandQueueCapacity = 1024;
     static constexpr int MaxOutputBuses = 8;
     static constexpr int MaxSamplerRackSlots = 16;

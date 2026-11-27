@@ -63,8 +63,10 @@ public:
 
     SamplerRackState getSamplerRackState() const;
     void setSamplerRackState(const SamplerRackState& r, bool preloadSamples = true);
-    void triggerRackSlotNoteOn(int slotIndex, int midiNoteNumber, float velocity = 0.85f);
-    void triggerRackSlotNoteOff(int slotIndex, int midiNoteNumber);
+    void triggerRackSlotNoteOn(int slotIndex, int midiNoteNumber, float velocity = 0.85f, bool includeSameMidiChannelLayers = true);
+    void triggerRackSlotNoteOff(int slotIndex, int midiNoteNumber, bool includeSameMidiChannelLayers = true);
+    bool triggerLayeredRackNoteOn(int midiChannel, int midiNoteNumber, float velocity = 0.85f, int excludeSlotIndex = -1);
+    void triggerLayeredRackNoteOff(int midiChannel, int midiNoteNumber, int excludeSlotIndex = -1);
 
     MultiOutMixerState getMixerState() const;
     void setMixerState(const MultiOutMixerState& m);
