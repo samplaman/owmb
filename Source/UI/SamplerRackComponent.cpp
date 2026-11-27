@@ -140,7 +140,7 @@ SamplerRackUnitComponent::SamplerRackUnitComponent(SamplerRackComponent& ownerRa
     addAndMakeVisible(soloBtn);
 
     noteOffBtn.setClickingTogglesState(true);
-    noteOffBtn.setTooltip("Trigger on Note-Off: also trigger this sampler when keys are released (default: OFF)");
+    noteOffBtn.setTooltip("Trigger on Note-Off Only: when enabled, this sampler plays only when keys are released (default: OFF)");
     noteOffBtn.setColour(juce::TextButton::buttonOnColourId, OpenWavLookAndFeel::accentCyan.withAlpha(0.75f));
     noteOffBtn.setColour(juce::TextButton::textColourOnId, juce::Colours::black);
     noteOffBtn.onClick = [this] {

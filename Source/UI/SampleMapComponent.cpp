@@ -893,7 +893,7 @@ SampleMapComponent::SampleMapComponent(AudioEngine& engine)
     noteOffTriggerButton.setToggleState(false, juce::dontSendNotification);
     noteOffTriggerButton.setColour(juce::TextButton::buttonOnColourId, OpenWavLookAndFeel::accentCyan.withAlpha(0.75f));
     noteOffTriggerButton.setColour(juce::TextButton::textColourOnId, juce::Colours::black);
-    noteOffTriggerButton.setTooltip("Trigger on Note-Off: also trigger this sampler's zones when keys are released (default: OFF)");
+    noteOffTriggerButton.setTooltip("Trigger on Note-Off Only: when enabled, this sampler plays only when keys are released (default: OFF)");
     noteOffTriggerButton.onClick = [this] {
         triggerOnNoteOffSetting = noteOffTriggerButton.getToggleState();
         if (onStateChanged) onStateChanged();
@@ -3396,6 +3396,17 @@ void SampleMapComponent::triggerKeybedNote(int note, float velocity, int velInt)
     if (matchingZoneIndices.empty())
     {
         auditionNote = -1;
+        return;
+    }
+
+    if (triggerOnNoteOffSetting)
+    {
+        // Note-Off Only mode: highlight key while held and trigger only on release (mouseUp / drag off).
+        auditionNote = note;
+        suppressNextKeyboardStateUi = true;
+        audioEngine.getKeyboardState().noteOn(effCh, note, velocity);
+        suppressNextKeyboardStateUi = false;
+        repaint();
         return;
     }
 

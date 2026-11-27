@@ -279,6 +279,11 @@ bool OpenWavAudioProcessor::triggerSingleRackSlotNoteOn(int slotIndex, const Sam
     if (map.zones.empty())
         return false;
 
+    // When "N-Off" (Trigger on Note-Off) is enabled for this sampler,
+    // play ONLY on Note-Off (key release), never on Note-On (key press).
+    if (slot.triggerOnNoteOff || map.triggerOnNoteOff)
+        return false;
+
     const int mappedNote = juce::jlimit(0, 127, midiNoteNumber + slot.transposeSemitones);
     const int velInt = juce::jlimit(1, 127, static_cast<int>(std::round(velocity * 127.0f)));
 
@@ -707,6 +712,7 @@ void OpenWavAudioProcessor::triggerNoteOnInternal(int midiChannel, int midiNoteN
         if (anyHasZones)
         {
             bool anyTriggered = false;
+            bool anyDeferredNoteOff = false;
             bool channelMatchedSlot = false;
 
             for (size_t i = 0; i < rackSnapshot.slots.size(); ++i)
@@ -720,6 +726,11 @@ void OpenWavAudioProcessor::triggerNoteOnInternal(int midiChannel, int midiNoteN
                     continue;
 
                 channelMatchedSlot = true;
+                if (slItem.triggerOnNoteOff || slItem.sampleMap.triggerOnNoteOff)
+                {
+                    anyDeferredNoteOff = true;
+                    continue;
+                }
                 if (triggerSingleRackSlotNoteOn(static_cast<int>(i), slItem, midiNoteNumber, velocity, isInternalMidiFile))
                     anyTriggered = true;
             }
@@ -740,13 +751,18 @@ void OpenWavAudioProcessor::triggerNoteOnInternal(int midiChannel, int midiNoteN
 
                     if (slItem.midiChannel == 0 || slItem.midiChannel == fallbackCh)
                     {
+                        if (slItem.triggerOnNoteOff || slItem.sampleMap.triggerOnNoteOff)
+                        {
+                            anyDeferredNoteOff = true;
+                            continue;
+                        }
                         if (triggerSingleRackSlotNoteOn(static_cast<int>(i), slItem, midiNoteNumber, velocity, true))
                             anyTriggered = true;
                     }
                 }
             }
 
-            if (!anyTriggered && isInternalMidiFile)
+            if (!anyTriggered && !anyDeferredNoteOff && isInternalMidiFile)
                 audioEngine.triggerMidiAuditionNoteOn(midiNoteNumber, velocity);
 
             audioEngine.getKeyboardState().noteOn(effCh, midiNoteNumber, velocity);
@@ -760,6 +776,13 @@ void OpenWavAudioProcessor::triggerNoteOnInternal(int midiChannel, int midiNoteN
 
     if (hasMappedZones)
     {
+        if (currentSampleMap.triggerOnNoteOff)
+        {
+            // Note-Off Only mode: do not trigger on Note-On; trigger on Note-Off instead.
+            audioEngine.getKeyboardState().noteOn(mapChannel, midiNoteNumber, velocity);
+            return;
+        }
+
         bool zoneTriggered = false;
 
         // 1. Check Sample Map Zones for matching Key and Velocity (Note-On zones only)
