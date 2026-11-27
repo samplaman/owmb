@@ -59,6 +59,8 @@ Shape your sampler instruments in real time with a reorderable effects rack feat
 ### 9. Cue Sheet (Used Samples Spreadsheet)
 Keep track of every sample and trimmed region used in your project for post-production documentation. Automatically logs samples sent to the Sample Map, auto-sliced, or saved from the Editor; lets you edit **Scene / Track** and **Notes** inline, audition cues, and export a **CSV** spreadsheet.
 
+![OWMB Cue Sheet & Used Samples View](docs/screenshots/10-cue-sheet.png)
+
 ---
 
 ## Key Features
@@ -160,7 +162,7 @@ owmb/
 │   └── release.yml             # Windows 11 & Linux matrix release builder
 ├── docs/                       # Project documentation & preview screenshots
 │   ├── MACOS_CODESIGNING_GUIDE.md
-│   └── screenshots/            # High-resolution screenshots of all 9 workspaces
+│   └── screenshots/            # High-resolution screenshots of all workspaces
 │       ├── 01-list-browser.png
 │       ├── 02-3d-cloud.png
 │       ├── 03-online-library.png
@@ -169,7 +171,8 @@ owmb/
 │       ├── 06-waveform-editor.png
 │       ├── 07-spectral-editor.png
 │       ├── 08-sample-map.png
-│       └── 09-effects-rack.png
+│       ├── 09-effects-rack.png
+│       └── 10-cue-sheet.png
 └── Source/
     ├── Audio/                  # Asynchronous disk read-ahead sample transport engine
     │   ├── AudioEngine.h / .cpp
