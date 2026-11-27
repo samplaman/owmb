@@ -357,7 +357,7 @@ void SamplerRackUnitComponent::mouseDown(const juce::MouseEvent& e)
             return;
         }
         previewNoteHeld = noteAtMiniMapX(e.position.x);
-        audioProcessor.triggerRackSlotNoteOn(slotIdx, previewNoteHeld, 0.85f);
+        audioProcessor.triggerRackSlotNoteOn(slotIdx, previewNoteHeld, 0.85f, false);
         repaint();
     }
 }
@@ -369,9 +369,9 @@ void SamplerRackUnitComponent::mouseDrag(const juce::MouseEvent& e)
         const int newNote = noteAtMiniMapX(e.position.x);
         if (newNote != previewNoteHeld)
         {
-            audioProcessor.triggerRackSlotNoteOff(slotIdx, previewNoteHeld);
+            audioProcessor.triggerRackSlotNoteOff(slotIdx, previewNoteHeld, false);
             previewNoteHeld = newNote;
-            audioProcessor.triggerRackSlotNoteOn(slotIdx, previewNoteHeld, 0.85f);
+            audioProcessor.triggerRackSlotNoteOn(slotIdx, previewNoteHeld, 0.85f, false);
             repaint();
         }
     }
@@ -381,7 +381,7 @@ void SamplerRackUnitComponent::mouseUp(const juce::MouseEvent&)
 {
     if (previewNoteHeld >= 0)
     {
-        audioProcessor.triggerRackSlotNoteOff(slotIdx, previewNoteHeld);
+        audioProcessor.triggerRackSlotNoteOff(slotIdx, previewNoteHeld, false);
         previewNoteHeld = -1;
         repaint();
     }
