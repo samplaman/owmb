@@ -253,12 +253,6 @@ OpenWavAudioProcessorEditor::OpenWavAudioProcessorEditor(
   sampleMapComponent.onOpenSamplerRackRequested = [this] {
     headerBar.setViewMode(ViewMode::SamplerRack);
   };
-  sampleMapComponent.onLayeredMidiNoteOn = [this](int midiChannel, int midiNote, float velocity, int excludeSlotIndex) {
-    return audioProcessor.triggerLayeredRackNoteOn(midiChannel, midiNote, velocity, excludeSlotIndex);
-  };
-  sampleMapComponent.onLayeredMidiNoteOff = [this](int midiChannel, int midiNote, int excludeSlotIndex) {
-    audioProcessor.triggerLayeredRackNoteOff(midiChannel, midiNote, excludeSlotIndex);
-  };
   sampleMapComponent.onAutoSampleCompletedForSlot = [this](const juce::String& targetSlotId, const SampleMapState& capturedState) {
     if (samplerRackComponent.updateSlotSampleMapById(targetSlotId, capturedState)) {
       if (sampleMapComponent.getActiveRackSlotId() == targetSlotId) {
